@@ -1,15 +1,23 @@
 # lodestone-mcp
 
-A **keyless, self-hosted [MCP](https://modelcontextprotocol.io) server** that gives
-a local LLM a broad toolkit for working with the open web and the developer
-ecosystem — **searching** it, **retrieving** from it, and **inspecting** it —
-without signing up for, paying for, or managing any API keys.
+A **keyless-by-default, self-hosted [MCP](https://modelcontextprotocol.io) server**
+that gives a local LLM a broad toolkit for working with the open web and the
+developer ecosystem — **searching** it, **retrieving** from it, and **inspecting**
+it — without requiring you to sign up for, pay for, or manage any API keys.
 
 It scrapes search engines and reads public, keyless endpoints instead of calling
 paid, key-gated APIs. Built for local runners like **LM Studio**, Ollama
 front-ends, or any Streamable-HTTP MCP client. Written in Rust on the official
 [`rmcp`](https://github.com/modelcontextprotocol/rust-sdk) SDK; compiles to a
 single binary.
+
+> **"Keyless by default" — what that means.** Everything works with **zero**
+> accounts or keys. A few providers can *optionally* use a credential to unlock or
+> improve a source — the keyed web engines `brave` and `google_cse`, a GitHub token
+> (authenticated code search / higher rate limits), and a StackExchange key (higher
+> quota). Each is **strictly optional and off unless you supply the key**; none is
+> ever required, and credentials are never logged or committed. So lodestone is
+> keyless *by default*, not key-*less* in the sense of forbidding keys.
 
 > Started as "search the web and retrieve code & docs" and grew into a general
 > keyless research/retrieval toolbox: web/code/docs/Q&A search, page/PDF/file/
@@ -29,7 +37,8 @@ single binary.
 
 ## What it isn't
 
-- **Not a hosted/keyed search API** (Brave/Tavily/Exa) — the whole point is no key.
+- **Not a hosted/keyed search API** (Brave/Tavily/Exa) — it's keyless by default;
+  keyed providers are optional add-ons, never the baseline (see the note above).
 - **Not a large-scale crawler** (Firecrawl) — rendering is single-page, on demand.
 - **Not a GitHub/issues client** — it's multi-forge and focused on *search + read*.
 - **Not a guaranteed-stable data source** — scraping is best-effort and degrades
@@ -131,6 +140,27 @@ Keyless, code-aware, MCP-native, self-hosted — versus SearXNG, the keyed searc
 MCPs, `fetch`, Firecrawl, and the GitHub MCP. Side-by-side table and "when to
 prefer something else": [docs/comparison.md](docs/comparison.md).
 
+## Disclaimer
+
+**No warranty.** Lodestone is provided "AS IS", without warranty of any kind,
+express or implied, including but not limited to the warranties of merchantability,
+fitness for a particular purpose, and noninfringement. In no event shall the authors
+or copyright holders be liable for any claim, damages, or other liability arising
+from, out of, or in connection with the software or its use (this restates the MIT
+[LICENSE](LICENSE), which governs).
+
+**Use at your own risk.** Lodestone scrapes third-party websites and calls public
+endpoints; you are responsible for using it in compliance with those services'
+terms and applicable law, and for any rate-limiting/blocking that results. The
+optional local-system tools are powerful: the **Docker** (`[docker]`) and
+**Kubernetes** (`[kubernetes]`) families act on your real daemon and cluster, and
+when destructive actions are enabled they can **stop/remove containers or delete
+cluster resources**. They are gated (destructive actions off by default) and meant
+to run behind an MCP host that approves calls — review what you enable, scope
+credentials/contexts narrowly, and prefer read-only or non-production targets when
+in doubt. You are responsible for all actions the model takes through these tools.
+
 ## Roadmap & license
 
-Planned work and known gaps: [TODO.md](TODO.md). Licensed **MIT**.
+Planned work and known gaps: [TODO.md](TODO.md). Licensed **MIT** (see
+[LICENSE](LICENSE)).
