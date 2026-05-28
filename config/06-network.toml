@@ -28,6 +28,8 @@ peers = []
 
 # Auto-discover peers on the LAN via mDNS (_lodestone._tcp.local.). Only runs when
 # enabled=true; set false to disable. Env: LODESTONE_NETWORK_MDNS
+# (Peers also GOSSIP their known peers in each digest, so the mesh grows from a
+#  seed; unreachable peers are pruned. Inspect the graph with the hive_status tool.)
 mdns = true
 
 # Optional shared secret for the /hive endpoints (separate from the public
@@ -50,6 +52,17 @@ max_results_per_peer = 10
 # >= 2 means no single (possibly malicious) peer can inject a result.
 min_agreement = 2
 
+# How many hops a consult may be relayed through intermediary peers when this node
+# can't reach a holder directly (the mesh routes the query for you). 0 = no relay;
+# clamped to 2 max. Each relayed peer is still only ONE consensus vote, so relay
+# can't fabricate corroboration.
+relay_hops = 1
+
 # Stable node id. Empty = a random id generated per process.
 # Env: LODESTONE_NETWORK_NODE_ID
 node_id = ""
+
+# Optional path to persist peer reputations across restarts (JSON map of
+# url -> reputation). Empty = no persistence. Env: LODESTONE_NETWORK_STATE_FILE
+#   state_file = "lodestone-hive-state.json"
+state_file = ""

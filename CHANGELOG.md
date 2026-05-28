@@ -36,9 +36,12 @@ required), served over Streamable HTTP at `/mcp`.
 - **In-memory result cache** (`[cache]`, on by default, 300s TTL) keyed by the
   normalized query; caches only non-empty results.
 - **Hivemind** (`[network]`, opt-in/off by default): peer-to-peer consult of
-  other instances' caches before scraping, with static + mDNS discovery, Bloom-
-  filter digests, hash-only wire protocol, and consensus/reputation anti-poisoning
-  (`/hive/digest`, `/hive/query`). See `docs/hivemind.md`.
+  other instances' caches before scraping, with static + mDNS discovery plus
+  **gossip** (mesh grows from a seed), **bounded relay** across the graph
+  (`relay_hops`), Bloom-filter digests, a hash-only wire protocol, and
+  consensus/reputation anti-poisoning with optional reputation **persistence**
+  (`/hive/digest`, `/hive/query`). The `hive_status` tool shows the mesh graph.
+  See `docs/hivemind.md`.
 - **Configurable HTTP timeout** with a single short-backoff retry on the
   engine/forge paths.
 - **Optional bearer-token auth** on `/mcp` (`auth_token` / `LODESTONE_AUTH_TOKEN`,

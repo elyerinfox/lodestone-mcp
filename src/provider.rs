@@ -209,6 +209,15 @@ impl Registry {
         }
     }
 
+    /// Human-readable hivemind graph, or a disabled notice. Surfaced by the
+    /// `hive_status` tool.
+    pub fn hive_report(&self) -> String {
+        match &self.hive {
+            Some(h) => h.graph_report(),
+            None => "Hivemind is disabled ([network].enabled = false).".to_string(),
+        }
+    }
+
     fn chain(&self, kind: ProviderKind) -> &[Arc<dyn SearchProvider>] {
         match kind {
             ProviderKind::Web => &self.web,

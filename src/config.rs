@@ -51,8 +51,8 @@ pub struct ForgeInstance {
 pub struct Tools {
     /// Allowlist of tools (skills) to expose. Empty = expose all. Names:
     /// web_search, code_search, qa_search, fetch_page, render_page,
-    /// fetch_repo_file, wayback_fetch, list_providers. Plus per-provider
-    /// <kind>_<id> tools (e.g. qa_stackoverflow, qa_stackoverflow_answers).
+    /// fetch_repo_file, wayback_fetch, list_providers, hive_status. Plus
+    /// per-provider <kind>_<id> tools (e.g. qa_stackoverflow, qa_stackoverflow_answers).
     pub enabled: Vec<String>,
     /// Denylist applied after `enabled`; these tools are never exposed.
     pub disabled: Vec<String>,
@@ -134,8 +134,14 @@ pub struct Network {
     /// Peers that must corroborate a result before it's trusted without a local
     /// search (anti-poisoning; >= 2 means no single peer can carry a result).
     pub min_agreement: usize,
+    /// How many hops a consult may be relayed through intermediary peers when a
+    /// node can't reach a holder directly (0 = no relay; clamped to 2 max).
+    pub relay_hops: u32,
     /// Stable node id. Empty = a random id generated per process.
     pub node_id: String,
+    /// Optional path to persist peer reputations across restarts (JSON). Empty
+    /// disables persistence.
+    pub state_file: String,
 }
 
 impl Default for Network {
@@ -151,7 +157,9 @@ impl Default for Network {
             max_peers: 16,
             max_results_per_peer: 10,
             min_agreement: 2,
+            relay_hops: 1,
             node_id: String::new(),
+            state_file: String::new(),
         }
     }
 }
@@ -391,6 +399,9 @@ impl Config {
         }
         if let Ok(id) = std::env::var("LODESTONE_NETWORK_NODE_ID") {
             self.network.node_id = id;
+        }
+        if let Ok(path) = std::env::var("LODESTONE_NETWORK_STATE_FILE") {
+            self.network.state_file = path;
         }
         // Accept the conventional GITHUB_TOKEN as well as our namespaced var.
         if let Ok(token) =

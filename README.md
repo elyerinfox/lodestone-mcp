@@ -83,6 +83,7 @@ arguments.
 | Tool | Arguments | Purpose |
 | --- | --- | --- |
 | `list_providers` | — | Show the active providers, strategy, and ranking. |
+| `hive_status` | — | Show the peer-to-peer hivemind graph (peers, reputation, edges); says disabled when off. |
 
 **Per-provider** — one direct tool per *configured* provider, named `<kind>_<id>`
 (e.g. `web_mojeek`, `code_github`, `qa_stackoverflow`), args `query`,
@@ -203,10 +204,12 @@ max_entries = 512        # memory bound
 
 [network]                # opt-in peer-to-peer hivemind (see docs/hivemind.md)
 enabled = false
-peers = []               # static peer base URLs
+peers = []               # static peer base URLs (also gossiped + mDNS-discovered)
 mdns = true              # LAN auto-discovery (when enabled)
 token = ""               # optional shared secret for /hive endpoints
 min_agreement = 2        # peers needed to trust a result without local search
+relay_hops = 1           # forward a query a hop or two across the mesh (max 2)
+state_file = ""          # persist peer reputations across restarts (path)
 
 # Register self-hosted forges as keyless code providers (then add the id to
 # [providers].code). See config/04-forges.toml.
@@ -226,7 +229,7 @@ Env overrides include `LODESTONE_BIND`, `LODESTONE_AUTH_TOKEN`,
 `LODESTONE_CACHE_ENABLED` / `LODESTONE_CACHE_TTL_SECS` /
 `LODESTONE_CACHE_MAX_ENTRIES`, and `LODESTONE_NETWORK_ENABLED` /
 `LODESTONE_NETWORK_PEERS` / `LODESTONE_NETWORK_MDNS` / `LODESTONE_NETWORK_TOKEN` /
-`LODESTONE_NETWORK_NODE_ID`.
+`LODESTONE_NETWORK_NODE_ID` / `LODESTONE_NETWORK_STATE_FILE`.
 
 ### Authentication
 
@@ -324,12 +327,16 @@ cached.
 An **opt-in** layer (`[network]`, off by default) where instances consult each
 other's caches before scraping — spreading load and softening rate limits, while
 staying a *helper*, never a dependency (zero peers = normal local search). Peers
-are found via a static list and/or **mDNS** LAN discovery. Only *hashes* of
-queries cross the wire (never raw text); responses carry only cached search
-results (never secrets). Peer data is untrusted: a result is reused without a
-local search only when `min_agreement` peers corroborate it, each peer's influence
-is capped, and peers are weighted by an earned reputation — so one bad node can't
-poison results. Full design + a two-node test: [docs/hivemind.md](docs/hivemind.md).
+are found via a static list and/or **mDNS** LAN discovery, then **gossip** their
+known peers so the mesh grows from a seed, and can **relay** a query a hop or two
+across the graph when a holder isn't directly reachable. Only *hashes* of queries
+cross the wire (never raw text); responses carry only cached search results (never
+secrets). Peer data is untrusted: a result is reused without a local search only
+when `min_agreement` peers corroborate it, each peer's influence is capped, and
+peers are weighted by an earned reputation (optionally persisted via
+`state_file`) — so one bad node can't poison results. Inspect the mesh with the
+`hive_status` tool. Full design + a two-node test:
+[docs/hivemind.md](docs/hivemind.md).
 
 ### Forges (GitLab, Gitea, …)
 

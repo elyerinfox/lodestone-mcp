@@ -499,6 +499,15 @@ impl Lodestone {
     async fn list_providers(&self) -> Result<CallToolResult, McpError> {
         Ok(text_result(self.registry.describe()))
     }
+
+    #[tool(
+        description = "Show the peer-to-peer hivemind graph: this node's id and its known peers \
+        with reputation, reachability, and the mesh edges they advertise. Reports that the \
+        hivemind is disabled when [network].enabled is false."
+    )]
+    async fn hive_status(&self) -> Result<CallToolResult, McpError> {
+        Ok(text_result(self.registry.hive_report()))
+    }
 }
 
 #[tool_handler(router = self.tool_router)]
@@ -521,6 +530,7 @@ impl ServerHandler for Lodestone {
                 - wayback_fetch: read a page's archived snapshot from the Wayback Machine.\n\
                 - qa_search: search the configured Q&A providers (StackExchange network).\n\
                 - list_providers: show which sources are active.\n\
+                - hive_status: show the peer-to-peer hivemind graph (if enabled).\n\
                 Each configured provider also has a direct tool named <kind>_<id> \
                 (e.g. web_mojeek, code_github, qa_stackoverflow) to target one source. \
                 StackOverflow adds qa_stackoverflow_answers to read a question's top answers (with code).\n\n\
@@ -781,7 +791,8 @@ fn hive_routes(hive: Arc<hive::Hive>) -> axum::Router {
         if !hive.token_ok(bearer_token(&headers)) {
             return (StatusCode::UNAUTHORIZED, "unauthorized\n").into_response();
         }
-        let hits = hive.local_lookup(&req.key);
+        // Serve from our cache, or relay one+ hops toward a holder (bounded).
+        let hits = hive.answer_query(&req.key, req.ttl, &req.seen).await;
         if hits.is_empty() {
             return StatusCode::NO_CONTENT.into_response();
         }

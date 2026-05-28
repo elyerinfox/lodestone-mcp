@@ -141,8 +141,12 @@ likely involved). Checked items are done; unchecked are open.
   cross the wire; responses carry only cached results (never secrets); `/hive`
   endpoints honor an optional `[network].token`. No relaying (no amplification).
   See `docs/hivemind.md` and `config/06-network.toml`.
-  - **Deferred:** gossip peer-exchange, reputation persistence across restarts,
-    and a Redis-backed *shared* cache (multiple nodes behind one store).
+  - **Also done:** gossip peer-exchange (digests carry known peers; mesh grows
+    from a seed; dead peers pruned), **bounded relay** (`relay_hops`, ttl + seen
+    loop-guard, each top-level peer still one consensus vote), reputation
+    **persistence** (`state_file`), and a **`hive_status`** tool exposing the mesh
+    graph (peers, reputation, reachability, edges).
+  - **Deferred:** a Redis-backed *shared* cache (multiple nodes behind one store).
 
 ## Docs & release
 

@@ -26,17 +26,38 @@ works exactly as a standalone server. It is **off by default** (`[network].enabl
 
 ## How it works
 
-1. **Discovery.** Static `[network].peers` plus, when `[network].mdns` is on,
-   LAN auto-discovery via mDNS (`_lodestone._tcp.local.`, advertising the node id
-   in a TXT record so a node skips itself).
+1. **Discovery & gossip.** Static `[network].peers` plus, when `[network].mdns`
+   is on, LAN auto-discovery via mDNS (`_lodestone._tcp.local.`, advertising the
+   node id in a TXT record so a node skips itself). On top of that, each digest
+   **gossips** the peers a node knows, so the mesh grows from a seed; peers that
+   fail repeatedly are pruned.
 2. **Digests.** Every `sync_secs`, each node fetches peers' `GET /hive/digest` —
-   a Bloom filter of the query-key hashes they currently have cached.
+   a Bloom filter of the query-key hashes they currently have cached, plus their
+   known peers (for gossip) — which also builds the **graph** of who-knows-whom.
 3. **Consult-then-fetch.** On a search, after a local cache miss, the node asks
    the peers whose Bloom filter *might* contain the key (`POST /hive/query` with
    the hash). If consensus is reached (`>= min_agreement` corroborating peers), it
    returns that merged result labelled `hive` and **skips re-scraping**. Otherwise
    it runs a normal local search, caches it, and updates peer reputations by how
    well their hits matched the local truth.
+4. **Relay (a hop or two).** When a node can't reach a holder directly, it asks
+   reachable intermediaries to forward the query along the graph for up to
+   `relay_hops` hops (clamped to 2). Each `/hive/query` carries a `ttl` and a
+   `seen` node-id set: a peer serves from its own cache, else (while `ttl > 0` and
+   not already visited) forwards to its bloom-matching peers one hop closer.
+   Loops are broken by `seen`; fan-out is bounded by `max_peers` and the timeout.
+   Crucially, each *top-level* peer is still exactly **one** consensus vote no
+   matter how many sub-peers it relayed through — so relaying can't manufacture
+   corroboration.
+5. **Reputation persistence.** With `[network].state_file` set, peer reputations
+   are written there after each sync and reloaded on startup, so earned trust
+   survives restarts.
+
+## Inspecting the mesh
+
+The **`hive_status`** tool (skill) returns this node's id and every known peer's
+reputation, reachability, miss count, and the graph edges it advertised. It
+reports that the hivemind is disabled when `[network].enabled` is false.
 
 The result cache (`[cache]`) is the shared substrate: a node serves peers from the
 same cache it fills with its own searches. Enabling the network therefore implies
@@ -50,8 +71,11 @@ Mounted only when `[network].enabled`. Both require `Authorization: Bearer
 
 | Method | Path | Body | Response |
 | --- | --- | --- | --- |
-| `GET` | `/hive/digest` | — | `{ node_id, generation, count, bloom: { m, k, bits } }` |
-| `POST` | `/hive/query` | `{ "key": "<hash>" }` | `{ "hits": [...] }` or `204` |
+| `GET` | `/hive/digest` | — | `{ node_id, generation, count, bloom: { m, k, bits }, peers: [...] }` |
+| `POST` | `/hive/query` | `{ "key": "<hash>", "ttl"?: n, "seen"?: [ids] }` | `{ "hits": [...] }` or `204` |
+
+`ttl`/`seen` are optional (default 0 / empty) — a plain `{ "key": … }` works and
+just disables relay for that request.
 
 ## Configuration
 
@@ -83,7 +107,9 @@ logs show the activity.
 On a real LAN, leave `mdns = true` and omit `peers`; nodes find each other
 automatically.
 
-## Deferred (not in v1)
+## Deferred
 
-Gossip peer-exchange, reputation persistence across restarts, and a Redis-backed
-*shared* cache (multiple nodes behind one store). See [TODO.md](../TODO.md).
+A Redis-backed *shared* cache (multiple nodes behind one store) — so peers read
+from a common cache instead of (or in addition to) consulting each other. See
+[TODO.md](../TODO.md). (Gossip, bounded relay, and reputation persistence are now
+implemented.)
