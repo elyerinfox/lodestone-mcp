@@ -10,7 +10,6 @@
 //!
 //! Each run has a timeout (`kill_on_drop`) and a working directory.
 
-use std::path::Path;
 use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
@@ -30,20 +29,18 @@ use crate::{internal, invalid, text_result};
 pub const TOOL_NAMES: &[&str] = &["shell_run"];
 pub const DESTRUCTIVE_NAMES: &[&str] = &[];
 
-/// Program name to match against the allowlist: the first token's basename, with
-/// a Windows-style executable suffix stripped, lowercased by the caller.
+/// Program name to match against the allowlist: the first token's basename (split
+/// on `/` and `\` on every platform), with a Windows-style executable suffix
+/// stripped.
 fn program_base(p: &str) -> String {
-    let name = Path::new(p)
-        .file_name()
-        .map(|s| s.to_string_lossy().into_owned())
-        .unwrap_or_else(|| p.to_string());
-    let lower = name.to_ascii_lowercase();
+    let base = p.rsplit(['/', '\\']).next().unwrap_or(p);
+    let lower = base.to_ascii_lowercase();
     for ext in [".exe", ".bat", ".cmd", ".com", ".ps1"] {
         if let Some(stripped) = lower.strip_suffix(ext) {
-            return name[..stripped.len()].to_string();
+            return base[..stripped.len()].to_string();
         }
     }
-    name
+    base.to_string()
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
