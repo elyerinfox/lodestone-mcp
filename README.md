@@ -72,6 +72,15 @@ Typical flow: **search** (`web_search` / `code_search` / `stackexchange_search`)
 → **retrieve** (`fetch_repo_file` / `fetch_page` / `render_page` /
 `stackexchange_answers`) on the best hit.
 
+Tools come in two tiers:
+
+- **General** (above) — the aggregated, everyday tools; each search tool queries
+  all configured providers of its kind (per `[search].strategy`).
+- **Per-provider** — one direct tool per *configured* provider, named
+  `<kind>_<id>` (e.g. `web_mojeek`, `code_github`, `qa_stackoverflow`), to target
+  a single source and bypass the chain/strategy. They're generated from your
+  config and are gateable like any tool via `[tools]`.
+
 ---
 
 ## Quick start

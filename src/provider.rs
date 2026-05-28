@@ -180,6 +180,36 @@ impl Registry {
         }
     }
 
+    /// Every configured provider as `(kind, id)` — used to expose one direct
+    /// tool per provider.
+    pub fn list(&self) -> Vec<(ProviderKind, &'static str)> {
+        [ProviderKind::Web, ProviderKind::Code, ProviderKind::Qa]
+            .into_iter()
+            .flat_map(|kind| self.chain(kind).iter().map(move |p| (kind, p.id())))
+            .collect()
+    }
+
+    /// Run a single named provider directly (no chain/strategy). Returns its
+    /// results, or an empty vec if the provider isn't configured or errors.
+    pub async fn run_one(
+        &self,
+        kind: ProviderKind,
+        id: &str,
+        http: &Client,
+        query: &SearchQuery,
+    ) -> Vec<SearchResult> {
+        let Some(provider) = self.chain(kind).iter().find(|p| p.id() == id) else {
+            return Vec::new();
+        };
+        match provider.search(http, query).await {
+            Ok(results) => results,
+            Err(e) => {
+                tracing::warn!(provider = id, error = %e, "provider failed");
+                Vec::new()
+            }
+        }
+    }
+
     /// Run the configured strategy for `kind`, returning the results and a
     /// human-readable description of which engine(s) produced them.
     pub async fn search(

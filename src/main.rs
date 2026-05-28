@@ -18,8 +18,13 @@ mod util;
 use std::sync::Arc;
 use std::time::Duration;
 
+use futures::future::BoxFuture;
 use rmcp::{
-    handler::server::{router::tool::ToolRouter, wrapper::Parameters},
+    handler::server::{
+        router::tool::{ToolRoute, ToolRouter},
+        tool::{parse_json_object, schema_for_type, ToolCallContext},
+        wrapper::Parameters,
+    },
     model::*,
     schemars, tool, tool_handler, tool_router,
     transport::streamable_http_server::{
@@ -134,6 +139,26 @@ struct StackSearchArgs {
     render: Option<bool>,
 }
 
+/// Arguments for the granular, one-tool-per-provider skills.
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct ProviderSearchArgs {
+    /// The search query.
+    query: String,
+    /// Maximum number of results to return. Default 10, capped at 25.
+    #[serde(default)]
+    max_results: Option<u32>,
+    /// Optional language hint (code providers).
+    #[serde(default)]
+    language: Option<String>,
+    /// Optional StackExchange site slug (qa providers).
+    #[serde(default)]
+    site: Option<String>,
+    /// Fetch via a real headless browser instead of plain HTTP. Slower; needs a
+    /// local Chrome/Chromium at runtime.
+    #[serde(default)]
+    render: Option<bool>,
+}
+
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct StackAnswersArgs {
     /// A StackExchange question URL or numeric question id.
@@ -177,13 +202,14 @@ impl Lodestone {
             .timeout(Duration::from_secs(25))
             .build()
             .expect("failed to build HTTP client");
+        let tool_router = build_tool_router(&registry, tools_enabled, tools_disabled);
         Self {
             http,
             registry,
             default_se_site: default_se_site.into(),
             se_key: se_key.into(),
             se_allowed: se_allowed.into(),
-            tool_router: build_tool_router(tools_enabled, tools_disabled),
+            tool_router,
         }
     }
 
@@ -490,7 +516,9 @@ impl ServerHandler for Lodestone {
                 - wayback_fetch: read a page's archived snapshot from the Wayback Machine.\n\
                 - stackexchange_search: find StackOverflow/StackExchange questions.\n\
                 - stackexchange_answers: read a question's top answers (with code).\n\
-                - list_providers: show which sources are active.\n\n\
+                - list_providers: show which sources are active.\n\
+                Each configured provider also has a direct tool named <kind>_<id> \
+                (e.g. web_mojeek, code_github, qa_stackoverflow) to target one source.\n\n\
                 Typical flow: search (web_search/code_search/stackexchange_search) → then retrieve \
                 (fetch_repo_file / fetch_page / render_page / stackexchange_answers) on the best hit."
                     .to_string(),
@@ -558,8 +586,17 @@ fn format_qa(query: &str, site: &str, hits: &[SearchResult]) -> String {
 
 /// Build the tool router exposing only the configured subset of tools (skills).
 /// `enabled` empty = expose all; `disabled` is applied afterward.
-fn build_tool_router(enabled: &[String], disabled: &[String]) -> ToolRouter<Lodestone> {
+fn build_tool_router(
+    registry: &Registry,
+    enabled: &[String],
+    disabled: &[String],
+) -> ToolRouter<Lodestone> {
+    // General/aggregated tools (macro-generated) + one granular tool per
+    // configured provider.
     let mut router = Lodestone::tool_router();
+    for route in provider_tool_routes(registry) {
+        router.add_route(route);
+    }
     let names: Vec<String> = router
         .list_all()
         .iter()
@@ -588,6 +625,59 @@ fn build_tool_router(enabled: &[String], disabled: &[String]) -> ToolRouter<Lode
         .join(", ");
     tracing::info!("active tools: {active}");
     router
+}
+
+/// One direct tool per configured provider, named `<kind>_<id>` (e.g.
+/// `web_mojeek`, `code_github`, `qa_stackoverflow`). These bypass the chain and
+/// strategy, letting the model target a single source.
+fn provider_tool_routes(registry: &Registry) -> Vec<ToolRoute<Lodestone>> {
+    let schema = schema_for_type::<ProviderSearchArgs>();
+    registry
+        .list()
+        .into_iter()
+        .map(|(kind, id)| {
+            let name = format!("{}_{}", kind.as_str(), id);
+            let description = format!(
+                "Search the `{id}` {} provider directly (bypasses the configured chain and \
+                 strategy). Use the general {}_search tool to query all configured {} providers.",
+                kind.as_str(),
+                kind.as_str(),
+                kind.as_str(),
+            );
+            let tool = Tool::new(name, description, schema.clone());
+            ToolRoute::new_dyn(tool, move |ctx| provider_call(ctx, kind, id))
+        })
+        .collect()
+}
+
+/// Handler shared by every per-provider tool: parse args, run that one provider,
+/// format like its kind.
+fn provider_call<'a>(
+    ctx: ToolCallContext<'a, Lodestone>,
+    kind: ProviderKind,
+    id: &'static str,
+) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+    Box::pin(async move {
+        let svc = ctx.service;
+        let args: ProviderSearchArgs = parse_json_object(ctx.arguments.unwrap_or_default())?;
+        let q = SearchQuery {
+            text: args.query,
+            language: args.language,
+            site: args.site,
+            limit: clamp(args.max_results, 10, 25),
+            render: args.render.unwrap_or(false),
+        };
+        let hits = svc.registry.run_one(kind, id, &svc.http, &q).await;
+        let text = match kind {
+            ProviderKind::Web => format_web(&q.text, id, &hits),
+            ProviderKind::Code => format_code(&q.text, id, &hits),
+            ProviderKind::Qa => {
+                let site = q.site.as_deref().unwrap_or("stackoverflow");
+                format_qa(&q.text, site, &hits)
+            }
+        };
+        Ok(text_result(text))
+    })
 }
 
 fn clamp(value: Option<u32>, default: u32, max: u32) -> usize {
