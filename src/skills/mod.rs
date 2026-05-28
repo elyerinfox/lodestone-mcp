@@ -11,6 +11,7 @@
 //! See [golden rule 7](../../docs/golden-rules.md) and the terminology note in
 //! [CONTRIBUTING.md](../../CONTRIBUTING.md).
 
+pub mod archive;
 pub mod artifacthub;
 pub mod datetime;
 pub mod docker;
@@ -92,6 +93,7 @@ fn all_skills() -> Vec<Box<dyn Skill>> {
     let mut skills: Vec<Box<dyn Skill>> = Vec::new();
     skills.extend(search::skills());
     skills.extend(retrieve::skills());
+    skills.extend(archive::skills());
     skills.extend(github::skills());
     skills.extend(oci::skills());
     skills.extend(artifacthub::skills());
