@@ -15,12 +15,32 @@ mod codeberg;
 mod gitea;
 mod gitlab;
 
+use std::sync::LazyLock;
+
 use anyhow::Result;
 use async_trait::async_trait;
+use regex::Regex;
 use reqwest::Client;
 
 use super::engine;
 use crate::provider::{ProviderKind, SearchProvider, SearchQuery, SearchResult};
+
+static GH_BLOB_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^https?://github\.com/([^/]+)/([^/]+)/(?:blob|raw)/([^/]+)/(.+)$").unwrap()
+});
+
+/// Extract `(owner/repo, branch, path)` from a github.com blob/raw URL. GitHub's
+/// URL layout, recognized here so code providers can enrich search hits and the
+/// retrieval skill can resolve a raw download.
+pub(crate) fn github_repo_path(url: &str) -> Option<(String, String, String)> {
+    GH_BLOB_RE.captures(url).map(|c| {
+        (
+            format!("{}/{}", &c[1], &c[2]),
+            c[3].to_string(),
+            c[4].to_string(),
+        )
+    })
+}
 
 /// Declarative description of a code forge.
 pub(super) struct ForgeSpec {
@@ -37,7 +57,7 @@ static SPECS: &[&ForgeSpec] = &[&gitlab::SPEC, &codeberg::SPEC, &gitea::SPEC];
 /// Best-effort `(repo, path)` across known forge URL layouts: GitHub (via
 /// `retrieve::github_repo_path`) plus the GitLab/Gitea specs.
 pub(super) fn repo_path(url: &str) -> Option<(String, String)> {
-    if let Some((repo, _branch, path)) = crate::retrieve::github_repo_path(url) {
+    if let Some((repo, _branch, path)) = github_repo_path(url) {
         return Some((repo, path));
     }
     SPECS.iter().find_map(|spec| (spec.repo_path)(url))

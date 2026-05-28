@@ -3,19 +3,87 @@
 //! answer reader, and the auto-generated per-provider `<kind>_<id>` tools. Also
 //! owns the search result formatters.
 
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
+use anyhow::Result;
 use futures::future::BoxFuture;
+use regex::Regex;
+use reqwest::Client;
 use rmcp::handler::server::router::tool::ToolRoute;
 use rmcp::handler::server::tool::{parse_json_object, schema_for_type, ToolCallContext};
 use rmcp::model::{CallToolResult, JsonObject, Tool};
 use rmcp::ErrorData as McpError;
 use serde::Deserialize;
+use serde_json::Value;
 
 use crate::provider::{ProviderKind, Registry, SearchQuery, SearchResult};
 use crate::skills::{schema_for, Skill, SkillCtx};
 use crate::util::indent;
 use crate::{clamp, internal, invalid, text_result, util, Lodestone};
+
+// ---------------------------------------------------------------------------
+// StackExchange thread retrieval (keyless public API) — backs qa_stackoverflow_answers
+// ---------------------------------------------------------------------------
+
+static QUESTION_ID_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"/questions/(\d+)").unwrap());
+
+/// Extract a numeric question id from a bare id or a StackExchange question URL.
+fn extract_question_id(input: &str) -> Option<String> {
+    let t = input.trim();
+    if !t.is_empty() && t.chars().all(|c| c.is_ascii_digit()) {
+        return Some(t.to_string());
+    }
+    QUESTION_ID_RE.captures(t).map(|c| c[1].to_string())
+}
+
+/// Fetch `(question_json, answers_json)` for a question id. An optional API key
+/// (empty = none) raises the per-IP quota.
+async fn se_answers(
+    client: &Client,
+    question_id: &str,
+    site: &str,
+    max: usize,
+    key: &str,
+) -> Result<(Value, Value)> {
+    let mut q_params = vec![("site", site), ("filter", "withbody")];
+    if !key.is_empty() {
+        q_params.push(("key", key));
+    }
+    let question = client
+        .get(format!(
+            "https://api.stackexchange.com/2.3/questions/{question_id}"
+        ))
+        .query(&q_params)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+
+    let pagesize = max.clamp(1, 30).to_string();
+    let mut a_params = vec![
+        ("order", "desc"),
+        ("sort", "votes"),
+        ("site", site),
+        ("filter", "withbody"),
+        ("pagesize", pagesize.as_str()),
+    ];
+    if !key.is_empty() {
+        a_params.push(("key", key));
+    }
+    let answers = client
+        .get(format!(
+            "https://api.stackexchange.com/2.3/questions/{question_id}/answers"
+        ))
+        .query(&a_params)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+
+    Ok((question, answers))
+}
 
 // ---------------------------------------------------------------------------
 // Argument schemas
@@ -384,7 +452,7 @@ impl Skill for QaStackoverflowAnswers {
                 )));
             }
             let max = clamp(args.max_answers, 3, 10);
-            let qid = crate::retrieve::extract_question_id(&args.question).ok_or_else(|| {
+            let qid = extract_question_id(&args.question).ok_or_else(|| {
                 invalid(format!(
                     "could not find a question id in '{}'",
                     args.question
@@ -396,10 +464,9 @@ impl Skill for QaStackoverflowAnswers {
                 return Ok(text_result(cached));
             }
 
-            let (q, a) =
-                crate::retrieve::se_answers(&server.http, &qid, &site, max, &server.se_key)
-                    .await
-                    .map_err(internal)?;
+            let (q, a) = se_answers(&server.http, &qid, &site, max, &server.se_key)
+                .await
+                .map_err(internal)?;
 
             let mut out = String::new();
             if let Some(item) = q

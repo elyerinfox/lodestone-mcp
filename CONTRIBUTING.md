@@ -54,8 +54,6 @@ src/
                  searxng (self-hosted metasearch JSON, web+code).
   browser.rs     PageRenderer trait + a persistent, process-shared
                  ChromiumRenderer. Any provider can render on demand.
-  retrieve.rs    Retrieval of one known resource: raw GitHub files, readable
-                 page text, Wayback snapshots, StackExchange answer threads.
   config.rs      Config struct + file (TOML) and env-var loading.
   cache.rs       In-memory TTL cache used by the Registry for search results.
   hive/          Opt-in P2P hivemind: Bloom-filter digests, consult-then-fetch
@@ -94,8 +92,11 @@ skills (e.g. the Docker/Kubernetes/translate families) talk to their own clients
 
 - A **provider** (`providers/`) ranks many candidates for a query and implements
   `SearchProvider`. Providers are pluggable and config-selected.
-- **Retrieval** (`retrieve.rs`) fetches one specific, already-identified thing
-  (a file, a page, a Q&A thread). These are plain functions used by skills.
+- **Retrieval** fetches one specific, already-identified thing (a file, a page, a
+  Q&A thread). It is not a provider — the logic lives *with its skill* under
+  `skills/` (e.g. the raw-file/page/PDF/Wayback primitives in
+  [`skills/retrieve.rs`](src/skills/retrieve.rs); GitHub helpers in
+  [`skills/github.rs`](src/skills/github.rs)).
 
 ### The provider interface
 

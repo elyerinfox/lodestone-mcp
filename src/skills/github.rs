@@ -4,16 +4,73 @@
 
 use std::sync::Arc;
 
+use anyhow::Result;
 use futures::future::BoxFuture;
+use reqwest::Client;
 use rmcp::model::{CallToolResult, JsonObject};
 use rmcp::ErrorData as McpError;
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::retrieve;
 use crate::skills::{schema_for, Skill, SkillCtx};
 use crate::util::{indent, truncate_chars};
 use crate::{clamp, internal, invalid, text_result};
+
+// ---------------------------------------------------------------------------
+// GitHub reference parsing + REST API (keyless; optional token raises the limit)
+// ---------------------------------------------------------------------------
+
+/// Parse a GitHub `owner/repo` from a shorthand (`owner/repo`, optionally with
+/// more path) or a github.com URL. Returns `None` if it can't.
+pub fn github_owner_repo(input: &str) -> Option<String> {
+    let mut s = input.trim();
+    for prefix in ["https://", "http://", "www.", "github.com/"] {
+        s = s.strip_prefix(prefix).unwrap_or(s);
+    }
+    let s = s.trim_start_matches('/');
+    let mut parts = s.split('/').filter(|p| !p.is_empty());
+    let owner = parts.next()?.trim();
+    let repo = parts.next()?.trim().trim_end_matches(".git");
+    if owner.is_empty() || repo.is_empty() || owner.contains(' ') || repo.contains(' ') {
+        return None;
+    }
+    Some(format!("{owner}/{repo}"))
+}
+
+/// Parse a GitHub username/org login from a bare login (`rust-lang`), an `@login`,
+/// or a github.com URL. Returns the first path segment.
+pub fn github_user_login(input: &str) -> Option<String> {
+    let mut s = input.trim().trim_start_matches('@');
+    for prefix in ["https://", "http://", "www.", "github.com/"] {
+        s = s.strip_prefix(prefix).unwrap_or(s);
+    }
+    let login = s.trim_start_matches('/').split('/').next()?.trim();
+    if login.is_empty() || login.contains(' ') {
+        return None;
+    }
+    Some(login.to_string())
+}
+
+/// GET a GitHub REST API path (e.g. `/users/rust-lang`) and return the JSON.
+/// Keyless; an optional token (empty = none) raises the rate limit.
+async fn github_api(
+    client: &Client,
+    path: &str,
+    token: &str,
+    query: &[(&str, &str)],
+) -> Result<Value> {
+    let mut req = client
+        .get(format!("https://api.github.com{path}"))
+        .header("Accept", "application/vnd.github+json")
+        .header("X-GitHub-Api-Version", "2022-11-28");
+    if !query.is_empty() {
+        req = req.query(query);
+    }
+    if !token.is_empty() {
+        req = req.bearer_auth(token);
+    }
+    Ok(req.send().await?.error_for_status()?.json().await?)
+}
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct GithubReleasesArgs {
@@ -164,7 +221,7 @@ impl Skill for GithubReleases {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (server, args) = ctx.parse::<GithubReleasesArgs>()?;
-            let repo = retrieve::github_owner_repo(&args.repo)
+            let repo = github_owner_repo(&args.repo)
                 .ok_or_else(|| invalid(format!("not a GitHub owner/repo: '{}'", args.repo)))?;
             let max = clamp(args.max_results, 5, 30);
             let prereleases = args.include_prereleases.unwrap_or(false);
@@ -173,7 +230,7 @@ impl Skill for GithubReleases {
                 return Ok(text_result(cached));
             }
             let per = if prereleases { max } else { (max * 3).min(100) }.to_string();
-            let v = retrieve::github_api(
+            let v = github_api(
                 &server.http,
                 &format!("/repos/{repo}/releases"),
                 &server.github_token,
@@ -248,13 +305,13 @@ impl Skill for GithubUser {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (server, args) = ctx.parse::<GithubUserArgs>()?;
-            let user = retrieve::github_user_login(&args.user)
+            let user = github_user_login(&args.user)
                 .ok_or_else(|| invalid(format!("not a GitHub username: '{}'", args.user)))?;
             let key = format!("ghuser|{user}");
             if let Some(cached) = server.retrieval_get(&key) {
                 return Ok(text_result(cached));
             }
-            let v = retrieve::github_api(
+            let v = github_api(
                 &server.http,
                 &format!("/users/{user}"),
                 &server.github_token,
@@ -285,13 +342,13 @@ impl Skill for GithubRepo {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (server, args) = ctx.parse::<GithubRepoArgs>()?;
-            let repo = retrieve::github_owner_repo(&args.repo)
+            let repo = github_owner_repo(&args.repo)
                 .ok_or_else(|| invalid(format!("not a GitHub owner/repo: '{}'", args.repo)))?;
             let key = format!("ghrepo|{repo}");
             if let Some(cached) = server.retrieval_get(&key) {
                 return Ok(text_result(cached));
             }
-            let v = retrieve::github_api(
+            let v = github_api(
                 &server.http,
                 &format!("/repos/{repo}"),
                 &server.github_token,
@@ -313,4 +370,40 @@ pub fn skills() -> Vec<Box<dyn Skill>> {
         Box::new(GithubUser),
         Box::new(GithubRepo),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{github_owner_repo, github_user_login};
+
+    #[test]
+    fn owner_repo_from_shorthand_and_urls() {
+        assert_eq!(
+            github_owner_repo("rust-lang/rust").as_deref(),
+            Some("rust-lang/rust")
+        );
+        assert_eq!(
+            github_owner_repo("https://github.com/rust-lang/rust").as_deref(),
+            Some("rust-lang/rust")
+        );
+        assert_eq!(
+            github_owner_repo("https://github.com/rust-lang/rust/releases").as_deref(),
+            Some("rust-lang/rust")
+        );
+        assert_eq!(
+            github_owner_repo("github.com/a/b.git").as_deref(),
+            Some("a/b")
+        );
+        assert_eq!(github_owner_repo("not-a-repo"), None);
+    }
+
+    #[test]
+    fn user_login_from_shorthand_and_urls() {
+        assert_eq!(github_user_login("rust-lang").as_deref(), Some("rust-lang"));
+        assert_eq!(github_user_login("@octocat").as_deref(), Some("octocat"));
+        assert_eq!(
+            github_user_login("https://github.com/torvalds").as_deref(),
+            Some("torvalds")
+        );
+    }
 }

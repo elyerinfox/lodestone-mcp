@@ -1,17 +1,243 @@
 //! Retrieval skills — fetch one already-identified resource: a page's readable
 //! text (HTTP or headless render), a PDF (read or generate), a repo file, or a
-//! Wayback snapshot. The heavy lifting lives in [`crate::retrieve`] and
-//! [`crate::browser`]; these skills are the thin tool layer over them.
+//! Wayback snapshot. This module owns the low-level retrieval primitives
+//! (raw-file URL resolution, readable-page fetch, PDF text extraction, the
+//! Wayback Machine client); rendering lives in [`crate::browser`].
 
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
+use anyhow::{anyhow, Result};
 use futures::future::BoxFuture;
+use regex::Regex;
+use reqwest::Client;
 use rmcp::model::{CallToolResult, JsonObject};
 use rmcp::ErrorData as McpError;
 use serde::Deserialize;
 
 use crate::skills::{schema_for, Skill, SkillCtx};
-use crate::{browser, internal, invalid, retrieve, text_result, util};
+use crate::util::{html_to_text, truncate_chars};
+use crate::{browser, internal, invalid, text_result, util};
+
+// ---------------------------------------------------------------------------
+// Raw file fetch across forges (no token):
+//   GitHub : github.com/.../blob/<ref>/<path>  → raw.githubusercontent.com/.../<ref>/<path>
+//   GitLab : <host>/.../-/blob/<ref>/<path>     → <host>/.../-/raw/<ref>/<path>
+//   Gitea  : <host>/o/r/src/branch/<ref>/<path> → <host>/o/r/raw/branch/<ref>/<path>
+// ---------------------------------------------------------------------------
+
+static GH_BLOB_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^https?://github\.com/([^/]+)/([^/]+)/(?:blob|raw)/([^/]+)/(.+)$").unwrap()
+});
+static GITEA_SRC_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"/src/(branch|commit|tag)/").unwrap());
+static SHORTHAND_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^([^/\s]+)/([^/\s]+)/(.+)$").unwrap());
+static LINE_FRAG_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"#L(\d+)(?:[-C]+L?(\d+))?$").unwrap());
+
+/// Resolved raw download target(s) plus any `#L..` line range from the input.
+pub struct RawTarget {
+    pub candidates: Vec<String>,
+    pub line_range: Option<(usize, usize)>,
+}
+
+/// Resolve a GitHub/GitLab/Gitea blob (or raw) URL — or a GitHub
+/// `owner/repo/path` shorthand — into raw download target(s).
+fn resolve_raw_file(input: &str) -> Result<RawTarget> {
+    let input = input.trim();
+    let (base, line_range) = split_line_fragment(input);
+    let single = |url: String| {
+        Ok(RawTarget {
+            candidates: vec![url],
+            line_range,
+        })
+    };
+
+    if base.starts_with("https://raw.githubusercontent.com/")
+        || base.starts_with("http://raw.githubusercontent.com/")
+        || base.contains("/-/raw/")
+        || base.contains("/raw/branch/")
+        || base.contains("/raw/commit/")
+        || base.contains("/raw/tag/")
+    {
+        return single(base.to_string());
+    }
+
+    if let Some(c) = GH_BLOB_RE.captures(base) {
+        return single(format!(
+            "https://raw.githubusercontent.com/{}/{}/{}/{}",
+            &c[1], &c[2], &c[3], &c[4]
+        ));
+    }
+
+    if base.contains("/-/blob/") {
+        return single(base.replacen("/-/blob/", "/-/raw/", 1));
+    }
+
+    if GITEA_SRC_RE.is_match(base) {
+        return single(GITEA_SRC_RE.replace(base, "/raw/$1/").into_owned());
+    }
+
+    if !base.contains("://") {
+        if let Some(c) = SHORTHAND_RE.captures(base) {
+            let (owner, repo, path) = (&c[1], &c[2], &c[3]);
+            let candidates = ["main", "master"]
+                .iter()
+                .map(|r| format!("https://raw.githubusercontent.com/{owner}/{repo}/{r}/{path}"))
+                .collect();
+            return Ok(RawTarget {
+                candidates,
+                line_range,
+            });
+        }
+    }
+
+    Err(anyhow!(
+        "could not parse '{input}' as a GitHub/GitLab/Gitea file URL or an 'owner/repo/path' reference"
+    ))
+}
+
+fn split_line_fragment(input: &str) -> (&str, Option<(usize, usize)>) {
+    if let Some(c) = LINE_FRAG_RE.captures(input) {
+        let whole = c.get(0).unwrap();
+        let start: usize = c[1].parse().unwrap_or(0);
+        let end: usize = c
+            .get(2)
+            .and_then(|m| m.as_str().parse().ok())
+            .unwrap_or(start);
+        if start > 0 {
+            return (&input[..whole.start()], Some((start, end.max(start))));
+        }
+    }
+    (input, None)
+}
+
+/// GET a URL, returning `(body, status)`.
+async fn fetch_text(client: &Client, url: &str) -> Result<(String, reqwest::StatusCode)> {
+    let resp = client.get(url).send().await?;
+    let status = resp.status();
+    let body = resp.text().await?;
+    Ok((body, status))
+}
+
+/// Fetch a URL and return readable text (HTML → text; PDFs text-extracted).
+async fn fetch_readable(client: &Client, url: &str, max_chars: usize) -> Result<String> {
+    let resp = client
+        .get(url)
+        .header(
+            "Accept",
+            "text/html,application/xhtml+xml,application/pdf,*/*",
+        )
+        .send()
+        .await?
+        .error_for_status()?;
+    let ctype = resp
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+    let bytes = resp.bytes().await?;
+
+    if ctype.contains("pdf")
+        || url
+            .split('?')
+            .next()
+            .unwrap_or(url)
+            .to_ascii_lowercase()
+            .ends_with(".pdf")
+        || bytes.starts_with(b"%PDF")
+    {
+        return extract_pdf_text(bytes.to_vec(), max_chars).await;
+    }
+
+    let body = String::from_utf8_lossy(&bytes).into_owned();
+    let text = if ctype.contains("html") || body.trim_start().starts_with('<') {
+        html_to_text(&body)
+    } else {
+        body
+    };
+    Ok(truncate_chars(&text, max_chars))
+}
+
+/// Extract a PDF's text layer locally (no external service). Runs the CPU-bound
+/// parse off the async runtime. Errors for scanned/no-text-layer PDFs.
+async fn extract_pdf_text(bytes: Vec<u8>, max_chars: usize) -> Result<String> {
+    let text = tokio::task::spawn_blocking(move || pdf_extract::extract_text_from_mem(&bytes))
+        .await
+        .map_err(|e| anyhow!("PDF extraction task failed: {e}"))?
+        .map_err(|e| anyhow!("could not extract PDF text (scanned or unsupported?): {e}"))?;
+    if text.trim().is_empty() {
+        return Err(anyhow!(
+            "the PDF has no extractable text layer (it may be scanned images)"
+        ));
+    }
+    Ok(truncate_chars(text.trim(), max_chars))
+}
+
+// ---------------------------------------------------------------------------
+// Wayback Machine (Internet Archive — keyless)
+// ---------------------------------------------------------------------------
+
+static WAYBACK_TS_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"/web/(\d+)(?:[a-z_]+)?/").unwrap());
+
+/// Look up the closest archived snapshot for `url` (optionally near `timestamp`).
+async fn wayback_snapshot(
+    client: &Client,
+    url: &str,
+    timestamp: Option<&str>,
+) -> Result<Option<String>> {
+    let mut params = vec![("url", url)];
+    if let Some(ts) = timestamp {
+        params.push(("timestamp", ts));
+    }
+    let v: serde_json::Value = client
+        .get("https://archive.org/wayback/available")
+        .query(&params)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+
+    let available = v
+        .pointer("/archived_snapshots/closest/available")
+        .and_then(|x| x.as_bool())
+        .unwrap_or(false);
+    if !available {
+        return Ok(None);
+    }
+    let snapshot = v
+        .pointer("/archived_snapshots/closest/url")
+        .and_then(|x| x.as_str())
+        .map(to_raw_snapshot);
+    Ok(snapshot)
+}
+
+/// Resolve a snapshot for `url` and return `(snapshot_url, readable_text)`.
+async fn wayback_fetch(
+    client: &Client,
+    url: &str,
+    timestamp: Option<&str>,
+    max_chars: usize,
+) -> Result<(String, String)> {
+    let snapshot = wayback_snapshot(client, url, timestamp)
+        .await?
+        .ok_or_else(|| anyhow!("no archived snapshot found for {url}"))?;
+    let text = fetch_readable(client, &snapshot, max_chars).await?;
+    Ok((snapshot, text))
+}
+
+/// Turn a Wayback viewer URL into the raw-content form over HTTPS.
+fn to_raw_snapshot(url: &str) -> String {
+    let url = WAYBACK_TS_RE.replace(url, "/web/${1}id_/");
+    if let Some(rest) = url.strip_prefix("http://") {
+        format!("https://{rest}")
+    } else {
+        url.into_owned()
+    }
+}
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct FetchPageArgs {
@@ -119,7 +345,7 @@ impl Skill for FetchPage {
             if let Some(cached) = server.retrieval_get(&key) {
                 return Ok(text_result(cached));
             }
-            let text = retrieve::fetch_readable(&server.http, &args.url, max)
+            let text = fetch_readable(&server.http, &args.url, max)
                 .await
                 .map_err(internal)?;
             let out = format!("Source: {}\n\n{}", args.url, text);
@@ -195,7 +421,7 @@ impl Skill for WaybackFetch {
                 return Ok(text_result(cached));
             }
             let (snapshot, text) =
-                retrieve::wayback_fetch(&server.http, &args.url, args.timestamp.as_deref(), max)
+                wayback_fetch(&server.http, &args.url, args.timestamp.as_deref(), max)
                     .await
                     .map_err(internal)?;
             let out = format!("Source (archived): {snapshot}\n\n{text}");
@@ -294,9 +520,7 @@ impl Skill for ReadPdf {
                 std::fs::read(&src)
                     .map_err(|e| invalid(format!("could not read file '{src}': {e}")))?
             };
-            let text = retrieve::extract_pdf_text(bytes, max)
-                .await
-                .map_err(internal)?;
+            let text = extract_pdf_text(bytes, max).await.map_err(internal)?;
             let out = format!("PDF: {src}\n\n{text}");
             server.retrieval_put(key, &out);
             Ok(text_result(out))
@@ -329,14 +553,12 @@ impl Skill for FetchRepoFile {
             if let Some(cached) = server.retrieval_get(&key) {
                 return Ok(text_result(cached));
             }
-            let target = retrieve::resolve_raw_file(&args.target).map_err(invalid)?;
+            let target = resolve_raw_file(&args.target).map_err(invalid)?;
 
             let mut last_status = None;
             let mut fetched: Option<(String, String)> = None;
             for url in &target.candidates {
-                let (body, status) = retrieve::fetch_text(&server.http, url)
-                    .await
-                    .map_err(internal)?;
+                let (body, status) = fetch_text(&server.http, url).await.map_err(internal)?;
                 if status.is_success() {
                     fetched = Some((url.clone(), body));
                     break;

@@ -14,7 +14,6 @@ use reqwest::Client;
 
 use crate::provider::{ProviderKind, SearchProvider, SearchQuery, SearchResult};
 use crate::providers::forge::{self, ForgeSpec};
-use crate::retrieve::github_repo_path;
 use crate::util::collapse_ws;
 
 /// Spec for the keyless scrape path (shared forge machinery).
@@ -25,7 +24,7 @@ static SPEC: ForgeSpec = ForgeSpec {
 };
 
 fn extract(url: &str) -> Option<(String, String)> {
-    github_repo_path(url).map(|(repo, _branch, path)| (repo, path))
+    forge::github_repo_path(url).map(|(repo, _branch, path)| (repo, path))
 }
 
 pub(crate) struct Github {

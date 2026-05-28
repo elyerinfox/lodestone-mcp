@@ -2,8 +2,8 @@
 //! by scraping search engines and public endpoints. No API keys / tokens.
 //!
 //! Sources are pluggable: each one implements the [`provider::SearchProvider`]
-//! trait and is selected/ordered via configuration (see [`config`]). Retrieval
-//! of a specific resource lives in [`retrieve`].
+//! trait and is selected/ordered via configuration (see [`config`]). Every tool
+//! is a self-contained module under [`skills`]; `main.rs` is bootstrap only.
 //!
 //! Transport: Streamable HTTP, mounted at `/mcp` (works with LM Studio's
 //! `url`-style mcp.json entries and any Streamable-HTTP MCP client).
@@ -14,7 +14,6 @@ mod config;
 mod hive;
 mod provider;
 mod providers;
-mod retrieve;
 mod skills;
 mod util;
 
