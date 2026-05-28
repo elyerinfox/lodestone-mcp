@@ -26,3 +26,13 @@ bind = "127.0.0.1:8000"
 # isn't written to a file.
 # Env: LODESTONE_AUTH_TOKEN
 auth_token = ""
+
+# Retrieval limits for fetch_page / render_page / wayback_fetch (and the
+# answer-thread reader). A call's `max_chars` overrides default_chars and is
+# clamped to max_chars. Raise these if pages come back truncated; lower them to
+# protect a small model context.
+[retrieval]
+# Chars returned when a call omits max_chars. Env: LODESTONE_RETRIEVAL_DEFAULT_CHARS
+default_chars = 16000
+# Hard cap on chars any retrieval tool returns. Env: LODESTONE_RETRIEVAL_MAX_CHARS
+max_chars = 100000

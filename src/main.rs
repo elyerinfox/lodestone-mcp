@@ -91,7 +91,8 @@ struct DocsSearchArgs {
 struct FetchPageArgs {
     /// Absolute URL of the page to fetch.
     url: String,
-    /// Max characters of extracted text to return. Default 8000, capped 40000.
+    /// Max characters of extracted text to return. Omit for the server default;
+    /// capped by the server's `[retrieval].max_chars`. Increase for full pages.
     #[serde(default)]
     max_chars: Option<u32>,
 }
@@ -100,7 +101,8 @@ struct FetchPageArgs {
 struct RenderPageArgs {
     /// Absolute URL of the page to render.
     url: String,
-    /// Max characters of extracted text to return. Default 8000, capped 40000.
+    /// Max characters of extracted text to return. Omit for the server default;
+    /// capped by the server's `[retrieval].max_chars`. Increase for full pages.
     #[serde(default)]
     max_chars: Option<u32>,
 }
@@ -113,7 +115,8 @@ struct WaybackFetchArgs {
     /// capture is returned. Omit for the most recent snapshot.
     #[serde(default)]
     timestamp: Option<String>,
-    /// Max characters of extracted text to return. Default 8000, capped 40000.
+    /// Max characters of extracted text to return. Omit for the server default;
+    /// capped by the server's `[retrieval].max_chars`. Increase for full pages.
     #[serde(default)]
     max_chars: Option<u32>,
 }
@@ -196,6 +199,9 @@ struct Lodestone {
     /// Caches retrieval-tool output (page text, files, answers) keyed by request.
     /// Separate from the search/hive cache so it never enters peer digests.
     retrieval_cache: Option<Arc<cache::TtlCache>>,
+    /// Default / hard-cap characters for the retrieval tools (`[retrieval]`).
+    default_chars: usize,
+    max_chars: usize,
     // The filtered tool router; `#[tool_handler(router = self.tool_router)]`
     // uses it for both tool listing and dispatch.
     tool_router: ToolRouter<Lodestone>,
@@ -211,6 +217,8 @@ impl Lodestone {
         se_allowed: Vec<String>,
         timeout_secs: u64,
         retrieval_cache: Option<Arc<cache::TtlCache>>,
+        default_chars: usize,
+        max_chars: usize,
         tools_enabled: &[String],
         tools_disabled: &[String],
     ) -> Self {
@@ -227,8 +235,19 @@ impl Lodestone {
             se_key: se_key.into(),
             se_allowed: se_allowed.into(),
             retrieval_cache,
+            default_chars: default_chars.max(1),
+            max_chars: max_chars.max(1),
             tool_router,
         }
+    }
+
+    /// Resolve a requested `max_chars`: the per-call value (or the configured
+    /// default), clamped to the configured hard cap.
+    fn clamp_chars(&self, requested: Option<u32>) -> usize {
+        requested
+            .map(|n| n as usize)
+            .unwrap_or(self.default_chars)
+            .clamp(1, self.max_chars)
     }
 
     /// Guardrail: is `site` permitted by the configured StackExchange allowlist?
@@ -336,15 +355,16 @@ impl Lodestone {
 
     #[tool(
         description = "Fetch a web page over plain HTTP and return its readable text (HTML \
-        stripped). The default way to read a page (docs, blogs, articles). If it fails or comes \
-        back empty (JS-heavy/SPA), try `render_page`; for a page that's down/changed/blocked, try \
-        `wayback_fetch`."
+        stripped). The default way to read a page (docs, blogs, articles). Output is truncated to \
+        a character budget — if the text ends with a '[... truncated ...]' marker and you need \
+        more, call again with a larger `max_chars`. If it fails or comes back empty (JS-heavy/SPA), \
+        try `render_page`; for a page that's down/changed/blocked, try `wayback_fetch`."
     )]
     async fn fetch_page(
         &self,
         Parameters(args): Parameters<FetchPageArgs>,
     ) -> Result<CallToolResult, McpError> {
-        let max = clamp(args.max_chars, 8000, 40000);
+        let max = self.clamp_chars(args.max_chars);
         let key = format!("page|{max}|{}", args.url);
         if let Some(cached) = self.retrieval_get(&key) {
             return Ok(text_result(cached));
@@ -362,14 +382,15 @@ impl Lodestone {
     #[tool(
         description = "Fetch a web page through a real headless browser (executes JavaScript) and \
         return its readable text. Use for JS-heavy/SPA pages, or when `fetch_page` is empty or \
-        blocked. Slower than fetch_page and needs a local Chrome/Chromium at runtime."
+        blocked. Output is truncated to a character budget — pass a larger `max_chars` if the text \
+        is cut off. Slower than fetch_page and needs a local Chrome/Chromium at runtime."
     )]
     async fn render_page(
         &self,
         Parameters(args): Parameters<RenderPageArgs>,
     ) -> Result<CallToolResult, McpError> {
         use crate::browser::PageRenderer;
-        let max = clamp(args.max_chars, 8000, 40000);
+        let max = self.clamp_chars(args.max_chars);
         let key = format!("render|{max}|{}", args.url);
         if let Some(cached) = self.retrieval_get(&key) {
             return Ok(text_result(cached));
@@ -389,13 +410,14 @@ impl Lodestone {
     #[tool(
         description = "Fetch a page from the Internet Archive Wayback Machine (keyless). Returns \
         the readable text of the closest archived snapshot. Useful when a page is down, paywalled, \
-        changed, or blocking automated access, or to view a historical version."
+        changed, or blocking automated access, or to view a historical version. Output is truncated \
+        to a character budget — pass a larger `max_chars` to get more."
     )]
     async fn wayback_fetch(
         &self,
         Parameters(args): Parameters<WaybackFetchArgs>,
     ) -> Result<CallToolResult, McpError> {
-        let max = clamp(args.max_chars, 8000, 40000);
+        let max = self.clamp_chars(args.max_chars);
         let key = format!(
             "wayback|{max}|{}|{}",
             args.timestamp.as_deref().unwrap_or(""),
@@ -588,7 +610,7 @@ impl Lodestone {
             _ => out.push_str("(no answers)"),
         }
 
-        let out = util::truncate_chars(&out, 40000);
+        let out = util::truncate_chars(&out, self.max_chars);
         self.retrieval_put(key, &out);
         Ok(text_result(out))
     }
@@ -968,6 +990,8 @@ async fn main() -> anyhow::Result<()> {
         cfg.stackexchange.allowed_sites.clone(),
         cfg.search.timeout_secs,
         retrieval_cache,
+        cfg.retrieval.default_chars,
+        cfg.retrieval.max_chars,
         &cfg.tools.enabled,
         &cfg.tools.disabled,
     );

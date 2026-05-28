@@ -28,6 +28,7 @@ pub struct Config {
     pub searxng: Searxng,
     pub brave: Brave,
     pub google_cse: GoogleCse,
+    pub retrieval: Retrieval,
     pub cache: Cache,
     pub network: Network,
     /// User-defined self-hosted forges, keyed by provider id. Each entry becomes
@@ -237,6 +238,26 @@ pub struct Github {
     pub token: String,
 }
 
+/// Limits for the retrieval tools (fetch_page / render_page / wayback_fetch and
+/// the answer-thread reader). Tunable so full pages aren't cut short.
+#[derive(Debug, Deserialize)]
+#[serde(default)]
+pub struct Retrieval {
+    /// Characters returned when a call omits `max_chars`.
+    pub default_chars: usize,
+    /// Hard cap on characters a retrieval tool may return.
+    pub max_chars: usize,
+}
+
+impl Default for Retrieval {
+    fn default() -> Self {
+        Self {
+            default_chars: 16_000,
+            max_chars: 100_000,
+        }
+    }
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(default)]
 pub struct Providers {
@@ -282,6 +303,7 @@ impl Default for Config {
             searxng: Searxng::default(),
             brave: Brave::default(),
             google_cse: GoogleCse::default(),
+            retrieval: Retrieval::default(),
             cache: Cache::default(),
             network: Network::default(),
             forges: HashMap::new(),
@@ -423,6 +445,16 @@ impl Config {
         }
         if let Ok(cx) = std::env::var("LODESTONE_GOOGLE_CSE_CX") {
             self.google_cse.cx = cx;
+        }
+        if let Ok(n) = std::env::var("LODESTONE_RETRIEVAL_DEFAULT_CHARS") {
+            if let Ok(n) = n.trim().parse::<usize>() {
+                self.retrieval.default_chars = n;
+            }
+        }
+        if let Ok(n) = std::env::var("LODESTONE_RETRIEVAL_MAX_CHARS") {
+            if let Ok(n) = n.trim().parse::<usize>() {
+                self.retrieval.max_chars = n;
+            }
         }
         if let Ok(v) = std::env::var("LODESTONE_CACHE_ENABLED") {
             self.cache.enabled = is_truthy(&v);
