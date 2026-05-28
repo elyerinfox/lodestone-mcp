@@ -1,4 +1,5 @@
-//! Google engine spec (feature `google`). Scrapes google.com via the shared
+//! Google engine spec (opt-in: add `"google"` to the config provider lists).
+//! Scrapes google.com via the shared
 //! headless browser (`Method::Browser`) so the request looks like a real
 //! browser. Google is CAPTCHA-prone on datacenter IPs and has a regional consent
 //! page, so keep a tolerant engine (Mojeek) in the chain as a fallback. Its

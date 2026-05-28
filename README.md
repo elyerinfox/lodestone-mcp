@@ -67,7 +67,7 @@ arguments.
 | --- | --- | --- |
 | `web_search` | `query`, `max_results?`, `render?` | General web search (DuckDuckGo, Mojeek, …). |
 | `code_search` | `query`, `language?`, `max_results?`, `render?` | Source-code search across the configured forges (`[code].sites`). |
-| `stackexchange_search` | `query`, `site?`, `max_results?`, `render?` | StackOverflow / StackExchange questions. |
+| `qa_search` | `query`, `site?`, `max_results?`, `render?` | The configured Q&A providers (StackExchange network: StackOverflow, Server Fault, …). |
 
 **Retrieve** — fetch one known thing.
 
@@ -77,7 +77,6 @@ arguments.
 | `render_page` | `url`, `max_chars?` | Page → readable text via a headless browser (runs JS). |
 | `fetch_repo_file` | `target`, `start_line?`, `end_line?` | A file from GitHub/GitLab/Gitea — blob/raw URL, or GitHub `owner/repo/path` (a `#L10-L40` fragment works too). |
 | `wayback_fetch` | `url`, `timestamp?`, `max_chars?` | Archived snapshot from the Wayback Machine. |
-| `stackexchange_answers` | `question`, `site?`, `max_answers?` | A question's body + top answers (with code). |
 
 **Meta**
 
@@ -89,10 +88,12 @@ arguments.
 (e.g. `web_mojeek`, `code_github`, `qa_stackoverflow`), args `query`,
 `max_results?`, `language?`, `site?`, `render?`. Targets a single source,
 bypassing the chain/strategy. Generated from your config and gateable via
-`[tools]`.
+`[tools]`. StackOverflow adds one bespoke provider skill:
+`qa_stackoverflow_answers` (`question`, `site?`, `max_answers?`) — read a
+question's body + top answers (with code).
 
 Typical flow: **search** → **retrieve** the best hit (`fetch_page` /
-`render_page` / `fetch_repo_file` / `stackexchange_answers`).
+`render_page` / `fetch_repo_file` / `qa_stackoverflow_answers`).
 
 ---
 
@@ -249,8 +250,8 @@ Detailed per-provider reference: [docs/providers.md](docs/providers.md).
 
 ### Rendering (model-controlled)
 
-`web_search`, `code_search`, and `stackexchange_search` accept `render: true`,
-and `render_page` is the dedicated page-render skill. When used, the work goes
+`web_search`, `code_search`, `qa_search` (and the per-provider `<kind>_<id>`
+tools) accept `render: true`, and `render_page` is the dedicated page-render skill. When used, the work goes
 through a **shared, persistent headless Chrome** instead of plain HTTP — useful
 for JS-heavy pages or to slip past rate-limits/bot-walls. It needs a local
 Chrome/Chromium at runtime, and it's

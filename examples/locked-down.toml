@@ -7,7 +7,7 @@ bind = "127.0.0.1:8000"
 
 [tools]
 # Only these tools are exposed; everything else is hidden and uncallable.
-enabled = ["web_search", "stackexchange_search", "stackexchange_answers", "fetch_page"]
+enabled = ["web_search", "qa_search", "qa_stackoverflow_answers", "fetch_page"]
 
 [providers]
 web = ["mojeek", "duckduckgo"]

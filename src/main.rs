@@ -381,12 +381,13 @@ impl Lodestone {
     }
 
     #[tool(
-        description = "Search the Q&A providers (StackOverflow / StackExchange). Returns matching \
-        questions with score, answer count and links. Uses the keyless API by default; set \
-        render=true to scrape stackoverflow.com via a headless browser (no API quota). Use \
-        `stackexchange_answers` to read the actual answers."
+        description = "Search the configured Q&A providers (currently the StackExchange network: \
+        StackOverflow, Server Fault, Super User, Ask Ubuntu, …). Returns matching questions with \
+        score, answer count and links. Uses the keyless API by default; set render=true to scrape \
+        via a headless browser (no API quota). To search a single site directly use the \
+        per-provider tool qa_stackoverflow; use qa_stackoverflow_answers to read the actual answers."
     )]
-    async fn stackexchange_search(
+    async fn qa_search(
         &self,
         Parameters(args): Parameters<StackSearchArgs>,
     ) -> Result<CallToolResult, McpError> {
@@ -417,10 +418,11 @@ impl Lodestone {
     }
 
     #[tool(
-        description = "Read a StackExchange question body and its top answers (by votes), \
-        including any code blocks. Accepts a question URL or numeric id."
+        description = "Read a StackOverflow/StackExchange question body and its top answers (by \
+        votes), including any code blocks. Accepts a question URL or numeric id. Provider-specific \
+        to the StackExchange network."
     )]
-    async fn stackexchange_answers(
+    async fn qa_stackoverflow_answers(
         &self,
         Parameters(args): Parameters<StackAnswersArgs>,
     ) -> Result<CallToolResult, McpError> {
@@ -514,13 +516,13 @@ impl ServerHandler for Lodestone {
                 - fetch_page: get readable text of any URL over plain HTTP.\n\
                 - render_page: get readable text of a URL via a headless browser (JS).\n\
                 - wayback_fetch: read a page's archived snapshot from the Wayback Machine.\n\
-                - stackexchange_search: find StackOverflow/StackExchange questions.\n\
-                - stackexchange_answers: read a question's top answers (with code).\n\
+                - qa_search: search the configured Q&A providers (StackExchange network).\n\
                 - list_providers: show which sources are active.\n\
                 Each configured provider also has a direct tool named <kind>_<id> \
-                (e.g. web_mojeek, code_github, qa_stackoverflow) to target one source.\n\n\
-                Typical flow: search (web_search/code_search/stackexchange_search) → then retrieve \
-                (fetch_repo_file / fetch_page / render_page / stackexchange_answers) on the best hit."
+                (e.g. web_mojeek, code_github, qa_stackoverflow) to target one source. \
+                StackOverflow adds qa_stackoverflow_answers to read a question's top answers (with code).\n\n\
+                Typical flow: search (web_search/code_search/qa_search) → then retrieve \
+                (fetch_repo_file / fetch_page / render_page / qa_stackoverflow_answers) on the best hit."
                     .to_string(),
             )
     }
@@ -576,7 +578,7 @@ fn format_qa(query: &str, site: &str, hits: &[SearchResult]) -> String {
             out.push_str(&format!("   {}\n", h.url));
         }
     }
-    out.push_str("\nTip: pass a question URL to stackexchange_answers to read answers.");
+    out.push_str("\nTip: pass a question URL to qa_stackoverflow_answers to read answers.");
     out
 }
 

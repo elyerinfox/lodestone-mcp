@@ -203,9 +203,14 @@ tick all of these:
 - [ ] **Listed in `config/02-search.toml`** under the known ids for its kind.
       Add it to a default `[providers]` list only if it's keyless and reliable
       with zero setup; otherwise document it as opt-in.
-- [ ] **Reference entry in [docs/providers.md](docs/providers.md):** kind(s),
-      keyless vs. credentialed, how it works, config keys, and caveats.
-- [ ] **README provider table** row added.
+- [ ] **Per-provider doc page** `docs/providers/<id>.md` (copy an existing one as
+      a template): the header table (family, kind(s), default-on, keyless, render,
+      code link, config link), **Why**, **Features**, any **Caveats**, **Skills
+      (tools)** (the general tool it joins + its `<kind>_<id>` tool), and
+      **Schema / structs** (the spec/struct literal and config keys).
+- [ ] **Index row in [docs/providers.md](docs/providers.md)** under its family,
+      linking to the new page.
+- [ ] **README provider + tools tables** rows added.
 - [ ] **Golden rules upheld:** keyless by default (any credential is optional,
       documented, and has a keyless fallback); scrape-default / render-optional;
       parallel-friendly; no blocking I/O on the async runtime.

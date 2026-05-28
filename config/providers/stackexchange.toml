@@ -1,7 +1,8 @@
 # -----------------------------------------------------------------------------
 # Provider: stackoverflow / stackexchange  (kind: qa)
 # -----------------------------------------------------------------------------
-# Powers stackexchange_search and stackexchange_answers. Uses the keyless public
+# Powers qa_search (generic), the per-provider qa_stackoverflow search, and
+# qa_stackoverflow_answers (read a question + answers). Uses the keyless public
 # API by default (shared ~300 requests/day per IP). A per-call render=true
 # scrapes stackoverflow.com via headless browser instead (needs a `browser`
 # build; stackoverflow site only).

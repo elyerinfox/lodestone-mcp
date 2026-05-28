@@ -82,8 +82,8 @@ likely involved). Checked items are done; unchecked are open.
   shorthand); the tool is now `fetch_repo_file`.
 
 - [ ] **StackExchange answers via render.**
-  - **Why:** `stackexchange_answers` always uses the API (quota); for parity with
-    `stackexchange_search`, allow `render=true` to scrape the question page.
+  - **Why:** `qa_stackoverflow_answers` always uses the API (quota); for parity
+    with `qa_search`, allow `render=true` to scrape the question page.
   - **How:** Add a `render` arg to the tool and a scrape path in
     `src/providers/stackexchange.rs` / `src/retrieve.rs` reusing the shared
     renderer.

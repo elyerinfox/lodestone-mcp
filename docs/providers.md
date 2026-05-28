@@ -2,15 +2,17 @@
 
 A **provider** is one source of results behind a search tool. Every provider
 implements the `SearchProvider` trait (`id`, `kind`, async `search`) and is
-selected and ordered per kind in configuration. This page documents each
-provider in detail; for the *architecture* (the trait, the spec-driven families,
-how to add one) see [CONTRIBUTING.md](../CONTRIBUTING.md).
+selected and ordered per kind in configuration. This page is the **index**; each
+provider has its own detailed page under [`docs/providers/`](providers/) covering
+its rationale, features, skills (tools), config, and schema/structs. For the
+*architecture* (the trait, the spec-driven families, how to add one) see
+[CONTRIBUTING.md](../CONTRIBUTING.md).
 
 ## How providers combine
 
 - **Kinds.** Each provider serves one kind: `web` (general web search), `code`
   (source-code search), or `qa` (question/answer sites). The tools map to kinds:
-  `web_search` → web, `code_search` → code, `stackexchange_search` → qa.
+  `web_search` → web, `code_search` → code, `qa_search` → qa.
 - **Selection & order.** `config/02-search.toml` (`[providers].web/code/qa`)
   lists the providers per kind, in priority order. Unknown ids are skipped with a
   warning.
@@ -24,8 +26,16 @@ how to add one) see [CONTRIBUTING.md](../CONTRIBUTING.md).
 - **Keyless** (golden rule). Everything works without accounts/keys; the only
   credentials are *optional* (a GitHub token, a StackExchange key).
 
-Config lives in granular per-provider files under `config/providers/`; see those
-files and the README for the full schema. Providers below are grouped by
+### Tools per provider
+
+Each provider participates in its kind's **general** search tool (`web_search` /
+`code_search` / `qa_search`) and also gets a **per-provider** tool named
+`<kind>_<id>` (e.g. `web_mojeek`, `code_github`, `qa_stackoverflow`) to target it
+alone. StackOverflow additionally exposes the bespoke `qa_stackoverflow_answers`
+skill. All tools are gateable via `[tools]`.
+
+Config lives in granular per-provider files under `config/providers/`; each
+provider page documents its own properties. Providers are grouped below by
 **family** (matching `src/providers/`), not by kind.
 
 ---
@@ -33,29 +43,14 @@ files and the README for the full schema. Providers below are grouped by
 ## Engine family — spec-driven search (`src/providers/engine/`)
 
 Shared `HtmlEngineProvider` driven by an `EngineSpec`. Each engine serves **both
-`web` and `code`** kinds; in code mode it scopes to the forges in `[code].sites`.
-`render` is honored per call (the model's opt-in).
+`web` and `code`** kinds (code mode scopes to the forges in `[code].sites`).
+`render` is honored per call.
 
-### `duckduckgo`
-- **Keyless:** yes. Scrapes `lite.duckduckgo.com` (POST). Honors `site:`, so code
-  mode scopes precisely.
-- **Caveats:** rate-limits aggressively by IP (esp. datacenter IPs); pair with
-  `mojeek`. `render=true` can slip past the rate-limit.
-
-### `mojeek`
-- **Keyless:** yes. Scrapes `www.mojeek.com/search` (GET); an independent index,
-  very tolerant of automation — the reliable fallback. No `site:`, so code mode
-  appends the forge domains as keywords and filters results to them.
-
-### `google`
-- **Keyless:** yes (no API key). Drives the shared **headless Chrome**
-  (`Method::Browser`) over `google.com/search` with a custom parser; honors
-  `site:` for code mode.
-- **Requirements / caveats:** the one **always-render** provider (Google has no
-  scrapeable endpoint); needs a local Chrome at runtime, CAPTCHA-prone on
-  datacenter IPs. Not in the default lists — add `"google"` to opt in.
-
----
+| Provider | Default | Notes |
+| --- | --- | --- |
+| [`duckduckgo`](providers/duckduckgo.md) | on (web+code) | Keyless `lite.duckduckgo.com`; honors `site:`. Rate-limits by IP. |
+| [`mojeek`](providers/mojeek.md) | on (web+code) | Keyless independent index; tolerant fallback. Keyword-scoped code. |
+| [`google`](providers/google.md) | off | Always-render (headless Chrome); broadest index, CAPTCHA-prone. |
 
 ## Forge family — spec-driven code search (`src/providers/forge/`)
 
@@ -63,59 +58,25 @@ Shared `ForgeCodeProvider` / `forge::search` driven by a `ForgeSpec`: a keyless,
 site-scoped web search of one forge (DuckDuckGo → Mojeek, render-aware) with that
 forge's blob-URL layout parsed into `(repo, path)`. Kind: **code**.
 
-### `gitlab` · `codeberg` · `gitea`
-- **Keyless:** yes. Search `gitlab.com`, `codeberg.org`, and `gitea.com`
-  respectively.
-- **Caveats:** results depend on the search engines indexing those forges (often
-  thinner than GitHub). Not in the default lists — add them to opt in. Read a
-  result file with `fetch_repo_file` (handles GitLab/Gitea blob URLs).
-
----
+| Provider | Default | Notes |
+| --- | --- | --- |
+| [`gitlab`](providers/gitlab.md) | off | Site-scoped search of `gitlab.com`. |
+| [`codeberg`](providers/codeberg.md) | off | Site-scoped search of `codeberg.org` (Gitea). |
+| [`gitea`](providers/gitea.md) | off | Site-scoped search of `gitea.com`. |
 
 ## Composite providers — multi-mode (`src/providers/composite/`)
 
-Bespoke shells that pick a mode at runtime, reusing a family for one of them.
+Bespoke shells that pick a sourcing mode at runtime, reusing a family for one of
+them.
 
-### `github` (kind: code)
-- **Keyless:** yes (token optional). Two modes:
-  - **default (keyless):** site-scoped web scrape of `github.com`, reusing
-    `forge::search` (DuckDuckGo → Mojeek, render-aware).
-  - **token set:** GitHub's authenticated code-search API
-    (`api.github.com/search/code`), returning matched code fragments as snippets.
-    GitHub dropped *unauthenticated* API code search, so the API path needs a
-    token; the scrape path never does.
-- **Config:** `config/providers/github.toml` → `[github].token` (or
-  `GITHUB_TOKEN` / `LODESTONE_GITHUB_TOKEN`).
-
-### `stackoverflow` (alias `stackexchange`, kind: qa)
-- **Keyless:** yes (key optional). Two modes:
-  - **default:** the keyless StackExchange API (`api.stackexchange.com`); an
-    optional key raises the per-IP quota.
-  - **`render=true`:** scrapes `stackoverflow.com/search` via the headless
-    browser (no quota); `stackoverflow` site only.
-- **Config:** `config/providers/stackexchange.toml` →
-  - `default_site` — site slug used when a call omits one (`stackoverflow`,
-    `serverfault`, `superuser`, `askubuntu`, `unix`, …; the `api_site_parameter`
-    from <https://api.stackexchange.com/2.3/sites>).
-  - `key` — optional API key (raises quota; not a login). Prefer
-    `LODESTONE_STACKEXCHANGE_KEY`.
-  - `allowed_sites` — guardrail allowlist of site slugs (empty = any).
-- **Related tool:** `stackexchange_answers` reads a question's body + top answers
-  (always via the API; honors the same `default_site`/key/allowlist).
-
----
+| Provider | Kind | Default | Notes |
+| --- | --- | --- | --- |
+| [`github`](providers/github.md) | code | off | Keyless scrape by default; GitHub code-search API with an optional token. |
+| [`stackoverflow`](providers/stackexchange.md) | qa | on | Keyless StackExchange API (optional key); `render=true` scrapes SO. Adds `qa_stackoverflow_answers`. |
 
 ## Bespoke providers — unique transport/parse (`src/providers/bespoke/`)
 
-### `grep_app` (kind: code)
-- **Keyless:** yes. Queries grep.app's JSON code-search endpoint and builds GitHub
-  blob URLs from the hits.
-- **Caveats:** frequently behind a bot-challenge that returns HTML instead of
-  JSON; when that happens it yields nothing and the chain falls through.
-
-### `medium` (kind: web)
-- **Keyless:** yes. Medium's search is bot-walled, so this treats the query as a
-  Medium **tag** and returns recent articles from `medium.com/feed/tag/<tag>`
-  (RSS).
-- **Caveats:** surfaces *recent posts for a topic*, not full-text relevance
-  search. Not in the default lists — add `"medium"` to opt in.
+| Provider | Kind | Default | Notes |
+| --- | --- | --- | --- |
+| [`grep_app`](providers/grep_app.md) | code | on | grep.app JSON code-search; true substring matches. Falls through if bot-walled. |
+| [`medium`](providers/medium.md) | web | off | Per-tag RSS feed; recent posts for a topic (not full-text search). |
