@@ -10,10 +10,11 @@ that breaks one is wrong by definition.
 
 1. **Scrape is the default; render is optional and a fallback.** Every source
    fetches over plain HTTP by default. The headless browser is never the default
-   path — it runs only when explicitly requested, or as a fallback after a plain
-   fetch comes back empty/blocked. (The sole exception is the `google` engine,
-   which has no scrapeable endpoint and is therefore browser-only and strictly
-   opt-in via config.)
+   path — it runs only when the model explicitly asks for it (a `render` flag on
+   a search, or the dedicated `render_page` tool), as its fallback when a plain
+   fetch isn't enough. The server never silently substitutes rendering. (The sole
+   exception is the `google` engine, which has no scrapeable endpoint and is
+   therefore browser-only and strictly opt-in via config.)
 2. **The LLM always decides.** Rendering is a per-call `render` flag the calling
    model sets; the server never enables it on its own. The model likewise drives
    what to retrieve next. We expose capabilities and defaults — we don't make the
@@ -21,6 +22,11 @@ that breaks one is wrong by definition.
 3. **Keyless by default.** No source requires an account or key on the default
    path. Credentials (a GitHub token, a StackExchange key) are strictly optional
    enhancements layered over a keyless fallback, never a precondition.
+4. **Parallelize — always.** Independent work must run concurrently, never
+   sequentially. Aggregate search sources every provider on its own task across
+   the multi-threaded runtime; any new multi-source or I/O-bound path must
+   overlap its work (`tokio::spawn` / `join`) and must never block the runtime
+   with sync I/O or long CPU work on the async threads.
 
 ## Architecture at a glance
 
@@ -83,11 +89,11 @@ pub trait SearchProvider: Send + Sync {
 `browser.rs` exposes a `PageRenderer` trait and a process-wide `ChromiumRenderer`
 via `browser::shared_global()` (always compiled in; a Chrome binary is only
 needed at runtime when a render path actually runs). The `SearchQuery::render`
-flag (set per call by the model, and `fetch_page`'s `render` arg) lets any
-HTML-scraping source fetch through the headless browser instead of plain HTTP.
-The `engine` family honors it automatically; bespoke providers that scrape HTML
-branch on `query.render` and call `crate::browser::shared_global().render(url)`
-themselves (see `stackexchange.rs`).
+flag (set per call by the model on the search tools) and the dedicated
+`render_page` tool let any HTML-scraping path fetch through the headless browser
+instead of plain HTTP. The `engine` family honors the flag automatically;
+bespoke providers that scrape HTML branch on `query.render` and call
+`crate::browser::shared_global().render(url)` themselves (see `stackexchange.rs`).
 
 ## The provider paradigm
 
@@ -146,8 +152,10 @@ becomes a `SearchProvider` the registry treats identically (tier 1).
 ### Adding a web engine (tier 2)
 
 1. Create `src/providers/engine/<name>.rs` with `pub(super) static SPEC: EngineSpec`
-   — endpoint URL, `Method::Get`/`PostForm`, the two CSS selectors, and a
-   `CodeScope` (`SiteOperator` if it supports `site:`, else `Keyword`).
+   — endpoint URL, a `Method` (`Get`/`PostForm`, or `Browser` to always render),
+   an `Extract` (two CSS selectors, or a `Custom` parser fn for messy markup), a
+   `CodeScope` (`SiteOperator` if it supports `site:`, else `Keyword`), and any
+   fixed `extra_params`.
 2. Add `mod <name>;` and a `make()` arm in `providers/engine/mod.rs`.
 3. Add the id to the `engine` arm in `providers::make()`, a
    `config/providers/<name>.toml`, and the `02-search.toml`/README lists.

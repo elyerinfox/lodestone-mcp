@@ -41,13 +41,16 @@ Design principles:
 ## Golden rules (non-negotiable)
 
 1. **Scrape is the default; render is optional and a fallback.** Sources fetch
-   over plain HTTP by default; the headless browser runs only when asked for or
-   as a fallback. (The `google` engine is the one exception — it can't be scraped,
-   so it's browser-only and opt-in.)
+   over plain HTTP by default; the headless browser runs only when the model asks
+   for it (a `render` flag, or the `render_page` tool). (The `google` engine is
+   the one exception — it can't be scraped, so it's browser-only and opt-in.)
 2. **The LLM always decides.** `render` is a per-call flag the model controls;
    the server never enables it on its own.
 3. **Keyless by default.** Credentials (GitHub token, StackExchange key) are
    optional enhancements over a keyless fallback — never required.
+4. **Parallelize — always.** Independent work runs concurrently; aggregate
+   sourcing spawns each provider on its own task across the multi-threaded
+   runtime, and no path blocks the runtime with sync I/O.
 
 ---
 
