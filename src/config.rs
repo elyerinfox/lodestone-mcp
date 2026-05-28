@@ -27,6 +27,7 @@ pub struct Config {
     pub github: Github,
     pub searxng: Searxng,
     pub cache: Cache,
+    pub network: Network,
     /// User-defined self-hosted forges, keyed by provider id. Each entry becomes
     /// a keyless code provider (and a `code_<id>` tool) once its id is listed in
     /// `[providers].code`. Example: `[forges.myhost] kind = "gitea", domain =
@@ -105,6 +106,54 @@ pub struct Google {
     pub no_sandbox: bool,
     /// Extra command-line flags to pass to Chrome.
     pub args: Vec<String>,
+}
+
+/// Opt-in peer-to-peer "hivemind" settings. Disabled by default; when off, the
+/// server behaves exactly as a standalone instance (no endpoints, no peers).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct Network {
+    /// Master switch for the hivemind.
+    pub enabled: bool,
+    /// Static peer base URLs, e.g. ["http://10.0.0.2:8000"].
+    pub peers: Vec<String>,
+    /// Auto-discover peers on the LAN via mDNS (only runs when `enabled`).
+    pub mdns: bool,
+    /// Optional shared secret required on `/hive/*` (separate from `auth_token`).
+    pub token: String,
+    /// Port advertised to peers / via mDNS. 0 = derive from `bind`.
+    pub advertise_port: u16,
+    /// How often (seconds) to refresh peers' digests.
+    pub sync_secs: u64,
+    /// Per-peer request timeout in milliseconds.
+    pub request_timeout_ms: u64,
+    /// Maximum peers consulted for a single query.
+    pub max_peers: usize,
+    /// Maximum results accepted from any one peer (caps a single peer's influence).
+    pub max_results_per_peer: usize,
+    /// Peers that must corroborate a result before it's trusted without a local
+    /// search (anti-poisoning; >= 2 means no single peer can carry a result).
+    pub min_agreement: usize,
+    /// Stable node id. Empty = a random id generated per process.
+    pub node_id: String,
+}
+
+impl Default for Network {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            peers: Vec::new(),
+            mdns: true,
+            token: String::new(),
+            advertise_port: 0,
+            sync_secs: 30,
+            request_timeout_ms: 1500,
+            max_peers: 16,
+            max_results_per_peer: 10,
+            min_agreement: 2,
+            node_id: String::new(),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -190,6 +239,7 @@ impl Default for Config {
             github: Github::default(),
             searxng: Searxng::default(),
             cache: Cache::default(),
+            network: Network::default(),
             forges: HashMap::new(),
         }
     }
@@ -326,6 +376,21 @@ impl Config {
             if let Ok(n) = n.trim().parse::<usize>() {
                 self.cache.max_entries = n;
             }
+        }
+        if let Ok(v) = std::env::var("LODESTONE_NETWORK_ENABLED") {
+            self.network.enabled = is_truthy(&v);
+        }
+        if let Some(peers) = env_list("LODESTONE_NETWORK_PEERS") {
+            self.network.peers = peers;
+        }
+        if let Ok(v) = std::env::var("LODESTONE_NETWORK_MDNS") {
+            self.network.mdns = is_truthy(&v);
+        }
+        if let Ok(t) = std::env::var("LODESTONE_NETWORK_TOKEN") {
+            self.network.token = t;
+        }
+        if let Ok(id) = std::env::var("LODESTONE_NETWORK_NODE_ID") {
+            self.network.node_id = id;
         }
         // Accept the conventional GITHUB_TOKEN as well as our namespaced var.
         if let Ok(token) =

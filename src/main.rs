@@ -11,6 +11,7 @@
 mod browser;
 mod cache;
 mod config;
+mod hive;
 mod provider;
 mod providers;
 mod retrieve;
@@ -741,22 +742,56 @@ async fn require_bearer(
         .and_then(|h| h.to_str().ok())
         .and_then(|h| h.strip_prefix("Bearer "));
     match presented {
-        Some(t) if ct_eq(t.as_bytes(), token.as_bytes()) => next.run(req).await,
+        Some(t) if util::ct_eq(t.as_bytes(), token.as_bytes()) => next.run(req).await,
         _ => (axum::http::StatusCode::UNAUTHORIZED, "unauthorized\n").into_response(),
     }
 }
 
-/// Constant-time byte-slice equality — no early return on first mismatch, so a
-/// matching prefix can't be discovered via response timing.
-fn ct_eq(a: &[u8], b: &[u8]) -> bool {
-    if a.len() != b.len() {
-        return false;
+/// Extract the `Authorization: Bearer <token>` value from request headers.
+fn bearer_token(headers: &axum::http::HeaderMap) -> Option<&str> {
+    headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|h| h.to_str().ok())
+        .and_then(|h| h.strip_prefix("Bearer "))
+}
+
+/// Hivemind peer endpoints (`/hive/digest`, `/hive/query`), each guarded by the
+/// optional `[network].token`. Returns only cached search results — never secrets.
+fn hive_routes(hive: Arc<hive::Hive>) -> axum::Router {
+    use axum::extract::State;
+    use axum::http::{HeaderMap, StatusCode};
+    use axum::response::IntoResponse;
+    use axum::routing::{get, post};
+
+    async fn digest(
+        State(hive): State<Arc<hive::Hive>>,
+        headers: HeaderMap,
+    ) -> axum::response::Response {
+        if !hive.token_ok(bearer_token(&headers)) {
+            return (StatusCode::UNAUTHORIZED, "unauthorized\n").into_response();
+        }
+        axum::Json(hive.digest()).into_response()
     }
-    let mut diff = 0u8;
-    for (x, y) in a.iter().zip(b) {
-        diff |= x ^ y;
+
+    async fn query(
+        State(hive): State<Arc<hive::Hive>>,
+        headers: HeaderMap,
+        axum::Json(req): axum::Json<hive::QueryReq>,
+    ) -> axum::response::Response {
+        if !hive.token_ok(bearer_token(&headers)) {
+            return (StatusCode::UNAUTHORIZED, "unauthorized\n").into_response();
+        }
+        let hits = hive.local_lookup(&req.key);
+        if hits.is_empty() {
+            return StatusCode::NO_CONTENT.into_response();
+        }
+        axum::Json(hive::QueryResp { hits }).into_response()
     }
-    diff == 0
+
+    axum::Router::new()
+        .route("/hive/digest", get(digest))
+        .route("/hive/query", post(query))
+        .with_state(hive)
 }
 
 #[tokio::main]
@@ -775,7 +810,21 @@ async fn main() -> anyhow::Result<()> {
         no_sandbox: cfg.google.no_sandbox,
         args: cfg.google.args.clone(),
     });
-    let registry = Arc::new(Registry::from_config(&cfg));
+    // The result cache is shared with the hivemind (which reads/serves from it),
+    // so enabling the network implies an active cache even if [cache] is off.
+    let cache = (cfg.cache.enabled || cfg.network.enabled).then(|| {
+        Arc::new(cache::TtlCache::new(
+            cfg.cache.ttl_secs.max(1),
+            cfg.cache.max_entries,
+        ))
+    });
+    let hive = cfg.network.enabled.then(|| {
+        hive::Hive::new(
+            &cfg.network,
+            cache.clone().expect("cache exists when network enabled"),
+        )
+    });
+    let registry = Arc::new(Registry::from_config(&cfg, cache.clone(), hive.clone()));
     tracing::info!("\n{}", registry.describe());
 
     let server = Lodestone::new(
@@ -803,9 +852,27 @@ async fn main() -> anyhow::Result<()> {
         mcp = mcp.layer(axum::middleware::from_fn_with_state(token, require_bearer));
         tracing::info!("MCP endpoint requires bearer authentication");
     }
-    let app = axum::Router::new()
+    let mut app = axum::Router::new()
         .route("/health", axum::routing::get(|| async { "ok" }))
         .merge(mcp);
+
+    // Hivemind: mount peer endpoints and start discovery/sync (opt-in).
+    if let Some(h) = &hive {
+        let bind_port = cfg
+            .bind
+            .rsplit(':')
+            .next()
+            .and_then(|p| p.parse::<u16>().ok())
+            .unwrap_or(0);
+        app = app.merge(hive_routes(h.clone()));
+        h.clone().start(bind_port);
+        tracing::info!(
+            peers = cfg.network.peers.len(),
+            mdns = cfg.network.mdns,
+            "hivemind enabled"
+        );
+    }
+
     let listener = tokio::net::TcpListener::bind(&cfg.bind).await?;
     tracing::info!("lodestone-mcp listening on http://{}/mcp", cfg.bind);
 

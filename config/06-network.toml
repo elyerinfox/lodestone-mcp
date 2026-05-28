@@ -1,0 +1,55 @@
+# =============================================================================
+# config/06-network.toml — hivemind (peer-to-peer shared query knowledge)
+# =============================================================================
+#
+# OPT-IN and OFF by default. When enabled, instances consult each other's caches
+# before scraping the open web, spreading load and softening per-IP rate limits.
+# The network is a *helper*, never a dependency: with zero peers everything still
+# works locally.
+#
+# Privacy & trust: only *hashes* of query keys cross the wire (never raw queries),
+# and responses carry only cached search results (public web data), never secrets.
+# Peer data is untrusted — a result is returned without a local search only when
+# `min_agreement` peers corroborate it, each peer's influence is capped, and peers
+# are weighted by a reputation earned by agreeing with consensus/local truth.
+#
+# Enabling the network implies the result cache is active (the hive serves from
+# it), even if [cache].enabled is false. See docs/hivemind.md for the full design
+# and a two-node test.
+# -----------------------------------------------------------------------------
+
+[network]
+# Master switch. Env: LODESTONE_NETWORK_ENABLED
+enabled = false
+
+# Static peer base URLs (no trailing /). Env: LODESTONE_NETWORK_PEERS (comma-sep)
+#   peers = ["http://10.0.0.2:8000", "http://10.0.0.3:8000"]
+peers = []
+
+# Auto-discover peers on the LAN via mDNS (_lodestone._tcp.local.). Only runs when
+# enabled=true; set false to disable. Env: LODESTONE_NETWORK_MDNS
+mdns = true
+
+# Optional shared secret for the /hive endpoints (separate from the public
+# auth_token). When set, peers must present `Authorization: Bearer <token>` and
+# outbound peer requests include it. Env: LODESTONE_NETWORK_TOKEN
+token = ""
+
+# Port advertised to peers / via mDNS. 0 = derive from `bind`.
+advertise_port = 0
+
+# How often (seconds) to refresh peers' digests.
+sync_secs = 30
+# Per-peer request timeout (milliseconds) — bounds how long a slow peer can stall.
+request_timeout_ms = 1500
+# Maximum peers consulted for one query.
+max_peers = 16
+# Maximum results accepted from any one peer (caps a single peer's influence).
+max_results_per_peer = 10
+# Peers that must corroborate a result before it's trusted without a local search.
+# >= 2 means no single (possibly malicious) peer can inject a result.
+min_agreement = 2
+
+# Stable node id. Empty = a random id generated per process.
+# Env: LODESTONE_NETWORK_NODE_ID
+node_id = ""

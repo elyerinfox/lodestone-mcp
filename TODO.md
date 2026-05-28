@@ -130,31 +130,19 @@ likely involved). Checked items are done; unchecked are open.
 
 ## Distributed / federation
 
-- [ ] **Peer-to-peer "hivemind" of instances with shared query knowledge.**
-  - **Why:** Independent instances re-do the same scraping and burn the same
-    rate-limited engines. If a peer already searched something, a new instance
-    should be able to consult the network before going out to the open web —
-    spreading load, improving hit rates, and softening per-IP blocks. Local
-    search must keep working with zero peers: the network is a *helper*, never a
-    dependency.
-  - **How:** (1) **Service discovery** — let instances find each other (static
-    peer list in config, plus optional mDNS/LAN and a gossip seed). (2) **Shared
-    digests** — each peer advertises what it has cached as a compact, privacy-
-    preserving summary (e.g. a **Bloom filter** of normalized query keys, synced
-    periodically), so a peer can cheaply test "might peer X have this?" without
-    exchanging full query logs. (3) **Consult-then-fetch** — on a query, check
-    peers whose Bloom filter matches, request the cached result (reuse the cache
-    value format above), and fall back to a normal local search on miss/timeout/
-    low-confidence. (4) **Rank peer results to prevent poisoning (required, not
-    optional).** Never trust a peer's results blindly: corroborate across multiple
-    peers, prefer results that the local engines also surface, and weight peers by
-    a reputation score (decayed by disagreement/staleness). Treat peer data as
-    *hints* that must survive the same dedup/ranking (incl. `breadth`/consensus)
-    as first-party results, and cap any single peer's influence so one malicious
-    or stale node can't dominate. Keep the network strictly opt-in
-    (`[network] enabled = false` by default), bounded (timeouts, max peers), and
-    careful never to share secrets or raw user inputs beyond hashed/Bloom keys.
-    Likely its own module + a background sync task.
+- [x] **Peer-to-peer "hivemind" of instances with shared query knowledge.** Done
+  (v1): `src/hive/` — opt-in `[network]` (off by default). Discovery via a static
+  peer list **and** mDNS LAN (`_lodestone._tcp.local.`, runtime-disableable).
+  Peers advertise a **Bloom filter** of cached query-key *hashes* (`GET
+  /hive/digest`); `consult` asks matching peers (`POST /hive/query`, bounded +
+  capped per peer) and **consensus** trusts a result only when `>= min_agreement`
+  peers corroborate it (reputation-weighted, single-peer influence capped) —
+  otherwise it falls back to a local search and learns from the peers. Only hashes
+  cross the wire; responses carry only cached results (never secrets); `/hive`
+  endpoints honor an optional `[network].token`. No relaying (no amplification).
+  See `docs/hivemind.md` and `config/06-network.toml`.
+  - **Deferred:** gossip peer-exchange, reputation persistence across restarts,
+    and a Redis-backed *shared* cache (multiple nodes behind one store).
 
 ## Docs & release
 

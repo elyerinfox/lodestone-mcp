@@ -1,5 +1,19 @@
 //! Small shared text/HTML helpers used across providers and retrieval.
 
+/// Constant-time byte-slice equality — no early return on first mismatch, so a
+/// matching prefix can't be discovered via response timing. Used for bearer
+/// token checks.
+pub(crate) fn ct_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
 /// Convert an HTML fragment or document to readable plain text.
 pub fn html_to_text(html: &str) -> String {
     collapse_blank_lines(&html2text::from_read(html.as_bytes(), 100))

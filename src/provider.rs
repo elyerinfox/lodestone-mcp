@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::cache::TtlCache;
 use crate::config::Config;
+use crate::hive::{hash_key, Hive};
 use crate::providers;
 
 /// What category of search a provider serves.
@@ -168,12 +169,19 @@ pub struct Registry {
     plan_code: KindPlan,
     plan_qa: KindPlan,
     cache: Option<Arc<TtlCache>>,
+    hive: Option<Arc<Hive>>,
 }
 
 impl Registry {
     /// Build the registry from configuration. Unknown provider ids are skipped
-    /// with a warning so a typo never takes the whole server down.
-    pub fn from_config(cfg: &Config) -> Self {
+    /// with a warning so a typo never takes the whole server down. The result
+    /// cache and (optional) hivemind are built by the caller and shared in, since
+    /// the hive reads/writes the same cache.
+    pub fn from_config(
+        cfg: &Config,
+        cache: Option<Arc<TtlCache>>,
+        hive: Option<Arc<Hive>>,
+    ) -> Self {
         let global_strategy = Strategy::parse(&cfg.search.strategy);
         let global_ranking = Ranking::parse(&cfg.search.ranking);
         // Empty override field → inherit the global value.
@@ -196,12 +204,8 @@ impl Registry {
             plan_web: plan(&cfg.search.web),
             plan_code: plan(&cfg.search.code),
             plan_qa: plan(&cfg.search.qa),
-            cache: cfg.cache.enabled.then(|| {
-                Arc::new(TtlCache::new(
-                    cfg.cache.ttl_secs.max(1),
-                    cfg.cache.max_entries,
-                ))
-            }),
+            cache,
+            hive,
         }
     }
 
@@ -242,7 +246,12 @@ impl Registry {
         let Some(provider) = self.chain(kind).iter().find(|p| p.id() == id) else {
             return Vec::new();
         };
-        let key = format!("one|{}|{}|{}", kind.as_str(), id, query_key(query));
+        let key = hash_key(&format!(
+            "one|{}|{}|{}",
+            kind.as_str(),
+            id,
+            query_key(query)
+        ));
         if let Some(hits) = self.cache_get(&key) {
             return hits;
         }
@@ -286,22 +295,51 @@ impl Registry {
         query: &SearchQuery,
     ) -> (Vec<SearchResult>, String) {
         let plan = self.plan(kind);
-        let key = format!(
+        // Hash the logical key so cache entries and peer lookups share a stable,
+        // privacy-preserving id (raw query text never crosses the wire).
+        let key = hash_key(&format!(
             "search|{}|{}|{}|{}",
             kind.as_str(),
             plan.strategy.as_str(),
             plan.ranking.as_str(),
             query_key(query),
-        );
+        ));
         if let Some(hits) = self.cache_get(&key) {
             return (hits, "cache".to_string());
         }
-        let (results, label) = match plan.strategy {
-            Strategy::Fallback => self.search_fallback(kind, http, query).await,
-            Strategy::Aggregate => self.search_aggregate(kind, http, query).await,
-        };
+        // Consult-then-fetch: if peers corroborate a result (consensus + capped
+        // single-peer influence), trust it and skip re-scraping; otherwise run a
+        // normal local search and learn from any peer hits.
+        if let Some(hive) = &self.hive {
+            let peer_hits = hive.consult(&key).await;
+            let trusted = hive.consensus(&peer_hits, query.limit);
+            if !trusted.is_empty() {
+                hive.update_reputations(&peer_hits, &trusted);
+                self.cache_put(&key, &trusted);
+                return (trusted, "hive".to_string());
+            }
+            let (results, label) = self.run_strategy(kind, http, query).await;
+            self.cache_put(&key, &results);
+            if !peer_hits.is_empty() {
+                hive.update_reputations(&peer_hits, &results);
+            }
+            return (results, label);
+        }
+        let (results, label) = self.run_strategy(kind, http, query).await;
         self.cache_put(&key, &results);
         (results, label)
+    }
+
+    async fn run_strategy(
+        &self,
+        kind: ProviderKind,
+        http: &Client,
+        query: &SearchQuery,
+    ) -> (Vec<SearchResult>, String) {
+        match self.plan(kind).strategy {
+            Strategy::Fallback => self.search_fallback(kind, http, query).await,
+            Strategy::Aggregate => self.search_aggregate(kind, http, query).await,
+        }
     }
 
     async fn search_fallback(
@@ -552,7 +590,7 @@ fn interleave(
     out
 }
 
-fn normalize_url(u: &str) -> String {
+pub(crate) fn normalize_url(u: &str) -> String {
     let u = u.split('#').next().unwrap_or(u).trim();
     u.trim_end_matches('/').to_string()
 }

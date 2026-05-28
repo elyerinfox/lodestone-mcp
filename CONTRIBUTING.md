@@ -55,6 +55,8 @@ src/
                  page text, Wayback snapshots, StackExchange answer threads.
   config.rs      Config struct + file (TOML) and env-var loading.
   cache.rs       In-memory TTL cache used by the Registry for search results.
+  hive/          Opt-in P2P hivemind: Bloom-filter digests, consult-then-fetch
+                 with consensus/reputation anti-poisoning, mDNS discovery.
   util.rs        HTML→text, whitespace/entity helpers, truncation.
 ```
 

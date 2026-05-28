@@ -47,6 +47,17 @@ impl TtlCache {
         }
     }
 
+    /// Snapshot of the currently-live (unexpired) keys. Used by the hivemind to
+    /// build a digest of what this node can serve.
+    pub fn keys(&self) -> Vec<String> {
+        let now = Instant::now();
+        let map = self.map.lock().unwrap();
+        map.iter()
+            .filter(|(_, e)| e.expires > now)
+            .map(|(k, _)| k.clone())
+            .collect()
+    }
+
     /// Insert/overwrite `key` with a fresh TTL. When at capacity, expired entries
     /// are dropped first, then an arbitrary entry if still full.
     pub fn put(&self, key: String, value: String) {

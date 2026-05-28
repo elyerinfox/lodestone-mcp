@@ -201,6 +201,13 @@ enabled = true           # cache search results in memory (cleared on restart)
 ttl_secs = 300           # freshness window
 max_entries = 512        # memory bound
 
+[network]                # opt-in peer-to-peer hivemind (see docs/hivemind.md)
+enabled = false
+peers = []               # static peer base URLs
+mdns = true              # LAN auto-discovery (when enabled)
+token = ""               # optional shared secret for /hive endpoints
+min_agreement = 2        # peers needed to trust a result without local search
+
 # Register self-hosted forges as keyless code providers (then add the id to
 # [providers].code). See config/04-forges.toml.
 # [forges.myhost]
@@ -217,7 +224,9 @@ Env overrides include `LODESTONE_BIND`, `LODESTONE_AUTH_TOKEN`,
 `LODESTONE_CHROME_PATH`, `LODESTONE_CHROME_NO_SANDBOX`, `LODESTONE_CHROME_ARGS`,
 `LODESTONE_GITHUB_TOKEN` / `GITHUB_TOKEN`, `LODESTONE_SEARXNG_URL`, and
 `LODESTONE_CACHE_ENABLED` / `LODESTONE_CACHE_TTL_SECS` /
-`LODESTONE_CACHE_MAX_ENTRIES`.
+`LODESTONE_CACHE_MAX_ENTRIES`, and `LODESTONE_NETWORK_ENABLED` /
+`LODESTONE_NETWORK_PEERS` / `LODESTONE_NETWORK_MDNS` / `LODESTONE_NETWORK_TOKEN` /
+`LODESTONE_NETWORK_NODE_ID`.
 
 ### Authentication
 
@@ -309,6 +318,18 @@ rate-limited engines or burn API quota. It's on by default with a 300s TTL
 (never secrets), and never caches empty results — so a transiently blocked source
 is retried rather than pinned empty. Retrieval tools (`fetch_page`, etc.) aren't
 cached.
+
+### Hivemind (peer-to-peer)
+
+An **opt-in** layer (`[network]`, off by default) where instances consult each
+other's caches before scraping — spreading load and softening rate limits, while
+staying a *helper*, never a dependency (zero peers = normal local search). Peers
+are found via a static list and/or **mDNS** LAN discovery. Only *hashes* of
+queries cross the wire (never raw text); responses carry only cached search
+results (never secrets). Peer data is untrusted: a result is reused without a
+local search only when `min_agreement` peers corroborate it, each peer's influence
+is capped, and peers are weighted by an earned reputation — so one bad node can't
+poison results. Full design + a two-node test: [docs/hivemind.md](docs/hivemind.md).
 
 ### Forges (GitLab, Gitea, …)
 
