@@ -6,8 +6,8 @@ JSON APIs, and OCI-registry access uses the Distribution Spec's **anonymous**
 bearer-token flow (the same one `docker pull` uses for public images: a `401`
 `WWW-Authenticate: Bearer realm=…` challenge → fetch a token from that realm → retry).
 
-Code: [`src/oci.rs`](../src/oci.rs) (Docker Hub + OCI distribution),
-[`src/artifacthub.rs`](../src/artifacthub.rs). Each is an independent skill,
+Code: [`src/skills/oci.rs`](../src/skills/oci.rs) (Docker Hub + OCI distribution),
+[`src/skills/artifacthub.rs`](../src/skills/artifacthub.rs). Each is an independent skill,
 gateable via `[tools]`.
 
 ## Docker Hub
@@ -48,7 +48,7 @@ link to the package page on artifacthub.io.
 A **local-system** capability, separate from the keyless web tools above:
 lodestone talks to your Docker daemon directly via the Engine API over the platform
 socket (Windows named pipe / unix socket; honors `DOCKER_HOST`) — no `docker` CLI.
-Code: [`src/docker.rs`](../src/docker.rs). Gated by `[docker]` (see
+Code: [`src/skills/docker.rs`](../src/skills/docker.rs). Gated by `[docker]` (see
 [`config/08-docker.toml`](../config/08-docker.toml)); `enabled` on by default,
 destructive actions hidden unless `allow_destructive` is set. Each action is its own
 gated tool.
@@ -74,7 +74,7 @@ gated tool.
 A **cluster-control** capability: lodestone talks to the Kubernetes API server
 directly via [kube-rs](https://kube.rs), reading your kubeconfig (default location,
 `$KUBECONFIG`, or a configured path/context) or in-cluster credentials — no
-`kubectl`. Code: [`src/k8s.rs`](../src/k8s.rs). Gated by `[kubernetes]` (see
+`kubectl`. Code: [`src/skills/kubernetes.rs`](../src/skills/kubernetes.rs). Gated by `[kubernetes]` (see
 [`config/09-kubernetes.toml`](../config/09-kubernetes.toml)); `enabled` on by
 default, `k8s_delete` hidden unless `allow_destructive` is set. `kind` accepts
 kubectl-style names (`pods`, `deploy`, `svc`, `nodes`, …) resolved via API discovery.

@@ -1,22 +1,29 @@
-//! Kubernetes cluster interaction via the API server (kube-rs). Reads your
-//! kubeconfig (default location, `$KUBECONFIG`, or a configured path/context) or
-//! in-cluster service-account credentials — no `kubectl` binary.
+//! Kubernetes cluster skills via the API server (kube-rs). Reads your kubeconfig
+//! (default location, `$KUBECONFIG`, or a configured path/context) or in-cluster
+//! service-account credentials — no `kubectl` binary.
 //!
-//! A local/cluster-control capability, separate from the keyless web tools. Gated
-//! by `[kubernetes]` (on by default); destructive actions (`k8s_delete`) are hidden
-//! unless `allow_destructive` is set. Every action is its own tool for per-action
-//! permission granularity. kube types are fully encapsulated here (functions return
-//! formatted `String`s), so `main.rs` never depends on kube.
+//! A cluster-control capability, separate from the keyless web tools. Gated by
+//! `[kubernetes]` (on by default); destructive `k8s_delete` is hidden unless
+//! `allow_destructive` (gating lives in `main.rs::effective_disabled`). Each action
+//! is its own skill. kube types are encapsulated here.
+
+use std::sync::Arc;
 
 use anyhow::{anyhow, Context as _, Result};
+use futures::future::BoxFuture;
 use k8s_openapi::api::core::v1::Pod;
 use kube::api::{Api, DeleteParams, ListParams, LogParams, Patch, PatchParams};
 use kube::config::{KubeConfigOptions, Kubeconfig};
 use kube::core::DynamicObject;
 use kube::discovery::{ApiResource, Discovery, Scope};
 use kube::{Client, Config};
+use rmcp::model::{CallToolResult, JsonObject};
+use rmcp::ErrorData as McpError;
 use serde::Deserialize;
 use serde_json::Value;
+
+use crate::skills::{schema_for, NoArgs, Skill, SkillCtx};
+use crate::{clamp, internal, text_result};
 
 /// Connection options resolved from `[kubernetes]` config.
 pub struct Opts {
@@ -304,8 +311,6 @@ pub async fn scale(
     Ok(format!("Scaled {kind}/{name} to {replicas} replicas"))
 }
 
-// --- destructive (gated by [kubernetes].allow_destructive) -------------------
-
 /// Delete a named resource.
 pub async fn delete(
     opts: &Opts,
@@ -323,6 +328,289 @@ pub async fn delete(
     Ok(format!("Deleted {kind}/{name}"))
 }
 
+// ---------------------------------------------------------------------------
+// Skills
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct K8sGetArgs {
+    /// Resource kind, e.g. "pods", "deployment", "svc", "nodes", "configmap".
+    kind: String,
+    /// A specific resource name. Omit to list all of the kind.
+    #[serde(default)]
+    name: Option<String>,
+    /// Namespace (for namespaced kinds). Omit to use the configured/default namespace.
+    #[serde(default)]
+    namespace: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct K8sDescribeArgs {
+    /// Resource kind, e.g. "pod", "deployment", "service".
+    kind: String,
+    /// The resource name.
+    name: String,
+    /// Namespace (for namespaced kinds). Omit to use the configured/default namespace.
+    #[serde(default)]
+    namespace: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct K8sLogsArgs {
+    /// Pod name.
+    pod: String,
+    /// Namespace. Omit to use the configured/default namespace.
+    #[serde(default)]
+    namespace: Option<String>,
+    /// Container name (for multi-container pods). Omit for the default container.
+    #[serde(default)]
+    container: Option<String>,
+    /// Trailing log lines to return. Default 200, capped 2000.
+    #[serde(default)]
+    tail: Option<u32>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct K8sApplyArgs {
+    /// One or more Kubernetes manifests (a "kubefile"): YAML, multi-document
+    /// (`---`-separated) allowed. Server-side applied.
+    manifest: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct K8sScaleArgs {
+    /// Workload kind: "deployment", "statefulset", or "replicaset".
+    kind: String,
+    /// The workload name.
+    name: String,
+    /// Desired replica count.
+    replicas: i32,
+    /// Namespace. Omit to use the configured/default namespace.
+    #[serde(default)]
+    namespace: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct K8sDeleteArgs {
+    /// Resource kind, e.g. "pod", "deployment", "service".
+    kind: String,
+    /// The resource name.
+    name: String,
+    /// Namespace (for namespaced kinds). Omit to use the configured/default namespace.
+    #[serde(default)]
+    namespace: Option<String>,
+}
+
+pub struct K8sContexts;
+impl Skill for K8sContexts {
+    fn name(&self) -> &'static str {
+        "k8s_contexts"
+    }
+    fn description(&self) -> &'static str {
+        "List the kubeconfig contexts and the current one (no cluster contact). Use to see which \
+        clusters are configured."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<NoArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let server = ctx.server;
+            Ok(text_result(contexts(&server.k8s_opts()).map_err(internal)?))
+        })
+    }
+}
+
+pub struct K8sGet;
+impl Skill for K8sGet {
+    fn name(&self) -> &'static str {
+        "k8s_get"
+    }
+    fn description(&self) -> &'static str {
+        "Get Kubernetes resources from the cluster: a single named object (full JSON) or a list of \
+        a kind. `kind` accepts kubectl names (pods, deploy, svc, nodes, …). Reads your kubeconfig; \
+        no kubectl."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<K8sGetArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (server, args) = ctx.parse::<K8sGetArgs>()?;
+            let out = get(
+                &server.k8s_opts(),
+                &args.kind,
+                args.name.as_deref(),
+                args.namespace.as_deref(),
+            )
+            .await
+            .map_err(internal)?;
+            Ok(text_result(crate::util::truncate_chars(
+                &out,
+                server.max_chars,
+            )))
+        })
+    }
+}
+
+pub struct K8sDescribe;
+impl Skill for K8sDescribe {
+    fn name(&self) -> &'static str {
+        "k8s_describe"
+    }
+    fn description(&self) -> &'static str {
+        "Describe one Kubernetes resource (full JSON of the named object). Reads your kubeconfig; \
+        no kubectl."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<K8sDescribeArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (server, args) = ctx.parse::<K8sDescribeArgs>()?;
+            let out = describe(
+                &server.k8s_opts(),
+                &args.kind,
+                &args.name,
+                args.namespace.as_deref(),
+            )
+            .await
+            .map_err(internal)?;
+            Ok(text_result(crate::util::truncate_chars(
+                &out,
+                server.max_chars,
+            )))
+        })
+    }
+}
+
+pub struct K8sLogs;
+impl Skill for K8sLogs {
+    fn name(&self) -> &'static str {
+        "k8s_logs"
+    }
+    fn description(&self) -> &'static str {
+        "Read a Kubernetes pod's logs (last `tail` lines; optional container). Reads your \
+        kubeconfig; no kubectl."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<K8sLogsArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (server, args) = ctx.parse::<K8sLogsArgs>()?;
+            let tail = clamp(args.tail, 200, 2000);
+            let out = logs(
+                &server.k8s_opts(),
+                &args.pod,
+                args.namespace.as_deref(),
+                args.container.as_deref(),
+                tail,
+            )
+            .await
+            .map_err(internal)?;
+            Ok(text_result(crate::util::truncate_chars(
+                &out,
+                server.max_chars,
+            )))
+        })
+    }
+}
+
+pub struct K8sApply;
+impl Skill for K8sApply {
+    fn name(&self) -> &'static str {
+        "k8s_apply"
+    }
+    fn description(&self) -> &'static str {
+        "Apply a Kubernetes manifest ('kubefile') to the cluster via server-side apply. `manifest` \
+        is YAML (multi-document allowed). Creates or updates the objects. Reads your kubeconfig; no \
+        kubectl."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<K8sApplyArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (server, args) = ctx.parse::<K8sApplyArgs>()?;
+            let out = apply(&server.k8s_opts(), &args.manifest)
+                .await
+                .map_err(internal)?;
+            Ok(text_result(out))
+        })
+    }
+}
+
+pub struct K8sScale;
+impl Skill for K8sScale {
+    fn name(&self) -> &'static str {
+        "k8s_scale"
+    }
+    fn description(&self) -> &'static str {
+        "Scale a Kubernetes workload (deployment/statefulset/replicaset) to a replica count. Reads \
+        your kubeconfig; no kubectl."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<K8sScaleArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (server, args) = ctx.parse::<K8sScaleArgs>()?;
+            let out = scale(
+                &server.k8s_opts(),
+                &args.kind,
+                &args.name,
+                args.replicas,
+                args.namespace.as_deref(),
+            )
+            .await
+            .map_err(internal)?;
+            Ok(text_result(out))
+        })
+    }
+}
+
+pub struct K8sDelete;
+impl Skill for K8sDelete {
+    fn name(&self) -> &'static str {
+        "k8s_delete"
+    }
+    fn description(&self) -> &'static str {
+        "Delete a Kubernetes resource by kind + name. Destructive — only available when \
+        [kubernetes].allow_destructive is set. Reads your kubeconfig; no kubectl."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<K8sDeleteArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (server, args) = ctx.parse::<K8sDeleteArgs>()?;
+            let out = delete(
+                &server.k8s_opts(),
+                &args.kind,
+                &args.name,
+                args.namespace.as_deref(),
+            )
+            .await
+            .map_err(internal)?;
+            Ok(text_result(out))
+        })
+    }
+}
+
+/// The skills this module contributes (gating happens in `effective_disabled`).
+pub fn skills() -> Vec<Box<dyn Skill>> {
+    vec![
+        Box::new(K8sContexts),
+        Box::new(K8sGet),
+        Box::new(K8sDescribe),
+        Box::new(K8sLogs),
+        Box::new(K8sApply),
+        Box::new(K8sScale),
+        Box::new(K8sDelete),
+    ]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -333,7 +621,7 @@ mod tests {
         assert_eq!(canonical_kind("deploy"), "deployment");
         assert_eq!(canonical_kind("svc"), "service");
         assert_eq!(canonical_kind("pvc"), "persistentvolumeclaim");
-        assert_eq!(canonical_kind("widgets"), "widgets"); // unknown passes through
+        assert_eq!(canonical_kind("widgets"), "widgets");
     }
 
     #[test]

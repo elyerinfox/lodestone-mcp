@@ -11,6 +11,10 @@
 //! See [golden rule 7](../../docs/golden-rules.md) and the terminology note in
 //! [CONTRIBUTING.md](../../CONTRIBUTING.md).
 
+pub mod artifacthub;
+pub mod docker;
+pub mod kubernetes;
+pub mod oci;
 pub mod translate;
 
 use std::sync::Arc;
@@ -58,6 +62,10 @@ pub(crate) fn schema_for<T: JsonSchema + 'static>() -> Arc<JsonObject> {
     schema_for_type::<T>()
 }
 
+/// Empty argument set, for skills that take no parameters.
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub(crate) struct NoArgs {}
+
 /// Turn one boxed skill into a dynamic tool route.
 fn route(skill: Box<dyn Skill>) -> ToolRoute<Lodestone> {
     let tool = Tool::new(
@@ -77,6 +85,10 @@ fn route(skill: Box<dyn Skill>) -> ToolRoute<Lodestone> {
 /// Every skill, as routes ready to add to the router.
 pub fn all_routes() -> Vec<ToolRoute<Lodestone>> {
     let mut skills: Vec<Box<dyn Skill>> = Vec::new();
+    skills.extend(oci::skills());
+    skills.extend(artifacthub::skills());
+    skills.extend(docker::skills());
+    skills.extend(kubernetes::skills());
     skills.extend(translate::skills());
     skills.into_iter().map(route).collect()
 }

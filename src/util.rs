@@ -52,6 +52,37 @@ pub fn truncate_chars(s: &str, max: usize) -> String {
     format!("{truncated}\n\n[... truncated to {max} characters ...]")
 }
 
+/// Compact human byte size (e.g. "36.3 MB").
+pub fn human_size(bytes: u64) -> String {
+    const UNITS: &[&str] = &["B", "KB", "MB", "GB", "TB"];
+    let mut v = bytes as f64;
+    let mut i = 0;
+    while v >= 1024.0 && i < UNITS.len() - 1 {
+        v /= 1024.0;
+        i += 1;
+    }
+    if i == 0 {
+        format!("{bytes} B")
+    } else {
+        format!("{v:.1} {}", UNITS[i])
+    }
+}
+
+/// Compact human count (e.g. "13.0B", "21.3K") for star/pull tallies.
+pub fn human_count(n: i64) -> String {
+    let a = n.unsigned_abs() as f64;
+    let (v, suffix) = if a >= 1e9 {
+        (a / 1e9, "B")
+    } else if a >= 1e6 {
+        (a / 1e6, "M")
+    } else if a >= 1e3 {
+        (a / 1e3, "K")
+    } else {
+        return n.to_string();
+    };
+    format!("{}{v:.1}{suffix}", if n < 0 { "-" } else { "" })
+}
+
 /// Minimal HTML entity decoding for short strings (e.g. API-returned titles).
 pub fn decode_entities(s: &str) -> String {
     s.replace("&amp;", "&")
