@@ -212,7 +212,10 @@ tick all of these:
       **Schema / structs** (the spec/struct literal and config keys).
 - [ ] **Index row in [docs/providers.md](docs/providers.md)** under its family,
       linking to the new page.
-- [ ] **README provider + tools tables** rows added.
+- [ ] **Reference docs updated** — [docs/tools.md](docs/tools.md) (its `<kind>_<id>`
+      tool / any bespoke skill) and, for a new family, a row/section in the relevant
+      reference. The README is a concise overview; it links to these, so it usually
+      needs no per-provider edit.
 - [ ] **All [golden rules](docs/golden-rules.md) upheld** — in particular keyless
       by default, scrape-default / render-optional, enable/disable-able, and
       documented.

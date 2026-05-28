@@ -37,6 +37,7 @@ truth — the README and CONTRIBUTING link here rather than restating them.
 
 6. **Every provider is documented.** A provider is not done until an end user can
    understand and enable it without reading the source: a per-provider page under
-   [`docs/providers/`](providers/), an index row in
-   [`docs/providers.md`](providers.md), and a README provider-table row (see the
-   contribution checklist in [CONTRIBUTING.md](../CONTRIBUTING.md)).
+   [`docs/providers/`](providers/) (a shared family page is fine for spec-driven
+   families) and an index row in [`docs/providers.md`](providers.md). The README
+   stays a concise overview and links out to that reference (see the contribution
+   checklist in [CONTRIBUTING.md](../CONTRIBUTING.md)).
