@@ -1,0 +1,29 @@
+# -----------------------------------------------------------------------------
+# Provider: google  (kinds: web, code) — feature-gated
+# -----------------------------------------------------------------------------
+# Headless-Chrome scrape of google.com — the only way to get usable Google
+# results, but heavy and CAPTCHA-prone on datacenter IPs. Requires building with
+# `--features google` (or `browser`) and a Chrome/Chromium binary at runtime.
+#
+# This same [google] section also configures the shared headless browser used by
+# per-call render=true on web_search / code_search / fetch_page and by
+# render=true StackOverflow scraping — so set it even if you don't add the
+# `google` provider itself.
+#
+# To use the provider: add "google" to the web/code lists in ../02-search.toml.
+# -----------------------------------------------------------------------------
+
+[google]
+# Path to Chrome/Chromium; empty = auto-detect a standard install.
+#   Windows: 'C:\Program Files\Google\Chrome\Application\chrome.exe'
+#   Linux:   "/usr/bin/chromium"
+#   macOS:   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+# Env: LODESTONE_CHROME_PATH
+chrome_path = ""
+
+# Add --no-sandbox / --disable-dev-shm-usage. REQUIRED when Chrome runs as root
+# (e.g. inside a Docker container). Env: LODESTONE_CHROME_NO_SANDBOX
+no_sandbox = false
+
+# Extra Chrome flags. Env: LODESTONE_CHROME_ARGS (comma-separated)
+args = []

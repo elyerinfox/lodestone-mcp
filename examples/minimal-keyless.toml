@@ -1,0 +1,36 @@
+# Minimal, fully keyless setup — ready to use out of the box.
+# Works with a plain `cargo run` (no Chrome, no tokens, no accounts).
+#
+#   Usage:  cp examples/minimal-keyless.toml lodestone.toml
+#
+# This mirrors the built-in defaults, written out so you have a concrete
+# starting point to edit.
+
+bind = "127.0.0.1:8000"
+
+[search]
+# "fallback" = try providers in order, first non-empty wins (fast).
+strategy = "fallback"
+
+[providers]
+web  = ["duckduckgo", "mojeek"]
+code = ["grep_app", "duckduckgo", "mojeek"]
+qa   = ["stackoverflow"]
+
+[code]
+# Forge domains code_search is scoped to. Add e.g. "gitlab.com", "codeberg.org".
+sites = ["github.com"]
+
+[stackexchange]
+# A StackExchange site is identified by its short API slug — NOT a full URL.
+# Common slugs:
+#   stackoverflow      (Stack Overflow)
+#   serverfault        (Server Fault)
+#   superuser          (Super User)
+#   askubuntu          (Ask Ubuntu)
+#   unix               (Unix & Linux)
+#   softwareengineering, codereview, dba, devops, security, apple, math, stats,
+#   tex, english, gaming, ...
+# Full list (use the "api_site_parameter" field):
+#   https://api.stackexchange.com/2.3/sites
+default_site = "stackoverflow"

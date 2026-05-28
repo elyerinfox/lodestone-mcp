@@ -1,0 +1,27 @@
+# Guardrailed deployment — restricted tools and a StackExchange site allowlist.
+# Fully keyless; works with a plain `cargo run`.
+#
+#   Usage:  cp examples/locked-down.toml lodestone.toml
+
+bind = "127.0.0.1:8000"
+
+[tools]
+# Only these tools are exposed; everything else is hidden and uncallable.
+enabled = ["web_search", "stackexchange_search", "stackexchange_answers", "fetch_page"]
+
+[providers]
+web = ["mojeek", "duckduckgo"]
+qa  = ["stackoverflow"]
+
+[stackexchange]
+default_site = "stackoverflow"
+
+# Guardrail: ONLY these StackExchange sites may be searched or read; any other
+# requested site is rejected with an error. (Empty list = allow any site.)
+#
+# Sites are short API slugs, NOT URLs. Pick from the "api_site_parameter" values
+# at https://api.stackexchange.com/2.3/sites . Examples:
+#   stackoverflow  serverfault  superuser  askubuntu  unix
+#   softwareengineering  codereview  dba  devops  security
+#   math  stats  tex  english  apple  gaming
+allowed_sites = ["stackoverflow", "serverfault", "superuser", "askubuntu", "unix"]

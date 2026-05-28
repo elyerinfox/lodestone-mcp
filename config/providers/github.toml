@@ -1,0 +1,17 @@
+# -----------------------------------------------------------------------------
+# Provider: github  (kind: code) — optional, token-gated
+# -----------------------------------------------------------------------------
+# GitHub's AUTHENTICATED code-search API. GitHub no longer allows unauthenticated
+# code search, so this provider only activates when a token is set; otherwise it
+# is skipped and code search falls back to the keyless site-scoped web providers.
+# The token is used ONLY for code search — github_fetch_file downloads raw files
+# without it.
+#
+# To use it: add "github" to the code list in ../02-search.toml AND set a token
+# (a classic PAT with public_repo, or a fine-grained PAT with read-only Contents).
+# Prefer the env var so the token isn't committed.
+# -----------------------------------------------------------------------------
+
+[github]
+# Env: LODESTONE_GITHUB_TOKEN (or GITHUB_TOKEN)
+token = ""

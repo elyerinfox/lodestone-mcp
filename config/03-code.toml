@@ -1,0 +1,14 @@
+# =============================================================================
+# config/03-code.toml — code-search forge scope
+# =============================================================================
+#
+# The web-backed code providers (duckduckgo / mojeek / google) scope queries to
+# these forge domains with `site:`, so GitHub, GitLab, and Gitea instances can
+# be searched together. Result URLs are parsed into repo/path for GitHub,
+# GitLab, and Gitea layouts.
+# -----------------------------------------------------------------------------
+
+[code]
+# Env: LODESTONE_CODE_SITES
+sites = ["github.com"]
+# e.g. sites = ["github.com", "gitlab.com", "codeberg.org", "gitea.com"]

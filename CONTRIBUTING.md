@@ -98,7 +98,8 @@ browser path behind `#[cfg(feature = "browser")]`.
 
 2. Register it in `providers/mod.rs`: add `mod <name>;` and a match arm in
    `make()` (gate with `#[cfg(feature = "...")]` if it needs the browser).
-3. Document the new id in `lodestone.example.toml` and the README provider table.
+3. Add a `config/providers/<id>.toml` file (settings, or documentation only)
+   and document the id in `config/02-search.toml` and the README provider table.
 4. Code providers should run results through `super::finish(...)` so forge
    filtering and repo/path enrichment apply.
 
@@ -113,7 +114,8 @@ browser path behind `#[cfg(feature = "browser")]`.
 - **Keyless ethos:** don't introduce a source that requires a key/account unless
   it's optional, documented, and has a keyless fallback. Never log secrets.
 - **No secrets in git:** `lodestone.toml` is gitignored; commit changes to
-  `lodestone.example.toml` instead. Prefer `GITHUB_TOKEN` via env over the file.
+  the committed `config/` baseline / `examples/` instead. Prefer `GITHUB_TOKEN`
+  via env over any file.
 - Keep comments about *why*, not *what*; let names carry the rest.
 
 ## Feature flags

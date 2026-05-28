@@ -1,0 +1,29 @@
+# For running inside the provided Docker image (which bundles Chromium and is
+# built with --features google). The image already sets equivalent values via
+# environment variables; this file is the config-file equivalent.
+#
+#   Usage:  docker run -p 8000:8000 \
+#             -v "$PWD/examples/docker.toml:/app/lodestone.toml:ro" lodestone-mcp
+
+# Bind on all interfaces so the published port is reachable from the host.
+bind = "0.0.0.0:8000"
+
+[search]
+strategy = "aggregate"
+
+[providers]
+web  = ["google", "duckduckgo", "mojeek"]
+code = ["grep_app", "duckduckgo", "mojeek"]
+qa   = ["stackoverflow"]
+
+[code]
+sites = ["github.com", "gitlab.com", "codeberg.org"]
+
+[stackexchange]
+default_site = "stackoverflow"
+
+[google]
+# Path to the Chromium that ships in the image.
+chrome_path = "/usr/bin/chromium"
+# Chrome runs as root in the container, so the sandbox must be disabled.
+no_sandbox  = true

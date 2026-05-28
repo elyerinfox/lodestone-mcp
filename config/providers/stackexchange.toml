@@ -1,0 +1,39 @@
+# -----------------------------------------------------------------------------
+# Provider: stackoverflow / stackexchange  (kind: qa)
+# -----------------------------------------------------------------------------
+# Powers stackexchange_search and stackexchange_answers. Uses the keyless public
+# API by default (shared ~300 requests/day per IP). A per-call render=true
+# scrapes stackoverflow.com via headless browser instead (needs a `browser`
+# build; stackoverflow site only).
+#
+# Enable/disable in ../02-search.toml (qa list).
+# -----------------------------------------------------------------------------
+
+[stackexchange]
+# Default site when a call doesn't specify one. A StackExchange site is named by
+# its short API slug (the `api_site_parameter`), NOT a URL. Common slugs:
+#   stackoverflow      Stack Overflow
+#   serverfault        Server Fault
+#   superuser          Super User
+#   askubuntu          Ask Ubuntu
+#   unix               Unix & Linux
+#   softwareengineering, codereview, dba, devops, security, apple,
+#   math, stats, tex, english, gaming, ...
+# Full list (use the "api_site_parameter" field):
+#   https://api.stackexchange.com/2.3/sites
+# Env: LODESTONE_STACKEXCHANGE_SITE
+default_site = "stackoverflow"
+
+# Optional API key — NOT a login; it only raises the per-IP quota
+# (~300/day → ~10,000/day). Register an app at
+# https://stackapps.com/apps/oauth/register to get one. Prefer the env var so it
+# isn't committed.
+# Env: LODESTONE_STACKEXCHANGE_KEY
+key = ""
+
+# Guardrail: if non-empty, ONLY these site slugs may be searched or read; any
+# other requested site is rejected. Empty = allow any site. Use the same slugs
+# as default_site, e.g.:
+#   allowed_sites = ["stackoverflow", "serverfault", "superuser", "askubuntu", "unix"]
+# Env: LODESTONE_STACKEXCHANGE_ALLOWED_SITES (comma-separated)
+allowed_sites = []

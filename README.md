@@ -107,11 +107,25 @@ runs as root, so `LODESTONE_CHROME_NO_SANDBOX=1` is set by default.
 
 ## Configuration
 
-Copy `lodestone.example.toml` to `lodestone.toml` (gitignored) or use env vars.
-Precedence: built-in defaults < `lodestone.toml` (or `$LODESTONE_CONFIG`) < env.
+The repo ships a working, keyless configuration in [`config/`](config/) — clone
+and run, no setup. It's a directory of small, granular files (one per concern,
+plus one per provider under [`config/providers/`](config/providers/)), all
+deep-merged in sorted path order. Edit those files, or drop a personal
+`lodestone.toml` (gitignored) to override the baseline without touching them.
+Complete alternative presets live in [`examples/`](examples/) (e.g.
+`aggregate-all.toml`, `retrieval-only.toml`, `locked-down.toml`, `docker.toml`).
+
+Precedence (low → high): built-in defaults < `config/**.toml`
+(`$LODESTONE_CONFIG_DIR`) < `lodestone.toml` (`$LODESTONE_CONFIG`) < env vars.
+
+The full schema, as a single annotated block:
 
 ```toml
 bind = "127.0.0.1:8000"
+
+[tools]
+enabled = []   # which tools to expose; empty = all
+disabled = []  # applied after `enabled`
 
 [tools]
 enabled = []   # which tools to expose; empty = all

@@ -1,0 +1,11 @@
+# -----------------------------------------------------------------------------
+# Provider: mojeek  (kinds: web, code)
+# -----------------------------------------------------------------------------
+# Mojeek runs its own independent web index and is far more tolerant of
+# automated requests than DuckDuckGo/Google — a reliable fallback. No API key.
+# Does not support the `site:` operator, so for code search it appends the forge
+# domains (config/03-code.toml) as keywords and filters results to them.
+#
+# Enable/disable in ../02-search.toml.
+#
+# (No settings — documentation only.)

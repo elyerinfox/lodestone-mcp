@@ -1,0 +1,20 @@
+# =============================================================================
+# config/00-server.toml — server basics
+# =============================================================================
+#
+# This `config/` directory is the working, ready-to-run configuration: clone the
+# repo and `cargo run` and it just works (keyless). Files are loaded and
+# DEEP-MERGED in sorted path order, so each provider/feature lives in its own
+# small file (see config/providers/). Order of precedence, low → high:
+#
+#   built-in defaults  <  config/**.toml  <  ./lodestone.toml  <  env vars
+#
+# Put personal tweaks in ./lodestone.toml (gitignored) to override this baseline
+# without editing the committed files. Alternative whole-config presets live in
+# ../examples/.
+# -----------------------------------------------------------------------------
+
+# host:port to bind. MCP endpoint is <bind>/mcp.
+#   127.0.0.1:8000 → local only (default).  0.0.0.0:8000 → reachable externally.
+# Env: LODESTONE_BIND
+bind = "127.0.0.1:8000"

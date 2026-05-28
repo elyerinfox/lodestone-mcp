@@ -1,0 +1,11 @@
+# -----------------------------------------------------------------------------
+# Provider: grep_app  (kind: code)
+# -----------------------------------------------------------------------------
+# Queries grep.app's JSON code-search endpoint. No API key. grep.app is
+# frequently behind a bot-challenge that returns HTML instead of JSON; when that
+# happens this provider yields nothing and the registry falls through to the
+# next code provider.
+#
+# Enable/disable in ../02-search.toml (code list).
+#
+# (No settings — documentation only.)

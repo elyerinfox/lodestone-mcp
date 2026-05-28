@@ -1,0 +1,12 @@
+# -----------------------------------------------------------------------------
+# Provider: medium  (kind: web)
+# -----------------------------------------------------------------------------
+# Medium's search is JS/bot-walled, so this provider treats the query as a
+# Medium tag and returns recent articles from medium.com/feed/tag/<tag> (RSS,
+# keyless). It surfaces recent posts for a topic rather than full-text relevance
+# search.
+#
+# Not enabled by default. Add "medium" to the web list in ../02-search.toml:
+#   web = ["duckduckgo", "mojeek", "medium"]
+#
+# (No settings — documentation only.)

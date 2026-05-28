@@ -1,0 +1,24 @@
+# =============================================================================
+# config/02-search.toml — provider orchestration (strategy + ordering)
+# =============================================================================
+#
+# This file decides WHICH providers run and in WHAT order. Each provider's own
+# settings live in its file under config/providers/.
+# -----------------------------------------------------------------------------
+
+[search]
+# "fallback" = first non-empty result wins (fast).
+# "aggregate" = run all concurrently, dedupe + re-rank (meta-search).
+# Env: LODESTONE_SEARCH_STRATEGY
+strategy = "fallback"
+
+[providers]
+# Ordered lists per kind. See config/providers/<id>.toml for each provider.
+#   web ids:  duckduckgo, mojeek, medium, google
+#   code ids: grep_app, duckduckgo, mojeek, github, google
+#   qa ids:   stackoverflow
+# (`google` needs --features google; `github` needs a token — see their files.)
+# Env: LODESTONE_WEB_PROVIDERS / LODESTONE_CODE_PROVIDERS / LODESTONE_QA_PROVIDERS
+web = ["duckduckgo", "mojeek"]
+code = ["grep_app", "duckduckgo", "mojeek"]
+qa = ["stackoverflow"]

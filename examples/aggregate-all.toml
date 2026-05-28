@@ -1,0 +1,34 @@
+# Maximum-coverage meta-search — ready to use out of the box.
+#
+# Requires building with the headless-browser provider:
+#   cargo run --features google      (needs a local Chrome/Chromium)
+# Optionally set a GitHub token to enable authenticated code search:
+#   export GITHUB_TOKEN=ghp_...       (Linux/macOS)
+#   $env:GITHUB_TOKEN="ghp_..."       (Windows PowerShell)
+#
+#   Usage:  cp examples/aggregate-all.toml lodestone.toml
+
+bind = "127.0.0.1:8000"
+
+[search]
+# "aggregate" = query every provider concurrently, then dedupe + re-rank the
+# merged results (a built-in SearXNG-style meta-search).
+strategy = "aggregate"
+
+[providers]
+web  = ["google", "duckduckgo", "mojeek", "medium"]
+# `github` is skipped automatically if no token is set.
+code = ["github", "grep_app", "duckduckgo", "mojeek"]
+qa   = ["stackoverflow"]
+
+[code]
+# Search several forges at once.
+sites = ["github.com", "gitlab.com", "codeberg.org"]
+
+[stackexchange]
+default_site = "stackoverflow"
+
+[google]
+# Empty = auto-detect an installed Chrome/Chromium.
+chrome_path = ""
+no_sandbox  = false

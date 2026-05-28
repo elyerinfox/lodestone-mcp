@@ -1,0 +1,16 @@
+# =============================================================================
+# config/01-tools.toml — which tools (skills) are exposed
+# =============================================================================
+#
+# Each tool is independent. Filtering applies to BOTH tools/list and dispatch
+# (a hidden tool returns "tool not found").
+#
+# Tools: web_search, code_search, fetch_page, github_fetch_file,
+#        stackexchange_search, stackexchange_answers, wayback_fetch, list_providers
+# -----------------------------------------------------------------------------
+
+[tools]
+# Allowlist; empty = expose all.   Env: LODESTONE_TOOLS_ENABLED
+enabled = []
+# Denylist, applied after `enabled`. Env: LODESTONE_TOOLS_DISABLED
+disabled = []

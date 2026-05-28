@@ -84,13 +84,17 @@ pub struct Providers {
 #[derive(Debug, Deserialize)]
 #[serde(default)]
 pub struct StackExchange {
-    /// Default StackExchange site when a tool call doesn't specify one.
+    /// Default StackExchange site when a tool call doesn't specify one. Use a
+    /// short API slug (the `api_site_parameter`), NOT a URL — e.g.
+    /// "stackoverflow", "serverfault", "superuser", "askubuntu", "unix".
+    /// Full list: https://api.stackexchange.com/2.3/sites
     pub default_site: String,
     /// Optional API key. Not a login — it just raises the per-IP request quota
     /// (~300/day keyless → ~10k/day). Prefer the LODESTONE_STACKEXCHANGE_KEY env var.
     pub key: String,
-    /// Guardrail: if non-empty, only these sites may be searched/read; other
-    /// sites are rejected. Empty means any site is allowed.
+    /// Guardrail: if non-empty, only these site slugs may be searched/read; any
+    /// other requested site is rejected. Empty = allow any site. Same slug format
+    /// as `default_site` (e.g. ["stackoverflow", "serverfault", "unix"]).
     pub allowed_sites: Vec<String>,
 }
 
@@ -147,27 +151,23 @@ impl Default for StackExchange {
 
 impl Config {
     /// Load defaults, overlay a config file if present, then overlay env vars.
+    /// Load configuration by layering, lowest to highest precedence:
+    /// built-in defaults < files in the config directory (`config/` /
+    /// `$LODESTONE_CONFIG_DIR`, merged in sorted filename order) < a personal
+    /// single file (`lodestone.toml` / `$LODESTONE_CONFIG`) < environment
+    /// variables. The committed `config/` is the working baseline; `lodestone.toml`
+    /// (gitignored) is for personal overrides on top of it.
     pub fn load() -> Self {
-        let mut cfg = Self::from_file();
+        let merged = load_layered();
+        let mut cfg = match toml::Value::Table(merged).try_into::<Config>() {
+            Ok(cfg) => cfg,
+            Err(e) => {
+                tracing::warn!(error = %e, "invalid configuration; falling back to defaults");
+                Config::default()
+            }
+        };
         cfg.apply_env();
         cfg
-    }
-
-    fn from_file() -> Self {
-        let path = std::env::var("LODESTONE_CONFIG").unwrap_or_else(|_| "lodestone.toml".into());
-        match std::fs::read_to_string(&path) {
-            Ok(contents) => match toml::from_str::<Config>(&contents) {
-                Ok(cfg) => {
-                    tracing::info!(path, "loaded configuration");
-                    cfg
-                }
-                Err(e) => {
-                    tracing::warn!(path, error = %e, "invalid config file; using defaults");
-                    Config::default()
-                }
-            },
-            Err(_) => Config::default(),
-        }
     }
 
     fn apply_env(&mut self) {
@@ -218,6 +218,77 @@ impl Config {
             std::env::var("LODESTONE_GITHUB_TOKEN").or_else(|_| std::env::var("GITHUB_TOKEN"))
         {
             self.github.token = token;
+        }
+    }
+}
+
+/// Deep-merge, in precedence order: every `*.toml` under the config directory
+/// (recursively, sorted by path) first, then a personal single file on top.
+fn load_layered() -> toml::Table {
+    let mut merged = toml::Table::new();
+
+    // 1) The committed config directory — granular, per-provider files. Walked
+    //    recursively and merged in sorted path order (so `00-*.toml` precede
+    //    `providers/*.toml`, etc.).
+    let dir = std::env::var("LODESTONE_CONFIG_DIR").unwrap_or_else(|_| "config".into());
+    let mut paths = Vec::new();
+    collect_toml_files(std::path::Path::new(&dir), &mut paths);
+    paths.sort();
+    for path in &paths {
+        if let Some(table) = read_table(path) {
+            merge_tables(&mut merged, table);
+        }
+    }
+
+    // 2) A personal single file (gitignored) overrides the directory baseline.
+    let file = std::env::var("LODESTONE_CONFIG").unwrap_or_else(|_| "lodestone.toml".into());
+    if let Some(table) = read_table(std::path::Path::new(&file)) {
+        merge_tables(&mut merged, table);
+    }
+
+    merged
+}
+
+/// Recursively collect every `*.toml` file under `dir`.
+fn collect_toml_files(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_toml_files(&path, out);
+        } else if path.extension().is_some_and(|x| x == "toml") {
+            out.push(path);
+        }
+    }
+}
+
+fn read_table(path: &std::path::Path) -> Option<toml::Table> {
+    let contents = std::fs::read_to_string(path).ok()?;
+    match toml::from_str::<toml::Table>(&contents) {
+        Ok(table) => {
+            tracing::info!(path = %path.display(), "loaded configuration file");
+            Some(table)
+        }
+        Err(e) => {
+            tracing::warn!(path = %path.display(), error = %e, "skipping invalid config file");
+            None
+        }
+    }
+}
+
+/// Recursively merge `overlay` into `base`: nested tables are merged key-by-key;
+/// any other value (scalar/array) replaces what's in `base`.
+fn merge_tables(base: &mut toml::Table, overlay: toml::Table) {
+    for (key, value) in overlay {
+        match (base.get_mut(&key), value) {
+            (Some(toml::Value::Table(base_t)), toml::Value::Table(overlay_t)) => {
+                merge_tables(base_t, overlay_t);
+            }
+            (_, value) => {
+                base.insert(key, value);
+            }
         }
     }
 }

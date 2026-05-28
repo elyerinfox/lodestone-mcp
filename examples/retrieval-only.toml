@@ -1,0 +1,12 @@
+# Retrieval-only deployment — expose just the "read a known thing" tools, no
+# searching. Fully keyless; works with a plain `cargo run`.
+#
+#   Usage:  cp examples/retrieval-only.toml lodestone.toml
+#
+# The model can fetch pages, download GitHub files, and read archived snapshots,
+# but cannot run web/code/Q&A searches.
+
+bind = "127.0.0.1:8000"
+
+[tools]
+enabled = ["fetch_page", "github_fetch_file", "wayback_fetch"]

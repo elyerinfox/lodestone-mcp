@@ -1,0 +1,13 @@
+# -----------------------------------------------------------------------------
+# Provider: duckduckgo  (kinds: web, code)
+# -----------------------------------------------------------------------------
+# DuckDuckGo "lite" HTML scrape. No configuration and no API key.
+# Rate-limits aggressively by IP (especially datacenter IPs) — pair it with
+# mojeek as a fallback. With a `browser` build, a per-call render=true routes it
+# through headless Chrome, which can bypass the rate-limit.
+#
+# Enable/disable by editing the lists in ../02-search.toml, e.g.:
+#   web  = ["duckduckgo", "mojeek"]
+#   code = ["grep_app", "duckduckgo", "mojeek"]
+#
+# (No settings — this file is documentation only.)

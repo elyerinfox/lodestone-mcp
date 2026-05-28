@@ -49,7 +49,8 @@ jobs:
           dist="lodestone-mcp-${{ matrix.target }}"
           mkdir "$dist"
           cp "target/${{ matrix.target }}/release/lodestone-mcp" "$dist/"
-          cp README.md LICENSE lodestone.example.toml mcp.example.json "$dist/"
+          cp README.md LICENSE mcp.example.json "$dist/"
+          cp -r config examples "$dist/"
           tar -czf "$dist.tar.gz" "$dist"
 
       - name: Package (Windows)
@@ -59,7 +60,8 @@ jobs:
           $dist = "lodestone-mcp-${{ matrix.target }}"
           New-Item -ItemType Directory -Path $dist | Out-Null
           Copy-Item "target/${{ matrix.target }}/release/lodestone-mcp.exe" $dist
-          Copy-Item README.md, LICENSE, lodestone.example.toml, mcp.example.json $dist
+          Copy-Item README.md, LICENSE, mcp.example.json $dist
+          Copy-Item config, examples -Destination $dist -Recurse
           Compress-Archive -Path $dist -DestinationPath "$dist.zip"
 
       - name: Upload to release
