@@ -598,7 +598,20 @@ impl Skill for K8sDelete {
     }
 }
 
-/// The skills this module contributes (gating happens in `effective_disabled`).
+/// All Kubernetes tool names, and the destructive subset — the gating data for
+/// this family (consumed by `skills::disabled_by_config`).
+pub const TOOL_NAMES: &[&str] = &[
+    "k8s_contexts",
+    "k8s_get",
+    "k8s_describe",
+    "k8s_logs",
+    "k8s_apply",
+    "k8s_scale",
+    "k8s_delete",
+];
+pub const DESTRUCTIVE_NAMES: &[&str] = &["k8s_delete"];
+
+/// The skills this module contributes (gating happens in `disabled_by_config`).
 pub fn skills() -> Vec<Box<dyn Skill>> {
     vec![
         Box::new(K8sContexts),

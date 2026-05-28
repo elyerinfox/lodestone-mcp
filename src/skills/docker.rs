@@ -532,7 +532,24 @@ impl Skill for DockerRemove {
     }
 }
 
-/// The skills this module contributes (gating happens in `effective_disabled`).
+/// All docker daemon tool names, and the destructive subset — the gating data for
+/// this family (consumed by `skills::disabled_by_config`). Kept here, with the
+/// skills, so `main.rs` hardcodes nothing.
+pub const TOOL_NAMES: &[&str] = &[
+    "docker_ps",
+    "docker_images",
+    "docker_inspect",
+    "docker_logs",
+    "docker_info",
+    "docker_pull",
+    "docker_run",
+    "docker_start",
+    "docker_stop",
+    "docker_remove",
+];
+pub const DESTRUCTIVE_NAMES: &[&str] = &["docker_stop", "docker_remove"];
+
+/// The skills this module contributes (gating happens in `disabled_by_config`).
 pub fn skills() -> Vec<Box<dyn Skill>> {
     vec![
         Box::new(DockerPs),

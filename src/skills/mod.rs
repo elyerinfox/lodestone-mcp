@@ -12,9 +12,14 @@
 //! [CONTRIBUTING.md](../../CONTRIBUTING.md).
 
 pub mod artifacthub;
+pub mod datetime;
 pub mod docker;
+pub mod github;
 pub mod kubernetes;
+pub mod meta;
 pub mod oci;
+pub mod retrieve;
+pub mod search;
 pub mod translate;
 
 use std::sync::Arc;
@@ -82,13 +87,52 @@ fn route(skill: Box<dyn Skill>) -> ToolRoute<Lodestone> {
     })
 }
 
-/// Every skill, as routes ready to add to the router.
-pub fn all_routes() -> Vec<ToolRoute<Lodestone>> {
+/// Every fixed skill as a boxed object (excludes the dynamic per-provider tools).
+fn all_skills() -> Vec<Box<dyn Skill>> {
     let mut skills: Vec<Box<dyn Skill>> = Vec::new();
+    skills.extend(search::skills());
+    skills.extend(retrieve::skills());
+    skills.extend(github::skills());
     skills.extend(oci::skills());
     skills.extend(artifacthub::skills());
     skills.extend(docker::skills());
     skills.extend(kubernetes::skills());
+    skills.extend(datetime::skills());
     skills.extend(translate::skills());
-    skills.into_iter().map(route).collect()
+    skills.extend(meta::skills());
+    skills
+}
+
+/// Every skill, as routes ready to add to the router. Includes the auto-generated
+/// per-provider `<kind>_<id>` tools (built from the registry).
+pub fn all_routes(registry: &crate::provider::Registry) -> Vec<ToolRoute<Lodestone>> {
+    let mut routes: Vec<ToolRoute<Lodestone>> = all_skills().into_iter().map(route).collect();
+    routes.extend(search::provider_routes(registry));
+    routes
+}
+
+/// Tool names the current config gates off — each gated family declares its own
+/// tool/destructive names (`docker::TOOL_NAMES`, …), so `main.rs` hardcodes none.
+pub fn disabled_by_config(cfg: &crate::config::Config) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut gate = |enabled: bool, allow_destructive: bool, all: &[&str], destructive: &[&str]| {
+        if !enabled {
+            out.extend(all.iter().map(|s| s.to_string()));
+        } else if !allow_destructive {
+            out.extend(destructive.iter().map(|s| s.to_string()));
+        }
+    };
+    gate(
+        cfg.docker.enabled,
+        cfg.docker.allow_destructive,
+        docker::TOOL_NAMES,
+        docker::DESTRUCTIVE_NAMES,
+    );
+    gate(
+        cfg.kubernetes.enabled,
+        cfg.kubernetes.allow_destructive,
+        kubernetes::TOOL_NAMES,
+        kubernetes::DESTRUCTIVE_NAMES,
+    );
+    out
 }

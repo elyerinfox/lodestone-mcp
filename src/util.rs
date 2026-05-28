@@ -83,6 +83,14 @@ pub fn human_count(n: i64) -> String {
     format!("{}{v:.1}{suffix}", if n < 0 { "-" } else { "" })
 }
 
+/// Prefix every line of `s` with `prefix` (for indenting multi-line snippets).
+pub fn indent(s: &str, prefix: &str) -> String {
+    s.lines()
+        .map(|l| format!("{prefix}{l}"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// Minimal HTML entity decoding for short strings (e.g. API-returned titles).
 pub fn decode_entities(s: &str) -> String {
     s.replace("&amp;", "&")

@@ -28,12 +28,12 @@ src/
                  Registry + shared state (Lodestone), configures the renderer and
                  forge sites, assembles the router from skills, serves
                  Streamable-HTTP at /mcp. No tool logic lives here.
-  skills/         Every tool, one module per skill, implementing the `Skill`
-                 contract (name/description/schema/call); mod.rs assembles them
-                 into routes. A skill owns its domain logic (clients, parsers,
-                 formatters): translate, oci (Docker Hub + OCI), artifacthub,
-                 docker (daemon), kubernetes, github, datetime, search, retrieve,
-                 meta. (Migration in progress; see golden rule 7.)
+  skills/         Every tool, one module per skill family, implementing the
+                 `Skill` contract (name/description/schema/call); mod.rs assembles
+                 them into routes and computes config gating (disabled_by_config).
+                 A skill owns its domain logic + arg structs + formatters:
+                 search, retrieve, github, oci (Docker Hub + OCI), artifacthub,
+                 docker (daemon), kubernetes, datetime, translate, meta.
   provider.rs    The core interface: SearchProvider trait, ProviderKind,
                  Strategy, SearchQuery, SearchResult, and the Registry that
                  combines providers (fallback chain or aggregate meta-search).
