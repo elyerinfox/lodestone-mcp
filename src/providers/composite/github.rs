@@ -115,3 +115,33 @@ fn parse_api(v: &serde_json::Value, max: usize) -> Vec<SearchResult> {
     }
     out
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn parse_api_extracts_repo_path_url_snippet() {
+        let v = serde_json::json!({
+            "items": [{
+                "repository": {"full_name": "rust-lang/rust"},
+                "path": "src/lib.rs",
+                "html_url": "https://github.com/rust-lang/rust/blob/master/src/lib.rs",
+                "text_matches": [{"fragment": "fn  main() {}"}]
+            }]
+        });
+        let out = super::parse_api(&v, 10);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].repo.as_deref(), Some("rust-lang/rust"));
+        assert_eq!(out[0].path.as_deref(), Some("src/lib.rs"));
+        assert_eq!(
+            out[0].url,
+            "https://github.com/rust-lang/rust/blob/master/src/lib.rs"
+        );
+        assert_eq!(out[0].snippet, "fn main() {}"); // collapse_ws normalizes spacing
+        assert_eq!(out[0].title, "rust-lang/rust — src/lib.rs");
+    }
+
+    #[test]
+    fn parse_api_missing_items_is_empty() {
+        assert!(super::parse_api(&serde_json::json!({}), 10).is_empty());
+    }
+}

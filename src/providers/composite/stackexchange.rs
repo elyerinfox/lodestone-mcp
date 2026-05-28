@@ -234,3 +234,37 @@ fn parse_stat(s: &str) -> (i64, String) {
     }
     (num, label)
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn parse_api_extracts_questions_and_meta() {
+        let v = serde_json::json!({
+            "items": [{
+                "title": "How to &amp; why",
+                "link": "https://stackoverflow.com/q/1",
+                "score": 42,
+                "answer_count": 3,
+                "accepted_answer_id": 99,
+                "tags": ["rust", "async"]
+            }]
+        });
+        let out = super::parse_api(&v, 10);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].title, "How to & why"); // HTML entities decoded
+        assert_eq!(out[0].url, "https://stackoverflow.com/q/1");
+        assert_eq!(out[0].score, Some(42));
+        let meta = out[0].meta.as_deref().unwrap();
+        assert!(meta.contains("3 answers"), "meta was {meta:?}");
+        assert!(meta.contains("accepted"), "meta was {meta:?}");
+        assert!(meta.contains("rust"), "meta was {meta:?}");
+    }
+
+    #[test]
+    fn parse_stat_splits_number_and_label() {
+        assert_eq!(
+            super::parse_stat("1,234 votes"),
+            (1234, "votes ".to_string())
+        );
+    }
+}

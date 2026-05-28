@@ -189,3 +189,35 @@ fn parse(spec: &EngineSpec, body: &str, max: usize) -> Vec<SearchResult> {
         Extract::Custom(parser) => parser(body, max),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    // DDG lite is a table layout, so snippet cells must live inside a <table>
+    // (html5ever drops stray <td>s otherwise).
+    #[test]
+    fn selector_engine_parses_links_and_snippets() {
+        let html = r#"<html><body><table>
+            <tr><td><a class="result-link" href="https://a.example/x">Alpha</a></td></tr>
+            <tr><td class="result-snippet">snippet a</td></tr>
+            <tr><td><a class="result-link" href="https://b.example/y">Beta</a></td></tr>
+            <tr><td class="result-snippet">snippet b</td></tr>
+        </table></body></html>"#;
+        let out = super::parse(&super::duckduckgo::SPEC, html, 10);
+        assert_eq!(out.len(), 2);
+        assert_eq!(out[0].url, "https://a.example/x");
+        assert_eq!(out[0].title, "Alpha");
+        assert_eq!(out[0].snippet, "snippet a");
+        assert_eq!(out[1].url, "https://b.example/y");
+    }
+
+    #[test]
+    fn selector_engine_respects_max() {
+        let html = concat!(
+            r#"<table><tr><td><a class="result-link" href="https://a">A</a></td></tr>"#,
+            r#"<tr><td class="result-snippet">s</td></tr>"#,
+            r#"<tr><td><a class="result-link" href="https://b">B</a></td></tr>"#,
+            r#"<tr><td class="result-snippet">s</td></tr></table>"#,
+        );
+        assert_eq!(super::parse(&super::duckduckgo::SPEC, html, 1).len(), 1);
+    }
+}

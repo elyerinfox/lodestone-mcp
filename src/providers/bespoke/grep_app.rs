@@ -87,3 +87,25 @@ fn parse(text: &str, max: usize) -> Vec<SearchResult> {
     }
     out
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn parses_hits_into_github_blob_urls() {
+        let json = r#"{"hits":{"hits":[
+            {"repo":{"raw":"o/r"},"path":{"raw":"src/a.rs"},"branch":{"raw":"main"},
+             "content":{"snippet":"<div>fn x()</div>"}}
+        ]}}"#;
+        let out = super::parse(json, 10);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].url, "https://github.com/o/r/blob/main/src/a.rs");
+        assert_eq!(out[0].repo.as_deref(), Some("o/r"));
+        assert_eq!(out[0].path.as_deref(), Some("src/a.rs"));
+    }
+
+    #[test]
+    fn non_json_body_returns_empty() {
+        // A bot-challenge HTML page must not error — just yield nothing.
+        assert!(super::parse("<html>are you a robot?</html>", 10).is_empty());
+    }
+}

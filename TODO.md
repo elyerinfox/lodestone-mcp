@@ -8,18 +8,14 @@ likely involved). Checked items are done; unchecked are open.
 
 ## Testing & CI
 
-- [ ] **Fixture-based parser tests.**
-  - **Why:** Every provider parses scraped HTML/JSON whose markup changes without
-    warning; today a broken selector fails silently at runtime with zero results.
-    Tests pin parsing behavior and catch breakage in CI without hitting the network.
-  - **How:** Save representative responses under `tests/fixtures/` (DuckDuckGo
-    lite HTML, Mojeek results HTML, grep.app JSON, StackExchange search JSON,
-    Medium tag RSS, StackOverflow `/search` HTML, GitHub code-search JSON). Add
-    `#[cfg(test)]` unit tests in each provider that call the pure `parse(...)`
-    function on a fixture and assert the extracted fields.
-  - **Partly done:** the forge blob-URL parsers and `forge::repo_path` now have
-    tests in `src/providers/forge/mod.rs`. Remaining: the HTML/JSON response
-    fixtures for the engine/grep_app/stackexchange/medium/github parsers.
+- [x] **Fixture-based parser tests.** Done: hermetic `#[cfg(test)]` tests with
+  inline fixtures pin the parsers — the selector engine (DuckDuckGo/Mojeek shared
+  path), grep.app JSON, GitHub code-search JSON, StackExchange search JSON +
+  `parse_stat`, Medium RSS + `tag_slug`, SearXNG JSON, and the forge blob-URL
+  parsers / `forge::repo_path`. (Chose inline fixtures over `tests/fixtures/`
+  files since the parse fns are private module fns; integration tests can't reach
+  them.) Not covered: Google's headless-only custom parser and the StackOverflow
+  `/search` scrape parser (both render-only paths).
 
 - [x] **Config-merge unit tests.** Done: `src/config.rs` tests cover
   `merge_tables` (nested key-by-key merge, scalar override, wholesale array

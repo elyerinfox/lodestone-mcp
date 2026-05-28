@@ -107,3 +107,28 @@ fn strip_cdata(s: &str) -> String {
 fn clean(s: &str) -> String {
     decode_entities(strip_cdata(s).trim())
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn tag_slug_normalizes_query() {
+        assert_eq!(super::tag_slug("Rust  Async!"), "rust-async");
+        assert_eq!(super::tag_slug("  machine learning  "), "machine-learning");
+    }
+
+    #[test]
+    fn parses_rss_items() {
+        let xml = r#"<rss><channel>
+            <item>
+              <title><![CDATA[Hello World]]></title>
+              <link>https://medium.com/p/abc123</link>
+              <description><![CDATA[<p>Body text here</p>]]></description>
+            </item>
+        </channel></rss>"#;
+        let out = super::parse(xml, 10);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].url, "https://medium.com/p/abc123");
+        assert_eq!(out[0].title, "Hello World");
+        assert!(out[0].snippet.contains("Body text here"));
+    }
+}
