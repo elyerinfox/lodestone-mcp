@@ -158,9 +158,8 @@ likely involved). Checked items are done; unchecked are open.
 
 ## Docs & release
 
-- [ ] **CHANGELOG.md and a tagged release.**
-  - **Why:** Users need to know what changed between versions; the release
-    workflow already triggers on `v*` tags but none exist yet.
-  - **How:** Start `CHANGELOG.md` (Keep a Changelog format); cut `v0.1.0`
-    (`git tag v0.1.0 && git push origin v0.1.0`) to exercise the binary +
-    Docker release pipeline.
+- [~] **CHANGELOG.md and a tagged release.**
+  - **Done:** `CHANGELOG.md` started (Keep a Changelog) with the 0.1.0 entry.
+  - **Remaining (needs maintainer sign-off):** cut `v0.1.0`
+    (`git tag v0.1.0 && git push origin v0.1.0`) to exercise the binary + Docker
+    release pipeline. Left untagged deliberately — tagging publishes artifacts.
