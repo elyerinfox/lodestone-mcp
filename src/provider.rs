@@ -77,9 +77,7 @@ pub struct SearchQuery {
     pub limit: usize,
     /// When true, HTML-scraping providers fetch through the headless browser
     /// (executes JS, bypasses some bot-walls) instead of a plain HTTP request.
-    /// Set per call by the model; ignored by providers that don't scrape HTML
-    /// and in builds without the `browser` feature.
-    #[cfg_attr(not(feature = "browser"), allow(dead_code))]
+    /// Set per call by the model; ignored by providers that don't scrape HTML.
     pub render: bool,
 }
 

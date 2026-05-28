@@ -1,9 +1,9 @@
 # -----------------------------------------------------------------------------
-# Provider: google  (kinds: web, code) — feature-gated
+# Provider: google  (kinds: web, code)
 # -----------------------------------------------------------------------------
 # Headless-Chrome scrape of google.com — the only way to get usable Google
-# results, but heavy and CAPTCHA-prone on datacenter IPs. Requires building with
-# `--features google` (or `browser`) and a Chrome/Chromium binary at runtime.
+# results, but heavy and CAPTCHA-prone on datacenter IPs. Compiled in always;
+# needs a Chrome/Chromium binary at runtime (only when actually used).
 #
 # This same [google] section also configures the shared headless browser used by
 # per-call render=true on web_search / code_search / fetch_page and by

@@ -14,17 +14,18 @@ src/
                  Strategy, SearchQuery, SearchResult, and the Registry that
                  combines providers (fallback chain or aggregate meta-search).
   providers/
-    mod.rs       Provider factory `make()` + shared helpers (fetch_html,
-                 site/keyword scoped queries, result zipping, `finish`,
-                 forge URL parsing, the configurable code-site list).
-    duckduckgo.rs / mojeek.rs   HTML-scraping web+code engines.
-    grep_app.rs                 grep.app JSON code search.
-    github_api.rs               Authenticated GitHub code search (token).
-    stackexchange.rs            Keyless StackExchange API (Q&A).
-    google.rs                   Headless-Chrome Google (feature `google`).
-    stackoverflow_scrape.rs     SO via headless browser (feature `browser`).
-  browser.rs     (feature `browser`) PageRenderer trait + a persistent,
-                 process-shared ChromiumRenderer. Any provider can render.
+    mod.rs       Provider factory `make()` + shared helpers (scoped queries,
+                 result zipping, `finish`, the configurable code-site list).
+    engine/      Spec-driven web/code search engines (HtmlEngineProvider +
+                 EngineSpec): duckduckgo, mojeek, google.
+    forge/       Spec-driven code forges (ForgeCodeProvider + ForgeSpec):
+                 github_web, gitlab, codeberg, gitea.
+    grep_app.rs                 grep.app JSON code search (bespoke).
+    github_api.rs               Authenticated GitHub code search, token (bespoke).
+    medium.rs                   Medium tag RSS (bespoke).
+    stackexchange.rs            StackExchange API + render-scrape (bespoke).
+  browser.rs     PageRenderer trait + a persistent, process-shared
+                 ChromiumRenderer. Any provider can render on demand.
   retrieve.rs    Retrieval of one known resource: raw GitHub files, readable
                  page text, Wayback snapshots, StackExchange answer threads.
   config.rs      Config struct + file (TOML) and env-var loading.
@@ -60,61 +61,84 @@ pub trait SearchProvider: Send + Sync {
 
 ### Rendering is shared and model-controlled
 
-`browser.rs` exposes a `PageRenderer` trait and a process-wide
-`ChromiumRenderer` via `browser::shared_global()`. Any provider can render a URL
-on demand. The `SearchQuery::render` flag (set per call by the model on
-`web_search`/`code_search`, and `fetch_page`'s `render` arg) decides whether the
-shared helper `providers::fetch_html` uses the browser or plain HTTP. Keep the
-browser path behind `#[cfg(feature = "browser")]`.
+`browser.rs` exposes a `PageRenderer` trait and a process-wide `ChromiumRenderer`
+via `browser::shared_global()` (always compiled in; a Chrome binary is only
+needed at runtime when a render path actually runs). The `SearchQuery::render`
+flag (set per call by the model, and `fetch_page`'s `render` arg) lets any
+HTML-scraping source fetch through the headless browser instead of plain HTTP.
+The `engine` family honors it automatically; bespoke providers that scrape HTML
+branch on `query.render` and call `crate::browser::shared_global().render(url)`
+themselves (see `stackexchange.rs`).
 
-## Adding a search provider
+## The provider paradigm
 
-1. Create `src/providers/<name>.rs`:
+Sources fall into three tiers, from most-shared to most-specific. **Prefer the
+highest tier that fits:** push everything generic into shared code and keep only
+the genuinely-unique bits in per-source files.
 
-   ```rust
-   use anyhow::Result;
-   use async_trait::async_trait;
-   use reqwest::Client;
+**Tier 1 — the universal interface (`provider.rs`).**
+Every source, however implemented, is a `SearchProvider`: `id()`, `kind()`,
+`async search(...) -> Vec<SearchResult>`. The `Registry` only ever sees this
+trait — it has no idea whether a provider scrapes HTML, calls a JSON API, or
+reads RSS. This is what lets providers be combined uniformly (fallback chain or
+aggregate meta-search) and selected from config.
 
-   use crate::provider::{ProviderKind, SearchProvider, SearchQuery, SearchResult};
+**Tier 2 — spec-driven families (a shared provider + a declarative spec).**
+When several sources share the SAME logic and differ only in *data*, model the
+logic ONCE as a provider parameterized by a small declarative spec, and make each
+source a tiny file that just declares its spec:
 
-   pub(super) struct MyEngine;
+| Family (dir) | Shared provider | Declarative spec | Members (one file each) |
+| --- | --- | --- | --- |
+| `engine/` (web search) | `HtmlEngineProvider` | `EngineSpec` — url, `Method` (GET/POST/Browser), `Extract` (two CSS selectors *or* a custom fn), code-scope, extra params | duckduckgo, mojeek, google |
+| `forge/` (code forges) | `ForgeCodeProvider` | `ForgeSpec` — id, domain, blob-URL → `(repo, path)` parser | github_web, gitlab, codeberg, gitea |
 
-   #[async_trait]
-   impl SearchProvider for MyEngine {
-       fn id(&self) -> &'static str { "myengine" }
-       fn kind(&self) -> ProviderKind { ProviderKind::Web }
-       async fn search(&self, http: &Client, query: &SearchQuery)
-           -> Result<Vec<SearchResult>> {
-           // HTML scraper? Use the shared fetcher so `render` works:
-           let url = format!("https://example.com/search?q={}", query.text);
-           let body = super::fetch_html(http, query, &url).await?;
-           Ok(parse(&body, query.limit)) // sync parse, owned output
-       }
-   }
+Google is an engine too — it just declares `Method::Browser` (always render via
+headless Chrome) and an `Extract::Custom` parser for its messy markup, instead
+of plain GET + two selectors. A future Bing engine would look the same.
 
-   fn parse(body: &str, max: usize) -> Vec<SearchResult> { /* scraper here */ }
-   ```
+Families also **compose**: `ForgeCodeProvider` runs its searches *through* the
+`engine` family (DuckDuckGo → Mojeek). Adding a member is a few declarative lines
+— no new control flow, no risk to the existing members.
 
-2. Register it in `providers/mod.rs`: add `mod <name>;` and a match arm in
-   `make()` (gate with `#[cfg(feature = "...")]` if it needs the browser).
-3. Add a `config/providers/<id>.toml` file (settings, or documentation only)
-   and document the id in `config/02-search.toml` and the README provider table.
-4. Code providers should run results through `super::finish(...)` so forge
-   filtering and repo/path enrichment apply.
+**Tier 3 — bespoke providers (implement the trait directly).**
+When a source's transport or parsing is genuinely unique, write a normal
+`SearchProvider` in its own file. These don't fit a spec because their wire
+formats differ: `grep_app` (JSON code API), `github_api` (authenticated GitHub
+API), `medium` (tag RSS/XML), `stackexchange` (keyless API + optional render
+scrape). Forcing them into a shared spec would just turn the spec into a bag of
+callbacks, so they stay bespoke.
 
-### Adding a code forge
+**Decision rule:** is this source the *same shape* as an existing family — an
+HTML search engine, or a code forge? If yes, add a spec (tier 2). If its
+transport/parsing is unique, add a bespoke provider (tier 3). Either way it
+becomes a `SearchProvider` the registry treats identically (tier 1).
 
-Forges (GitHub, GitLab, Codeberg, Gitea, …) share one implementation:
-`providers/forge/ForgeCodeProvider` does a site-scoped web search (DuckDuckGo →
-Mojeek, render-aware) and parses results. A forge differs only in its
-declarative `ForgeSpec` — `id`, `domain`, and a `fn(&str) -> Option<(repo, path)>`
-blob-URL parser. To add one:
+### Adding a web engine (tier 2)
 
-1. Create `providers/forge/<name>.rs` exposing `pub(super) static SPEC: ForgeSpec`.
-2. Add `mod <name>;`, an arm in `forge::make()`, and the spec to `SPECS` in
+1. Create `src/providers/engine/<name>.rs` with `pub(super) static SPEC: EngineSpec`
+   — endpoint URL, `Method::Get`/`PostForm`, the two CSS selectors, and a
+   `CodeScope` (`SiteOperator` if it supports `site:`, else `Keyword`).
+2. Add `mod <name>;` and a `make()` arm in `providers/engine/mod.rs`.
+3. Add the id to the `engine` arm in `providers::make()`, a
+   `config/providers/<name>.toml`, and the `02-search.toml`/README lists.
+
+### Adding a code forge (tier 2)
+
+1. Create `src/providers/forge/<name>.rs` with `pub(super) static SPEC: ForgeSpec`
+   (`id`, `domain`, and a `fn(&str) -> Option<(repo, path)>` blob-URL parser).
+2. Add `mod <name>;`, a `make()` arm, and the spec to `SPECS` in
    `providers/forge/mod.rs`.
 3. Register the id in `providers::make()` and add `config/providers/<name>.toml`.
+
+### Adding a bespoke provider (tier 3)
+
+1. Create `src/providers/<name>.rs` implementing `SearchProvider`. Do all `.await`
+   first to get owned data, then parse **synchronously** (see the invariant
+   below). For HTML scraping, honor `query.render` via `browser::shared_global()`.
+2. Add `mod <name>;` and a `make()` arm in `providers/mod.rs`; run code results
+   through `super::finish(...)` for forge filtering/enrichment.
+3. Add `config/providers/<name>.toml` and document the id.
 
 ## Invariants & conventions
 
@@ -131,20 +155,16 @@ blob-URL parser. To add one:
   via env over any file.
 - Keep comments about *why*, not *what*; let names carry the rest.
 
-## Feature flags
+## Build & verify
 
-- `browser` — pulls in `chromiumoxide`, the `PageRenderer`/`ChromiumRenderer`,
-  the `render` path in `fetch_html`/`fetch_page`, and the `stackoverflow_scrape`
-  provider. Requires a local Chrome/Chromium at runtime.
-- `google` — implies `browser`; adds the Google provider.
-
-Build/verify both so neither path rots:
+There are no Cargo features — the headless browser (`chromiumoxide`) is always
+compiled in; a Chrome/Chromium binary is only needed at runtime when a render or
+Google path actually runs.
 
 ```sh
 cargo build
-cargo build --features google
 cargo fmt
-cargo clippy --all-features
+cargo clippy --all-targets -- -D warnings
 ```
 
 ## Adding a tool

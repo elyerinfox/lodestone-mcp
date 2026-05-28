@@ -1,9 +1,9 @@
-# Build the server with the headless-browser (Google) provider enabled.
+# Build the server (the headless browser is always compiled in).
 FROM rust:1-bookworm AS build
 WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src
-RUN cargo build --release --features google
+RUN cargo build --release
 
 # Runtime image with Chromium for headless rendering.
 FROM debian:bookworm-slim AS runtime

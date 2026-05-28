@@ -53,7 +53,6 @@ impl StackExchange {
         Ok(parse_api(&v, query.limit))
     }
 
-    #[cfg(feature = "browser")]
     async fn search_scrape(&self, query: &SearchQuery) -> Result<Vec<SearchResult>> {
         use crate::browser::PageRenderer;
         let url = url::Url::parse_with_params(
@@ -79,7 +78,6 @@ impl SearchProvider for StackExchange {
     }
     async fn search(&self, http: &Client, query: &SearchQuery) -> Result<Vec<SearchResult>> {
         let site = query.site.as_deref().unwrap_or("stackoverflow");
-        #[cfg(feature = "browser")]
         if query.render && site == "stackoverflow" {
             return self.search_scrape(query).await;
         }
@@ -137,7 +135,6 @@ fn parse_api(v: &serde_json::Value, max: usize) -> Vec<SearchResult> {
     out
 }
 
-#[cfg(feature = "browser")]
 fn parse_scrape(html: &str, max: usize) -> Vec<SearchResult> {
     use scraper::{Html, Selector};
 
@@ -222,7 +219,6 @@ fn parse_scrape(html: &str, max: usize) -> Vec<SearchResult> {
     out
 }
 
-#[cfg(feature = "browser")]
 fn parse_stat(s: &str) -> (i64, String) {
     let cleaned = s.replace(',', "");
     let mut num = 0i64;

@@ -1,20 +1,15 @@
 //! Concrete [`SearchProvider`] implementations, one per file, plus the
 //! id → provider factory and helpers shared by the HTML-scraping engines.
 
-mod duckduckgo;
+mod engine;
 mod forge;
 mod github_api;
-#[cfg(feature = "google")]
-mod google;
 mod grep_app;
 mod medium;
-mod mojeek;
 mod stackexchange;
 
 use std::sync::OnceLock;
 
-use anyhow::Result;
-use reqwest::Client;
 use scraper::ElementRef;
 
 use crate::config::Config;
@@ -45,20 +40,20 @@ fn code_sites() -> &'static [String] {
 /// active config. (The same engine, e.g. duckduckgo, behaves differently for
 /// web vs code.)
 pub fn make(kind: ProviderKind, id: &str, cfg: &Config) -> Option<Box<dyn SearchProvider>> {
-    use duckduckgo::DuckDuckGo;
     use github_api::GithubApi;
     use grep_app::GrepApp;
     use medium::Medium;
-    use mojeek::Mojeek;
     use stackexchange::StackExchange;
 
     match (kind, id) {
-        (ProviderKind::Web, "duckduckgo") => Some(Box::new(DuckDuckGo { kind })),
-        (ProviderKind::Web, "mojeek") => Some(Box::new(Mojeek { kind })),
+        // Spec-driven search engines (web + code), shared via HtmlEngineProvider.
+        // `google` drives a headless browser; it just needs Chrome at runtime.
+        (ProviderKind::Web, "duckduckgo" | "mojeek" | "google")
+        | (ProviderKind::Code, "duckduckgo" | "mojeek" | "google") => {
+            engine::make(kind, id).map(|p| Box::new(p) as Box<dyn SearchProvider>)
+        }
         (ProviderKind::Web, "medium") => Some(Box::new(Medium)),
         (ProviderKind::Code, "grep_app") => Some(Box::new(GrepApp)),
-        (ProviderKind::Code, "duckduckgo") => Some(Box::new(DuckDuckGo { kind })),
-        (ProviderKind::Code, "mojeek") => Some(Box::new(Mojeek { kind })),
         (ProviderKind::Code, "github_web")
         | (ProviderKind::Code, "gitlab")
         | (ProviderKind::Code, "codeberg")
@@ -79,35 +74,8 @@ pub fn make(kind: ProviderKind, id: &str, cfg: &Config) -> Option<Box<dyn Search
         (ProviderKind::Qa, "stackoverflow") | (ProviderKind::Qa, "stackexchange") => {
             Some(Box::new(StackExchange::new(cfg.stackexchange.key.clone())))
         }
-        #[cfg(feature = "google")]
-        (ProviderKind::Web, "google") | (ProviderKind::Code, "google") => {
-            Some(Box::new(google::Google::new(kind)))
-        }
         _ => None,
     }
-}
-
-/// GET a URL and return its HTML. If the caller requested rendering (and the
-/// `browser` feature is built in), the page is loaded in the shared headless
-/// browser; otherwise a plain HTTP request is used. This is what lets the model
-/// opt any HTML-scraping provider into browser rendering per call.
-pub(crate) async fn fetch_html_render(http: &Client, render: bool, url: &str) -> Result<String> {
-    #[cfg(feature = "browser")]
-    if render {
-        use crate::browser::PageRenderer;
-        return crate::browser::shared_global().render(url).await;
-    }
-    let _ = render;
-    let body = http
-        .get(url)
-        .header("Accept", HTML_ACCEPT)
-        .header("Accept-Language", "en-US,en;q=0.9")
-        .send()
-        .await?
-        .error_for_status()?
-        .text()
-        .await?;
-    Ok(body)
 }
 
 /// Build a code query for engines that support the `site:` operator

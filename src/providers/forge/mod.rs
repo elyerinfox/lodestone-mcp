@@ -17,7 +17,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use reqwest::Client;
 
-use super::{duckduckgo, mojeek};
+use super::engine;
 use crate::provider::{ProviderKind, SearchProvider, SearchQuery, SearchResult};
 
 /// Declarative description of a code forge.
@@ -73,12 +73,12 @@ impl SearchProvider for ForgeCodeProvider {
         // DuckDuckGo honors `site:`; fall back to Mojeek (keyword-scoped) when
         // DDG returns nothing.
         let ddg_query = format!("site:{} {terms}", self.spec.domain);
-        let mut hits = duckduckgo::search_raw(http, &ddg_query, query.render, query.limit * 2)
+        let mut hits = engine::duckduckgo_search(http, &ddg_query, query.render, query.limit * 2)
             .await
             .unwrap_or_default();
         if hits.is_empty() {
             let mojeek_query = format!("{terms} {}", self.spec.domain);
-            hits = mojeek::search_raw(http, &mojeek_query, query.render, query.limit * 3)
+            hits = engine::mojeek_search(http, &mojeek_query, query.render, query.limit * 3)
                 .await
                 .unwrap_or_default();
         }

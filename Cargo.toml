@@ -30,14 +30,7 @@ futures = "0.3"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 
-# Optional: headless-Chrome Google provider (enable with --features google).
-# Pulls in a browser-automation stack and requires Chrome/Chromium at runtime.
-chromiumoxide = { version = "0.7", default-features = false, features = ["tokio-runtime"], optional = true }
-
-[features]
-default = []
-# Headless-browser rendering (its own capability). Enables the PageRenderer
-# and the `render` option on fetch_page.
-browser = ["dep:chromiumoxide"]
-# The Google provider builds on the headless renderer.
-google = ["browser"]
+# Headless-Chrome automation: powers the renderer (per-call `render`), the
+# Google engine, and StackOverflow render-scraping. Compiled in unconditionally;
+# a Chrome/Chromium binary is only needed at runtime if those paths are used.
+chromiumoxide = { version = "0.7", default-features = false, features = ["tokio-runtime"] }

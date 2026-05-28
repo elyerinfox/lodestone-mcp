@@ -64,15 +64,14 @@ the best hit.
 Requires a recent Rust toolchain.
 
 ```sh
-# Keyless build (DuckDuckGo, Mojeek, grep.app, StackExchange, raw GitHub, Wayback)
 cargo run
-
-# With the headless-browser provider (Google) + per-call rendering.
-# Requires a local Chrome/Chromium.
-cargo run --features google
 ```
 
-The server listens on `http://127.0.0.1:8000/mcp` by default.
+The server listens on `http://127.0.0.1:8000/mcp` by default. It's keyless out of
+the box (DuckDuckGo, Mojeek, grep.app, StackExchange, raw GitHub, Wayback). The
+headless browser is always compiled in; the Google engine and per-call
+`render=true` additionally need a local **Chrome/Chromium** at runtime (only when
+those paths are used).
 
 ### Add to LM Studio
 
@@ -90,7 +89,7 @@ Edit `%USERPROFILE%\.lmstudio\mcp.json` (or `~/.lmstudio/mcp.json`):
 
 ### Docker
 
-The image bundles Chromium and builds with the browser provider enabled:
+The image bundles Chromium:
 
 ```sh
 docker compose up --build
@@ -137,7 +136,7 @@ strategy = "fallback"   # or "aggregate" (merge/re-rank across providers)
 [providers]
 web  = ["duckduckgo", "mojeek"]
 code = ["grep_app", "duckduckgo", "mojeek"]   # add "github", "google"
-qa   = ["stackoverflow"]                       # add "stackoverflow_scrape"
+qa   = ["stackoverflow"]                       # render=true scrapes SO instead
 
 [code]
 sites = ["github.com"]   # add "gitlab.com", "codeberg.org", "gitea.com", …
@@ -190,7 +189,7 @@ enabled = ["fetch_page", "github_fetch_file", "wayback_fetch"]
 | web | `duckduckgo` | DuckDuckGo lite scrape. Rate-limits by IP. |
 | web | `mojeek` | Independent index; tolerant of automation. |
 | web | `medium` | Recent Medium articles for the query (treated as a tag) via RSS. |
-| web/code | `google` | Headless Chrome. Needs `--features google` + Chrome. |
+| web/code | `google` | Headless-Chrome scrape. Needs a local Chrome at runtime; CAPTCHA-prone on datacenter IPs. |
 | code | `grep_app` | grep.app JSON API (often bot-walled → empty). |
 | code | `duckduckgo` / `mojeek` | Generic, `site:`-scoped to `[code].sites`. |
 | code | `github` | Authenticated GitHub code-search API. Needs a token. |
@@ -199,10 +198,10 @@ enabled = ["fetch_page", "github_fetch_file", "wayback_fetch"]
 
 ### Rendering (model-controlled)
 
-`web_search`, `code_search`, and `fetch_page` accept `render: true`. When set
-(and the binary was built with `--features browser`/`google`), the HTML-scraping
-providers fetch through a **shared, persistent headless Chrome** instead of plain
-HTTP — useful for JS-heavy pages or to slip past rate-limits/bot-walls. It's
+`web_search`, `code_search`, and `fetch_page` accept `render: true`. When set,
+the HTML-scraping providers fetch through a **shared, persistent headless Chrome**
+instead of plain HTTP — useful for JS-heavy pages or to slip past
+rate-limits/bot-walls. It needs a local Chrome/Chromium at runtime, and it's
 slower, so it's left to the model to request per call.
 
 ### Forges (GitLab, Gitea, …)

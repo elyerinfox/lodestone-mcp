@@ -18,8 +18,9 @@ strategy = "fallback"
 #   code ids: grep_app, duckduckgo, mojeek, github, google,
 #             github_web, gitlab, codeberg, gitea  (per-forge providers)
 #   qa ids:   stackoverflow
-# (`google` needs --features google; `github` needs a token — see their files.
-#  github_web/gitlab/codeberg/gitea are keyless per-forge code providers.)
+# (`google` drives a headless browser — needs a local Chrome; `github` needs a
+#  token — see their files. github_web/gitlab/codeberg/gitea are keyless
+#  per-forge code providers.)
 # Env: LODESTONE_WEB_PROVIDERS / LODESTONE_CODE_PROVIDERS / LODESTONE_QA_PROVIDERS
 web = ["duckduckgo", "mojeek"]
 code = ["grep_app", "duckduckgo", "mojeek"]

@@ -93,10 +93,16 @@ likely involved). Checked items are done; unchecked are open.
 
 ## Performance & resilience
 
-- [ ] **Short-lived result cache.**
-  - **Why:** Repeated identical searches/fetches re-hit rate-limited engines.
-  - **How:** In-memory TTL cache keyed by (tool, normalized args); wrap engine
-    calls and `fetch_readable`.
+- [ ] **Result cache (in-memory, then optional Redis).**
+  - **Why:** Repeated identical searches/fetches re-hit rate-limited engines and
+    waste the StackExchange/GitHub quota; cached query results also make restarts
+    and bursts cheap.
+  - **How:** A cache trait wrapping engine calls, `fetch_readable`, and tool
+    results, keyed by `(tool, normalized args)` with a TTL. Ship an in-memory
+    backend first, then an optional **Redis** backend (config `[cache] backend =
+    "redis", url = "redis://…", ttl_secs = …`) so multiple instances share cached
+    "bits of information related to queries". Store small, serializable values
+    (the normalized `SearchResult` list / extracted page text), never secrets.
 
 - [ ] **Headless-browser page pool.**
   - **Why:** The shared `ChromiumRenderer` serializes all renders behind one
@@ -131,6 +137,29 @@ likely involved). Checked items are done; unchecked are open.
   - **How:** Add a plain Axum route returning 200 alongside the `/mcp` service.
 
 ---
+
+## Distributed / federation
+
+- [ ] **Peer-to-peer "hivemind" of instances with shared query knowledge.**
+  - **Why:** Independent instances re-do the same scraping and burn the same
+    rate-limited engines. If a peer already searched something, a new instance
+    should be able to consult the network before going out to the open web —
+    spreading load, improving hit rates, and softening per-IP blocks. Local
+    search must keep working with zero peers: the network is a *helper*, never a
+    dependency.
+  - **How:** (1) **Service discovery** — let instances find each other (static
+    peer list in config, plus optional mDNS/LAN and a gossip seed). (2) **Shared
+    digests** — each peer advertises what it has cached as a compact, privacy-
+    preserving summary (e.g. a **Bloom filter** of normalized query keys, synced
+    periodically), so a peer can cheaply test "might peer X have this?" without
+    exchanging full query logs. (3) **Consult-then-fetch** — on a query, check
+    peers whose Bloom filter matches, request the cached result (reuse the cache
+    value format above), and fall back to a normal local search on miss/timeout/
+    low-confidence. (4) **Consensus/trust** — corroborate results across multiple
+    peers and weight by a simple reputation score to resist a single bad peer.
+    Keep it strictly opt-in (`[network] enabled = false` by default), bounded
+    (timeouts, max peers), and careful never to share secrets or raw user inputs
+    beyond hashed/Bloom keys. Likely its own module + a background sync task.
 
 ## Docs & release
 

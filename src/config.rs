@@ -51,7 +51,7 @@ pub struct CodeSearch {
 #[serde(default)]
 pub struct Google {
     /// Path to a Chrome/Chromium executable for headless rendering. Empty =
-    /// auto-detect. Only used when built with `--features browser`/`google`.
+    /// auto-detect. Only consulted when a render/Google path actually runs.
     pub chrome_path: String,
     /// Pass `--no-sandbox` / `--disable-dev-shm-usage` to Chrome. Required when
     /// running Chrome as root, e.g. inside a Docker container.

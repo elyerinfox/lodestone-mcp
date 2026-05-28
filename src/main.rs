@@ -8,7 +8,6 @@
 //! Transport: Streamable HTTP, mounted at `/mcp` (works with LM Studio's
 //! `url`-style mcp.json entries and any Streamable-HTTP MCP client).
 
-#[cfg(feature = "browser")]
 mod browser;
 mod config;
 mod provider;
@@ -49,8 +48,8 @@ struct WebSearchArgs {
     #[serde(default)]
     max_results: Option<u32>,
     /// Fetch results through a real headless browser (executes JS, can bypass
-    /// bot-walls/rate-limits) instead of plain HTTP. Slower. Requires a build
-    /// with the `browser`/`google` feature; otherwise ignored.
+    /// bot-walls/rate-limits) instead of plain HTTP. Slower; needs a local
+    /// Chrome/Chromium at runtime.
     #[serde(default)]
     render: Option<bool>,
 }
@@ -66,8 +65,8 @@ struct CodeSearchArgs {
     #[serde(default)]
     max_results: Option<u32>,
     /// Fetch results through a real headless browser (executes JS, can bypass
-    /// bot-walls/rate-limits) instead of plain HTTP. Slower. Requires a build
-    /// with the `browser`/`google` feature; otherwise ignored.
+    /// bot-walls/rate-limits) instead of plain HTTP. Slower; needs a local
+    /// Chrome/Chromium at runtime.
     #[serde(default)]
     render: Option<bool>,
 }
@@ -86,7 +85,7 @@ struct FetchPageArgs {
     use_archive: Option<bool>,
     /// Render the page in a real headless browser (executes JavaScript) instead
     /// of a plain HTTP GET. Use for JS-heavy/SPA pages whose content is empty
-    /// otherwise. Requires a build with the `browser` (or `google`) feature.
+    /// otherwise. Needs a local Chrome/Chromium at runtime.
     #[serde(default)]
     render: Option<bool>,
 }
@@ -130,8 +129,8 @@ struct StackSearchArgs {
     #[serde(default)]
     max_results: Option<u32>,
     /// Scrape stackoverflow.com via a headless browser instead of the API
-    /// (avoids the API quota; stackoverflow site only). Requires the
-    /// `browser`/`google` feature; otherwise ignored.
+    /// (avoids the API quota; stackoverflow site only). Needs a local
+    /// Chrome/Chromium at runtime.
     #[serde(default)]
     render: Option<bool>,
 }
@@ -261,27 +260,16 @@ impl Lodestone {
 
         // Explicitly requested a headless-browser render.
         if args.render.unwrap_or(false) {
-            #[cfg(feature = "browser")]
-            {
-                use crate::browser::PageRenderer;
-                let html = browser::shared_global()
-                    .render(&args.url)
-                    .await
-                    .map_err(internal)?;
-                let text = util::truncate_chars(&util::html_to_text(&html), max);
-                return Ok(text_result(format!(
-                    "Source (rendered): {}\n\n{}",
-                    args.url, text
-                )));
-            }
-            #[cfg(not(feature = "browser"))]
-            {
-                return Ok(text_result(
-                    "Headless rendering is not available in this build. Rebuild with \
-                     `--features browser` (or `--features google`) to use render=true."
-                        .to_string(),
-                ));
-            }
+            use crate::browser::PageRenderer;
+            let html = browser::shared_global()
+                .render(&args.url)
+                .await
+                .map_err(internal)?;
+            let text = util::truncate_chars(&util::html_to_text(&html), max);
+            return Ok(text_result(format!(
+                "Source (rendered): {}\n\n{}",
+                args.url, text
+            )));
         }
 
         // Explicitly requested the archived copy.
@@ -667,7 +655,6 @@ async fn main() -> anyhow::Result<()> {
 
     let cfg = Config::load();
     providers::configure_code_sites(cfg.code.sites.clone());
-    #[cfg(feature = "browser")]
     browser::configure(browser::BrowserOptions {
         chrome_path: cfg.google.chrome_path.clone(),
         no_sandbox: cfg.google.no_sandbox,
