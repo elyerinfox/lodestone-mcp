@@ -13,7 +13,10 @@
 //! provider is independently enable/disable-able via `[providers].docs` and its
 //! per-provider `docs_<id>` tool.
 
+mod archlinux;
+mod aur;
 mod cratesio;
+mod dockerhub;
 mod hex;
 mod mdn;
 mod npm;
@@ -69,6 +72,9 @@ pub(super) fn make(id: &str) -> Option<RegistryProvider> {
         "packagist" => &packagist::SPEC,
         "nuget" => &nuget::SPEC,
         "hex" => &hex::SPEC,
+        "aur" => &aur::SPEC,
+        "dockerhub" => &dockerhub::SPEC,
+        "archlinux" => &archlinux::SPEC,
         _ => return None,
     };
     Some(RegistryProvider { spec })
@@ -163,8 +169,43 @@ fn build_url(im: &ItemMap, item: &Value, name: &str) -> String {
         }
     }
     im.url_template
-        .map(|t| t.replace("{name}", name))
+        .map(|t| fill_template(t, item, name))
         .unwrap_or_default()
+}
+
+/// Fill a URL template. `{name}` is the result's name; `{/json/pointer}` tokens
+/// are looked up in the item (RFC 6901), letting forges with multi-segment URLs
+/// (e.g. Arch's `/repo/arch/pkgname/`) build a real link.
+fn fill_template(tmpl: &str, item: &Value, name: &str) -> String {
+    let mut out = String::with_capacity(tmpl.len());
+    let mut rest = tmpl;
+    while let Some(open) = rest.find('{') {
+        out.push_str(&rest[..open]);
+        let Some(close) = rest[open..].find('}') else {
+            out.push_str(&rest[open..]);
+            return out;
+        };
+        let token = &rest[open + 1..open + close];
+        if token == "name" {
+            out.push_str(name);
+        } else if token.starts_with('/') {
+            let val = item.pointer(token).map(json_scalar).unwrap_or_default();
+            out.push_str(&val);
+        }
+        rest = &rest[open + close + 1..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Best-effort string form of a scalar JSON value (string/number/bool).
+fn json_scalar(v: &Value) -> String {
+    match v {
+        Value::String(s) => s.clone(),
+        Value::Number(n) => n.to_string(),
+        Value::Bool(b) => b.to_string(),
+        _ => String::new(),
+    }
 }
 
 #[cfg(test)]
@@ -253,6 +294,42 @@ mod tests {
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].url, "https://hex.pm/packages/phoenix");
         assert_eq!(out[0].snippet, "Productive web framework");
+    }
+
+    #[test]
+    fn aur_parse_results() {
+        let v = serde_json::json!({
+            "results": [{"Name": "yay", "Description": "AUR helper", "Version": "12.4.2-1"}]
+        });
+        let out = parse(&aur::SPEC, &v, 10);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].url, "https://aur.archlinux.org/packages/yay");
+        assert_eq!(out[0].title, "yay 12.4.2-1");
+    }
+
+    #[test]
+    fn archlinux_parse_builds_multi_segment_url() {
+        let v = serde_json::json!({
+            "results": [{"pkgname": "firefox", "pkgdesc": "browser", "repo": "extra",
+                         "arch": "x86_64", "pkgver": "131.0"}]
+        });
+        let out = parse(&archlinux::SPEC, &v, 10);
+        assert_eq!(out.len(), 1);
+        assert_eq!(
+            out[0].url,
+            "https://archlinux.org/packages/extra/x86_64/firefox/"
+        );
+        assert_eq!(out[0].title, "firefox 131.0");
+    }
+
+    #[test]
+    fn dockerhub_parse_results() {
+        let v = serde_json::json!({
+            "results": [{"repo_name": "library/nginx", "short_description": "web server"}]
+        });
+        let out = parse(&dockerhub::SPEC, &v, 10);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].url, "https://hub.docker.com/r/library/nginx");
     }
 
     #[test]

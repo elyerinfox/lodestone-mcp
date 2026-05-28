@@ -1,0 +1,9 @@
+# -----------------------------------------------------------------------------
+# Provider: archlinux  (kind: docs)  — opt-in
+# -----------------------------------------------------------------------------
+# Arch Linux official packages. Keyless JSON search
+# (archlinux.org/packages/search/json). No tunables. Powers docs_search and the
+# per-provider docs_archlinux tool.
+#
+# Enable by adding "archlinux" to the docs list in ../02-search.toml.
+# -----------------------------------------------------------------------------

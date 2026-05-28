@@ -75,7 +75,8 @@ pub fn make(kind: ProviderKind, id: &str, cfg: &Config) -> Option<Box<dyn Search
         // Spec-driven documentation / package registries (keyless JSON APIs).
         (
             ProviderKind::Docs,
-            "cratesio" | "npm" | "mdn" | "rubygems" | "packagist" | "nuget" | "hex",
+            "cratesio" | "npm" | "mdn" | "rubygems" | "packagist" | "nuget" | "hex" | "aur"
+            | "dockerhub" | "archlinux",
         ) => registry::make(id).map(|p| Box::new(p) as Box<dyn SearchProvider>),
         // User-configured self-hosted forge (id defined under [forges]).
         (ProviderKind::Code, id) if cfg.forges.contains_key(id) => {

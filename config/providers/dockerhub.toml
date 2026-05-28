@@ -1,0 +1,9 @@
+# -----------------------------------------------------------------------------
+# Provider: dockerhub  (kind: docs)  — opt-in
+# -----------------------------------------------------------------------------
+# Docker Hub container image search. Keyless JSON
+# (hub.docker.com/v2/search/repositories). No tunables. Powers docs_search and
+# the per-provider docs_dockerhub tool.
+#
+# Enable by adding "dockerhub" to the docs list in ../02-search.toml.
+# -----------------------------------------------------------------------------

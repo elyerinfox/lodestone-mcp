@@ -23,8 +23,8 @@ required), served over Streamable HTTP at `/mcp`.
 - **Providers** across five families: engine (`duckduckgo`, `mojeek`, `google`),
   forge (`gitlab`, `codeberg`, `gitea`), registry (the `docs` kind, keyless JSON
   package/doc search via `docs_search`: `cratesio`/`npm`/`mdn` on by default, plus
-  opt-in `rubygems`/`packagist`/`nuget`/`hex`; the kind aggregates across
-  ecosystems), composite
+  opt-in `rubygems`/`packagist`/`nuget`/`hex`/`aur`/`dockerhub`/`archlinux`; the
+  kind aggregates across ecosystems), composite
   (`github`, `stackoverflow`), and bespoke (`grep_app`, `medium`, `searxng`). Each
   documented under `docs/providers/`.
 - **Self-hosted forges:** register private GitLab/Gitea hosts under `[forges]`;

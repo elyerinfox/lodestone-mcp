@@ -1,0 +1,8 @@
+# -----------------------------------------------------------------------------
+# Provider: aur  (kind: docs)  — opt-in
+# -----------------------------------------------------------------------------
+# Arch User Repository. Keyless JSON search via the AUR RPC (aur.archlinux.org).
+# No tunables. Powers docs_search and the per-provider docs_aur tool.
+#
+# Enable by adding "aur" to the docs list in ../02-search.toml.
+# -----------------------------------------------------------------------------

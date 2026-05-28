@@ -80,6 +80,9 @@ Kind: **docs**. JSON APIs, so `render` doesn't apply.
 | [`packagist`](providers/packagist.md) | off | PHP/Composer index (`packagist.org`). |
 | [`nuget`](providers/nuget.md) | off | .NET package index (NuGet search service). |
 | [`hex`](providers/hex.md) | off | Elixir/Erlang index (`hex.pm`). |
+| [`aur`](providers/aur.md) | off | Arch User Repository (AUR RPC). |
+| [`dockerhub`](providers/dockerhub.md) | off | Docker Hub container images. |
+| [`archlinux`](providers/archlinux.md) | off | Arch official packages. |
 
 ## Composite providers — multi-mode (`src/providers/composite/`)
 

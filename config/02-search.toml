@@ -63,7 +63,7 @@ strategy = "aggregate"
 #             gitlab, codeberg, gitea, searxng, <your [forges.*] ids>
 #   qa ids:   stackoverflow
 #   docs ids: cratesio, npm, mdn (default), plus opt-in rubygems, packagist,
-#             nuget, hex   (keyless package/doc registries)
+#             nuget, hex, aur, dockerhub, archlinux   (keyless registries)
 # (`google` drives a headless browser — needs a local Chrome. `github` is
 #  keyless by default (web scrape) and uses the GitHub API only if a token is
 #  set. gitlab/codeberg/gitea are keyless per-forge code providers. `searxng`
@@ -75,4 +75,5 @@ code = ["grep_app", "duckduckgo", "mojeek"]
 qa = ["stackoverflow"]
 docs = ["cratesio", "npm", "mdn"]
 # Add more ecosystems as desired:
-#   docs = ["cratesio", "npm", "mdn", "rubygems", "packagist", "nuget", "hex"]
+#   docs = ["cratesio", "npm", "mdn", "rubygems", "packagist", "nuget", "hex",
+#           "aur", "dockerhub", "archlinux"]
