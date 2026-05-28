@@ -14,8 +14,9 @@ use std::sync::Arc;
 use anyhow::Result;
 use async_trait::async_trait;
 use reqwest::Client;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
+use crate::cache::TtlCache;
 use crate::config::Config;
 use crate::providers;
 
@@ -119,7 +120,7 @@ pub struct SearchQuery {
 
 /// A normalized result returned by any provider. Optional fields are populated
 /// only when meaningful for the provider's kind.
-#[derive(Debug, Default, Clone, Serialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct SearchResult {
     pub title: String,
     pub url: String,
@@ -166,6 +167,7 @@ pub struct Registry {
     plan_web: KindPlan,
     plan_code: KindPlan,
     plan_qa: KindPlan,
+    cache: Option<Arc<TtlCache>>,
 }
 
 impl Registry {
@@ -194,6 +196,12 @@ impl Registry {
             plan_web: plan(&cfg.search.web),
             plan_code: plan(&cfg.search.code),
             plan_qa: plan(&cfg.search.qa),
+            cache: cfg.cache.enabled.then(|| {
+                Arc::new(TtlCache::new(
+                    cfg.cache.ttl_secs.max(1),
+                    cfg.cache.max_entries,
+                ))
+            }),
         }
     }
 
@@ -234,11 +242,37 @@ impl Registry {
         let Some(provider) = self.chain(kind).iter().find(|p| p.id() == id) else {
             return Vec::new();
         };
+        let key = format!("one|{}|{}|{}", kind.as_str(), id, query_key(query));
+        if let Some(hits) = self.cache_get(&key) {
+            return hits;
+        }
         match provider.search(http, query).await {
-            Ok(results) => results,
+            Ok(results) => {
+                self.cache_put(&key, &results);
+                results
+            }
             Err(e) => {
                 tracing::warn!(provider = id, error = %e, "provider failed");
                 Vec::new()
+            }
+        }
+    }
+
+    /// Look up a cached, still-live result list for `key`.
+    fn cache_get(&self, key: &str) -> Option<Vec<SearchResult>> {
+        let json = self.cache.as_ref()?.get(key)?;
+        serde_json::from_str(&json).ok()
+    }
+
+    /// Cache a non-empty result list (empty results are never cached, so a
+    /// transiently blocked source is retried next time rather than pinned empty).
+    fn cache_put(&self, key: &str, results: &[SearchResult]) {
+        if results.is_empty() {
+            return;
+        }
+        if let Some(cache) = self.cache.as_ref() {
+            if let Ok(json) = serde_json::to_string(results) {
+                cache.put(key.to_string(), json);
             }
         }
     }
@@ -251,10 +285,23 @@ impl Registry {
         http: &Client,
         query: &SearchQuery,
     ) -> (Vec<SearchResult>, String) {
-        match self.plan(kind).strategy {
+        let plan = self.plan(kind);
+        let key = format!(
+            "search|{}|{}|{}|{}",
+            kind.as_str(),
+            plan.strategy.as_str(),
+            plan.ranking.as_str(),
+            query_key(query),
+        );
+        if let Some(hits) = self.cache_get(&key) {
+            return (hits, "cache".to_string());
+        }
+        let (results, label) = match plan.strategy {
             Strategy::Fallback => self.search_fallback(kind, http, query).await,
             Strategy::Aggregate => self.search_aggregate(kind, http, query).await,
-        }
+        };
+        self.cache_put(&key, &results);
+        (results, label)
     }
 
     async fn search_fallback(
@@ -363,6 +410,19 @@ impl Registry {
             line(ProviderKind::Qa),
         )
     }
+}
+
+/// Stable cache-key fragment covering everything about a query that can change
+/// its results (text, limit, language/site selectors, and the render flag).
+fn query_key(q: &SearchQuery) -> String {
+    format!(
+        "{}|{}|{}|{}|{}",
+        q.render,
+        q.limit,
+        q.language.as_deref().unwrap_or(""),
+        q.site.as_deref().unwrap_or(""),
+        q.text,
+    )
 }
 
 fn build(kind: ProviderKind, ids: &[String], cfg: &Config) -> Vec<Arc<dyn SearchProvider>> {

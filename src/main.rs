@@ -9,6 +9,7 @@
 //! `url`-style mcp.json entries and any Streamable-HTTP MCP client).
 
 mod browser;
+mod cache;
 mod config;
 mod provider;
 mod providers;

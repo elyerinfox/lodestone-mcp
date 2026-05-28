@@ -1,0 +1,19 @@
+# =============================================================================
+# config/05-cache.toml — in-memory search-result cache
+# =============================================================================
+#
+# Caches the result list of each search (web/code/qa, general and per-provider)
+# keyed by the normalized query, so repeated identical searches don't re-hit
+# rate-limited engines or burn StackExchange/GitHub quota. In-memory only — the
+# cache is cleared on restart, holds only result lists (never secrets), and only
+# successful (non-empty) results are stored. Retrieval tools (fetch_page, etc.)
+# are not cached.
+# -----------------------------------------------------------------------------
+
+[cache]
+# Master switch. Env: LODESTONE_CACHE_ENABLED
+enabled = true
+# How long a cached result list stays fresh, in seconds. Env: LODESTONE_CACHE_TTL_SECS
+ttl_secs = 300
+# Maximum number of cached entries (memory bound). Env: LODESTONE_CACHE_MAX_ENTRIES
+max_entries = 512

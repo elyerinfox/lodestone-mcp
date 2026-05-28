@@ -26,6 +26,7 @@ pub struct Config {
     pub google: Google,
     pub github: Github,
     pub searxng: Searxng,
+    pub cache: Cache,
     /// User-defined self-hosted forges, keyed by provider id. Each entry becomes
     /// a keyless code provider (and a `code_<id>` tool) once its id is listed in
     /// `[providers].code`. Example: `[forges.myhost] kind = "gitea", domain =
@@ -106,6 +107,28 @@ pub struct Google {
     pub args: Vec<String>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(default)]
+pub struct Cache {
+    /// Cache search results in memory so repeated identical queries don't re-hit
+    /// rate-limited engines or burn API quota. Cleared on restart.
+    pub enabled: bool,
+    /// Lifetime of each cached result list, in seconds.
+    pub ttl_secs: u64,
+    /// Maximum number of cached entries (memory bound).
+    pub max_entries: usize,
+}
+
+impl Default for Cache {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            ttl_secs: 300,
+            max_entries: 512,
+        }
+    }
+}
+
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]
 pub struct Searxng {
@@ -166,6 +189,7 @@ impl Default for Config {
             google: Google::default(),
             github: Github::default(),
             searxng: Searxng::default(),
+            cache: Cache::default(),
             forges: HashMap::new(),
         }
     }
@@ -289,6 +313,19 @@ impl Config {
         }
         if let Ok(url) = std::env::var("LODESTONE_SEARXNG_URL") {
             self.searxng.url = url;
+        }
+        if let Ok(v) = std::env::var("LODESTONE_CACHE_ENABLED") {
+            self.cache.enabled = is_truthy(&v);
+        }
+        if let Ok(secs) = std::env::var("LODESTONE_CACHE_TTL_SECS") {
+            if let Ok(n) = secs.trim().parse::<u64>() {
+                self.cache.ttl_secs = n;
+            }
+        }
+        if let Ok(n) = std::env::var("LODESTONE_CACHE_MAX_ENTRIES") {
+            if let Ok(n) = n.trim().parse::<usize>() {
+                self.cache.max_entries = n;
+            }
         }
         // Accept the conventional GITHUB_TOKEN as well as our namespaced var.
         if let Ok(token) =

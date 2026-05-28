@@ -54,6 +54,7 @@ src/
   retrieve.rs    Retrieval of one known resource: raw GitHub files, readable
                  page text, Wayback snapshots, StackExchange answer threads.
   config.rs      Config struct + file (TOML) and env-var loading.
+  cache.rs       In-memory TTL cache used by the Registry for search results.
   util.rs        HTML→text, whitespace/entity helpers, truncation.
 ```
 

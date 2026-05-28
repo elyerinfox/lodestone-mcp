@@ -192,6 +192,20 @@ args        = []
 
 [github]
 token = ""               # enables the authenticated `github` code provider
+
+[searxng]
+url = ""                 # self-hosted SearXNG base URL; empty = provider off
+
+[cache]
+enabled = true           # cache search results in memory (cleared on restart)
+ttl_secs = 300           # freshness window
+max_entries = 512        # memory bound
+
+# Register self-hosted forges as keyless code providers (then add the id to
+# [providers].code). See config/04-forges.toml.
+# [forges.myhost]
+# kind = "gitea"          # "gitlab" or "gitea" URL layout
+# domain = "git.example.com"
 ```
 
 Env overrides include `LODESTONE_BIND`, `LODESTONE_AUTH_TOKEN`,
@@ -201,7 +215,9 @@ Env overrides include `LODESTONE_BIND`, `LODESTONE_AUTH_TOKEN`,
 `LODESTONE_CODE_SITES`, `LODESTONE_STACKEXCHANGE_SITE`,
 `LODESTONE_STACKEXCHANGE_KEY`, `LODESTONE_STACKEXCHANGE_ALLOWED_SITES`,
 `LODESTONE_CHROME_PATH`, `LODESTONE_CHROME_NO_SANDBOX`, `LODESTONE_CHROME_ARGS`,
-and `LODESTONE_GITHUB_TOKEN` / `GITHUB_TOKEN`.
+`LODESTONE_GITHUB_TOKEN` / `GITHUB_TOKEN`, `LODESTONE_SEARXNG_URL`, and
+`LODESTONE_CACHE_ENABLED` / `LODESTONE_CACHE_TTL_SECS` /
+`LODESTONE_CACHE_MAX_ENTRIES`.
 
 ### Authentication
 
@@ -283,6 +299,16 @@ through a **shared, persistent headless Chrome** instead of plain HTTP — usefu
 for JS-heavy pages or to slip past rate-limits/bot-walls. It needs a local
 Chrome/Chromium at runtime, and it's
 slower, so it's left to the model to request per call.
+
+### Caching
+
+Search results (web/code/qa, general and per-provider) are cached in memory keyed
+by the normalized query, so repeated identical searches don't re-hit
+rate-limited engines or burn API quota. It's on by default with a 300s TTL
+(`[cache]` / `LODESTONE_CACHE_*`), cleared on restart, holds only result lists
+(never secrets), and never caches empty results — so a transiently blocked source
+is retried rather than pinned empty. Retrieval tools (`fetch_page`, etc.) aren't
+cached.
 
 ### Forges (GitLab, Gitea, …)
 

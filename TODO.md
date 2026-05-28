@@ -89,16 +89,14 @@ likely involved). Checked items are done; unchecked are open.
 
 ## Performance & resilience
 
-- [ ] **Result cache (in-memory, then optional Redis).**
-  - **Why:** Repeated identical searches/fetches re-hit rate-limited engines and
-    waste the StackExchange/GitHub quota; cached query results also make restarts
-    and bursts cheap.
-  - **How:** A cache trait wrapping engine calls, `fetch_readable`, and tool
-    results, keyed by `(tool, normalized args)` with a TTL. Ship an in-memory
-    backend first, then an optional **Redis** backend (config `[cache] backend =
-    "redis", url = "redis://…", ttl_secs = …`) so multiple instances share cached
-    "bits of information related to queries". Store small, serializable values
-    (the normalized `SearchResult` list / extracted page text), never secrets.
+- [x] **Result cache (in-memory).** Done: `src/cache.rs` `TtlCache` (TTL +
+  size-bounded), wired into `Registry::search`/`run_one` keyed by the normalized
+  query; only non-empty results are stored, secrets never are. Config `[cache]`
+  (`enabled`/`ttl_secs`/`max_entries`, `LODESTONE_CACHE_*`), on by default at
+  300s. See `config/05-cache.toml`.
+  - **Remaining:** cache retrieval/`fetch_readable` page text too, and add an
+    optional **Redis** backend (`[cache] backend = "redis", url = "redis://…"`)
+    implementing the same get/put contract so multiple instances share results.
 
 - [ ] **Headless-browser page pool.**
   - **Why:** The shared `ChromiumRenderer` serializes all renders behind one
