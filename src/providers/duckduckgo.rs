@@ -29,23 +29,34 @@ impl SearchProvider for DuckDuckGo {
         } else {
             query.text.clone()
         };
-        let body = fetch(http, query, &q).await?;
-        let hits = parse(&body, query.limit);
+        let hits = search_raw(http, &q, query.render, query.limit).await?;
         Ok(finish(self.kind, hits, query.limit, false))
     }
+}
+
+/// Run a raw DuckDuckGo search for an already-built query string and return the
+/// parsed results (no kind-specific post-processing). Reused by forge providers.
+pub(crate) async fn search_raw(
+    http: &Client,
+    query: &str,
+    render: bool,
+    limit: usize,
+) -> Result<Vec<SearchResult>> {
+    let body = fetch(http, query, render).await?;
+    Ok(parse(&body, limit))
 }
 
 /// Non-render path POSTs to the lite endpoint (the known-good route). When the
 /// caller requests rendering, the same query is loaded over GET in the headless
 /// browser, which can slip past DuckDuckGo's IP rate-limiting.
-async fn fetch(http: &Client, query: &SearchQuery, q: &str) -> Result<String> {
+async fn fetch(http: &Client, q: &str, render: bool) -> Result<String> {
     #[cfg(feature = "browser")]
-    if query.render {
+    if render {
         use crate::browser::PageRenderer;
         let url = url::Url::parse_with_params("https://lite.duckduckgo.com/lite/", &[("q", q)])?;
         return crate::browser::shared_global().render(url.as_str()).await;
     }
-    let _ = query;
+    let _ = render;
     let body = http
         .post("https://lite.duckduckgo.com/lite/")
         .header("Accept", HTML_ACCEPT)

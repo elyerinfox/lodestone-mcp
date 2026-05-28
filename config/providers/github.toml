@@ -10,6 +10,10 @@
 # To use it: add "github" to the code list in ../02-search.toml AND set a token
 # (a classic PAT with public_repo, or a fine-grained PAT with read-only Contents).
 # Prefer the env var so the token isn't committed.
+#
+# Prefer to stay keyless? Use the "github_web" forge provider instead — it
+# searches github.com via a site-scoped web search (see ../providers, same
+# ForgeCodeProvider as gitlab/codeberg/gitea), no token required.
 # -----------------------------------------------------------------------------
 
 [github]

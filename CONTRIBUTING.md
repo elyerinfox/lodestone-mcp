@@ -103,6 +103,19 @@ browser path behind `#[cfg(feature = "browser")]`.
 4. Code providers should run results through `super::finish(...)` so forge
    filtering and repo/path enrichment apply.
 
+### Adding a code forge
+
+Forges (GitHub, GitLab, Codeberg, Gitea, …) share one implementation:
+`providers/forge/ForgeCodeProvider` does a site-scoped web search (DuckDuckGo →
+Mojeek, render-aware) and parses results. A forge differs only in its
+declarative `ForgeSpec` — `id`, `domain`, and a `fn(&str) -> Option<(repo, path)>`
+blob-URL parser. To add one:
+
+1. Create `providers/forge/<name>.rs` exposing `pub(super) static SPEC: ForgeSpec`.
+2. Add `mod <name>;`, an arm in `forge::make()`, and the spec to `SPECS` in
+   `providers/forge/mod.rs`.
+3. Register the id in `providers::make()` and add `config/providers/<name>.toml`.
+
 ## Invariants & conventions
 
 - **Never hold a `scraper` value across `.await`.** `Html`, `Selector`, and

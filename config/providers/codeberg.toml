@@ -1,0 +1,11 @@
+# -----------------------------------------------------------------------------
+# Provider: codeberg  (kind: code) — a "forge" provider (Gitea instance)
+# -----------------------------------------------------------------------------
+# Searches codeberg.org code via a site-scoped web search (DuckDuckGo, falling
+# back to Mojeek; render-aware) and parses Gitea `/src/branch/` URLs into
+# repo/path. Keyless. Shares the common ForgeCodeProvider logic.
+#
+# Not enabled by default. Add "codeberg" to the code list in ../02-search.toml:
+#   code = ["grep_app", "duckduckgo", "mojeek", "codeberg"]
+#
+# (No settings — documentation only.)

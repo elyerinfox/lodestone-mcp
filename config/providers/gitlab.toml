@@ -1,0 +1,11 @@
+# -----------------------------------------------------------------------------
+# Provider: gitlab  (kind: code) — a "forge" provider
+# -----------------------------------------------------------------------------
+# Searches gitlab.com code via a site-scoped web search (DuckDuckGo, falling
+# back to Mojeek; render-aware) and parses gitlab `/-/blob/` URLs into repo/path.
+# Keyless. Shares the common ForgeCodeProvider logic; see src/providers/forge/.
+#
+# Not enabled by default. Add "gitlab" to the code list in ../02-search.toml:
+#   code = ["grep_app", "duckduckgo", "mojeek", "gitlab"]
+#
+# (No settings — documentation only.)

@@ -192,8 +192,9 @@ enabled = ["fetch_page", "github_fetch_file", "wayback_fetch"]
 | web | `medium` | Recent Medium articles for the query (treated as a tag) via RSS. |
 | web/code | `google` | Headless Chrome. Needs `--features google` + Chrome. |
 | code | `grep_app` | grep.app JSON API (often bot-walled → empty). |
-| code | `duckduckgo` / `mojeek` | `site:`-scoped to `[code].sites`. |
+| code | `duckduckgo` / `mojeek` | Generic, `site:`-scoped to `[code].sites`. |
 | code | `github` | Authenticated GitHub code-search API. Needs a token. |
+| code | `github_web` / `gitlab` / `codeberg` / `gitea` | Keyless per-forge code search — one file per forge sharing an abstract `ForgeCodeProvider` (declarative `ForgeSpec`: domain + blob-URL parser). |
 | qa | `stackoverflow` | StackExchange API (keyless; optional key raises quota). With `render=true`, scrapes stackoverflow.com via headless browser instead. |
 
 ### Rendering (model-controlled)

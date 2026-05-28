@@ -9,7 +9,7 @@ use reqwest::Client;
 use scraper::{Html, Selector};
 use url::Url;
 
-use super::{fetch_html, finish, keyword_scoped_query, zip_links_snippets};
+use super::{fetch_html_render, finish, keyword_scoped_query, zip_links_snippets};
 use crate::provider::{ProviderKind, SearchProvider, SearchQuery, SearchResult};
 
 pub(super) struct Mojeek {
@@ -36,11 +36,22 @@ impl SearchProvider for Mojeek {
         } else {
             query.limit
         };
-        let url = Url::parse_with_params("https://www.mojeek.com/search", &[("q", q.as_str())])?;
-        let body = fetch_html(http, query, url.as_str()).await?;
-        let hits = parse(&body, fetch);
+        let hits = search_raw(http, &q, query.render, fetch).await?;
         Ok(finish(self.kind, hits, query.limit, true))
     }
+}
+
+/// Run a raw Mojeek search for an already-built query string and return the
+/// parsed results (no kind-specific post-processing). Reused by forge providers.
+pub(crate) async fn search_raw(
+    http: &Client,
+    query: &str,
+    render: bool,
+    limit: usize,
+) -> Result<Vec<SearchResult>> {
+    let url = Url::parse_with_params("https://www.mojeek.com/search", &[("q", query)])?;
+    let body = fetch_html_render(http, render, url.as_str()).await?;
+    Ok(parse(&body, limit))
 }
 
 fn parse(body: &str, max: usize) -> Vec<SearchResult> {
