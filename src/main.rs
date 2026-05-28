@@ -66,6 +66,8 @@ pub(crate) struct Lodestone {
     pub(crate) fs: Arc<config::Filesystem>,
     /// Shell-execution policy (allowlist / unrestricted) for `shell_run`.
     pub(crate) shell: Arc<config::Shell>,
+    /// Git CLI policy (repo, destructive gating) for `git_run`.
+    pub(crate) git: Arc<config::Git>,
     // The filtered tool router; `#[tool_handler(router = self.tool_router)]`
     // uses it for both tool listing and dispatch.
     tool_router: ToolRouter<Lodestone>,
@@ -87,6 +89,7 @@ impl Lodestone {
         k8s: config::Kubernetes,
         fs: config::Filesystem,
         shell: config::Shell,
+        git: config::Git,
         tools_enabled: &[String],
         tools_disabled: &[String],
     ) -> Self {
@@ -109,6 +112,7 @@ impl Lodestone {
             k8s: Arc::new(k8s),
             fs: Arc::new(fs),
             shell: Arc::new(shell),
+            git: Arc::new(git),
             tool_router,
         }
     }
@@ -203,6 +207,8 @@ impl ServerHandler for Lodestone {
                 [filesystem].roots (OFF by default — must be explicitly granted).\n\
                 - shell_run: run a shell command (arbitrary code execution; OFF by default; gated by \
                 [shell] — allowlist or unrestricted).\n\
+                - git_run: run a git command in a repo (local `git` binary; destructive subcommands \
+                need [git].allow_destructive).\n\
                 - json_query / json_format / yaml_to_json / json_to_yaml: parse, search, and \
                 convert JSON/YAML (local).\n\
                 - regex_search / regex_replace: match and substitute with regular expressions (local).\n\
@@ -424,6 +430,7 @@ async fn main() -> anyhow::Result<()> {
         cfg.kubernetes.clone(),
         cfg.filesystem.clone(),
         cfg.shell.clone(),
+        cfg.git.clone(),
         &cfg.tools.enabled,
         &tools_disabled,
     );

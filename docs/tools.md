@@ -127,6 +127,16 @@ runs anything via the system shell. Each run has a timeout + working dir. See
 | --- | --- | --- |
 | `shell_run` | `command`, `workdir?`, `timeout_secs?` | Run a command; returns exit code + stdout/stderr. |
 
+## Git
+
+`git_run` runs the local `git` binary (no shell) in a repository. On by default
+(`[git]`); destructive subcommands (push/reset/clean/rebase/…) require
+`[git].allow_destructive`. See [`config/12-git.toml`](../config/12-git.toml).
+
+| Tool | Arguments | Purpose |
+| --- | --- | --- |
+| `git_run` | `args`, `repo?` | Run `git <args>` (without the leading `git`); returns exit code + output. |
+
 ## Date & time
 
 | Tool | Arguments | Purpose |

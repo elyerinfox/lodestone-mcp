@@ -35,6 +35,7 @@ pub struct Config {
     pub kubernetes: Kubernetes,
     pub filesystem: Filesystem,
     pub shell: Shell,
+    pub git: Git,
     /// User-defined self-hosted forges, keyed by provider id. Each entry becomes
     /// a keyless code provider (and a `code_<id>` tool) once its id is listed in
     /// `[providers].code`. Example: `[forges.myhost] kind = "gitea", domain =
@@ -85,8 +86,9 @@ pub struct Tools {
     /// k8s_contexts, k8s_get, k8s_describe, k8s_logs, k8s_apply, k8s_scale,
     /// k8s_delete. Filesystem (gated by [filesystem], off by default): fs_read,
     /// fs_list, fs_stat, fs_find, fs_write, fs_edit, fs_mkdir, fs_delete, fs_move.
-    /// Shell (gated by [shell], off by default): shell_run. Plus per-provider
-    /// <kind>_<id> tools (e.g. docs_cratesio, docs_react, docs_kubernetes).
+    /// Shell (gated by [shell], off by default): shell_run. Git (gated by [git]):
+    /// git_run. Plus per-provider <kind>_<id> tools (e.g. docs_cratesio, docs_react,
+    /// docs_kubernetes).
     pub enabled: Vec<String>,
     /// Denylist applied after `enabled`; these tools are never exposed.
     pub disabled: Vec<String>,
@@ -309,6 +311,34 @@ impl Default for Shell {
     }
 }
 
+/// Git CLI skill (`src/skills/git.rs`) — runs the local `git` binary (must be on
+/// PATH). On by default; destructive subcommands (push/reset/clean/rebase/…) are
+/// blocked unless `allow_destructive`.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct Git {
+    /// Expose the `git_run` tool.
+    pub enabled: bool,
+    /// Allow destructive subcommands (push, reset, clean, rebase, filter-branch,
+    /// gc, prune, reflog). Off by default.
+    pub allow_destructive: bool,
+    /// Default repository working directory. Empty = the server's working directory.
+    pub repo: String,
+    /// Per-command timeout in seconds (the process is killed on timeout).
+    pub timeout_secs: u64,
+}
+
+impl Default for Git {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            allow_destructive: false,
+            repo: String::new(),
+            timeout_secs: 60,
+        }
+    }
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(default)]
 pub struct Cache {
@@ -449,6 +479,7 @@ impl Default for Config {
             kubernetes: Kubernetes::default(),
             filesystem: Filesystem::default(),
             shell: Shell::default(),
+            git: Git::default(),
             forges: HashMap::new(),
             docsites: HashMap::new(),
         }
@@ -698,6 +729,15 @@ impl Config {
             if let Ok(n) = n.trim().parse::<u64>() {
                 self.shell.timeout_secs = n;
             }
+        }
+        if let Ok(v) = std::env::var("LODESTONE_GIT_ENABLED") {
+            self.git.enabled = is_truthy(&v);
+        }
+        if let Ok(v) = std::env::var("LODESTONE_GIT_ALLOW_DESTRUCTIVE") {
+            self.git.allow_destructive = is_truthy(&v);
+        }
+        if let Ok(v) = std::env::var("LODESTONE_GIT_REPO") {
+            self.git.repo = v;
         }
         // Accept the conventional GITHUB_TOKEN as well as our namespaced var.
         if let Ok(token) =

@@ -18,6 +18,7 @@ pub mod data;
 pub mod datetime;
 pub mod docker;
 pub mod filesystem;
+pub mod git;
 pub mod github;
 pub mod huggingface;
 pub mod kernel;
@@ -119,6 +120,7 @@ fn all_skills() -> Vec<Box<dyn Skill>> {
     skills.extend(kubernetes::skills());
     skills.extend(filesystem::skills());
     skills.extend(shell::skills());
+    skills.extend(git::skills());
     skills.extend(datetime::skills());
     skills.extend(translate::skills());
     skills.extend(data::skills());
@@ -173,6 +175,13 @@ pub fn disabled_by_config(cfg: &crate::config::Config) -> Vec<String> {
         true,
         shell::TOOL_NAMES,
         shell::DESTRUCTIVE_NAMES,
+    );
+    // Git: gated by `enabled`; destructive subcommands are checked at call time.
+    gate(
+        cfg.git.enabled,
+        true,
+        git::TOOL_NAMES,
+        git::DESTRUCTIVE_NAMES,
     );
     out
 }

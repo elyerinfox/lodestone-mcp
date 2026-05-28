@@ -1,0 +1,21 @@
+# =============================================================================
+# config/12-git.toml — git CLI skill
+# =============================================================================
+#
+# The `git_run` tool runs the local `git` binary (must be on PATH) in a repository,
+# executed directly (no shell). Pass git args without the leading `git`, e.g.
+# `status -sb`, `log --oneline -10`, `commit -m "msg"`.
+#
+#   * enabled = true (default)         -> tool exposed.
+#   * allow_destructive = false        -> blocks push, reset, clean, rebase,
+#       filter-branch, filter-repo, gc, prune, reflog. Set true to allow them.
+#   * repo = ""                        -> default working directory (empty = CWD);
+#       a per-call `repo` argument overrides it.
+# Env: LODESTONE_GIT_ENABLED, LODESTONE_GIT_ALLOW_DESTRUCTIVE, LODESTONE_GIT_REPO
+# -----------------------------------------------------------------------------
+
+[git]
+enabled = true
+allow_destructive = false  # allow push/reset/clean/rebase/…
+repo = ""                  # default repo dir; empty = the server's CWD
+timeout_secs = 60
