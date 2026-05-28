@@ -193,6 +193,9 @@ struct Lodestone {
     default_se_site: Arc<str>,
     se_key: Arc<str>,
     se_allowed: Arc<[String]>,
+    /// Caches retrieval-tool output (page text, files, answers) keyed by request.
+    /// Separate from the search/hive cache so it never enters peer digests.
+    retrieval_cache: Option<Arc<cache::TtlCache>>,
     // The filtered tool router; `#[tool_handler(router = self.tool_router)]`
     // uses it for both tool listing and dispatch.
     tool_router: ToolRouter<Lodestone>,
@@ -200,12 +203,14 @@ struct Lodestone {
 
 #[tool_router]
 impl Lodestone {
+    #[allow(clippy::too_many_arguments)]
     fn new(
         registry: Arc<Registry>,
         default_se_site: String,
         se_key: String,
         se_allowed: Vec<String>,
         timeout_secs: u64,
+        retrieval_cache: Option<Arc<cache::TtlCache>>,
         tools_enabled: &[String],
         tools_disabled: &[String],
     ) -> Self {
@@ -221,6 +226,7 @@ impl Lodestone {
             default_se_site: default_se_site.into(),
             se_key: se_key.into(),
             se_allowed: se_allowed.into(),
+            retrieval_cache,
             tool_router,
         }
     }
@@ -228,6 +234,22 @@ impl Lodestone {
     /// Guardrail: is `site` permitted by the configured StackExchange allowlist?
     fn se_site_allowed(&self, site: &str) -> bool {
         self.se_allowed.is_empty() || self.se_allowed.iter().any(|s| s == site)
+    }
+
+    /// Look up cached retrieval output for `key`, if caching is enabled.
+    fn retrieval_get(&self, key: &str) -> Option<String> {
+        self.retrieval_cache.as_ref()?.get(key)
+    }
+
+    /// Cache non-empty retrieval output for `key` (failures/empties are skipped so
+    /// they can be retried).
+    fn retrieval_put(&self, key: String, value: &str) {
+        if value.is_empty() {
+            return;
+        }
+        if let Some(c) = &self.retrieval_cache {
+            c.put(key, value.to_string());
+        }
     }
 
     #[tool(
@@ -323,10 +345,18 @@ impl Lodestone {
         Parameters(args): Parameters<FetchPageArgs>,
     ) -> Result<CallToolResult, McpError> {
         let max = clamp(args.max_chars, 8000, 40000);
+        let key = format!("page|{max}|{}", args.url);
+        if let Some(cached) = self.retrieval_get(&key) {
+            return Ok(text_result(cached));
+        }
         let text = retrieve::fetch_readable(&self.http, &args.url, max)
             .await
             .map_err(internal)?;
-        Ok(text_result(format!("Source: {}\n\n{}", args.url, text)))
+        let out = format!("Source: {}\n\n{}", args.url, text);
+        if !text.is_empty() {
+            self.retrieval_put(key, &out);
+        }
+        Ok(text_result(out))
     }
 
     #[tool(
@@ -340,15 +370,20 @@ impl Lodestone {
     ) -> Result<CallToolResult, McpError> {
         use crate::browser::PageRenderer;
         let max = clamp(args.max_chars, 8000, 40000);
+        let key = format!("render|{max}|{}", args.url);
+        if let Some(cached) = self.retrieval_get(&key) {
+            return Ok(text_result(cached));
+        }
         let html = browser::shared_global()
             .render(&args.url)
             .await
             .map_err(internal)?;
         let text = util::truncate_chars(&util::html_to_text(&html), max);
-        Ok(text_result(format!(
-            "Source (rendered): {}\n\n{}",
-            args.url, text
-        )))
+        let out = format!("Source (rendered): {}\n\n{}", args.url, text);
+        if !text.is_empty() {
+            self.retrieval_put(key, &out);
+        }
+        Ok(text_result(out))
     }
 
     #[tool(
@@ -361,13 +396,23 @@ impl Lodestone {
         Parameters(args): Parameters<WaybackFetchArgs>,
     ) -> Result<CallToolResult, McpError> {
         let max = clamp(args.max_chars, 8000, 40000);
+        let key = format!(
+            "wayback|{max}|{}|{}",
+            args.timestamp.as_deref().unwrap_or(""),
+            args.url
+        );
+        if let Some(cached) = self.retrieval_get(&key) {
+            return Ok(text_result(cached));
+        }
         let (snapshot, text) =
             retrieve::wayback_fetch(&self.http, &args.url, args.timestamp.as_deref(), max)
                 .await
                 .map_err(internal)?;
-        Ok(text_result(format!(
-            "Source (archived): {snapshot}\n\n{text}"
-        )))
+        let out = format!("Source (archived): {snapshot}\n\n{text}");
+        if !text.is_empty() {
+            self.retrieval_put(key, &out);
+        }
+        Ok(text_result(out))
     }
 
     #[tool(
@@ -379,6 +424,15 @@ impl Lodestone {
         &self,
         Parameters(args): Parameters<FetchFileArgs>,
     ) -> Result<CallToolResult, McpError> {
+        let key = format!(
+            "file|{}|{}|{}",
+            args.target,
+            args.start_line.unwrap_or(0),
+            args.end_line.unwrap_or(0)
+        );
+        if let Some(cached) = self.retrieval_get(&key) {
+            return Ok(text_result(cached));
+        }
         let target = retrieve::resolve_raw_file(&args.target).map_err(invalid)?;
 
         let mut last_status = None;
@@ -418,7 +472,9 @@ impl Lodestone {
             None => body,
         };
 
-        Ok(text_result(format!("File: {url}\n\n{content}")))
+        let out = format!("File: {url}\n\n{content}");
+        self.retrieval_put(key, &out);
+        Ok(text_result(out))
     }
 
     #[tool(
@@ -484,6 +540,11 @@ impl Lodestone {
             ))
         })?;
 
+        let key = format!("se_answers|{site}|{max}|{qid}");
+        if let Some(cached) = self.retrieval_get(&key) {
+            return Ok(text_result(cached));
+        }
+
         let (q, a) = retrieve::se_answers(&self.http, &qid, &site, max, &self.se_key)
             .await
             .map_err(internal)?;
@@ -527,7 +588,9 @@ impl Lodestone {
             _ => out.push_str("(no answers)"),
         }
 
-        Ok(text_result(util::truncate_chars(&out, 40000)))
+        let out = util::truncate_chars(&out, 40000);
+        self.retrieval_put(key, &out);
+        Ok(text_result(out))
     }
 
     #[tool(
@@ -889,12 +952,22 @@ async fn main() -> anyhow::Result<()> {
     let registry = Arc::new(Registry::from_config(&cfg, cache.clone(), hive.clone()));
     tracing::info!("\n{}", registry.describe());
 
+    // A separate cache for retrieval-tool output (page text, files, answers), so
+    // those entries never enter the search/hive digest.
+    let retrieval_cache = cfg.cache.enabled.then(|| {
+        Arc::new(cache::TtlCache::new(
+            cfg.cache.ttl_secs.max(1),
+            cfg.cache.max_entries,
+        ))
+    });
+
     let server = Lodestone::new(
         registry,
         cfg.stackexchange.default_site.clone(),
         cfg.stackexchange.key.clone(),
         cfg.stackexchange.allowed_sites.clone(),
         cfg.search.timeout_secs,
+        retrieval_cache,
         &cfg.tools.enabled,
         &cfg.tools.disabled,
     );

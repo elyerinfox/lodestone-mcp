@@ -2,12 +2,14 @@
 # config/05-cache.toml — in-memory search-result cache
 # =============================================================================
 #
-# Caches the result list of each search (web/code/qa, general and per-provider)
-# keyed by the normalized query, so repeated identical searches don't re-hit
-# rate-limited engines or burn StackExchange/GitHub quota. In-memory only — the
-# cache is cleared on restart, holds only result lists (never secrets), and only
-# successful (non-empty) results are stored. Retrieval tools (fetch_page, etc.)
-# are not cached.
+# Caches the result list of each search (web/code/qa/docs, general and
+# per-provider) keyed by the normalized query, so repeated identical searches
+# don't re-hit rate-limited engines or burn StackExchange/GitHub quota. Retrieval
+# tools (fetch_page, render_page, fetch_repo_file, wayback_fetch,
+# qa_stackoverflow_answers) are cached too, in a separate in-memory store keyed by
+# the request (so it never enters peer digests). Both use the settings below.
+# In-memory only — cleared on restart, holds no secrets, and only successful
+# (non-empty) results are stored.
 # -----------------------------------------------------------------------------
 
 [cache]

@@ -39,8 +39,10 @@ required), served over Streamable HTTP at `/mcp`.
 - **Model-controlled rendering:** any HTML-scraping provider can run through a
   shared, persistent headless Chrome via a per-call `render` flag; scrape is the
   default.
-- **In-memory result cache** (`[cache]`, on by default, 300s TTL) keyed by the
-  normalized query; caches only non-empty results.
+- **In-memory caching** (`[cache]`, on by default, 300s TTL): search results
+  keyed by the normalized query, plus retrieval-tool output (`fetch_page`,
+  `render_page`, `fetch_repo_file`, `wayback_fetch`, `qa_stackoverflow_answers`)
+  in a separate store keyed by the request. Only non-empty results are cached.
 - **Hivemind** (`[network]`, opt-in/off by default): peer-to-peer consult of
   other instances' caches before scraping, with static + mDNS discovery plus
   **gossip** (mesh grows from a seed), **bounded relay** across the graph

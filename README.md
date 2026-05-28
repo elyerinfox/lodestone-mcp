@@ -341,8 +341,10 @@ by the normalized query, so repeated identical searches don't re-hit
 rate-limited engines or burn API quota. It's on by default with a 300s TTL
 (`[cache]` / `LODESTONE_CACHE_*`), cleared on restart, holds only result lists
 (never secrets), and never caches empty results — so a transiently blocked source
-is retried rather than pinned empty. Retrieval tools (`fetch_page`, etc.) aren't
-cached.
+is retried rather than pinned empty. Retrieval tools (`fetch_page`, `render_page`,
+`fetch_repo_file`, `wayback_fetch`, `qa_stackoverflow_answers`) are cached too, in
+a separate store keyed by the request — so it never enters peer digests — under
+the same `[cache]` settings.
 
 ### Hivemind (peer-to-peer)
 

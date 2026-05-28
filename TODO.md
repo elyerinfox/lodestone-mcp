@@ -92,9 +92,12 @@ likely involved). Checked items are done; unchecked are open.
   query; only non-empty results are stored, secrets never are. Config `[cache]`
   (`enabled`/`ttl_secs`/`max_entries`, `LODESTONE_CACHE_*`), on by default at
   300s. See `config/05-cache.toml`.
-  - **Remaining:** cache retrieval/`fetch_readable` page text too, and add an
-    optional **Redis** backend (`[cache] backend = "redis", url = "redis://…"`)
-    implementing the same get/put contract so multiple instances share results.
+  - **Also done:** retrieval-tool output (`fetch_page`, `render_page`,
+    `fetch_repo_file`, `wayback_fetch`, `qa_stackoverflow_answers`) is cached in a
+    separate store keyed by the request (not shared into peer digests).
+  - **Remaining:** an optional **Redis** backend (`[cache] backend = "redis",
+    url = "redis://…"`) implementing the same get/put contract so multiple
+    instances share results.
 
 - [ ] **Headless-browser page pool.**
   - **Why:** The shared `ChromiumRenderer` serializes all renders behind one
