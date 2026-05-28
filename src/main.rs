@@ -183,6 +183,12 @@ impl ServerHandler for Lodestone {
                 - k8s_contexts / k8s_get / k8s_describe / k8s_logs / k8s_apply / k8s_scale \
                 (+ k8s_delete when allowed): interact with a Kubernetes cluster via your kubeconfig \
                 (gated by [kubernetes]).\n\
+                - json_query / json_format / yaml_to_json / json_to_yaml: parse, search, and \
+                convert JSON/YAML (local).\n\
+                - regex_search / regex_replace: match and substitute with regular expressions (local).\n\
+                - math_eval / math_solve: evaluate a math expression, or solve a linear/quadratic \
+                equation in x (local).\n\
+                - convert_units: convert between units (length/mass/volume/area/speed/time/data/temperature).\n\
                 - list_providers: show which sources are active.\n\
                 - hive_status: show the peer-to-peer hivemind graph (if enabled).\n\
                 Each configured provider also has a direct tool named <kind>_<id> \

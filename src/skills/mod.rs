@@ -13,15 +13,19 @@
 
 pub mod archive;
 pub mod artifacthub;
+pub mod data;
 pub mod datetime;
 pub mod docker;
 pub mod github;
 pub mod kubernetes;
+pub mod math;
 pub mod meta;
 pub mod oci;
+pub mod regex;
 pub mod retrieve;
 pub mod search;
 pub mod translate;
+pub mod units;
 
 use std::sync::Arc;
 
@@ -101,6 +105,10 @@ fn all_skills() -> Vec<Box<dyn Skill>> {
     skills.extend(kubernetes::skills());
     skills.extend(datetime::skills());
     skills.extend(translate::skills());
+    skills.extend(data::skills());
+    skills.extend(regex::skills());
+    skills.extend(math::skills());
+    skills.extend(units::skills());
     skills.extend(meta::skills());
     skills
 }

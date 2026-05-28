@@ -72,7 +72,9 @@ pub struct Tools {
     /// webpage_to_pdf, read_pdf, fetch_repo_file, wayback_fetch, github_releases,
     /// github_user, github_repo, datetime, date_diff, time_convert, translate,
     /// detect_language, docker_search, docker_image, docker_tags, oci_tags,
-    /// oci_manifest, artifacthub_search, list_providers, hive_status. Local Docker
+    /// oci_manifest, artifacthub_search, json_query, json_format, yaml_to_json,
+    /// json_to_yaml, regex_search, regex_replace, math_eval, math_solve,
+    /// convert_units, list_providers, hive_status. Local Docker
     /// daemon (gated by [docker]): docker_ps, docker_images, docker_inspect,
     /// docker_logs, docker_info, docker_pull, docker_run, docker_start,
     /// docker_stop, docker_remove. Kubernetes (gated by [kubernetes]):

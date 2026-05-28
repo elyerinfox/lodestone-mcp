@@ -101,6 +101,20 @@ Full detail: [containers.md](containers.md#kubernetes-cluster).
 | `translate` | `text`, `to`, `from?` | Translate text via Google Translate (keyless); `to` is an ISO-639 code, `from` auto-detects. |
 | `detect_language` | `text` | Detect a text's language (ISO-639 code) via Google Translate (keyless). |
 
+## Data, math & units (local, no network)
+
+| Tool | Arguments | Purpose |
+| --- | --- | --- |
+| `json_query` | `json`, `pointer?` | Parse/validate JSON; extract a value by RFC-6901 JSON Pointer, or pretty-print. |
+| `json_format` | `json`, `minify?` | Pretty-print (default) or minify JSON. |
+| `yaml_to_json` | `data` | Convert YAML → JSON. |
+| `json_to_yaml` | `data` | Convert JSON → YAML. |
+| `regex_search` | `pattern`, `text`, `all?`, `ignore_case?` | Find regex matches and their capture groups (Rust `regex` syntax). |
+| `regex_replace` | `pattern`, `text`, `replacement`, `all?`, `ignore_case?` | Substitute regex matches (`$1`/`${name}` refs). |
+| `math_eval` | `expression` | Evaluate an arithmetic/scientific expression (sqrt, sin, pi, `^`, …). |
+| `math_solve` | `equation` | Solve a linear/quadratic equation in `x` (e.g. `x^2 - 5x + 6 = 0`). |
+| `convert_units` | `value`, `from`, `to` | Convert between units (length/mass/volume/area/speed/time/data/temperature). |
+
 ## Meta
 
 | Tool | Arguments | Purpose |

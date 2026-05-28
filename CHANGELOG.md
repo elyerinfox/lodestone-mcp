@@ -37,6 +37,11 @@ required), served over Streamable HTTP at `/mcp`.
 - **Translation tools** (Google Translate, keyless — no API key): `translate`
   (translate text to an ISO-639 target; auto-detects the source) and
   `detect_language` (report a text's language). Results are cached.
+- **Local utility skills** (no network): `json_query` / `json_format` /
+  `yaml_to_json` / `json_to_yaml` (parse, search by JSON Pointer, convert, format);
+  `regex_search` / `regex_replace` (Rust regex syntax); `math_eval` (arithmetic/
+  scientific expressions) and `math_solve` (linear/quadratic equations in `x`);
+  and `convert_units` (length/mass/volume/area/speed/time/data/temperature).
 - **Container & cloud-native tools** (keyless): `docker_search` / `docker_image` /
   `docker_tags` (Docker Hub image search, metadata, and tags via the public JSON
   API); `oci_tags` / `oci_manifest` (list tags and inspect a manifest — platforms
