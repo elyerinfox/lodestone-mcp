@@ -41,3 +41,14 @@ truth — the README and CONTRIBUTING link here rather than restating them.
    families) and an index row in [`docs/providers.md`](providers.md). The README
    stays a concise overview and links out to that reference (see the contribution
    checklist in [CONTRIBUTING.md](../CONTRIBUTING.md)).
+
+7. **Every tool is a self-contained skill module under a common contract.** No
+   tool/skill logic lives in `main.rs` — it is bootstrap and wiring only. Each tool
+   is its own module under [`src/skills/`](../src/skills/) implementing the shared
+   `Skill` contract (`name` / `description` / `schema` / `call`), and is assembled
+   into the router from that registry. A skill's own domain logic (its API/socket
+   client, parsers, formatters — e.g. the Docker, Kubernetes, OCI, translate
+   clients) lives *with the skill* under `src/skills/`, never as a loose module at
+   the `src/` root. Data-source `SearchProvider`s remain under
+   [`src/providers/`](../src/providers/); skills may build on them. The paradigm is
+   uniform: adding a capability means adding a skill module, not editing `main.rs`.

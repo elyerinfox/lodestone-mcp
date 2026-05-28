@@ -118,7 +118,8 @@ per-provider reference is **[docs/providers.md](docs/providers.md)**.
 The project's non-negotiable invariants live in one place,
 [docs/golden-rules.md](docs/golden-rules.md): scrape-by-default/render-optional ·
 the LLM decides · keyless by default · always parallelize · everything is
-enable/disable-able · every provider is documented.
+enable/disable-able · every provider is documented · every tool is a self-contained
+skill module.
 
 ## Documentation
 

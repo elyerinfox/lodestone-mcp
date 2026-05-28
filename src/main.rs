@@ -19,7 +19,7 @@ mod oci;
 mod provider;
 mod providers;
 mod retrieve;
-mod translate;
+mod skills;
 mod util;
 
 use std::sync::Arc;
@@ -393,23 +393,6 @@ struct ArtifactHubArgs {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
-struct TranslateArgs {
-    /// The text to translate.
-    text: String,
-    /// Target language as an ISO-639 code (e.g. "es", "fr", "de", "ja", "zh-CN").
-    to: String,
-    /// Source language code, or "auto" to detect it (default).
-    #[serde(default)]
-    from: Option<String>,
-}
-
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-struct DetectLanguageArgs {
-    /// The text whose language to detect.
-    text: String,
-}
-
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct StackSearchArgs {
     /// The question/problem to search for.
     query: String,
@@ -463,24 +446,27 @@ struct StackAnswersArgs {
 // Server
 // ---------------------------------------------------------------------------
 
+/// Shared server state. Skills (`src/skills/`) read this via `SkillCtx::server`;
+/// fields and helpers are `pub(crate)` so each skill module can use them without
+/// any tool logic living here.
 #[derive(Clone)]
-struct Lodestone {
-    http: reqwest::Client,
-    registry: Arc<Registry>,
-    default_se_site: Arc<str>,
-    se_key: Arc<str>,
-    se_allowed: Arc<[String]>,
+pub(crate) struct Lodestone {
+    pub(crate) http: reqwest::Client,
+    pub(crate) registry: Arc<Registry>,
+    pub(crate) default_se_site: Arc<str>,
+    pub(crate) se_key: Arc<str>,
+    pub(crate) se_allowed: Arc<[String]>,
     /// Optional GitHub token (raises the API rate limit for `github_releases`).
-    github_token: Arc<str>,
+    pub(crate) github_token: Arc<str>,
     /// Caches retrieval-tool output (page text, files, answers) keyed by request.
     /// Separate from the search/hive cache so it never enters peer digests.
-    retrieval_cache: Option<Arc<cache::TtlCache>>,
+    pub(crate) retrieval_cache: Option<Arc<cache::TtlCache>>,
     /// Default / hard-cap characters for the retrieval tools (`[retrieval]`).
-    default_chars: usize,
-    max_chars: usize,
+    pub(crate) default_chars: usize,
+    pub(crate) max_chars: usize,
     /// Kubernetes connection settings (kubeconfig path/context/namespace) for the
     /// `k8s_*` tools.
-    k8s: Arc<config::Kubernetes>,
+    pub(crate) k8s: Arc<config::Kubernetes>,
     // The filtered tool router; `#[tool_handler(router = self.tool_router)]`
     // uses it for both tool listing and dispatch.
     tool_router: ToolRouter<Lodestone>,
@@ -525,7 +511,7 @@ impl Lodestone {
     }
 
     /// Build per-call Kubernetes connection options from the stored config.
-    fn k8s_opts(&self) -> k8s::Opts {
+    pub(crate) fn k8s_opts(&self) -> k8s::Opts {
         k8s::Opts {
             kubeconfig: self.k8s.kubeconfig.clone(),
             context: self.k8s.context.clone(),
@@ -535,7 +521,7 @@ impl Lodestone {
 
     /// Resolve a requested `max_chars`: the per-call value (or the configured
     /// default), clamped to the configured hard cap.
-    fn clamp_chars(&self, requested: Option<u32>) -> usize {
+    pub(crate) fn clamp_chars(&self, requested: Option<u32>) -> usize {
         requested
             .map(|n| n as usize)
             .unwrap_or(self.default_chars)
@@ -543,18 +529,18 @@ impl Lodestone {
     }
 
     /// Guardrail: is `site` permitted by the configured StackExchange allowlist?
-    fn se_site_allowed(&self, site: &str) -> bool {
+    pub(crate) fn se_site_allowed(&self, site: &str) -> bool {
         self.se_allowed.is_empty() || self.se_allowed.iter().any(|s| s == site)
     }
 
     /// Look up cached retrieval output for `key`, if caching is enabled.
-    fn retrieval_get(&self, key: &str) -> Option<String> {
+    pub(crate) fn retrieval_get(&self, key: &str) -> Option<String> {
         self.retrieval_cache.as_ref()?.get(key)
     }
 
     /// Cache non-empty retrieval output for `key` (failures/empties are skipped so
     /// they can be retried).
-    fn retrieval_put(&self, key: String, value: &str) {
+    pub(crate) fn retrieval_put(&self, key: String, value: &str) {
         if value.is_empty() {
             return;
         }
@@ -1674,60 +1660,6 @@ impl Lodestone {
     }
 
     #[tool(
-        description = "Translate text into another language with Google Translate (keyless, no API \
-        key). `to` is an ISO-639 target code (es, fr, de, ja, zh-CN, …); `from` defaults to \
-        auto-detect. Returns the translation and the detected source language."
-    )]
-    async fn translate(
-        &self,
-        Parameters(args): Parameters<TranslateArgs>,
-    ) -> Result<CallToolResult, McpError> {
-        let to = args.to.trim();
-        if to.is_empty() {
-            return Err(invalid("`to` (target language code) is required"));
-        }
-        let from = args.from.as_deref().map(str::trim).unwrap_or("auto");
-        let key = format!("translate|{from}|{to}|{}", args.text);
-        if let Some(cached) = self.retrieval_get(&key) {
-            return Ok(text_result(cached));
-        }
-        let t = translate::translate(&self.http, &args.text, to, from)
-            .await
-            .map_err(internal)?;
-        let detected = if t.source_lang.is_empty() {
-            from.to_string()
-        } else {
-            t.source_lang
-        };
-        let out = format!("Translation ({detected} → {to}):\n{}", t.text);
-        self.retrieval_put(key, &out);
-        Ok(text_result(out))
-    }
-
-    #[tool(
-        description = "Detect the language of a piece of text using Google Translate (keyless). \
-        Returns the detected ISO-639 language code."
-    )]
-    async fn detect_language(
-        &self,
-        Parameters(args): Parameters<DetectLanguageArgs>,
-    ) -> Result<CallToolResult, McpError> {
-        let key = format!("detect|{}", args.text);
-        if let Some(cached) = self.retrieval_get(&key) {
-            return Ok(text_result(cached));
-        }
-        let t = translate::translate(&self.http, &args.text, "en", "auto")
-            .await
-            .map_err(internal)?;
-        if t.source_lang.is_empty() {
-            return Ok(text_result("Could not detect the language."));
-        }
-        let out = format!("Detected language: {}", t.source_lang);
-        self.retrieval_put(key, &out);
-        Ok(text_result(out))
-    }
-
-    #[tool(
         description = "List the configured search providers and the order they are tried, for \
         web, code and Q&A. Useful to check which sources are active."
     )]
@@ -2319,6 +2251,9 @@ fn build_tool_router(
     // General/aggregated tools (macro-generated) + one granular tool per
     // configured provider.
     let mut router = Lodestone::tool_router();
+    for route in skills::all_routes() {
+        router.add_route(route);
+    }
     for route in provider_tool_routes(registry) {
         router.add_route(route);
     }
@@ -2406,23 +2341,23 @@ fn provider_call<'a>(
     })
 }
 
-fn clamp(value: Option<u32>, default: u32, max: u32) -> usize {
+pub(crate) fn clamp(value: Option<u32>, default: u32, max: u32) -> usize {
     value.unwrap_or(default).clamp(1, max) as usize
 }
 
-fn text_result(s: impl Into<String>) -> CallToolResult {
+pub(crate) fn text_result(s: impl Into<String>) -> CallToolResult {
     CallToolResult::success(vec![Content::text(s.into())])
 }
 
-fn internal(e: anyhow::Error) -> McpError {
+pub(crate) fn internal(e: anyhow::Error) -> McpError {
     McpError::internal_error(format!("{e:#}"), None)
 }
 
-fn invalid(e: impl std::fmt::Display) -> McpError {
+pub(crate) fn invalid(e: impl std::fmt::Display) -> McpError {
     McpError::invalid_params(e.to_string(), None)
 }
 
-fn indent(s: &str, prefix: &str) -> String {
+pub(crate) fn indent(s: &str, prefix: &str) -> String {
     s.lines()
         .map(|l| format!("{prefix}{l}"))
         .collect::<Vec<_>>()

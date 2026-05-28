@@ -15,6 +15,8 @@ uphold all of them; a change that breaks one is wrong by definition. In brief:
 4. Parallelize — always.
 5. Everything is enable/disable-able.
 6. Every provider is documented.
+7. Every tool is a self-contained skill module under a common contract (no tool
+   logic in `main.rs`).
 
 Read [docs/golden-rules.md](docs/golden-rules.md) for the full statement of each.
 
@@ -22,9 +24,16 @@ Read [docs/golden-rules.md](docs/golden-rules.md) for the full statement of each
 
 ```
 src/
-  main.rs        Bootstrap + the MCP tools. Loads config, builds the Registry,
-                 configures the renderer and forge sites, serves Streamable-HTTP
-                 at /mcp. Defines the #[tool] methods and output formatting.
+  main.rs        Bootstrap + wiring ONLY (golden rule 7). Loads config, builds the
+                 Registry + shared state (Lodestone), configures the renderer and
+                 forge sites, assembles the router from skills, serves
+                 Streamable-HTTP at /mcp. No tool logic lives here.
+  skills/         Every tool, one module per skill, implementing the `Skill`
+                 contract (name/description/schema/call); mod.rs assembles them
+                 into routes. A skill owns its domain logic (clients, parsers,
+                 formatters): translate, oci (Docker Hub + OCI), artifacthub,
+                 docker (daemon), kubernetes, github, datetime, search, retrieve,
+                 meta. (Migration in progress; see golden rule 7.)
   provider.rs    The core interface: SearchProvider trait, ProviderKind,
                  Strategy, SearchQuery, SearchResult, and the Registry that
                  combines providers (fallback chain or aggregate meta-search).
@@ -57,12 +66,36 @@ src/
 
 ## Core concepts
 
+### Terminology: provider vs. skill vs. tool
+
+These three words are used precisely throughout the codebase:
+
+- **Tool** — the MCP wire primitive the model invokes: a `name`, a JSON argument
+  schema, and a handler. "Tool" is the protocol-level concept (what shows up in
+  `tools/list`).
+- **Skill** — *our* abstraction that **implements** a tool: a self-contained module
+  under [`src/skills/`](src/skills/) implementing the [`Skill`](src/skills/mod.rs)
+  contract (`name` / `description` / `schema` / `call`) and owning its domain logic.
+  Every skill produces exactly one tool. This is the unit you add when you add a
+  capability (golden rule 7) — never inline in `main.rs`.
+- **Provider** — a *data source* implementing
+  [`SearchProvider`](src/provider.rs) under [`src/providers/`](src/providers/)
+  (kinds: web/code/qa/docs), selected per kind and combined by a strategy. A
+  provider is **not** itself a tool; it's surfaced through the search skills
+  (`web_search`, …) and an auto-generated per-provider tool `<kind>_<id>`
+  (e.g. `code_github`). Skills may build on providers; many skills (translate,
+  docker, kubernetes, …) have no provider at all.
+
+So: *providers* are sources of ranked results; *skills* are the modular
+capabilities that become *tools*. Search skills consume providers; non-search
+skills (e.g. the Docker/Kubernetes/translate families) talk to their own clients.
+
 ### Providers vs. retrieval
 
 - A **provider** (`providers/`) ranks many candidates for a query and implements
   `SearchProvider`. Providers are pluggable and config-selected.
 - **Retrieval** (`retrieve.rs`) fetches one specific, already-identified thing
-  (a file, a page, a Q&A thread). These are plain functions, not providers.
+  (a file, a page, a Q&A thread). These are plain functions used by skills.
 
 ### The provider interface
 
