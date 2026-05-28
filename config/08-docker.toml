@@ -1,0 +1,23 @@
+# =============================================================================
+# config/08-docker.toml — local Docker daemon control
+# =============================================================================
+#
+# A LOCAL-SYSTEM capability, separate from the keyless web tools: lodestone talks
+# to your Docker daemon directly via the Engine API over the platform socket
+# (Windows named pipe \\.\pipe\docker_engine, or the unix socket; honors
+# DOCKER_HOST). No `docker` CLI is invoked.
+#
+# Every action is its own tool, so an MCP host can grant permission at per-action
+# granularity. Read + safe-write tools (docker_ps, docker_images, docker_inspect,
+# docker_logs, docker_info, docker_pull, docker_run, docker_start) are exposed when
+# `enabled`. The DESTRUCTIVE tools (docker_stop, docker_remove) are hidden unless
+# `allow_destructive` is also set.
+#
+# Note: docker_search / docker_image / docker_tags are the KEYLESS Docker Hub
+# lookups (see docs/containers.md) and are NOT affected by this section.
+# Env: LODESTONE_DOCKER_ENABLED, LODESTONE_DOCKER_ALLOW_DESTRUCTIVE
+# -----------------------------------------------------------------------------
+
+[docker]
+enabled = true             # expose the local Docker daemon tools
+allow_destructive = false  # also expose docker_stop / docker_remove

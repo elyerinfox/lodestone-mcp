@@ -11,6 +11,9 @@
 #        time_convert, translate, detect_language, docker_search, docker_image,
 #        docker_tags, oci_tags, oci_manifest, artifacthub_search, list_providers,
 #        hive_status
+# Local Docker daemon (gated by [docker] in 08-docker.toml): docker_ps,
+#        docker_images, docker_inspect, docker_logs, docker_info, docker_pull,
+#        docker_run, docker_start, docker_stop, docker_remove
 # Per-provider tools: one per configured provider, named <kind>_<id>
 #        (e.g. web_mojeek, code_github, qa_stackoverflow). Auto-generated from
 #        02-search.toml; filter them here by those names just like any tool.

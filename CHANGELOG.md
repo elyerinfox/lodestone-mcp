@@ -45,6 +45,12 @@ required), served over Streamable HTTP at `/mcp`.
   (Artifact Hub: Helm charts, Operators, krew plugins, policies, Tekton tasks, with
   an optional `kind` filter). The framework-docs family adds `docker`/`kubernetes`/
   `helm` doc sites (on by default). See `docs/containers.md`.
+- **Local Docker daemon control** (`[docker]`, on by default) — talks to the daemon
+  directly via the Engine API over the platform socket (Windows named pipe / unix
+  socket; honors `DOCKER_HOST`), no `docker` CLI. Each action is its own gated tool:
+  read/safe-write — `docker_ps`, `docker_images`, `docker_inspect`, `docker_logs`,
+  `docker_info`, `docker_pull`, `docker_run`, `docker_start`; destructive
+  (`docker_stop`, `docker_remove`) hidden unless `[docker].allow_destructive`.
 - **Self-hosted forges:** register private GitLab/Gitea hosts under `[forges]`;
   each becomes a keyless `code_<id>` provider.
 - **SearXNG provider** (web + code) against a self-hosted instance's JSON API.

@@ -43,6 +43,32 @@ looks like a domain or has a port; otherwise the reference resolves to Docker Hu
 `kyverno`, `gatekeeper`, `tekton-task`, `coredns`, `container`, and more. Results
 link to the package page on artifacthub.io.
 
+## Local Docker daemon (write access)
+
+A **local-system** capability, separate from the keyless web tools above:
+lodestone talks to your Docker daemon directly via the Engine API over the platform
+socket (Windows named pipe / unix socket; honors `DOCKER_HOST`) — no `docker` CLI.
+Code: [`src/docker.rs`](../src/docker.rs). Gated by `[docker]` (see
+[`config/08-docker.toml`](../config/08-docker.toml)); `enabled` on by default,
+destructive actions hidden unless `allow_destructive` is set. Each action is its own
+gated tool.
+
+| Tool | Arguments | Access | Purpose |
+| --- | --- | --- | --- |
+| `docker_ps` | `all?` | read | List containers (running, or all). |
+| `docker_images` | — | read | List local images. |
+| `docker_inspect` | `container` | read | Full JSON for a container. |
+| `docker_logs` | `container`, `tail?` | read | A container's stdout/stderr. |
+| `docker_info` | — | read | Daemon version + state summary. |
+| `docker_pull` | `image` | write | Pull an image onto the daemon. |
+| `docker_run` | `image`, `name?`, `command?` | write | Create + start a container. |
+| `docker_start` | `container` | write | Start a stopped container. |
+| `docker_stop` | `container` | **destructive** | Stop a running container. |
+| `docker_remove` | `container`, `force?` | **destructive** | Remove a container. |
+
+> `docker_*` (daemon) is distinct from `docker_search`/`docker_image`/`docker_tags`
+> (keyless Docker Hub lookups, above), which are unaffected by `[docker]`.
+
 ## Documentation search
 
 The framework-docs family also covers tooling docs: `docs_docker`

@@ -12,6 +12,7 @@ mod artifacthub;
 mod browser;
 mod cache;
 mod config;
+mod docker;
 mod hive;
 mod oci;
 mod provider;
@@ -257,6 +258,55 @@ struct OciManifestArgs {
     /// An image reference (with optional `:tag` or `@sha256:…`) on any OCI
     /// registry, e.g. `nginx:1.27`, `ghcr.io/owner/image:latest`.
     reference: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct DockerPsArgs {
+    /// Include stopped containers, not just running ones (default false).
+    #[serde(default)]
+    all: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct DockerNameArgs {
+    /// A container name or id.
+    container: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct DockerLogsArgs {
+    /// A container name or id.
+    container: String,
+    /// How many trailing log lines to return. Default 200, capped 2000.
+    #[serde(default)]
+    tail: Option<u32>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct DockerPullArgs {
+    /// Image to pull, e.g. `nginx`, `nginx:1.27`, `ghcr.io/owner/image:tag`.
+    image: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct DockerRunArgs {
+    /// Image to create the container from, e.g. `nginx:alpine`.
+    image: String,
+    /// Optional container name.
+    #[serde(default)]
+    name: Option<String>,
+    /// Optional command to run (split on whitespace).
+    #[serde(default)]
+    command: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct DockerRemoveArgs {
+    /// A container name or id.
+    container: String,
+    /// Force-remove a running container (default false).
+    #[serde(default)]
+    force: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -1293,6 +1343,127 @@ impl Lodestone {
         Ok(text_result(out))
     }
 
+    // --- Local Docker daemon (gated by [docker]; see src/docker.rs) ----------
+
+    #[tool(
+        description = "List containers on the LOCAL Docker daemon (running by default; pass \
+        all=true to include stopped). Talks to the daemon directly — no docker CLI. (Distinct from \
+        docker_search, which searches Docker Hub.)"
+    )]
+    async fn docker_ps(
+        &self,
+        Parameters(args): Parameters<DockerPsArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let out = docker::ps(args.all.unwrap_or(false))
+            .await
+            .map_err(internal)?;
+        Ok(text_result(out))
+    }
+
+    #[tool(description = "List images stored on the LOCAL Docker daemon (id, tags, size).")]
+    async fn docker_images(&self) -> Result<CallToolResult, McpError> {
+        Ok(text_result(docker::images().await.map_err(internal)?))
+    }
+
+    #[tool(
+        description = "Inspect a LOCAL Docker container (full JSON: config, state, mounts, \
+        networks). Accepts a container name or id."
+    )]
+    async fn docker_inspect(
+        &self,
+        Parameters(args): Parameters<DockerNameArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let out = docker::inspect(&args.container).await.map_err(internal)?;
+        Ok(text_result(util::truncate_chars(&out, self.max_chars)))
+    }
+
+    #[tool(
+        description = "Read a LOCAL Docker container's logs (stdout+stderr, last `tail` lines). \
+        Accepts a container name or id."
+    )]
+    async fn docker_logs(
+        &self,
+        Parameters(args): Parameters<DockerLogsArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let tail = clamp(args.tail, 200, 2000);
+        let out = docker::logs(&args.container, tail)
+            .await
+            .map_err(internal)?;
+        Ok(text_result(util::truncate_chars(&out, self.max_chars)))
+    }
+
+    #[tool(
+        description = "Show the LOCAL Docker daemon's version and a summary of its state \
+        (containers, images, os/arch)."
+    )]
+    async fn docker_info(&self) -> Result<CallToolResult, McpError> {
+        Ok(text_result(docker::info().await.map_err(internal)?))
+    }
+
+    #[tool(
+        description = "Pull an image onto the LOCAL Docker daemon, e.g. `nginx:1.27` or \
+        `ghcr.io/owner/image:tag`."
+    )]
+    async fn docker_pull(
+        &self,
+        Parameters(args): Parameters<DockerPullArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let out = docker::pull(&args.image).await.map_err(internal)?;
+        Ok(text_result(out))
+    }
+
+    #[tool(
+        description = "Create and start a container on the LOCAL Docker daemon from an image, \
+        with an optional name and command. Pulls the image first if needed."
+    )]
+    async fn docker_run(
+        &self,
+        Parameters(args): Parameters<DockerRunArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let out = docker::run(&args.image, args.name.as_deref(), args.command.as_deref())
+            .await
+            .map_err(internal)?;
+        Ok(text_result(out))
+    }
+
+    #[tool(
+        description = "Start an existing (stopped) container on the LOCAL Docker daemon. \
+        Accepts a container name or id."
+    )]
+    async fn docker_start(
+        &self,
+        Parameters(args): Parameters<DockerNameArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let out = docker::start(&args.container).await.map_err(internal)?;
+        Ok(text_result(out))
+    }
+
+    #[tool(
+        description = "Stop a running container on the LOCAL Docker daemon. Destructive — only \
+        available when [docker].allow_destructive is set. Accepts a container name or id."
+    )]
+    async fn docker_stop(
+        &self,
+        Parameters(args): Parameters<DockerNameArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let out = docker::stop(&args.container).await.map_err(internal)?;
+        Ok(text_result(out))
+    }
+
+    #[tool(
+        description = "Remove a container from the LOCAL Docker daemon (optionally force a \
+        running one). Destructive — only available when [docker].allow_destructive is set."
+    )]
+    async fn docker_remove(
+        &self,
+        Parameters(args): Parameters<DockerRemoveArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let out = docker::remove(&args.container, args.force.unwrap_or(false))
+            .await
+            .map_err(internal)?;
+        Ok(text_result(out))
+    }
+
     #[tool(
         description = "Translate text into another language with Google Translate (keyless, no API \
         key). `to` is an ISO-639 target code (es, fr, de, ja, zh-CN, …); `from` defaults to \
@@ -1397,6 +1568,9 @@ impl ServerHandler for Lodestone {
                 - docker_search / docker_image / docker_tags: Docker Hub image search + metadata + tags (keyless).\n\
                 - oci_tags / oci_manifest: list tags / inspect a manifest on any OCI registry (Docker Hub, GHCR, Quay, …).\n\
                 - artifacthub_search: search Artifact Hub (Helm charts, Operators, krew, policies, …).\n\
+                - docker_ps / docker_images / docker_logs / docker_inspect / docker_info / docker_pull / \
+                docker_run / docker_start (+ docker_stop / docker_remove when allowed): control the LOCAL \
+                Docker daemon (gated by [docker]).\n\
                 - list_providers: show which sources are active.\n\
                 - hive_status: show the peer-to-peer hivemind graph (if enabled).\n\
                 Each configured provider also has a direct tool named <kind>_<id> \
@@ -1877,6 +2051,35 @@ fn format_qa(query: &str, site: &str, hits: &[SearchResult]) -> String {
 // Helpers
 // ---------------------------------------------------------------------------
 
+/// Local Docker daemon tools, and the destructive subset within them.
+const DOCKER_TOOLS: &[&str] = &[
+    "docker_ps",
+    "docker_images",
+    "docker_inspect",
+    "docker_logs",
+    "docker_info",
+    "docker_pull",
+    "docker_run",
+    "docker_start",
+    "docker_stop",
+    "docker_remove",
+];
+const DOCKER_DESTRUCTIVE: &[&str] = &["docker_stop", "docker_remove"];
+
+/// The effective tool denylist: the configured `[tools].disabled`, plus the
+/// local-system tools gated off by their family config (whole family when
+/// disabled, just the destructive ones when destructive isn't allowed).
+fn effective_disabled(cfg: &Config) -> Vec<String> {
+    let mut disabled = cfg.tools.disabled.clone();
+    let mut deny = |names: &[&str]| disabled.extend(names.iter().map(|s| s.to_string()));
+    if !cfg.docker.enabled {
+        deny(DOCKER_TOOLS);
+    } else if !cfg.docker.allow_destructive {
+        deny(DOCKER_DESTRUCTIVE);
+    }
+    disabled
+}
+
 /// Build the tool router exposing only the configured subset of tools (skills).
 /// `enabled` empty = expose all; `disabled` is applied afterward.
 fn build_tool_router(
@@ -2126,6 +2329,12 @@ async fn main() -> anyhow::Result<()> {
         ))
     });
 
+    // Gate the local-system tool families by their config: when a family is off,
+    // hide all its tools; when on but destructive actions aren't allowed, hide
+    // just those. (Done by extending the [tools] denylist before the router is
+    // built, so the gating reuses the same filtering path.)
+    let tools_disabled = effective_disabled(&cfg);
+
     let server = Lodestone::new(
         registry,
         cfg.stackexchange.default_site.clone(),
@@ -2137,7 +2346,7 @@ async fn main() -> anyhow::Result<()> {
         cfg.retrieval.default_chars,
         cfg.retrieval.max_chars,
         &cfg.tools.enabled,
-        &cfg.tools.disabled,
+        &tools_disabled,
     );
     let ct = CancellationToken::new();
 

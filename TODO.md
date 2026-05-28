@@ -63,11 +63,21 @@ likely involved). Checked items are done; unchecked are open.
   Hub/GHCR/Quay/self-hosted) and `src/artifacthub.rs` (`artifacthub_search` over
   Helm/Operators/krew/policies/Tekton). Plus `docker`/`kubernetes`/`helm` doc sites
   in the docsite family. All keyless. Docs: `docs/containers.md`.
-  - **Deferred (needs design sign-off):** local **Docker daemon** control and
-    **Kubernetes cluster** interaction (kubefiles/kubectl/helm) as granular
-    per-action skills — a departure from the keyless read-only web scope; pending
-    decisions on transport (shell out to CLIs vs. API), default-off gating, and how
-    destructive actions are surfaced.
+- [x] **Local Docker daemon control.** Done: `src/docker.rs` talks to the daemon
+  directly via the Engine API over the platform socket (bollard; Windows named pipe
+  / unix socket; honors `DOCKER_HOST`) — no `docker` CLI. Granular per-action tools,
+  gated by `[docker]` (on by default; `allow_destructive` off by default hides
+  `docker_stop`/`docker_remove`). Docs: `docs/containers.md`.
+
+- [ ] **Kubernetes cluster interaction.** Direct API (kube-rs; reads kubeconfig),
+  granular per-action tools gated by `[kubernetes]` (on by default; destructive
+  opt-in): contexts, get, describe, logs, apply (kubefiles), scale, delete.
+  - **Deferred within this:** `exec` (SPDY/ws), `rollout restart`, and Helm release
+    *mutation* (would reimplement Helm — out of scope for direct-API; Helm docs +
+    Artifact Hub search already cover discovery).
+
+- [ ] **Docker daemon — more actions.** `docker_build` (tar a context), `docker_exec`,
+  and image removal, as further gated tools.
 
 - [x] **SearXNG provider.** Done: `src/providers/bespoke/searxng.rs` hits
   `{url}/search?format=json` for web+code (code is `site:`-scoped to

@@ -51,6 +51,25 @@ Full detail: [containers.md](containers.md).
 | `oci_manifest` | `reference` | Inspect a manifest: multi-arch platforms, or layers/size/config. |
 | `artifacthub_search` | `query`, `kind?`, `max_results?` | Artifact Hub: Helm charts, Operators, krew, policies, Tekton. |
 
+## Local Docker daemon
+
+A local-system capability (direct Engine API, no CLI), gated by `[docker]` —
+on by default; destructive tools hidden unless `allow_destructive` is set. Full
+detail: [containers.md](containers.md#local-docker-daemon-write-access).
+
+| Tool | Arguments | Access | Purpose |
+| --- | --- | --- | --- |
+| `docker_ps` | `all?` | read | List containers. |
+| `docker_images` | — | read | List local images. |
+| `docker_inspect` | `container` | read | Full container JSON. |
+| `docker_logs` | `container`, `tail?` | read | Container logs. |
+| `docker_info` | — | read | Daemon version + state. |
+| `docker_pull` | `image` | write | Pull an image. |
+| `docker_run` | `image`, `name?`, `command?` | write | Create + start a container. |
+| `docker_start` | `container` | write | Start a stopped container. |
+| `docker_stop` | `container` | destructive | Stop a container (opt-in). |
+| `docker_remove` | `container`, `force?` | destructive | Remove a container (opt-in). |
+
 ## Date & time
 
 | Tool | Arguments | Purpose |

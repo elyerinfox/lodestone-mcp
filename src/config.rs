@@ -31,6 +31,7 @@ pub struct Config {
     pub retrieval: Retrieval,
     pub cache: Cache,
     pub network: Network,
+    pub docker: Docker,
     /// User-defined self-hosted forges, keyed by provider id. Each entry becomes
     /// a keyless code provider (and a `code_<id>` tool) once its id is listed in
     /// `[providers].code`. Example: `[forges.myhost] kind = "gitea", domain =
@@ -70,8 +71,11 @@ pub struct Tools {
     /// webpage_to_pdf, read_pdf, fetch_repo_file, wayback_fetch, github_releases,
     /// github_user, github_repo, datetime, date_diff, time_convert, translate,
     /// detect_language, docker_search, docker_image, docker_tags, oci_tags,
-    /// oci_manifest, artifacthub_search, list_providers, hive_status. Plus
-    /// per-provider <kind>_<id> tools (e.g. docs_cratesio, docs_react, docs_kubernetes).
+    /// oci_manifest, artifacthub_search, list_providers, hive_status. Local Docker
+    /// daemon (gated by [docker]): docker_ps, docker_images, docker_inspect,
+    /// docker_logs, docker_info, docker_pull, docker_run, docker_start,
+    /// docker_stop, docker_remove. Plus per-provider <kind>_<id> tools (e.g.
+    /// docs_cratesio, docs_react, docs_kubernetes).
     pub enabled: Vec<String>,
     /// Denylist applied after `enabled`; these tools are never exposed.
     pub disabled: Vec<String>,
@@ -187,6 +191,28 @@ impl Default for Network {
             relay_hops: 1,
             node_id: String::new(),
             state_file: String::new(),
+        }
+    }
+}
+
+/// Local Docker daemon control (`src/docker.rs`). A local-system capability,
+/// separate from the keyless web tools. On by default; mutating-but-safe actions
+/// (pull/run/start) are included, while destructive ones (stop/remove) are hidden
+/// unless `allow_destructive` is set.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct Docker {
+    /// Expose the Docker daemon tools at all.
+    pub enabled: bool,
+    /// Also expose the destructive Docker tools (`docker_stop`, `docker_remove`).
+    pub allow_destructive: bool,
+}
+
+impl Default for Docker {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            allow_destructive: false,
         }
     }
 }
@@ -326,6 +352,7 @@ impl Default for Config {
             retrieval: Retrieval::default(),
             cache: Cache::default(),
             network: Network::default(),
+            docker: Docker::default(),
             forges: HashMap::new(),
             docsites: HashMap::new(),
         }
@@ -519,6 +546,12 @@ impl Config {
         }
         if let Ok(path) = std::env::var("LODESTONE_NETWORK_STATE_FILE") {
             self.network.state_file = path;
+        }
+        if let Ok(v) = std::env::var("LODESTONE_DOCKER_ENABLED") {
+            self.docker.enabled = is_truthy(&v);
+        }
+        if let Ok(v) = std::env::var("LODESTONE_DOCKER_ALLOW_DESTRUCTIVE") {
+            self.docker.allow_destructive = is_truthy(&v);
         }
         // Accept the conventional GITHUB_TOKEN as well as our namespaced var.
         if let Ok(token) =

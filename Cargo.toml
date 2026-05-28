@@ -38,3 +38,11 @@ mdns-sd = "0.20.0"
 chrono = { version = "0.4.44", default-features = false, features = ["clock", "std"] }
 chrono-tz = "0.10.4"
 pdf-extract = "0.10.0"
+
+# Local Docker daemon control via the Engine API over the platform socket
+# (Windows named pipe / unix socket). Direct API, no docker CLI dependency.
+bollard = "0.18"
+# Direct Kubernetes API access (reads kubeconfig; no kubectl dependency).
+kube = { version = "0.99", default-features = false, features = ["client", "config", "rustls-tls"] }
+k8s-openapi = { version = "0.24", features = ["latest"] }
+serde_yaml = "0.9"
