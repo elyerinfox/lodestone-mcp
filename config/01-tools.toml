@@ -19,6 +19,7 @@
 # Local utilities: json_query, json_format, yaml_to_json, json_to_yaml,
 #        regex_search, regex_replace, math_eval, math_solve, convert_units
 # IETF: rfc_get, rfc_search
+# Standards: standards_search (IEEE/SAE/NIST/ISO/… metadata via Crossref)
 # Per-provider tools: one per configured provider, named <kind>_<id>
 #        (e.g. web_mojeek, code_github, qa_stackoverflow). Auto-generated from
 #        02-search.toml; filter them here by those names just like any tool.

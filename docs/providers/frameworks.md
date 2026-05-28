@@ -56,6 +56,9 @@ underlying fetch through the headless browser.
 | `docker` | `docs.docker.com` | on |
 | `kubernetes` | `kubernetes.io` | on |
 | `helm` | `helm.sh` | on |
+| `ieee` | `ieeexplore.ieee.org` | on |
+| `sae` | `sae.org` | on |
+| `nist` | `nist.gov` | on |
 
 Enable more by adding their ids to `[providers].docs` in `config/02-search.toml`.
 

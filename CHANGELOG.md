@@ -40,6 +40,11 @@ required), served over Streamable HTTP at `/mcp`.
 - **IETF RFC skills** (keyless): `rfc_get` fetches an RFC's full text by number
   directly from the RFC Editor; `rfc_search` finds RFCs by title via the IETF
   Datatracker.
+- **Standards lookup** (keyless): `standards_search` finds published standards
+  (IEEE, SAE, NIST, ISO, ANSI, IEC, …) via the Crossref API — title, publisher,
+  type, year, DOI, and a doi.org link (metadata; IEEE/SAE are paywalled, NIST is
+  free). Plus `ieee`/`sae`/`nist` doc-site providers (`docs_ieee`/`docs_sae`/
+  `docs_nist`) for the publishers' own pages.
 - **Local utility skills** (no network): `json_query` / `json_format` /
   `yaml_to_json` / `json_to_yaml` (parse, search by JSON Pointer, convert, format);
   `regex_search` / `regex_replace` (Rust regex syntax); `math_eval` (arithmetic/

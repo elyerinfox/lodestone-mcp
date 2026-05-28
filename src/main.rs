@@ -169,6 +169,8 @@ impl ServerHandler for Lodestone {
                 - read_pdf: extract text from a PDF (URL or local path), locally.\n\
                 - wayback_fetch: read a page's archived snapshot from the Wayback Machine.\n\
                 - rfc_get / rfc_search: fetch an IETF RFC's full text by number, or search RFCs by title (keyless).\n\
+                - standards_search: search published standards (IEEE/SAE/NIST/ISO/…) via Crossref (metadata; \
+                IEEE/SAE paywalled, NIST free).\n\
                 - qa_search: search the configured Q&A providers (StackExchange network).\n\
                 - datetime: the current date/time from the system clock (local, UTC, Unix).\n\
                 - date_diff: difference between two dates (days/years, 'ago / from now').\n\

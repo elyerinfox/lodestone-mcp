@@ -129,6 +129,9 @@ rationale, and how to add your own via `[docsites.<id>]`.
 | [`docker`](providers/frameworks.md) | on | `docs.docker.com` |
 | [`kubernetes`](providers/frameworks.md) | on | `kubernetes.io` |
 | [`helm`](providers/frameworks.md) | on | `helm.sh` |
+| [`ieee`](providers/frameworks.md) | on | `ieeexplore.ieee.org` (standards; paywalled) |
+| [`sae`](providers/frameworks.md) | on | `sae.org` (standards; paywalled) |
+| [`nist`](providers/frameworks.md) | on | `nist.gov` (free pubs; `read_pdf` for full text) |
 | `[docsites.<id>]` | off | your own host |
 
 > Beyond docs, lodestone has **container & cloud-native data tools** — Docker Hub

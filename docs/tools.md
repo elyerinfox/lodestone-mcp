@@ -31,6 +31,7 @@ Fetch one known thing.
 | `wayback_fetch` | `url`, `timestamp?`, `max_chars?` | Archived snapshot from the Wayback Machine. |
 | `rfc_get` | `document`, `max_chars?` | An IETF RFC's full text by number (rfc-editor.org), keyless. |
 | `rfc_search` | `query`, `max_results?` | Search RFCs by title via the IETF Datatracker, keyless. |
+| `standards_search` | `query`, `publisher?`, `max_results?` | Search published standards (IEEE/SAE/NIST/ISO/ANSI/…) via Crossref. Metadata + DOI link; IEEE/SAE are paywalled (NIST is free — use `read_pdf`). |
 
 ## GitHub (keyless; optional `[github].token` raises the rate limit)
 

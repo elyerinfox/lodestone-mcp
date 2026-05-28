@@ -116,6 +116,20 @@ static SITES: &[DocSiteSpec] = &[
         id: "helm",
         domain: "helm.sh",
     },
+    // Standards bodies (metadata/abstract pages; IEEE/SAE full text is paywalled,
+    // NIST is free — its pages often link a downloadable PDF for `read_pdf`).
+    DocSiteSpec {
+        id: "ieee",
+        domain: "ieeexplore.ieee.org",
+    },
+    DocSiteSpec {
+        id: "sae",
+        domain: "sae.org",
+    },
+    DocSiteSpec {
+        id: "nist",
+        domain: "nist.gov",
+    },
 ];
 
 /// Construct a built-in doc-site provider by id, if known.
