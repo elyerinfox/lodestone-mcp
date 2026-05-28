@@ -46,6 +46,17 @@ likely involved). Checked items are done; unchecked are open.
 
 ## Providers
 
+- [x] **Framework documentation providers.** Done: `src/providers/docsite/` — a
+  spec-driven family (like `forge`) doing a keyless, site-scoped web search of a
+  framework's docs domain (DuckDuckGo → Mojeek, render-aware). Built-ins for PHP,
+  Laravel, Vue, React, Svelte (default-on) plus a dozen more opt-in; custom hosts
+  via `[docsites.<id>]`. Each gets a `docs_<id>` tool and joins `docs_search`
+  (which gained a `render` flag). Docs: `docs/providers/frameworks.md`.
+
+- [x] **Translation tools.** Done: `src/translate.rs` — keyless Google Translate
+  (`translate_a/single`), exposed as the `translate` and `detect_language` tools
+  (standalone, like the `datetime` family; cached). No API key.
+
 - [x] **SearXNG provider.** Done: `src/providers/bespoke/searxng.rs` hits
   `{url}/search?format=json` for web+code (code is `site:`-scoped to
   `[code].sites`), parses the `results` array into `SearchResult`. Config

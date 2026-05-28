@@ -66,7 +66,7 @@ arguments.
 | --- | --- | --- |
 | `web_search` | `query`, `max_results?`, `render?` | General web search (DuckDuckGo, Mojeek, …). |
 | `code_search` | `query`, `language?`, `max_results?`, `render?` | Source-code search across the configured forges (`[code].sites`). |
-| `docs_search` | `query`, `max_results?` | Documentation & package registries (crates.io, npm, MDN). Keyless JSON APIs. |
+| `docs_search` | `query`, `max_results?`, `render?` | Documentation & package registries (crates.io, npm, MDN) **and** framework docs (PHP, Laravel, Vue, React, Svelte, …). Keyless. |
 | `qa_search` | `query`, `site?`, `max_results?`, `render?` | The configured Q&A providers (StackExchange network: StackOverflow, Server Fault, …). |
 
 **Retrieve** — fetch one known thing.
@@ -90,6 +90,8 @@ arguments.
 | `datetime` | `timezone?` | Current date/time (local + UTC + Unix), plus an optional IANA timezone. The model has no "now". |
 | `date_diff` | `from`, `to?` | Difference between two dates (days/years, 'ago / from now'); `to` defaults to now. |
 | `time_convert` | `time`, `to_tz`, `from_tz?` | Convert a date/time to another IANA timezone. |
+| `translate` | `text`, `to`, `from?` | Translate text via Google Translate (keyless); `to` is an ISO-639 code, `from` auto-detects. |
+| `detect_language` | `text` | Detect a text's language (ISO-639 code) via Google Translate (keyless). |
 | `list_providers` | — | Show the active providers, strategy, and ranking. |
 | `hive_status` | — | Show the peer-to-peer hivemind graph (peers, reputation, edges); says disabled when off. |
 
@@ -321,6 +323,13 @@ Detailed per-provider reference: [docs/providers.md](docs/providers.md).
 | docs | `mdn` | MDN Web Docs reference — keyless JSON search. |
 | docs | `rubygems` / `packagist` / `nuget` / `hex` | Opt-in keyless registries (Ruby, PHP, .NET, Elixir). |
 | docs | `aur` / `dockerhub` / `archlinux` | Opt-in keyless registries (Arch AUR, Docker images, Arch packages). |
+| docs | `php` / `laravel` / `vue` / `react` / `svelte` | Framework docs (default-on) — keyless site-scoped web search, one `DocSiteProvider` per host. |
+| docs | `angular` / `nextjs` / `nuxt` / `django` / `flask` / `fastapi` / `rails` / `spring` / `tailwind` / `express` / `symfony` / `astro` / `solid` | More framework docs (opt-in). See [docs/providers/frameworks.md](docs/providers/frameworks.md). |
+
+**Custom doc sites.** Register any documentation host under `[docsites]` (see
+`config/07-docsites.toml`): `[docsites.<id>] domain = "docs.example.com"` becomes
+a keyless `docs` provider once `<id>` is added to `[providers].docs`, and gets a
+`docs_<id>` tool — same site-scoped search as the built-in framework docs.
 
 **Self-hosted forges.** Register private GitLab/Gitea instances under `[forges]`
 (see `config/04-forges.toml`): each `[forges.<id>] kind = "gitlab"|"gitea",

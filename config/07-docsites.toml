@@ -1,0 +1,27 @@
+# =============================================================================
+# config/07-docsites.toml — custom documentation sites
+# =============================================================================
+#
+# Register any documentation site as a keyless `docs` provider. Each entry is
+# keyed by the provider id you'll use elsewhere. An entry becomes active once its
+# id is added to `[providers].docs` in 02-search.toml, and it automatically gets a
+# direct `docs_<id>` tool.
+#
+# Like the built-in framework docs (php, laravel, vue, react, svelte, …), a
+# configured doc site does a keyless, site-scoped web search (DuckDuckGo → Mojeek,
+# render-aware) of its `domain` and returns the matching pages. No tokens, no API.
+# Read a result with fetch_page (or render_page for JS-heavy SPA docs).
+#
+#   domain = "docs.example.com"      # documentation host to scope to (no scheme).
+#
+# Example — uncomment and adjust, then add "mydocs" to [providers].docs:
+#
+#   [docsites.mydocs]
+#   domain = "docs.example.com"
+#
+#   [docsites.internal-wiki]
+#   domain = "wiki.internal.corp"
+# -----------------------------------------------------------------------------
+
+# (No custom doc sites defined by default — the built-in framework docs cover the
+# common cases. Add [docsites.<id>] tables above to register your own.)

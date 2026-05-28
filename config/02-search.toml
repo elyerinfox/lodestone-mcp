@@ -63,8 +63,12 @@ strategy = "aggregate"
 #   code ids: grep_app, duckduckgo, mojeek, google, github,
 #             gitlab, codeberg, gitea, searxng, <your [forges.*] ids>
 #   qa ids:   stackoverflow
-#   docs ids: cratesio, npm, mdn (default), plus opt-in rubygems, packagist,
-#             nuget, hex, aur, dockerhub, archlinux   (keyless registries)
+#   docs ids: registries — cratesio, npm, mdn (default), plus opt-in rubygems,
+#             packagist, nuget, hex, aur, dockerhub, archlinux  (keyless JSON);
+#             framework docs — php, laravel, vue, react, svelte (default), plus
+#             opt-in angular, nextjs, nuxt, django, flask, fastapi, rails, spring,
+#             tailwind, express, symfony, astro, solid, and any [docsites.*] ids
+#             (keyless site-scoped web search; see config/07-docsites.toml)
 # (`google` drives a headless browser — needs a local Chrome. `github` is
 #  keyless by default (web scrape) and uses the GitHub API only if a token is
 #  set. gitlab/codeberg/gitea are keyless per-forge code providers. `searxng`
@@ -76,7 +80,12 @@ strategy = "aggregate"
 web = ["duckduckgo", "mojeek"]
 code = ["grep_app", "duckduckgo", "mojeek"]
 qa = ["stackoverflow"]
-docs = ["cratesio", "npm", "mdn"]
-# Add more ecosystems as desired:
+docs = ["cratesio", "npm", "mdn", "php", "laravel", "vue", "react", "svelte"]
+# docs_search aggregates across the registries AND the framework doc sites listed
+# above. Each entry also gets a direct docs_<id> tool (e.g. docs_react, docs_php).
+# The framework searches are site-scoped web scrapes, so each adds a DuckDuckGo
+# request — trim this list if you don't need them. Add more ecosystems/frameworks:
 #   docs = ["cratesio", "npm", "mdn", "rubygems", "packagist", "nuget", "hex",
-#           "aur", "dockerhub", "archlinux"]
+#           "aur", "dockerhub", "archlinux", "php", "laravel", "vue", "react",
+#           "svelte", "angular", "nextjs", "nuxt", "django", "flask", "fastapi",
+#           "rails", "spring", "tailwind", "express", "symfony", "astro", "solid"]

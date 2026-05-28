@@ -36,6 +36,10 @@ pub struct Config {
     /// `[providers].code`. Example: `[forges.myhost] kind = "gitea", domain =
     /// "git.example.com"`.
     pub forges: HashMap<String, ForgeInstance>,
+    /// User-defined documentation sites, keyed by provider id. Each entry becomes
+    /// a keyless `docs` provider (and a `docs_<id>` tool) once its id is listed in
+    /// `[providers].docs`. Example: `[docsites.mydocs] domain = "docs.example.com"`.
+    pub docsites: HashMap<String, DocSiteInstance>,
 }
 
 /// A user-configured self-hosted code forge (GitLab or Gitea/Codeberg layout).
@@ -49,14 +53,24 @@ pub struct ForgeInstance {
     pub domain: String,
 }
 
+/// A user-configured documentation site, searched via a keyless site-scoped web
+/// search (DuckDuckGo → Mojeek, render-aware), like the built-in framework docs.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct DocSiteInstance {
+    /// Documentation host the search is scoped to, e.g. "docs.example.com" (no scheme).
+    pub domain: String,
+}
+
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]
 pub struct Tools {
     /// Allowlist of tools (skills) to expose. Empty = expose all. Names:
     /// web_search, code_search, docs_search, qa_search, fetch_page, render_page,
     /// webpage_to_pdf, read_pdf, fetch_repo_file, wayback_fetch, github_releases,
-    /// github_user, github_repo, datetime, date_diff, time_convert, list_providers,
-    /// hive_status. Plus per-provider <kind>_<id> tools (e.g. docs_cratesio).
+    /// github_user, github_repo, datetime, date_diff, time_convert, translate,
+    /// detect_language, list_providers, hive_status. Plus per-provider <kind>_<id>
+    /// tools (e.g. docs_cratesio, docs_react).
     pub enabled: Vec<String>,
     /// Denylist applied after `enabled`; these tools are never exposed.
     pub disabled: Vec<String>,
@@ -268,7 +282,11 @@ pub struct Providers {
     pub code: Vec<String>,
     /// Ordered Q&A providers. Known: stackoverflow (alias: stackexchange).
     pub qa: Vec<String>,
-    /// Ordered documentation/package-registry providers. Known: cratesio, npm, mdn.
+    /// Ordered documentation providers. Known registries: cratesio, npm, mdn,
+    /// rubygems, packagist, nuget, hex, aur, dockerhub, archlinux. Known framework
+    /// docs: php, laravel, vue, react, svelte, angular, nextjs, nuxt, django,
+    /// flask, fastapi, rails, spring, tailwind, express, symfony, astro, solid,
+    /// plus any `[docsites.<id>]`.
     pub docs: Vec<String>,
 }
 
@@ -308,6 +326,7 @@ impl Default for Config {
             cache: Cache::default(),
             network: Network::default(),
             forges: HashMap::new(),
+            docsites: HashMap::new(),
         }
     }
 }
@@ -342,7 +361,16 @@ impl Default for Providers {
             web: vec!["duckduckgo".into(), "mojeek".into()],
             code: vec!["grep_app".into(), "duckduckgo".into(), "mojeek".into()],
             qa: vec!["stackoverflow".into()],
-            docs: vec!["cratesio".into(), "npm".into(), "mdn".into()],
+            docs: vec![
+                "cratesio".into(),
+                "npm".into(),
+                "mdn".into(),
+                "php".into(),
+                "laravel".into(),
+                "vue".into(),
+                "react".into(),
+                "svelte".into(),
+            ],
         }
     }
 }

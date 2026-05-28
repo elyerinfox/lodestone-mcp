@@ -15,6 +15,7 @@ mod hive;
 mod provider;
 mod providers;
 mod retrieve;
+mod translate;
 mod util;
 
 use std::sync::Arc;
@@ -85,6 +86,11 @@ struct DocsSearchArgs {
     /// Maximum number of results to return. Default 10, capped at 25.
     #[serde(default)]
     max_results: Option<u32>,
+    /// Fetch the framework-doc site searches through a real headless browser
+    /// (executes JS, can bypass rate-limits) instead of plain HTTP. Slower; needs
+    /// a local Chrome/Chromium. Ignored by the JSON registry providers.
+    #[serde(default)]
+    render: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -207,6 +213,23 @@ struct TimeConvertArgs {
     /// Ignored when the input already has an offset or is a Unix timestamp.
     #[serde(default)]
     from_tz: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct TranslateArgs {
+    /// The text to translate.
+    text: String,
+    /// Target language as an ISO-639 code (e.g. "es", "fr", "de", "ja", "zh-CN").
+    to: String,
+    /// Source language code, or "auto" to detect it (default).
+    #[serde(default)]
+    from: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct DetectLanguageArgs {
+    /// The text whose language to detect.
+    text: String,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -416,7 +439,7 @@ impl Lodestone {
             language: None,
             site: None,
             limit: clamp(args.max_results, 10, 25),
-            render: false,
+            render: args.render.unwrap_or(false),
         };
         let (hits, engine) = self
             .registry
@@ -1030,6 +1053,60 @@ impl Lodestone {
     }
 
     #[tool(
+        description = "Translate text into another language with Google Translate (keyless, no API \
+        key). `to` is an ISO-639 target code (es, fr, de, ja, zh-CN, …); `from` defaults to \
+        auto-detect. Returns the translation and the detected source language."
+    )]
+    async fn translate(
+        &self,
+        Parameters(args): Parameters<TranslateArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let to = args.to.trim();
+        if to.is_empty() {
+            return Err(invalid("`to` (target language code) is required"));
+        }
+        let from = args.from.as_deref().map(str::trim).unwrap_or("auto");
+        let key = format!("translate|{from}|{to}|{}", args.text);
+        if let Some(cached) = self.retrieval_get(&key) {
+            return Ok(text_result(cached));
+        }
+        let t = translate::translate(&self.http, &args.text, to, from)
+            .await
+            .map_err(internal)?;
+        let detected = if t.source_lang.is_empty() {
+            from.to_string()
+        } else {
+            t.source_lang
+        };
+        let out = format!("Translation ({detected} → {to}):\n{}", t.text);
+        self.retrieval_put(key, &out);
+        Ok(text_result(out))
+    }
+
+    #[tool(
+        description = "Detect the language of a piece of text using Google Translate (keyless). \
+        Returns the detected ISO-639 language code."
+    )]
+    async fn detect_language(
+        &self,
+        Parameters(args): Parameters<DetectLanguageArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let key = format!("detect|{}", args.text);
+        if let Some(cached) = self.retrieval_get(&key) {
+            return Ok(text_result(cached));
+        }
+        let t = translate::translate(&self.http, &args.text, "en", "auto")
+            .await
+            .map_err(internal)?;
+        if t.source_lang.is_empty() {
+            return Ok(text_result("Could not detect the language."));
+        }
+        let out = format!("Detected language: {}", t.source_lang);
+        self.retrieval_put(key, &out);
+        Ok(text_result(out))
+    }
+
+    #[tool(
         description = "List the configured search providers and the order they are tried, for \
         web, code and Q&A. Useful to check which sources are active."
     )]
@@ -1061,7 +1138,8 @@ impl ServerHandler for Lodestone {
                 code and documentation.\n\nTools:\n\
                 - web_search: general web search.\n\
                 - code_search: search source code in public repositories.\n\
-                - docs_search: search docs & package registries (crates.io, npm, MDN).\n\
+                - docs_search: search docs & package registries (crates.io, npm, MDN) and \
+                framework docs (PHP, Laravel, Vue, React, Svelte, …).\n\
                 - fetch_repo_file: download a full file from GitHub/GitLab/Gitea by URL or owner/repo/path.\n\
                 - github_releases / github_user / github_repo: GitHub release notes, profiles, repo metadata (keyless).\n\
                 - fetch_page: get readable text of any URL over plain HTTP.\n\
@@ -1073,6 +1151,8 @@ impl ServerHandler for Lodestone {
                 - datetime: the current date/time from the system clock (local, UTC, Unix).\n\
                 - date_diff: difference between two dates (days/years, 'ago / from now').\n\
                 - time_convert: convert a date/time to another IANA timezone.\n\
+                - translate / detect_language: Google Translate (keyless) — translate text or \
+                detect its language.\n\
                 - list_providers: show which sources are active.\n\
                 - hive_status: show the peer-to-peer hivemind graph (if enabled).\n\
                 Each configured provider also has a direct tool named <kind>_<id> \

@@ -20,13 +20,23 @@ required), served over Streamable HTTP at `/mcp`.
   per-provider tool per configured source (`<kind>_<id>`, e.g. `web_mojeek`,
   `code_github`, `qa_stackoverflow`). Every tool is independently gateable via
   `[tools]`.
-- **Providers** across five families: engine (`duckduckgo`, `mojeek`, `google`),
+- **Providers** across six families: engine (`duckduckgo`, `mojeek`, `google`),
   forge (`gitlab`, `codeberg`, `gitea`), registry (the `docs` kind, keyless JSON
   package/doc search via `docs_search`: `cratesio`/`npm`/`mdn` on by default, plus
   opt-in `rubygems`/`packagist`/`nuget`/`hex`/`aur`/`dockerhub`/`archlinux`; the
-  kind aggregates across ecosystems), composite
+  kind aggregates across ecosystems), docsite (framework documentation), composite
   (`github`, `stackoverflow`), and bespoke (`grep_app`, `medium`, `searxng`). Each
   documented under `docs/providers/`.
+- **Framework documentation providers** (docsite family, `docs` kind): keyless,
+  site-scoped web search of a framework's docs (DuckDuckGo → Mojeek, render-aware),
+  one `DocSiteProvider` per host. `php`/`laravel`/`vue`/`react`/`svelte` on by
+  default; `angular`/`nextjs`/`nuxt`/`django`/`flask`/`fastapi`/`rails`/`spring`/
+  `tailwind`/`express`/`symfony`/`astro`/`solid` opt-in. Register custom hosts via
+  `[docsites.<id>] domain = "…"`. Each gets a `docs_<id>` tool and joins
+  `docs_search`. `docs_search` gained a `render` flag for the SPA doc sites.
+- **Translation tools** (Google Translate, keyless — no API key): `translate`
+  (translate text to an ISO-639 target; auto-detects the source) and
+  `detect_language` (report a text's language). Results are cached.
 - **Self-hosted forges:** register private GitLab/Gitea hosts under `[forges]`;
   each becomes a keyless `code_<id>` provider.
 - **SearXNG provider** (web + code) against a self-hosted instance's JSON API.

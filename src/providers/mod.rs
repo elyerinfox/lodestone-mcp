@@ -4,6 +4,7 @@
 mod apiengine;
 mod bespoke;
 mod composite;
+mod docsite;
 mod engine;
 mod forge;
 mod registry;
@@ -102,10 +103,20 @@ pub fn make(kind: ProviderKind, id: &str, cfg: &Config) -> Option<Box<dyn Search
             "cratesio" | "npm" | "mdn" | "rubygems" | "packagist" | "nuget" | "hex" | "aur"
             | "dockerhub" | "archlinux",
         ) => registry::make(id).map(|p| Box::new(p) as Box<dyn SearchProvider>),
+        // Built-in framework documentation sites (keyless, site-scoped web search).
+        (ProviderKind::Docs, id) if docsite::make(id).is_some() => {
+            docsite::make(id).map(|p| Box::new(p) as Box<dyn SearchProvider>)
+        }
         // User-configured self-hosted forge (id defined under [forges]).
         (ProviderKind::Code, id) if cfg.forges.contains_key(id) => {
             let inst = &cfg.forges[id];
             forge::make_configured(id, &inst.kind, &inst.domain)
+                .map(|p| Box::new(p) as Box<dyn SearchProvider>)
+        }
+        // User-configured documentation site (id defined under [docsites]).
+        (ProviderKind::Docs, id) if cfg.docsites.contains_key(id) => {
+            let inst = &cfg.docsites[id];
+            docsite::make_configured(id, &inst.domain)
                 .map(|p| Box::new(p) as Box<dyn SearchProvider>)
         }
         _ => None,

@@ -98,6 +98,36 @@ Kind: **docs**. JSON APIs, so `render` doesn't apply.
 | [`dockerhub`](providers/dockerhub.md) | off | Docker Hub container images. |
 | [`archlinux`](providers/archlinux.md) | off | Arch official packages. |
 
+## Framework docs family — site-scoped doc search (`src/providers/docsite/`)
+
+Shared `DocSiteProvider` driven by a `DocSiteSpec` (id + domain): a keyless,
+site-scoped web search (DuckDuckGo → Mojeek, render-aware) of one framework's
+documentation host. Kind: **docs**. `render` is honored per call (these are often
+JS-heavy SPAs). See [the family page](providers/frameworks.md) for the full list,
+rationale, and how to add your own via `[docsites.<id>]`.
+
+| Provider | Default | Domain |
+| --- | --- | --- |
+| [`php`](providers/frameworks.md) | on | `php.net` |
+| [`laravel`](providers/frameworks.md) | on | `laravel.com` |
+| [`vue`](providers/frameworks.md) | on | `vuejs.org` |
+| [`react`](providers/frameworks.md) | on | `react.dev` |
+| [`svelte`](providers/frameworks.md) | on | `svelte.dev` |
+| [`angular`](providers/frameworks.md) | off | `angular.dev` |
+| [`nextjs`](providers/frameworks.md) | off | `nextjs.org` |
+| [`nuxt`](providers/frameworks.md) | off | `nuxt.com` |
+| [`django`](providers/frameworks.md) | off | `docs.djangoproject.com` |
+| [`flask`](providers/frameworks.md) | off | `flask.palletsprojects.com` |
+| [`fastapi`](providers/frameworks.md) | off | `fastapi.tiangolo.com` |
+| [`rails`](providers/frameworks.md) | off | `guides.rubyonrails.org` |
+| [`spring`](providers/frameworks.md) | off | `docs.spring.io` |
+| [`tailwind`](providers/frameworks.md) | off | `tailwindcss.com` |
+| [`express`](providers/frameworks.md) | off | `expressjs.com` |
+| [`symfony`](providers/frameworks.md) | off | `symfony.com` |
+| [`astro`](providers/frameworks.md) | off | `docs.astro.build` |
+| [`solid`](providers/frameworks.md) | off | `docs.solidjs.com` |
+| `[docsites.<id>]` | off | your own host |
+
 ## Composite providers — multi-mode (`src/providers/composite/`)
 
 Bespoke shells that pick a sourcing mode at runtime, reusing a family for one of
