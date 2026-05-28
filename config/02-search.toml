@@ -81,7 +81,7 @@ web = ["duckduckgo", "mojeek"]
 code = ["grep_app", "duckduckgo", "mojeek"]
 qa = ["stackoverflow"]
 docs = ["cratesio", "npm", "mdn", "php", "laravel", "vue", "react", "svelte",
-        "docker", "kubernetes", "helm", "ieee", "sae", "nist"]
+        "docker", "kubernetes", "helm", "ieee", "sae", "nist", "kernel"]
 # docs_search aggregates across the registries AND the framework doc sites listed
 # above. Each entry also gets a direct docs_<id> tool (e.g. docs_react, docs_php).
 # The framework searches are site-scoped web scrapes, so each adds a DuckDuckGo

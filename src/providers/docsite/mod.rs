@@ -130,6 +130,10 @@ static SITES: &[DocSiteSpec] = &[
         id: "nist",
         domain: "nist.gov",
     },
+    DocSiteSpec {
+        id: "kernel",
+        domain: "docs.kernel.org",
+    },
 ];
 
 /// Construct a built-in doc-site provider by id, if known.

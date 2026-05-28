@@ -33,9 +33,9 @@ src/
                  them into routes and computes config gating (disabled_by_config).
                  A skill owns its domain logic + arg structs + formatters:
                  search, retrieve, archive, rfc, standards, arxiv, huggingface,
-                 github, oci (Docker Hub + OCI), artifacthub, docker (daemon),
-                 kubernetes, datetime, translate, data (JSON/YAML), regex, math,
-                 units, meta.
+                 wikipedia, kernel, github, oci (Docker Hub + OCI), artifacthub,
+                 docker (daemon), kubernetes, datetime, translate, data (JSON/YAML),
+                 regex, math, units, meta.
   provider.rs    The core interface: SearchProvider trait, ProviderKind,
                  Strategy, SearchQuery, SearchResult, and the Registry that
                  combines providers (fallback chain or aggregate meta-search).

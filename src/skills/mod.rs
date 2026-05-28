@@ -19,6 +19,7 @@ pub mod datetime;
 pub mod docker;
 pub mod github;
 pub mod huggingface;
+pub mod kernel;
 pub mod kubernetes;
 pub mod math;
 pub mod meta;
@@ -30,6 +31,7 @@ pub mod search;
 pub mod standards;
 pub mod translate;
 pub mod units;
+pub mod wikipedia;
 
 use std::sync::Arc;
 
@@ -106,6 +108,8 @@ fn all_skills() -> Vec<Box<dyn Skill>> {
     skills.extend(standards::skills());
     skills.extend(arxiv::skills());
     skills.extend(huggingface::skills());
+    skills.extend(wikipedia::skills());
+    skills.extend(kernel::skills());
     skills.extend(github::skills());
     skills.extend(oci::skills());
     skills.extend(artifacthub::skills());

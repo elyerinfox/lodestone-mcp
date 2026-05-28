@@ -59,6 +59,7 @@ underlying fetch through the headless browser.
 | `ieee` | `ieeexplore.ieee.org` | on |
 | `sae` | `sae.org` | on |
 | `nist` | `nist.gov` | on |
+| `kernel` | `docs.kernel.org` | on |
 
 Enable more by adding their ids to `[providers].docs` in `config/02-search.toml`.
 

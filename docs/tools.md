@@ -36,6 +36,9 @@ Fetch one known thing.
 | `arxiv_get` | `id` | One arXiv paper's metadata + full abstract + PDF URL (then `read_pdf` for full text). |
 | `hf_search` | `query`, `kind?`, `max_results?` | Search the Hugging Face Hub — models (default) or datasets. |
 | `hf_model` | `model` | A Hugging Face model's metadata (downloads, likes, task, license, tags). |
+| `wikipedia_search` | `query`, `lang?`, `max_results?` | Search Wikipedia (MediaWiki API); titles + snippets + URLs. |
+| `wikipedia_summary` | `title`, `lang?`, `full?`, `max_chars?` | An article's lead summary, or the full plain-text article. |
+| `kernel_releases` | — | Current Linux kernel releases (mainline/stable/longterm + dates/EOL) from kernel.org. |
 
 ## GitHub (keyless; optional `[github].token` raises the rate limit)
 

@@ -132,6 +132,7 @@ rationale, and how to add your own via `[docsites.<id>]`.
 | [`ieee`](providers/frameworks.md) | on | `ieeexplore.ieee.org` (standards; paywalled) |
 | [`sae`](providers/frameworks.md) | on | `sae.org` (standards; paywalled) |
 | [`nist`](providers/frameworks.md) | on | `nist.gov` (free pubs; `read_pdf` for full text) |
+| [`kernel`](providers/frameworks.md) | on | `docs.kernel.org` (Linux kernel docs; see also `kernel_releases`) |
 | `[docsites.<id>]` | off | your own host |
 
 > Beyond docs, lodestone has **container & cloud-native data tools** — Docker Hub

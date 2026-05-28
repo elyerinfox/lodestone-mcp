@@ -173,6 +173,8 @@ impl ServerHandler for Lodestone {
                 IEEE/SAE paywalled, NIST free).\n\
                 - arxiv_search / arxiv_get: search arXiv papers, or get one by id (free PDF → read_pdf for full text).\n\
                 - hf_search / hf_model: search the Hugging Face Hub (models/datasets) or get a model's metadata.\n\
+                - wikipedia_search / wikipedia_summary: search Wikipedia, or read an article (lead or full); lang configurable.\n\
+                - kernel_releases: current Linux kernel releases (mainline/stable/longterm) from kernel.org.\n\
                 - qa_search: search the configured Q&A providers (StackExchange network).\n\
                 - datetime: the current date/time from the system clock (local, UTC, Unix).\n\
                 - date_diff: difference between two dates (days/years, 'ago / from now').\n\

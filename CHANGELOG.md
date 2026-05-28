@@ -40,6 +40,12 @@ required), served over Streamable HTTP at `/mcp`.
 - **IETF RFC skills** (keyless): `rfc_get` fetches an RFC's full text by number
   directly from the RFC Editor; `rfc_search` finds RFCs by title via the IETF
   Datatracker.
+- **Wikipedia skills** (keyless): `wikipedia_search` (MediaWiki full-text search)
+  and `wikipedia_summary` (lead extract, or the full plain-text article with
+  `full=true`); language is configurable (`lang`, default `en`).
+- **kernel.org skill** (keyless): `kernel_releases` lists the current Linux kernel
+  releases (mainline/stable/longterm, dates, EOL) from kernel.org's `releases.json`.
+  Plus a `kernel` doc site (`docs_kernel`) for the kernel documentation.
 - **arXiv skills** (keyless): `arxiv_search` (search papers) and `arxiv_get` (one
   paper's metadata + abstract). Each result includes the free PDF URL, so `read_pdf`
   retrieves the full text. Atom XML parsed with `roxmltree`.
