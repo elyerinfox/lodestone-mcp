@@ -124,7 +124,13 @@ async fn launch(options: &BrowserOptions) -> Result<BrowserHandle> {
     let config = builder
         .build()
         .map_err(|e| anyhow!("failed to build browser config: {e}"))?;
-    let (browser, mut handler) = Browser::launch(config).await?;
+    let (browser, mut handler) = Browser::launch(config).await.map_err(|e| {
+        anyhow!(
+            "headless browser unavailable — could not start Chrome/Chromium. Install Chrome or set \
+             [google].chrome_path (LODESTONE_CHROME_PATH); inside containers also set \
+             [google].no_sandbox. Underlying error: {e}"
+        )
+    })?;
     let driver = tokio::spawn(async move { while handler.next().await.is_some() {} });
     Ok(BrowserHandle {
         browser,

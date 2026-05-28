@@ -98,9 +98,13 @@ impl Skill for GitRun {
                 .stderr(Stdio::piped())
                 .kill_on_drop(true);
 
-            let child = cmd
-                .spawn()
-                .map_err(|e| invalid(format!("could not run git (is it installed?): {e}")))?;
+            let child = cmd.spawn().map_err(|e| {
+                if e.kind() == std::io::ErrorKind::NotFound {
+                    invalid("the `git` binary was not found on PATH — install Git to use git_run")
+                } else {
+                    invalid(format!("could not run git: {e}"))
+                }
+            })?;
             let secs = cfg.timeout_secs.clamp(1, 600);
             let output =
                 match tokio::time::timeout(Duration::from_secs(secs), child.wait_with_output())

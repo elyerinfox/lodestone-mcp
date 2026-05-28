@@ -56,6 +56,11 @@ required), served over Streamable HTTP at `/mcp`.
   type, year, DOI, and a doi.org link (metadata; IEEE/SAE are paywalled, NIST is
   free). Plus `ieee`/`sae`/`nist` doc-site providers (`docs_ieee`/`docs_sae`/
   `docs_nist`) for the publishers' own pages.
+- **Dependency safeguards:** skills that need an external binary/runtime now fail
+  with a clear, actionable message when it's missing — `git_run`/`shell_run` report
+  "not found on PATH (is it installed?)", and the headless-browser paths
+  (`render_page`/`webpage_to_pdf`/`google`) explain that Chrome/Chromium is required
+  (and how to point at it). Docker/Kubernetes already report connection failures.
 - **Git CLI skill** (`git_run`, `[git]`, on by default): runs the local `git`
   binary in a repo (no shell); destructive subcommands (push/reset/clean/rebase/…)
   require `[git].allow_destructive`.

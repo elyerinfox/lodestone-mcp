@@ -86,13 +86,17 @@ impl Skill for ShellRun {
                 .unwrap_or(cfg.timeout_secs)
                 .clamp(1, 600);
 
-            // Build the command per the policy.
+            // Build the command per the policy. `program_label` names the binary
+            // that must exist, for a clear "not found" error.
+            let program_label;
             let mut cmd = if cfg.allow_unrestricted {
                 let mut c = if cfg!(windows) {
+                    program_label = "cmd".to_string();
                     let mut c = Command::new("cmd");
                     c.arg("/C").arg(&command);
                     c
                 } else {
+                    program_label = "sh".to_string();
                     let mut c = Command::new("sh");
                     c.arg("-c").arg(&command);
                     c
@@ -118,6 +122,7 @@ impl Skill for ShellRun {
                         "'{base}' is not in [shell].allow (allowed: {list}; set [shell].allow_unrestricted to run anything)"
                     )));
                 }
+                program_label = program.clone();
                 let mut c = Command::new(program);
                 c.args(&tokens[1..]);
                 c.kill_on_drop(true);
@@ -136,9 +141,15 @@ impl Skill for ShellRun {
             }
             cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
 
-            let child = cmd
-                .spawn()
-                .map_err(|e| invalid(format!("could not start command: {e}")))?;
+            let child = cmd.spawn().map_err(|e| {
+                if e.kind() == std::io::ErrorKind::NotFound {
+                    invalid(format!(
+                        "'{program_label}' was not found on PATH (is it installed?)"
+                    ))
+                } else {
+                    invalid(format!("could not start '{program_label}': {e}"))
+                }
+            })?;
             let output =
                 match tokio::time::timeout(Duration::from_secs(secs), child.wait_with_output())
                     .await
