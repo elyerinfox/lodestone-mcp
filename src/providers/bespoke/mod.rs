@@ -4,6 +4,8 @@
 
 mod grep_app;
 mod medium;
+mod searxng;
 
 pub(crate) use grep_app::GrepApp;
 pub(crate) use medium::Medium;
+pub(crate) use searxng::Searxng;

@@ -1,0 +1,21 @@
+# -----------------------------------------------------------------------------
+# Provider: searxng  (kind: web + code)
+# -----------------------------------------------------------------------------
+# Queries a user-hosted SearXNG instance's JSON API ({url}/search?format=json),
+# which aggregates many upstream engines — the strongest keyless option if you
+# run your own instance. Disabled until `url` is set; once set, add "searxng" to
+# the web and/or code lists in ../02-search.toml.
+#
+# For code search the query is `site:`-scoped to [code].sites (see 03-code.toml),
+# exactly like the built-in HTML engines.
+#
+# The instance must allow JSON output — in its settings.yml:
+#   search:
+#     formats: [html, json]
+# -----------------------------------------------------------------------------
+
+[searxng]
+# Base URL of your SearXNG instance (no trailing /search). Empty = disabled.
+# Env: LODESTONE_SEARXNG_URL
+url = ""
+# e.g. url = "https://searx.example.com"

@@ -38,7 +38,7 @@ fn code_sites() -> &'static [String] {
 /// active config. (The same engine, e.g. duckduckgo, behaves differently for
 /// web vs code.)
 pub fn make(kind: ProviderKind, id: &str, cfg: &Config) -> Option<Box<dyn SearchProvider>> {
-    use bespoke::{GrepApp, Medium};
+    use bespoke::{GrepApp, Medium, Searxng};
     use composite::{Github, StackExchange};
 
     match (kind, id) {
@@ -50,6 +50,17 @@ pub fn make(kind: ProviderKind, id: &str, cfg: &Config) -> Option<Box<dyn Search
         }
         (ProviderKind::Web, "medium") => Some(Box::new(Medium)),
         (ProviderKind::Code, "grep_app") => Some(Box::new(GrepApp)),
+        // SearXNG (web + code): a user-hosted meta-search instance. Inactive
+        // unless [searxng].url is set.
+        (ProviderKind::Web, "searxng") | (ProviderKind::Code, "searxng") => {
+            let url = cfg.searxng.url.clone();
+            if url.is_empty() {
+                tracing::warn!("searxng listed as a provider but [searxng].url is empty; skipping");
+                None
+            } else {
+                Some(Box::new(Searxng::new(url, kind)))
+            }
+        }
         // Composite GitHub: keyless scrape by default, authenticated API if a
         // token is configured.
         (ProviderKind::Code, "github") => Some(Box::new(Github::new(cfg.github.token.clone()))),

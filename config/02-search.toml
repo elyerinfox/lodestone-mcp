@@ -39,13 +39,14 @@ timeout_secs = 25
 
 [providers]
 # Ordered lists per kind. See config/providers/<id>.toml for each provider.
-#   web ids:  duckduckgo, mojeek, medium, google
+#   web ids:  duckduckgo, mojeek, medium, google, searxng
 #   code ids: grep_app, duckduckgo, mojeek, google, github,
-#             gitlab, codeberg, gitea  (per-forge providers)
+#             gitlab, codeberg, gitea, searxng, <your [forges.*] ids>
 #   qa ids:   stackoverflow
 # (`google` drives a headless browser — needs a local Chrome. `github` is
 #  keyless by default (web scrape) and uses the GitHub API only if a token is
-#  set. gitlab/codeberg/gitea are keyless per-forge code providers.)
+#  set. gitlab/codeberg/gitea are keyless per-forge code providers. `searxng`
+#  needs [searxng].url set. Self-hosted forge ids come from config/04-forges.toml.)
 # Env: LODESTONE_WEB_PROVIDERS / LODESTONE_CODE_PROVIDERS / LODESTONE_QA_PROVIDERS
 web = ["duckduckgo", "mojeek"]
 code = ["grep_app", "duckduckgo", "mojeek"]

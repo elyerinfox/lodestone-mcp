@@ -25,6 +25,7 @@ pub struct Config {
     pub stackexchange: StackExchange,
     pub google: Google,
     pub github: Github,
+    pub searxng: Searxng,
     /// User-defined self-hosted forges, keyed by provider id. Each entry becomes
     /// a keyless code provider (and a `code_<id>` tool) once its id is listed in
     /// `[providers].code`. Example: `[forges.myhost] kind = "gitea", domain =
@@ -107,6 +108,15 @@ pub struct Google {
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]
+pub struct Searxng {
+    /// Base URL of a SearXNG instance, e.g. "https://searx.example.com". Empty
+    /// (default) disables the `searxng` provider. The instance must allow the
+    /// JSON output format (`search.formats: [json]` in its settings).
+    pub url: String,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
 pub struct Github {
     /// Optional GitHub token (classic or fine-grained with read access). When
     /// set, the `github` code provider uses GitHub's authenticated code-search
@@ -155,6 +165,7 @@ impl Default for Config {
             stackexchange: StackExchange::default(),
             google: Google::default(),
             github: Github::default(),
+            searxng: Searxng::default(),
             forges: HashMap::new(),
         }
     }
@@ -275,6 +286,9 @@ impl Config {
         }
         if let Some(args) = env_list("LODESTONE_CHROME_ARGS") {
             self.google.args = args;
+        }
+        if let Ok(url) = std::env::var("LODESTONE_SEARXNG_URL") {
+            self.searxng.url = url;
         }
         // Accept the conventional GITHUB_TOKEN as well as our namespaced var.
         if let Ok(token) =

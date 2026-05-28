@@ -80,3 +80,4 @@ them.
 | --- | --- | --- | --- |
 | [`grep_app`](providers/grep_app.md) | code | on | grep.app JSON code-search; true substring matches. Falls through if bot-walled. |
 | [`medium`](providers/medium.md) | web | off | Per-tag RSS feed; recent posts for a topic (not full-text search). |
+| [`searxng`](providers/searxng.md) | web/code | off | Self-hosted SearXNG metasearch JSON API. Needs `[searxng].url`. |

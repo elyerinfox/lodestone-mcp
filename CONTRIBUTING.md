@@ -47,7 +47,8 @@ src/
                  shared `forge::search`): gitlab, codeberg, gitea.
     composite/   Multi-mode providers that dispatch (and reuse a family):
                  github (scrape↔API), stackexchange (API↔render).
-    bespoke/     Unique transport/parse providers: grep_app (JSON), medium (RSS).
+    bespoke/     Unique transport/parse providers: grep_app (JSON), medium (RSS),
+                 searxng (self-hosted metasearch JSON, web+code).
   browser.rs     PageRenderer trait + a persistent, process-shared
                  ChromiumRenderer. Any provider can render on demand.
   retrieve.rs    Retrieval of one known resource: raw GitHub files, readable
@@ -132,9 +133,9 @@ Families also **compose**: `ForgeCodeProvider` runs its searches *through* the
 **Tier 3 — bespoke providers (implement the trait directly).**
 When a source's transport or parsing is genuinely unique, write a normal
 `SearchProvider` in its own file. These don't fit a spec because their wire
-formats differ: `grep_app` (JSON code API), `medium` (tag RSS/XML). Forcing them
-into a shared spec would just turn the spec into a bag of callbacks, so they stay
-bespoke.
+formats differ: `grep_app` (JSON code API), `medium` (tag RSS/XML), `searxng`
+(self-hosted metasearch JSON, serving web+code). Forcing them into a shared spec
+would just turn the spec into a bag of callbacks, so they stay bespoke.
 
 **Composite providers.** Some sources have more than one mode and pick one at
 runtime — these are bespoke shells that *dispatch* (and often reuse a family for

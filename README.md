@@ -261,6 +261,7 @@ Detailed per-provider reference: [docs/providers.md](docs/providers.md).
 | web | `duckduckgo` | DuckDuckGo lite scrape. Rate-limits by IP. |
 | web | `mojeek` | Independent index; tolerant of automation. |
 | web | `medium` | Recent Medium articles for the query (treated as a tag) via RSS. |
+| web/code | `searxng` | Self-hosted [SearXNG](https://docs.searxng.org/) metasearch JSON API. Keyless; needs `[searxng].url`. |
 | web/code | `google` | Headless-Chrome scrape. Needs a local Chrome at runtime; CAPTCHA-prone on datacenter IPs. |
 | code | `grep_app` | grep.app JSON API (often bot-walled → empty). |
 | code | `duckduckgo` / `mojeek` | Generic, `site:`-scoped to `[code].sites`. |

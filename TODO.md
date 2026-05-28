@@ -52,12 +52,11 @@ likely involved). Checked items are done; unchecked are open.
 
 ## Providers
 
-- [ ] **SearXNG provider.**
-  - **Why:** A user-hosted SearXNG instance gives high-quality, keyless,
-    multi-engine results far beyond DuckDuckGo+Mojeek — the strongest keyless
-    web/code option for users willing to run one.
-  - **How:** New `web`/`code` provider hitting `{instance}/search?format=json`;
-    config `[searxng].url`. Parse the JSON `results` array into `SearchResult`.
+- [x] **SearXNG provider.** Done: `src/providers/bespoke/searxng.rs` hits
+  `{url}/search?format=json` for web+code (code is `site:`-scoped to
+  `[code].sites`), parses the `results` array into `SearchResult`. Config
+  `[searxng].url` (`LODESTONE_SEARXNG_URL`); disabled when empty. Docs +
+  `config/providers/searxng.toml` + per-provider page added.
 
 - [x] **Provider-level timeouts and limited retries.** Done: configurable
   `[search].timeout_secs` (`LODESTONE_SEARCH_TIMEOUT_SECS`) on the shared HTTP
