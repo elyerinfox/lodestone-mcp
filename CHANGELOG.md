@@ -40,6 +40,11 @@ required), served over Streamable HTTP at `/mcp`.
 - **IETF RFC skills** (keyless): `rfc_get` fetches an RFC's full text by number
   directly from the RFC Editor; `rfc_search` finds RFCs by title via the IETF
   Datatracker.
+- **arXiv skills** (keyless): `arxiv_search` (search papers) and `arxiv_get` (one
+  paper's metadata + abstract). Each result includes the free PDF URL, so `read_pdf`
+  retrieves the full text. Atom XML parsed with `roxmltree`.
+- **Hugging Face skills** (keyless): `hf_search` (models or datasets) and `hf_model`
+  (model metadata: downloads, likes, task, library, license, tags).
 - **Standards lookup** (keyless): `standards_search` finds published standards
   (IEEE, SAE, NIST, ISO, ANSI, IEC, …) via the Crossref API — title, publisher,
   type, year, DOI, and a doi.org link (metadata; IEEE/SAE are paywalled, NIST is

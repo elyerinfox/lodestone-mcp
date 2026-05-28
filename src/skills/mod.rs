@@ -13,10 +13,12 @@
 
 pub mod archive;
 pub mod artifacthub;
+pub mod arxiv;
 pub mod data;
 pub mod datetime;
 pub mod docker;
 pub mod github;
+pub mod huggingface;
 pub mod kubernetes;
 pub mod math;
 pub mod meta;
@@ -102,6 +104,8 @@ fn all_skills() -> Vec<Box<dyn Skill>> {
     skills.extend(archive::skills());
     skills.extend(rfc::skills());
     skills.extend(standards::skills());
+    skills.extend(arxiv::skills());
+    skills.extend(huggingface::skills());
     skills.extend(github::skills());
     skills.extend(oci::skills());
     skills.extend(artifacthub::skills());

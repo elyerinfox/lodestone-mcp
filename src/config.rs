@@ -73,7 +73,8 @@ pub struct Tools {
     /// github_user, github_repo, datetime, date_diff, time_convert, translate,
     /// detect_language, docker_search, docker_image, docker_tags, oci_tags,
     /// oci_manifest, artifacthub_search, rfc_get, rfc_search, standards_search,
-    /// json_query, json_format, yaml_to_json,
+    /// arxiv_search, arxiv_get, hf_search, hf_model, json_query, json_format,
+    /// yaml_to_json,
     /// json_to_yaml, regex_search, regex_replace, math_eval, math_solve,
     /// convert_units, list_providers, hive_status. Local Docker
     /// daemon (gated by [docker]): docker_ps, docker_images, docker_inspect,

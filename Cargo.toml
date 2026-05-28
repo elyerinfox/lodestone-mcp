@@ -48,3 +48,5 @@ k8s-openapi = { version = "0.24", features = ["latest"] }
 serde_yaml = "0.9"
 # Math expression evaluator (arithmetic/scientific) for the math skills.
 meval = "0.2"
+# Read-only XML parser for the arXiv Atom API.
+roxmltree = "0.20"

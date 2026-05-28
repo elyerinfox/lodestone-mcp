@@ -171,6 +171,8 @@ impl ServerHandler for Lodestone {
                 - rfc_get / rfc_search: fetch an IETF RFC's full text by number, or search RFCs by title (keyless).\n\
                 - standards_search: search published standards (IEEE/SAE/NIST/ISO/…) via Crossref (metadata; \
                 IEEE/SAE paywalled, NIST free).\n\
+                - arxiv_search / arxiv_get: search arXiv papers, or get one by id (free PDF → read_pdf for full text).\n\
+                - hf_search / hf_model: search the Hugging Face Hub (models/datasets) or get a model's metadata.\n\
                 - qa_search: search the configured Q&A providers (StackExchange network).\n\
                 - datetime: the current date/time from the system clock (local, UTC, Unix).\n\
                 - date_diff: difference between two dates (days/years, 'ago / from now').\n\

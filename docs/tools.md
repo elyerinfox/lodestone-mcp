@@ -32,6 +32,10 @@ Fetch one known thing.
 | `rfc_get` | `document`, `max_chars?` | An IETF RFC's full text by number (rfc-editor.org), keyless. |
 | `rfc_search` | `query`, `max_results?` | Search RFCs by title via the IETF Datatracker, keyless. |
 | `standards_search` | `query`, `publisher?`, `max_results?` | Search published standards (IEEE/SAE/NIST/ISO/ANSI/…) via Crossref. Metadata + DOI link; IEEE/SAE are paywalled (NIST is free — use `read_pdf`). |
+| `arxiv_search` | `query`, `max_results?` | Search arXiv papers; returns title/authors/date/abstract + abs & free PDF URLs. |
+| `arxiv_get` | `id` | One arXiv paper's metadata + full abstract + PDF URL (then `read_pdf` for full text). |
+| `hf_search` | `query`, `kind?`, `max_results?` | Search the Hugging Face Hub — models (default) or datasets. |
+| `hf_model` | `model` | A Hugging Face model's metadata (downloads, likes, task, license, tags). |
 
 ## GitHub (keyless; optional `[github].token` raises the rate limit)
 
