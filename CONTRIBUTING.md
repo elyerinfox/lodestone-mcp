@@ -186,6 +186,35 @@ A **composite** provider (one that dispatches between modes, like `github` or
 `stackexchange`) goes in `src/providers/composite/` the same way — and may reuse
 a family (e.g. `crate::providers::forge::search`) for one of its modes.
 
+## Provider contribution checklist
+
+A provider isn't done when it compiles — it's done when an **end user can clone,
+run, and understand it without reading the source**. Every new provider PR must
+tick all of these:
+
+- [ ] **Resolves by id.** Registered in `providers::make()` (and the family
+      `make()`/`SPECS` if spec-driven) so `<id>` works in `config/02-search.toml`.
+- [ ] **Config file** `config/providers/<id>.toml` that:
+      - documents **every** property it offers — purpose, accepted values/format
+        (with examples), default, and the matching `LODESTONE_*` env var; and
+      - ships **sane keyless defaults that work out of the box** (or, if the
+        provider has no tunables, a short doc-only file saying what it does and
+        how to enable it).
+- [ ] **Listed in `config/02-search.toml`** under the known ids for its kind.
+      Add it to a default `[providers]` list only if it's keyless and reliable
+      with zero setup; otherwise document it as opt-in.
+- [ ] **Reference entry in [docs/providers.md](docs/providers.md):** kind(s),
+      keyless vs. credentialed, how it works, config keys, and caveats.
+- [ ] **README provider table** row added.
+- [ ] **Golden rules upheld:** keyless by default (any credential is optional,
+      documented, and has a keyless fallback); scrape-default / render-optional;
+      parallel-friendly; no blocking I/O on the async runtime.
+- [ ] **Stable, snake_case `id`** — it becomes the auto-generated per-provider
+      tool name `<kind>_<id>` (e.g. `code_<id>`), so pick it deliberately.
+- [ ] **A fixture-based parse test** where practical (pin the scraper/parser).
+- [ ] **Credentials, if any:** read from config *and* a `LODESTONE_*` env var,
+      never logged, never committed (the live `lodestone.toml` is gitignored).
+
 ## Invariants & conventions
 
 - **Never hold a `scraper` value across `.await`.** `Html`, `Selector`, and
