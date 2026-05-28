@@ -62,7 +62,9 @@ required), served over Streamable HTTP at `/mcp`.
   All paths are confined to `[filesystem].roots` (default: the working directory);
   `..` and symlink escapes are rejected.
 - **More doc sites:** `ffmpeg` (ffmpeg.org), `nvidia` (docs.nvidia.com), `intel_arc`
-  (intel.com) — on by default → `docs_ffmpeg` / `docs_nvidia` / `docs_intel_arc`.
+  (intel.com), `tailwind` (tailwindcss.com), `bootstrap` (getbootstrap.com) — on by
+  default → `docs_ffmpeg` / `docs_nvidia` / `docs_intel_arc` / `docs_tailwind` /
+  `docs_bootstrap`.
 - **Local utility skills** (no network): `json_query` / `json_format` /
   `yaml_to_json` / `json_to_yaml` (parse, search by JSON Pointer, convert, format);
   `regex_search` / `regex_replace` (Rust regex syntax); `math_eval` (arithmetic/

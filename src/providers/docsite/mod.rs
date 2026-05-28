@@ -88,6 +88,10 @@ static SITES: &[DocSiteSpec] = &[
         domain: "tailwindcss.com",
     },
     DocSiteSpec {
+        id: "bootstrap",
+        domain: "getbootstrap.com",
+    },
+    DocSiteSpec {
         id: "express",
         domain: "expressjs.com",
     },

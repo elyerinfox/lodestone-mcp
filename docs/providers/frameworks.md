@@ -48,7 +48,8 @@ underlying fetch through the headless browser.
 | `fastapi` | `fastapi.tiangolo.com` | off |
 | `rails` | `guides.rubyonrails.org` | off |
 | `spring` | `docs.spring.io` | off |
-| `tailwind` | `tailwindcss.com` | off |
+| `tailwind` | `tailwindcss.com` | on |
+| `bootstrap` | `getbootstrap.com` | on |
 | `express` | `expressjs.com` | off |
 | `symfony` | `symfony.com` | off |
 | `astro` | `docs.astro.build` | off |

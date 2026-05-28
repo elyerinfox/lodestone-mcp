@@ -369,7 +369,7 @@ pub struct Providers {
     /// Ordered documentation providers. Known registries: cratesio, npm, mdn,
     /// rubygems, packagist, nuget, hex, aur, dockerhub, archlinux. Known doc sites:
     /// php, laravel, vue, react, svelte, angular, nextjs, nuxt, django, flask,
-    /// fastapi, rails, spring, tailwind, express, symfony, astro, solid, docker,
+    /// fastapi, rails, spring, tailwind, bootstrap, express, symfony, astro, solid, docker,
     /// kubernetes, helm, ieee, sae, nist, kernel, ffmpeg, nvidia, intel_arc, plus
     /// any `[docsites.<id>]`.
     pub docs: Vec<String>,
@@ -468,6 +468,8 @@ impl Default for Providers {
                 "ffmpeg".into(),
                 "nvidia".into(),
                 "intel_arc".into(),
+                "tailwind".into(),
+                "bootstrap".into(),
             ],
         }
     }

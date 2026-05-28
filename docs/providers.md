@@ -121,7 +121,8 @@ rationale, and how to add your own via `[docsites.<id>]`.
 | [`fastapi`](providers/frameworks.md) | off | `fastapi.tiangolo.com` |
 | [`rails`](providers/frameworks.md) | off | `guides.rubyonrails.org` |
 | [`spring`](providers/frameworks.md) | off | `docs.spring.io` |
-| [`tailwind`](providers/frameworks.md) | off | `tailwindcss.com` |
+| [`tailwind`](providers/frameworks.md) | on | `tailwindcss.com` |
+| [`bootstrap`](providers/frameworks.md) | on | `getbootstrap.com` |
 | [`express`](providers/frameworks.md) | off | `expressjs.com` |
 | [`symfony`](providers/frameworks.md) | off | `symfony.com` |
 | [`astro`](providers/frameworks.md) | off | `docs.astro.build` |
