@@ -1,0 +1,20 @@
+services:
+  lodestone:
+    build: .
+    image: lodestone-mcp
+    ports:
+      - "8000:8000"
+    environment:
+      # The container ships Chromium; override the path if you bake in another.
+      LODESTONE_CHROME_PATH: /usr/bin/chromium
+      LODESTONE_CHROME_NO_SANDBOX: "1"
+      # Opt into browser-backed providers / meta-search / extra forges / GitHub:
+      # LODESTONE_WEB_PROVIDERS: "google,duckduckgo,mojeek"
+      # LODESTONE_QA_PROVIDERS: "stackoverflow_scrape,stackoverflow"
+      # LODESTONE_SEARCH_STRATEGY: "aggregate"
+      # LODESTONE_CODE_SITES: "github.com,gitlab.com,codeberg.org"
+      # LODESTONE_GITHUB_TOKEN: "ghp_..."
+    # Or mount a full config instead of using env vars:
+    # volumes:
+    #   - ./lodestone.toml:/app/lodestone.toml:ro
+    restart: unless-stopped

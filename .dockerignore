@@ -1,0 +1,5 @@
+/target
+.git
+.idea
+lodestone.toml
+*.md

@@ -1,0 +1,8 @@
+/target
+
+# JetBrains IDE files
+/.idea/
+
+# Local configuration (may contain machine-specific paths or tokens).
+# Use lodestone.example.toml as the template.
+/lodestone.toml
