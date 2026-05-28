@@ -23,6 +23,7 @@ pub mod meta;
 pub mod oci;
 pub mod regex;
 pub mod retrieve;
+pub mod rfc;
 pub mod search;
 pub mod translate;
 pub mod units;
@@ -98,6 +99,7 @@ fn all_skills() -> Vec<Box<dyn Skill>> {
     skills.extend(search::skills());
     skills.extend(retrieve::skills());
     skills.extend(archive::skills());
+    skills.extend(rfc::skills());
     skills.extend(github::skills());
     skills.extend(oci::skills());
     skills.extend(artifacthub::skills());

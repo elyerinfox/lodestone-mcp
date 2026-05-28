@@ -29,6 +29,8 @@ Fetch one known thing.
 | `read_pdf` | `source`, `max_chars?` | Extract a PDF's text locally — `source` is a URL or local path. |
 | `fetch_repo_file` | `target`, `start_line?`, `end_line?` | A file from GitHub/GitLab/Gitea — blob/raw URL, or GitHub `owner/repo/path` (a `#L10-L40` fragment works too). |
 | `wayback_fetch` | `url`, `timestamp?`, `max_chars?` | Archived snapshot from the Wayback Machine. |
+| `rfc_get` | `document`, `max_chars?` | An IETF RFC's full text by number (rfc-editor.org), keyless. |
+| `rfc_search` | `query`, `max_results?` | Search RFCs by title via the IETF Datatracker, keyless. |
 
 ## GitHub (keyless; optional `[github].token` raises the rate limit)
 

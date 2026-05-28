@@ -37,6 +37,9 @@ required), served over Streamable HTTP at `/mcp`.
 - **Translation tools** (Google Translate, keyless — no API key): `translate`
   (translate text to an ISO-639 target; auto-detects the source) and
   `detect_language` (report a text's language). Results are cached.
+- **IETF RFC skills** (keyless): `rfc_get` fetches an RFC's full text by number
+  directly from the RFC Editor; `rfc_search` finds RFCs by title via the IETF
+  Datatracker.
 - **Local utility skills** (no network): `json_query` / `json_format` /
   `yaml_to_json` / `json_to_yaml` (parse, search by JSON Pointer, convert, format);
   `regex_search` / `regex_replace` (Rust regex syntax); `math_eval` (arithmetic/
