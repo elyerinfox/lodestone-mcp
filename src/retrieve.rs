@@ -190,7 +190,10 @@ pub async fn fetch_text(client: &Client, url: &str) -> Result<(String, reqwest::
 pub async fn fetch_readable(client: &Client, url: &str, max_chars: usize) -> Result<String> {
     let resp = client
         .get(url)
-        .header("Accept", "text/html,application/xhtml+xml,*/*")
+        .header(
+            "Accept",
+            "text/html,application/xhtml+xml,application/pdf,*/*",
+        )
         .send()
         .await?
         .error_for_status()?;
@@ -200,13 +203,44 @@ pub async fn fetch_readable(client: &Client, url: &str, max_chars: usize) -> Res
         .and_then(|v| v.to_str().ok())
         .unwrap_or("")
         .to_string();
-    let body = resp.text().await?;
+    let bytes = resp.bytes().await?;
+
+    // PDFs (by content-type, .pdf URL, or the %PDF magic) get text-extracted
+    // locally rather than treated as HTML/garbled bytes.
+    if ctype.contains("pdf")
+        || url
+            .split('?')
+            .next()
+            .unwrap_or(url)
+            .to_ascii_lowercase()
+            .ends_with(".pdf")
+        || bytes.starts_with(b"%PDF")
+    {
+        return extract_pdf_text(bytes.to_vec(), max_chars).await;
+    }
+
+    let body = String::from_utf8_lossy(&bytes).into_owned();
     let text = if ctype.contains("html") || body.trim_start().starts_with('<') {
         html_to_text(&body)
     } else {
         body
     };
     Ok(truncate_chars(&text, max_chars))
+}
+
+/// Extract a PDF's text layer locally (no external service). Runs the CPU-bound
+/// parse off the async runtime. Returns an error for scanned/no-text-layer PDFs.
+pub async fn extract_pdf_text(bytes: Vec<u8>, max_chars: usize) -> Result<String> {
+    let text = tokio::task::spawn_blocking(move || pdf_extract::extract_text_from_mem(&bytes))
+        .await
+        .map_err(|e| anyhow!("PDF extraction task failed: {e}"))?
+        .map_err(|e| anyhow!("could not extract PDF text (scanned or unsupported?): {e}"))?;
+    if text.trim().is_empty() {
+        return Err(anyhow!(
+            "the PDF has no extractable text layer (it may be scanned images)"
+        ));
+    }
+    Ok(truncate_chars(text.trim(), max_chars))
 }
 
 // ---------------------------------------------------------------------------

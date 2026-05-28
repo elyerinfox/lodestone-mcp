@@ -73,15 +73,13 @@ likely involved). Checked items are done; unchecked are open.
     `src/providers/stackexchange.rs` / `src/retrieve.rs` reusing the shared
     renderer.
 
-- [ ] **PDF parsing, with optional OCR for scanned PDFs.**
-  - **Why:** Lots of docs/specs/papers are PDFs; `fetch_page` currently returns
-    raw/garbled bytes for them, so the model can't read them.
-  - **How:** Detect PDFs in `fetch_readable` (content-type, `.pdf`, `%PDF`
-    magic) and extract the text layer with a Rust crate (`pdf-extract` / `lopdf`).
-    For scanned PDFs with no text layer, optionally OCR via an operator-configured
-    service — e.g. AWS **Textract** or any OCR endpoint — behind a config gate
-    (`[pdf] ocr = "textract", …`). Keyless text extraction first; OCR strictly
-    opt-in (it implies a credentialed external service).
+- [x] **PDF parsing (local) + page→PDF.** Done: `fetch_readable` detects PDFs
+  (content-type / `.pdf` / `%PDF` magic) and extracts the text layer locally with
+  `pdf-extract` (off the async runtime). New tools: `read_pdf` (URL or local path)
+  and `webpage_to_pdf` (render a page to a local PDF via the headless browser). All
+  local, no external service. Scanned/no-text-layer PDFs return a clear error.
+  - **Deferred:** OCR for scanned PDFs (would imply a credentialed external
+    service like Textract — out of scope for the local-only requirement).
 
 ---
 

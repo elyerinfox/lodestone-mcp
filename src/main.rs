@@ -136,6 +136,24 @@ struct FetchFileArgs {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct WebpageToPdfArgs {
+    /// Absolute URL of the page to render to PDF (via the local headless browser).
+    url: String,
+    /// Output file path. Omit to write to a temp file; the saved path is returned.
+    #[serde(default)]
+    path: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct ReadPdfArgs {
+    /// A PDF to read: an absolute URL or a local file path.
+    source: String,
+    /// Max characters of extracted text to return. Omit for the server default.
+    #[serde(default)]
+    max_chars: Option<u32>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct GithubReleasesArgs {
     /// A GitHub repo as `owner/repo` or a github.com URL.
     repo: String,
@@ -494,6 +512,82 @@ impl Lodestone {
         if !text.is_empty() {
             self.retrieval_put(key, &out);
         }
+        Ok(text_result(out))
+    }
+
+    #[tool(
+        description = "Render a web page to a PDF file locally via the headless browser (no \
+        external service). Saves to `path`, or a temp file if omitted, and returns the saved path. \
+        Needs a local Chrome/Chromium at runtime."
+    )]
+    async fn webpage_to_pdf(
+        &self,
+        Parameters(args): Parameters<WebpageToPdfArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        use crate::browser::PageRenderer;
+        let bytes = browser::shared_global()
+            .render_pdf(&args.url)
+            .await
+            .map_err(internal)?;
+        let path = match args
+            .path
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            Some(p) => std::path::PathBuf::from(p),
+            None => {
+                use std::hash::{Hash, Hasher};
+                let mut h = std::collections::hash_map::DefaultHasher::new();
+                args.url.hash(&mut h);
+                std::env::temp_dir().join(format!("lodestone-{:x}.pdf", h.finish()))
+            }
+        };
+        std::fs::write(&path, &bytes)
+            .map_err(|e| internal(anyhow::anyhow!("could not write '{}': {e}", path.display())))?;
+        Ok(text_result(format!(
+            "Saved {} ({} bytes) from {}",
+            path.display(),
+            bytes.len(),
+            args.url
+        )))
+    }
+
+    #[tool(
+        description = "Read a PDF and return its text, extracted locally (no external service). \
+        `source` is an absolute URL or a local file path. Scanned/image-only PDFs (no text layer) \
+        return an error rather than text."
+    )]
+    async fn read_pdf(
+        &self,
+        Parameters(args): Parameters<ReadPdfArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let max = self.clamp_chars(args.max_chars);
+        let src = args.source.trim().to_string();
+        let key = format!("readpdf|{max}|{src}");
+        if let Some(cached) = self.retrieval_get(&key) {
+            return Ok(text_result(cached));
+        }
+        let bytes: Vec<u8> = if src.starts_with("http://") || src.starts_with("https://") {
+            self.http
+                .get(&src)
+                .send()
+                .await
+                .map_err(|e| internal(e.into()))?
+                .error_for_status()
+                .map_err(|e| internal(e.into()))?
+                .bytes()
+                .await
+                .map_err(|e| internal(e.into()))?
+                .to_vec()
+        } else {
+            std::fs::read(&src).map_err(|e| invalid(format!("could not read file '{src}': {e}")))?
+        };
+        let text = retrieve::extract_pdf_text(bytes, max)
+            .await
+            .map_err(internal)?;
+        let out = format!("PDF: {src}\n\n{text}");
+        self.retrieval_put(key, &out);
         Ok(text_result(out))
     }
 
@@ -972,6 +1066,8 @@ impl ServerHandler for Lodestone {
                 - github_releases / github_user / github_repo: GitHub release notes, profiles, repo metadata (keyless).\n\
                 - fetch_page: get readable text of any URL over plain HTTP.\n\
                 - render_page: get readable text of a URL via a headless browser (JS).\n\
+                - webpage_to_pdf: save a web page to a local PDF (headless browser).\n\
+                - read_pdf: extract text from a PDF (URL or local path), locally.\n\
                 - wayback_fetch: read a page's archived snapshot from the Wayback Machine.\n\
                 - qa_search: search the configured Q&A providers (StackExchange network).\n\
                 - datetime: the current date/time from the system clock (local, UTC, Unix).\n\

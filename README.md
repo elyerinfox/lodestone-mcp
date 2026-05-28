@@ -75,6 +75,8 @@ arguments.
 | --- | --- | --- |
 | `fetch_page` | `url`, `max_chars?` | Page → readable text over plain HTTP (the default reader). |
 | `render_page` | `url`, `max_chars?` | Page → readable text via a headless browser (runs JS). |
+| `webpage_to_pdf` | `url`, `path?` | Render a page to a local PDF (headless browser); returns the saved path. |
+| `read_pdf` | `source`, `max_chars?` | Extract a PDF's text locally — `source` is a URL or local path. |
 | `fetch_repo_file` | `target`, `start_line?`, `end_line?` | A file from GitHub/GitLab/Gitea — blob/raw URL, or GitHub `owner/repo/path` (a `#L10-L40` fragment works too). |
 | `wayback_fetch` | `url`, `timestamp?`, `max_chars?` | Archived snapshot from the Wayback Machine. |
 | `github_releases` | `repo`, `max_results?`, `include_prereleases?` | A repo's releases (newest first): tag, date, notes. Keyless (optional `[github].token`). |

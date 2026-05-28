@@ -15,10 +15,13 @@ use chromiumoxide::browser::{Browser, BrowserConfig};
 use futures::StreamExt;
 use tokio::sync::Mutex;
 
-/// Renders a page with a real browser and returns its final HTML.
+/// Renders a page with a real browser and returns its final HTML, or prints it
+/// to PDF.
 #[async_trait]
 pub trait PageRenderer: Send + Sync {
     async fn render(&self, url: &str) -> Result<String>;
+    /// Render the page and return it printed to PDF bytes (local, no service).
+    async fn render_pdf(&self, url: &str) -> Result<Vec<u8>>;
 }
 
 /// How the headless browser is launched. Defaults auto-detect Chrome and run a
@@ -64,6 +67,21 @@ impl PageRenderer for ChromiumRenderer {
                 tracing::warn!(error = %e, "headless browser failed; relaunching");
                 *guard = Some(launch(&self.options).await?);
                 render_page(guard.as_mut().unwrap(), url).await
+            }
+        }
+    }
+
+    async fn render_pdf(&self, url: &str) -> Result<Vec<u8>> {
+        let mut guard = self.browser.lock().await;
+        if guard.is_none() {
+            *guard = Some(launch(&self.options).await?);
+        }
+        match page_to_pdf(guard.as_mut().unwrap(), url).await {
+            Ok(bytes) => Ok(bytes),
+            Err(e) => {
+                tracing::warn!(error = %e, "headless browser failed; relaunching");
+                *guard = Some(launch(&self.options).await?);
+                page_to_pdf(guard.as_mut().unwrap(), url).await
             }
         }
     }
@@ -120,4 +138,13 @@ async fn render_page(handle: &mut BrowserHandle, url: &str) -> Result<String> {
     let html = page.content().await?;
     let _ = page.close().await;
     Ok(html)
+}
+
+async fn page_to_pdf(handle: &mut BrowserHandle, url: &str) -> Result<Vec<u8>> {
+    use chromiumoxide::cdp::browser_protocol::page::PrintToPdfParams;
+    let page = handle.browser.new_page(url).await?;
+    page.wait_for_navigation().await?;
+    let bytes = page.pdf(PrintToPdfParams::default()).await?;
+    let _ = page.close().await;
+    Ok(bytes)
 }

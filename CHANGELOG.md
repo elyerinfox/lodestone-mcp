@@ -30,6 +30,10 @@ required), served over Streamable HTTP at `/mcp`.
 - **Self-hosted forges:** register private GitLab/Gitea hosts under `[forges]`;
   each becomes a keyless `code_<id>` provider.
 - **SearXNG provider** (web + code) against a self-hosted instance's JSON API.
+- **PDF tools** (local-only, no external service): `webpage_to_pdf` renders a page
+  to a PDF via the headless browser; `read_pdf` extracts a PDF's text (URL or
+  local path) with `pdf-extract`. `fetch_page` also auto-detects PDFs and extracts
+  their text. Scanned/image-only PDFs (no text layer) return an error.
 - **Date/time tools** — `datetime` (current local/UTC/Unix time, plus an optional
   IANA timezone), `date_diff` (difference between two dates: days/years and
   ago/from-now), and `time_convert` (convert a time to another IANA timezone).

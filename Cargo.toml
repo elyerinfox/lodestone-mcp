@@ -37,3 +37,4 @@ chromiumoxide = { version = "0.7", default-features = false, features = ["tokio-
 mdns-sd = "0.20.0"
 chrono = { version = "0.4.44", default-features = false, features = ["clock", "std"] }
 chrono-tz = "0.10.4"
+pdf-extract = "0.10.0"
