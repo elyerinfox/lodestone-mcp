@@ -536,8 +536,11 @@ impl Agg {
         out
     }
 
-    fn finish(mut self) -> SearchResult {
-        self.result.meta = Some(format!("found by: {}", self.engines().join(", ")));
+    /// Return the merged result. Engine provenance is intentionally NOT stamped
+    /// onto `meta` — it's redundant with the result-set header and would clobber
+    /// providers' real metadata (Q&A answer counts/tags, package versions). The
+    /// engines that produced it still drive ranking.
+    fn finish(self) -> SearchResult {
         self.result
     }
 }
@@ -907,7 +910,9 @@ mod tests {
         ];
         let out = merge(per, 10, Ranking::Reciprocal, &tc.ctx());
         assert_eq!(out.len(), 1);
-        assert_eq!(out[0].meta.as_deref(), Some("found by: a, b"));
+        assert_eq!(out[0].url, "https://x.test/p");
+        // Engine provenance is not stamped onto results (no meta clutter).
+        assert!(out[0].meta.is_none());
     }
 
     #[test]
