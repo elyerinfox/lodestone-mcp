@@ -85,6 +85,7 @@ arguments.
 
 | Tool | Arguments | Purpose |
 | --- | --- | --- |
+| `datetime` | — | Current date/time from the system clock (local + UTC + Unix). The model has no "now". |
 | `list_providers` | — | Show the active providers, strategy, and ranking. |
 | `hive_status` | — | Show the peer-to-peer hivemind graph (peers, reputation, edges); says disabled when off. |
 

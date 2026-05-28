@@ -777,6 +777,25 @@ impl Lodestone {
     }
 
     #[tool(
+        description = "Get the current date and time from the system clock — local time (with UTC \
+        offset), UTC, and the Unix timestamp. Use whenever you need to know 'now'; the model's \
+        training data has no current time."
+    )]
+    async fn datetime(&self) -> Result<CallToolResult, McpError> {
+        use chrono::{Local, SecondsFormat, Utc};
+        let local = Local::now();
+        let utc = Utc::now();
+        let out = format!(
+            "Current date/time:\n  Local: {} ({})\n  UTC:   {}\n  Unix:  {}",
+            local.to_rfc3339_opts(SecondsFormat::Secs, false),
+            local.format("%A"),
+            utc.to_rfc3339_opts(SecondsFormat::Secs, true),
+            utc.timestamp(),
+        );
+        Ok(text_result(out))
+    }
+
+    #[tool(
         description = "List the configured search providers and the order they are tried, for \
         web, code and Q&A. Useful to check which sources are active."
     )]
@@ -815,6 +834,7 @@ impl ServerHandler for Lodestone {
                 - render_page: get readable text of a URL via a headless browser (JS).\n\
                 - wayback_fetch: read a page's archived snapshot from the Wayback Machine.\n\
                 - qa_search: search the configured Q&A providers (StackExchange network).\n\
+                - datetime: the current date/time from the system clock (local, UTC, Unix).\n\
                 - list_providers: show which sources are active.\n\
                 - hive_status: show the peer-to-peer hivemind graph (if enabled).\n\
                 Each configured provider also has a direct tool named <kind>_<id> \
@@ -831,8 +851,17 @@ impl ServerHandler for Lodestone {
 // Output formatting
 // ---------------------------------------------------------------------------
 
+/// Local current date (YYYY-MM-DD) stamped onto result headers so the model can
+/// anchor recency instead of guessing — web snippets often omit the year.
+fn now_stamp() -> String {
+    chrono::Local::now().format("%Y-%m-%d").to_string()
+}
+
 fn format_web(query: &str, engine: &str, hits: &[SearchResult]) -> String {
-    let mut out = format!("Web results for \"{query}\" (via {engine}):\n");
+    let mut out = format!(
+        "Web results for \"{query}\" (current date {}; via {engine}):\n",
+        now_stamp()
+    );
     for (i, h) in hits.iter().enumerate() {
         out.push_str(&format!("\n{}. {}\n   {}\n", i + 1, h.title, h.url));
         if !h.snippet.is_empty() {
@@ -846,7 +875,10 @@ fn format_web(query: &str, engine: &str, hits: &[SearchResult]) -> String {
 }
 
 fn format_code(query: &str, engine: &str, hits: &[SearchResult]) -> String {
-    let mut out = format!("Code results for \"{query}\" (via {engine}):\n");
+    let mut out = format!(
+        "Code results for \"{query}\" (current date {}; via {engine}):\n",
+        now_stamp()
+    );
     for (i, h) in hits.iter().enumerate() {
         out.push_str(&format!("\n{}. {}\n", i + 1, h.title));
         if !h.url.is_empty() {
@@ -864,7 +896,10 @@ fn format_code(query: &str, engine: &str, hits: &[SearchResult]) -> String {
 }
 
 fn format_docs(query: &str, engine: &str, hits: &[SearchResult]) -> String {
-    let mut out = format!("Documentation results for \"{query}\" (via {engine}):\n");
+    let mut out = format!(
+        "Documentation results for \"{query}\" (current date {}; via {engine}):\n",
+        now_stamp()
+    );
     for (i, h) in hits.iter().enumerate() {
         out.push_str(&format!("\n{}. {}\n   {}\n", i + 1, h.title, h.url));
         if !h.snippet.is_empty() {
@@ -983,7 +1018,10 @@ fn format_github_repo(v: &serde_json::Value, fallback: &str) -> String {
 }
 
 fn format_qa(query: &str, site: &str, hits: &[SearchResult]) -> String {
-    let mut out = format!("{site} results for \"{query}\":\n");
+    let mut out = format!(
+        "{site} results for \"{query}\" (current date {}):\n",
+        now_stamp()
+    );
     for (i, h) in hits.iter().enumerate() {
         let score = h.score.unwrap_or(0);
         out.push_str(&format!("\n{}. {}\n", i + 1, h.title));

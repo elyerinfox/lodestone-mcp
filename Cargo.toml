@@ -35,3 +35,4 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 # a Chrome/Chromium binary is only needed at runtime if those paths are used.
 chromiumoxide = { version = "0.7", default-features = false, features = ["tokio-runtime"] }
 mdns-sd = "0.20.0"
+chrono = { version = "0.4.44", default-features = false, features = ["clock", "std"] }

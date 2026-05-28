@@ -1340,6 +1340,7 @@ dependencies = [
  "async-trait",
  "axum",
  "chromiumoxide",
+ "chrono",
  "futures",
  "html2text",
  "mdns-sd",
