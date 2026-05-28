@@ -1,0 +1,30 @@
+# =============================================================================
+# config/11-shell.toml — shell command execution (ARBITRARY CODE EXEC, opt-in)
+# =============================================================================
+#
+# The `shell_run` tool runs commands on this machine. This is the most dangerous
+# capability lodestone has — it is OFF BY DEFAULT and must be explicitly granted.
+#
+# Policy:
+#   * enabled = false                 -> the tool is hidden entirely.
+#   * enabled = true, allow = [...]    -> only those programs run, executed
+#       DIRECTLY (no shell), so `;`, `|`, `$(...)`, redirects etc. are inert.
+#       The first token's basename is matched, case-insensitively.
+#   * allow_unrestricted = true        -> ANY command runs via the system shell
+#       (sh -c / cmd /C). Full power, full risk.
+#   * Every run has a timeout (process killed) and a working directory.
+#
+# Run behind an MCP host that approves tool calls. Prefer a tight `allow` list.
+# Env: LODESTONE_SHELL_ENABLED, LODESTONE_SHELL_ALLOW_UNRESTRICTED,
+#      LODESTONE_SHELL_ALLOW (comma list), LODESTONE_SHELL_WORKDIR,
+#      LODESTONE_SHELL_TIMEOUT_SECS
+# -----------------------------------------------------------------------------
+
+[shell]
+enabled = false            # OFF by default — set true to grant
+allow_unrestricted = false # true = run ANY command via the system shell
+# Allowlisted programs (matched on the command's first token, by basename):
+#   allow = ["git", "cargo", "ls", "cat", "rg"]
+allow = []
+timeout_secs = 30          # per-command timeout (process killed on elapse)
+workdir = ""               # working directory; empty = the server's CWD

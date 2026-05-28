@@ -34,6 +34,7 @@ pub struct Config {
     pub docker: Docker,
     pub kubernetes: Kubernetes,
     pub filesystem: Filesystem,
+    pub shell: Shell,
     /// User-defined self-hosted forges, keyed by provider id. Each entry becomes
     /// a keyless code provider (and a `code_<id>` tool) once its id is listed in
     /// `[providers].code`. Example: `[forges.myhost] kind = "gitea", domain =
@@ -84,8 +85,8 @@ pub struct Tools {
     /// k8s_contexts, k8s_get, k8s_describe, k8s_logs, k8s_apply, k8s_scale,
     /// k8s_delete. Filesystem (gated by [filesystem], off by default): fs_read,
     /// fs_list, fs_stat, fs_find, fs_write, fs_edit, fs_mkdir, fs_delete, fs_move.
-    /// Plus per-provider <kind>_<id> tools (e.g. docs_cratesio, docs_react,
-    /// docs_kubernetes).
+    /// Shell (gated by [shell], off by default): shell_run. Plus per-provider
+    /// <kind>_<id> tools (e.g. docs_cratesio, docs_react, docs_kubernetes).
     pub enabled: Vec<String>,
     /// Denylist applied after `enabled`; these tools are never exposed.
     pub disabled: Vec<String>,
@@ -274,6 +275,40 @@ pub struct Filesystem {
     pub roots: Vec<String>,
 }
 
+/// Shell command execution (`src/skills/shell.rs`) — arbitrary code execution, the
+/// most dangerous capability. **Off by default.** When enabled, commands are
+/// restricted to the `allow` program list (executed directly, no shell, so
+/// metacharacters are inert) unless `allow_unrestricted` runs anything via the
+/// system shell.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct Shell {
+    /// Expose the `shell_run` tool at all. OFF by default — explicit grant.
+    pub enabled: bool,
+    /// Run ANY command via the system shell (full RCE). When false, only programs
+    /// in `allow` may run, executed directly (no shell interpretation).
+    pub allow_unrestricted: bool,
+    /// Allowlisted program names (matched on the command's first token, by
+    /// basename, case-insensitively). Empty + not unrestricted = nothing runs.
+    pub allow: Vec<String>,
+    /// Per-command timeout in seconds (the process is killed on timeout).
+    pub timeout_secs: u64,
+    /// Working directory for commands. Empty = the server's working directory.
+    pub workdir: String,
+}
+
+impl Default for Shell {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            allow_unrestricted: false,
+            allow: Vec::new(),
+            timeout_secs: 30,
+            workdir: String::new(),
+        }
+    }
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(default)]
 pub struct Cache {
@@ -413,6 +448,7 @@ impl Default for Config {
             docker: Docker::default(),
             kubernetes: Kubernetes::default(),
             filesystem: Filesystem::default(),
+            shell: Shell::default(),
             forges: HashMap::new(),
             docsites: HashMap::new(),
         }
@@ -645,6 +681,23 @@ impl Config {
         }
         if let Some(roots) = env_list("LODESTONE_FS_ROOTS") {
             self.filesystem.roots = roots;
+        }
+        if let Ok(v) = std::env::var("LODESTONE_SHELL_ENABLED") {
+            self.shell.enabled = is_truthy(&v);
+        }
+        if let Ok(v) = std::env::var("LODESTONE_SHELL_ALLOW_UNRESTRICTED") {
+            self.shell.allow_unrestricted = is_truthy(&v);
+        }
+        if let Some(allow) = env_list("LODESTONE_SHELL_ALLOW") {
+            self.shell.allow = allow;
+        }
+        if let Ok(v) = std::env::var("LODESTONE_SHELL_WORKDIR") {
+            self.shell.workdir = v;
+        }
+        if let Ok(n) = std::env::var("LODESTONE_SHELL_TIMEOUT_SECS") {
+            if let Ok(n) = n.trim().parse::<u64>() {
+                self.shell.timeout_secs = n;
+            }
         }
         // Accept the conventional GITHUB_TOKEN as well as our namespaced var.
         if let Ok(token) =

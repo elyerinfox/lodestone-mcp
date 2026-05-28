@@ -29,6 +29,7 @@ pub mod regex;
 pub mod retrieve;
 pub mod rfc;
 pub mod search;
+pub mod shell;
 pub mod standards;
 pub mod translate;
 pub mod units;
@@ -117,6 +118,7 @@ fn all_skills() -> Vec<Box<dyn Skill>> {
     skills.extend(docker::skills());
     skills.extend(kubernetes::skills());
     skills.extend(filesystem::skills());
+    skills.extend(shell::skills());
     skills.extend(datetime::skills());
     skills.extend(translate::skills());
     skills.extend(data::skills());
@@ -163,6 +165,14 @@ pub fn disabled_by_config(cfg: &crate::config::Config) -> Vec<String> {
         cfg.filesystem.allow_destructive,
         filesystem::TOOL_NAMES,
         filesystem::DESTRUCTIVE_NAMES,
+    );
+    // Shell is gated solely by `enabled` (no destructive subset; allowlist policy
+    // is enforced at call time).
+    gate(
+        cfg.shell.enabled,
+        true,
+        shell::TOOL_NAMES,
+        shell::DESTRUCTIVE_NAMES,
     );
     out
 }

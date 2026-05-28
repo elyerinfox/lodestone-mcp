@@ -50,3 +50,5 @@ serde_yaml = "0.9"
 meval = "0.2"
 # Read-only XML parser for the arXiv Atom API.
 roxmltree = "0.20"
+# POSIX-style command tokenizer for the shell skill's allowlist (exec without a shell).
+shell-words = "1"

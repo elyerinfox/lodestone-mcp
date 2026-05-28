@@ -115,6 +115,18 @@ rejected. See [`config/10-filesystem.toml`](../config/10-filesystem.toml).
 | `fs_delete` | `path`, `recursive?` | **destructive** | Delete a file/directory. |
 | `fs_move` | `source`, `dest` | **destructive** | Move/rename a path. |
 
+## Shell (arbitrary code execution)
+
+`shell_run` runs commands on the machine. **Off by default** — the most dangerous
+tool. Gated by `[shell]`: in allowlist mode only programs in `[shell].allow` run
+(executed directly, no shell, so metacharacters are inert); `[shell].allow_unrestricted`
+runs anything via the system shell. Each run has a timeout + working dir. See
+[`config/11-shell.toml`](../config/11-shell.toml).
+
+| Tool | Arguments | Purpose |
+| --- | --- | --- |
+| `shell_run` | `command`, `workdir?`, `timeout_secs?` | Run a command; returns exit code + stdout/stderr. |
+
 ## Date & time
 
 | Tool | Arguments | Purpose |

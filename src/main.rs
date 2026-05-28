@@ -64,6 +64,8 @@ pub(crate) struct Lodestone {
     pub(crate) k8s: Arc<config::Kubernetes>,
     /// Filesystem roots/permissions for the `fs_*` tools.
     pub(crate) fs: Arc<config::Filesystem>,
+    /// Shell-execution policy (allowlist / unrestricted) for `shell_run`.
+    pub(crate) shell: Arc<config::Shell>,
     // The filtered tool router; `#[tool_handler(router = self.tool_router)]`
     // uses it for both tool listing and dispatch.
     tool_router: ToolRouter<Lodestone>,
@@ -84,6 +86,7 @@ impl Lodestone {
         max_chars: usize,
         k8s: config::Kubernetes,
         fs: config::Filesystem,
+        shell: config::Shell,
         tools_enabled: &[String],
         tools_disabled: &[String],
     ) -> Self {
@@ -105,6 +108,7 @@ impl Lodestone {
             max_chars: max_chars.max(1),
             k8s: Arc::new(k8s),
             fs: Arc::new(fs),
+            shell: Arc::new(shell),
             tool_router,
         }
     }
@@ -197,6 +201,8 @@ impl ServerHandler for Lodestone {
                 - fs_read / fs_list / fs_stat / fs_find / fs_write / fs_edit / fs_mkdir \
                 (+ fs_delete / fs_move when allowed): read & edit local files within \
                 [filesystem].roots (OFF by default — must be explicitly granted).\n\
+                - shell_run: run a shell command (arbitrary code execution; OFF by default; gated by \
+                [shell] — allowlist or unrestricted).\n\
                 - json_query / json_format / yaml_to_json / json_to_yaml: parse, search, and \
                 convert JSON/YAML (local).\n\
                 - regex_search / regex_replace: match and substitute with regular expressions (local).\n\
@@ -417,6 +423,7 @@ async fn main() -> anyhow::Result<()> {
         cfg.retrieval.max_chars,
         cfg.kubernetes.clone(),
         cfg.filesystem.clone(),
+        cfg.shell.clone(),
         &cfg.tools.enabled,
         &tools_disabled,
     );

@@ -56,6 +56,10 @@ required), served over Streamable HTTP at `/mcp`.
   type, year, DOI, and a doi.org link (metadata; IEEE/SAE are paywalled, NIST is
   free). Plus `ieee`/`sae`/`nist` doc-site providers (`docs_ieee`/`docs_sae`/
   `docs_nist`) for the publishers' own pages.
+- **Shell execution** (`shell_run`, `[shell]`, **off by default** — arbitrary code
+  execution). Allowlist mode runs only `[shell].allow` programs, executed directly
+  without a shell (metacharacters inert); `allow_unrestricted` runs anything via the
+  system shell. Per-command timeout (killed) and working directory.
 - **Local filesystem skills** (`[filesystem]`, **off by default** — explicit grant
   required): `fs_read`, `fs_list`, `fs_stat`, `fs_find`, `fs_write`, `fs_edit`,
   `fs_mkdir`, plus destructive `fs_delete`/`fs_move` (only when `allow_destructive`).
