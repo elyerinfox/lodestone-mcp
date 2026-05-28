@@ -1,16 +1,18 @@
 //! Forge code-search providers.
 //!
 //! Every forge shares the SAME underlying logic — a site-scoped web search
-//! (DuckDuckGo with a Mojeek fallback, render-aware) filtered to the forge's
-//! domain — and differs only in DECLARATIVE specifics captured by [`ForgeSpec`]:
-//! the id, the domain, and how to parse a blob URL into `(repo, path)`. Adding a
-//! forge is therefore one small file (see `gitlab.rs`, `codeberg.rs`, …) that
-//! defines a `ForgeSpec`; the shared [`ForgeCodeProvider`] turns it into a
-//! working provider.
+//! (scrape-first: DuckDuckGo, then Mojeek; render only if the caller asked) and
+//! differs only in DECLARATIVE specifics captured by [`ForgeSpec`]: the id, the
+//! domain, and how to parse a blob URL into `(repo, path)`. Adding a forge is one
+//! small file (see `gitlab.rs`, `codeberg.rs`, …) that defines a `ForgeSpec`; the
+//! shared [`ForgeCodeProvider`] (or [`search`] directly) turns it into results.
+//!
+//! GitHub is not a forge *provider* here — it's the composite `github` provider
+//! (`providers/github.rs`), which reuses [`search`] for its keyless path. Its URL
+//! layout is still recognized by [`repo_path`] (via `retrieve::github_repo_path`).
 
 mod codeberg;
 mod gitea;
-mod github;
 mod gitlab;
 
 use anyhow::Result;
@@ -22,7 +24,7 @@ use crate::provider::{ProviderKind, SearchProvider, SearchQuery, SearchResult};
 
 /// Declarative description of a code forge.
 pub(super) struct ForgeSpec {
-    /// Provider id, as used in config and result attribution.
+    /// Provider id / result attribution.
     pub id: &'static str,
     /// Domain used to scope the web search and to filter results.
     pub domain: &'static str,
@@ -30,18 +32,20 @@ pub(super) struct ForgeSpec {
     pub repo_path: fn(&str) -> Option<(String, String)>,
 }
 
-/// All known forge specs — also used to enrich generic web/code hits.
-static SPECS: &[&ForgeSpec] = &[&github::SPEC, &gitlab::SPEC, &codeberg::SPEC, &gitea::SPEC];
+static SPECS: &[&ForgeSpec] = &[&gitlab::SPEC, &codeberg::SPEC, &gitea::SPEC];
 
-/// Best-effort `(repo, path)` extraction across all known forge URL layouts.
+/// Best-effort `(repo, path)` across known forge URL layouts: GitHub (via
+/// `retrieve::github_repo_path`) plus the GitLab/Gitea specs.
 pub(super) fn repo_path(url: &str) -> Option<(String, String)> {
+    if let Some((repo, _branch, path)) = crate::retrieve::github_repo_path(url) {
+        return Some((repo, path));
+    }
     SPECS.iter().find_map(|spec| (spec.repo_path)(url))
 }
 
 /// Construct a forge provider by id, if known.
 pub(super) fn make(id: &str) -> Option<ForgeCodeProvider> {
     let spec = match id {
-        "github_web" => &github::SPEC,
         "gitlab" => &gitlab::SPEC,
         "codeberg" => &codeberg::SPEC,
         "gitea" => &gitea::SPEC,
@@ -50,7 +54,48 @@ pub(super) fn make(id: &str) -> Option<ForgeCodeProvider> {
     Some(ForgeCodeProvider { spec })
 }
 
-/// Shared site-scoped code search for a single forge, driven by its [`ForgeSpec`].
+/// Shared site-scoped code search for one forge. Scrape-first (DuckDuckGo, then
+/// Mojeek); `render` is honored only when the caller requested it.
+pub(super) async fn search(
+    spec: &ForgeSpec,
+    http: &Client,
+    query: &SearchQuery,
+) -> Result<Vec<SearchResult>> {
+    let mut terms = query.text.clone();
+    if let Some(lang) = &query.language {
+        terms.push(' ');
+        terms.push_str(lang);
+    }
+
+    // DuckDuckGo honors `site:`; fall back to Mojeek (keyword-scoped) on empty.
+    let ddg_query = format!("site:{} {terms}", spec.domain);
+    let mut hits = engine::duckduckgo_search(http, &ddg_query, query.render, query.limit * 2)
+        .await
+        .unwrap_or_default();
+    if hits.is_empty() {
+        let mojeek_query = format!("{terms} {}", spec.domain);
+        hits = engine::mojeek_search(http, &mojeek_query, query.render, query.limit * 3)
+            .await
+            .unwrap_or_default();
+    }
+
+    let out = hits
+        .into_iter()
+        .filter(|h| h.url.contains(spec.domain))
+        .map(|mut h| {
+            if let Some((repo, path)) = (spec.repo_path)(&h.url) {
+                h.title = format!("{repo} — {path}");
+                h.repo = Some(repo);
+                h.path = Some(path);
+            }
+            h
+        })
+        .take(query.limit)
+        .collect();
+    Ok(out)
+}
+
+/// A forge exposed as a standalone code provider.
 pub(super) struct ForgeCodeProvider {
     spec: &'static ForgeSpec,
 }
@@ -64,38 +109,6 @@ impl SearchProvider for ForgeCodeProvider {
         ProviderKind::Code
     }
     async fn search(&self, http: &Client, query: &SearchQuery) -> Result<Vec<SearchResult>> {
-        let mut terms = query.text.clone();
-        if let Some(lang) = &query.language {
-            terms.push(' ');
-            terms.push_str(lang);
-        }
-
-        // DuckDuckGo honors `site:`; fall back to Mojeek (keyword-scoped) when
-        // DDG returns nothing.
-        let ddg_query = format!("site:{} {terms}", self.spec.domain);
-        let mut hits = engine::duckduckgo_search(http, &ddg_query, query.render, query.limit * 2)
-            .await
-            .unwrap_or_default();
-        if hits.is_empty() {
-            let mojeek_query = format!("{terms} {}", self.spec.domain);
-            hits = engine::mojeek_search(http, &mojeek_query, query.render, query.limit * 3)
-                .await
-                .unwrap_or_default();
-        }
-
-        let out = hits
-            .into_iter()
-            .filter(|h| h.url.contains(self.spec.domain))
-            .map(|mut h| {
-                if let Some((repo, path)) = (self.spec.repo_path)(&h.url) {
-                    h.title = format!("{repo} — {path}");
-                    h.repo = Some(repo);
-                    h.path = Some(path);
-                }
-                h
-            })
-            .take(query.limit)
-            .collect();
-        Ok(out)
+        search(self.spec, http, query).await
     }
 }

@@ -38,6 +38,17 @@ Design principles:
   page fetches fall back to the web archive when the live site is down or blocks
   us.
 
+## Golden rules (non-negotiable)
+
+1. **Scrape is the default; render is optional and a fallback.** Sources fetch
+   over plain HTTP by default; the headless browser runs only when asked for or
+   as a fallback. (The `google` engine is the one exception — it can't be scraped,
+   so it's browser-only and opt-in.)
+2. **The LLM always decides.** `render` is a per-call flag the model controls;
+   the server never enables it on its own.
+3. **Keyless by default.** Credentials (GitHub token, StackExchange key) are
+   optional enhancements over a keyless fallback — never required.
+
 ---
 
 ## Tools
@@ -192,8 +203,8 @@ enabled = ["fetch_page", "github_fetch_file", "wayback_fetch"]
 | web/code | `google` | Headless-Chrome scrape. Needs a local Chrome at runtime; CAPTCHA-prone on datacenter IPs. |
 | code | `grep_app` | grep.app JSON API (often bot-walled → empty). |
 | code | `duckduckgo` / `mojeek` | Generic, `site:`-scoped to `[code].sites`. |
-| code | `github` | Authenticated GitHub code-search API. Needs a token. |
-| code | `github_web` / `gitlab` / `codeberg` / `gitea` | Keyless per-forge code search — one file per forge sharing an abstract `ForgeCodeProvider` (declarative `ForgeSpec`: domain + blob-URL parser). |
+| code | `github` | Composite: keyless GitHub web scrape by default; uses the authenticated API when a token is set. |
+| code | `gitlab` / `codeberg` / `gitea` | Keyless per-forge code search — one file per forge sharing an abstract `ForgeCodeProvider` (declarative `ForgeSpec`: domain + blob-URL parser). |
 | qa | `stackoverflow` | StackExchange API (keyless; optional key raises quota). With `render=true`, scrapes stackoverflow.com via headless browser instead. |
 
 ### Rendering (model-controlled)

@@ -3,6 +3,25 @@
 This guide explains how the codebase is laid out, the few invariants that keep it
 correct, and how to extend it (the common case: adding a search provider).
 
+## Golden rules (non-negotiable)
+
+These are project invariants. New code and providers must uphold them; a change
+that breaks one is wrong by definition.
+
+1. **Scrape is the default; render is optional and a fallback.** Every source
+   fetches over plain HTTP by default. The headless browser is never the default
+   path — it runs only when explicitly requested, or as a fallback after a plain
+   fetch comes back empty/blocked. (The sole exception is the `google` engine,
+   which has no scrapeable endpoint and is therefore browser-only and strictly
+   opt-in via config.)
+2. **The LLM always decides.** Rendering is a per-call `render` flag the calling
+   model sets; the server never enables it on its own. The model likewise drives
+   what to retrieve next. We expose capabilities and defaults — we don't make the
+   call for it.
+3. **Keyless by default.** No source requires an account or key on the default
+   path. Credentials (a GitHub token, a StackExchange key) are strictly optional
+   enhancements layered over a keyless fallback, never a precondition.
+
 ## Architecture at a glance
 
 ```
@@ -18,12 +37,12 @@ src/
                  result zipping, `finish`, the configurable code-site list).
     engine/      Spec-driven web/code search engines (HtmlEngineProvider +
                  EngineSpec): duckduckgo, mojeek, google.
-    forge/       Spec-driven code forges (ForgeCodeProvider + ForgeSpec):
-                 github_web, gitlab, codeberg, gitea.
+    forge/       Spec-driven code forges (ForgeCodeProvider + ForgeSpec, and the
+                 shared `forge::search`): gitlab, codeberg, gitea.
+    github.rs                   Composite: forge scrape (default) + GitHub API (token).
     grep_app.rs                 grep.app JSON code search (bespoke).
-    github_api.rs               Authenticated GitHub code search, token (bespoke).
     medium.rs                   Medium tag RSS (bespoke).
-    stackexchange.rs            StackExchange API + render-scrape (bespoke).
+    stackexchange.rs            StackExchange API + render-scrape (composite).
   browser.rs     PageRenderer trait + a persistent, process-shared
                  ChromiumRenderer. Any provider can render on demand.
   retrieve.rs    Retrieval of one known resource: raw GitHub files, readable
@@ -91,7 +110,7 @@ source a tiny file that just declares its spec:
 | Family (dir) | Shared provider | Declarative spec | Members (one file each) |
 | --- | --- | --- | --- |
 | `engine/` (web search) | `HtmlEngineProvider` | `EngineSpec` — url, `Method` (GET/POST/Browser), `Extract` (two CSS selectors *or* a custom fn), code-scope, extra params | duckduckgo, mojeek, google |
-| `forge/` (code forges) | `ForgeCodeProvider` | `ForgeSpec` — id, domain, blob-URL → `(repo, path)` parser | github_web, gitlab, codeberg, gitea |
+| `forge/` (code forges) | `ForgeCodeProvider` / `forge::search` | `ForgeSpec` — id, domain, blob-URL → `(repo, path)` parser | gitlab, codeberg, gitea (GitHub reuses `forge::search` — see below) |
 
 Google is an engine too — it just declares `Method::Browser` (always render via
 headless Chrome) and an `Extract::Custom` parser for its messy markup, instead
@@ -104,10 +123,20 @@ Families also **compose**: `ForgeCodeProvider` runs its searches *through* the
 **Tier 3 — bespoke providers (implement the trait directly).**
 When a source's transport or parsing is genuinely unique, write a normal
 `SearchProvider` in its own file. These don't fit a spec because their wire
-formats differ: `grep_app` (JSON code API), `github_api` (authenticated GitHub
-API), `medium` (tag RSS/XML), `stackexchange` (keyless API + optional render
-scrape). Forcing them into a shared spec would just turn the spec into a bag of
-callbacks, so they stay bespoke.
+formats differ: `grep_app` (JSON code API), `medium` (tag RSS/XML). Forcing them
+into a shared spec would just turn the spec into a bag of callbacks, so they stay
+bespoke.
+
+**Composite providers.** Some sources have more than one mode and pick one at
+runtime — these are bespoke shells that *dispatch* (and often reuse a family for
+one mode), honoring the golden rules:
+
+- `github` — **scrape by default** (reuses `forge::search` with a github
+  `ForgeSpec`); switches to the authenticated GitHub **API** only when a token is
+  set. GitHub's keyless half is a forge; its API half isn't, so the whole thing
+  is composite rather than a plain forge member.
+- `stackexchange` — keyless **API** by default; scrapes via the headless browser
+  only when the caller sets `render=true`.
 
 **Decision rule:** is this source the *same shape* as an existing family — an
 HTML search engine, or a code forge? If yes, add a spec (tier 2). If its

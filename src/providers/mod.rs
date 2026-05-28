@@ -3,7 +3,7 @@
 
 mod engine;
 mod forge;
-mod github_api;
+mod github;
 mod grep_app;
 mod medium;
 mod stackexchange;
@@ -40,7 +40,7 @@ fn code_sites() -> &'static [String] {
 /// active config. (The same engine, e.g. duckduckgo, behaves differently for
 /// web vs code.)
 pub fn make(kind: ProviderKind, id: &str, cfg: &Config) -> Option<Box<dyn SearchProvider>> {
-    use github_api::GithubApi;
+    use github::Github;
     use grep_app::GrepApp;
     use medium::Medium;
     use stackexchange::StackExchange;
@@ -54,22 +54,12 @@ pub fn make(kind: ProviderKind, id: &str, cfg: &Config) -> Option<Box<dyn Search
         }
         (ProviderKind::Web, "medium") => Some(Box::new(Medium)),
         (ProviderKind::Code, "grep_app") => Some(Box::new(GrepApp)),
-        (ProviderKind::Code, "github_web")
-        | (ProviderKind::Code, "gitlab")
-        | (ProviderKind::Code, "codeberg")
-        | (ProviderKind::Code, "gitea") => {
+        // Composite GitHub: keyless scrape by default, authenticated API if a
+        // token is configured.
+        (ProviderKind::Code, "github") => Some(Box::new(Github::new(cfg.github.token.clone()))),
+        // Spec-driven code forges, shared via ForgeCodeProvider.
+        (ProviderKind::Code, "gitlab" | "codeberg" | "gitea") => {
             forge::make(id).map(|p| Box::new(p) as Box<dyn SearchProvider>)
-        }
-        (ProviderKind::Code, "github") => {
-            if cfg.github.token.is_empty() {
-                tracing::warn!(
-                    "`github` code provider needs a token (config [github].token or \
-                     GITHUB_TOKEN); skipping"
-                );
-                None
-            } else {
-                Some(Box::new(GithubApi::new(cfg.github.token.clone())))
-            }
         }
         (ProviderKind::Qa, "stackoverflow") | (ProviderKind::Qa, "stackexchange") => {
             Some(Box::new(StackExchange::new(cfg.stackexchange.key.clone())))

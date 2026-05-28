@@ -1,35 +1,43 @@
-//! GitHub code-search provider using the authenticated REST API. GitHub no
-//! longer permits unauthenticated code search, so this provider is only used
-//! when a token is configured (`[github].token` or `GITHUB_TOKEN`). A classic
-//! token or a fine-grained token with read access works. Without a token, code
-//! search falls back to the keyless site-scoped web providers.
+//! GitHub code search — a composite provider with two sourcing modes:
+//!
+//!   * **default (keyless): scrape** — a site-scoped web search of github.com,
+//!     reusing the shared forge logic (`forge::search`), so `render` stays the
+//!     caller's optional choice.
+//!   * **token set: API** — GitHub's authenticated code-search API
+//!     (`[github].token` / `GITHUB_TOKEN`). GitHub dropped unauthenticated code
+//!     search, so the API is only reachable with a token; it's a strict opt-in
+//!     enhancement over the keyless default.
 
 use anyhow::Result;
 use async_trait::async_trait;
 use reqwest::Client;
 
+use super::forge::{self, ForgeSpec};
 use crate::provider::{ProviderKind, SearchProvider, SearchQuery, SearchResult};
+use crate::retrieve::github_repo_path;
 use crate::util::collapse_ws;
 
-pub(super) struct GithubApi {
+/// Spec for the keyless scrape path (shared forge machinery).
+static SPEC: ForgeSpec = ForgeSpec {
+    id: "github",
+    domain: "github.com",
+    repo_path: extract,
+};
+
+fn extract(url: &str) -> Option<(String, String)> {
+    github_repo_path(url).map(|(repo, _branch, path)| (repo, path))
+}
+
+pub(super) struct Github {
     token: String,
 }
 
-impl GithubApi {
+impl Github {
     pub(super) fn new(token: String) -> Self {
         Self { token }
     }
-}
 
-#[async_trait]
-impl SearchProvider for GithubApi {
-    fn id(&self) -> &'static str {
-        "github"
-    }
-    fn kind(&self) -> ProviderKind {
-        ProviderKind::Code
-    }
-    async fn search(&self, http: &Client, query: &SearchQuery) -> Result<Vec<SearchResult>> {
+    async fn search_api(&self, http: &Client, query: &SearchQuery) -> Result<Vec<SearchResult>> {
         let mut q = query.text.clone();
         if let Some(lang) = &query.language {
             q.push_str(&format!(" language:{lang}"));
@@ -47,11 +55,28 @@ impl SearchProvider for GithubApi {
             .error_for_status()?
             .json()
             .await?;
-        Ok(parse(&v, query.limit))
+        Ok(parse_api(&v, query.limit))
     }
 }
 
-fn parse(v: &serde_json::Value, max: usize) -> Vec<SearchResult> {
+#[async_trait]
+impl SearchProvider for Github {
+    fn id(&self) -> &'static str {
+        "github"
+    }
+    fn kind(&self) -> ProviderKind {
+        ProviderKind::Code
+    }
+    async fn search(&self, http: &Client, query: &SearchQuery) -> Result<Vec<SearchResult>> {
+        if self.token.is_empty() {
+            forge::search(&SPEC, http, query).await
+        } else {
+            self.search_api(http, query).await
+        }
+    }
+}
+
+fn parse_api(v: &serde_json::Value, max: usize) -> Vec<SearchResult> {
     let items = match v.get("items").and_then(|i| i.as_array()) {
         Some(i) => i,
         None => return vec![],
