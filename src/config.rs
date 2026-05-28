@@ -32,6 +32,7 @@ pub struct Config {
     pub cache: Cache,
     pub network: Network,
     pub docker: Docker,
+    pub kubernetes: Kubernetes,
     /// User-defined self-hosted forges, keyed by provider id. Each entry becomes
     /// a keyless code provider (and a `code_<id>` tool) once its id is listed in
     /// `[providers].code`. Example: `[forges.myhost] kind = "gitea", domain =
@@ -74,8 +75,10 @@ pub struct Tools {
     /// oci_manifest, artifacthub_search, list_providers, hive_status. Local Docker
     /// daemon (gated by [docker]): docker_ps, docker_images, docker_inspect,
     /// docker_logs, docker_info, docker_pull, docker_run, docker_start,
-    /// docker_stop, docker_remove. Plus per-provider <kind>_<id> tools (e.g.
-    /// docs_cratesio, docs_react, docs_kubernetes).
+    /// docker_stop, docker_remove. Kubernetes (gated by [kubernetes]):
+    /// k8s_contexts, k8s_get, k8s_describe, k8s_logs, k8s_apply, k8s_scale,
+    /// k8s_delete. Plus per-provider <kind>_<id> tools (e.g. docs_cratesio,
+    /// docs_react, docs_kubernetes).
     pub enabled: Vec<String>,
     /// Denylist applied after `enabled`; these tools are never exposed.
     pub disabled: Vec<String>,
@@ -217,6 +220,37 @@ impl Default for Docker {
     }
 }
 
+/// Kubernetes cluster interaction (`src/k8s.rs`) via the API server (reads your
+/// kubeconfig; no `kubectl`). On by default; safe writes (apply/scale) are
+/// included, while destructive `k8s_delete` is hidden unless `allow_destructive`.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct Kubernetes {
+    /// Expose the Kubernetes tools at all.
+    pub enabled: bool,
+    /// Also expose the destructive Kubernetes tools (`k8s_delete`).
+    pub allow_destructive: bool,
+    /// Path to a kubeconfig file. Empty = default (`$KUBECONFIG` / `~/.kube/config`)
+    /// or in-cluster credentials.
+    pub kubeconfig: String,
+    /// Kubeconfig context to use. Empty = the file's current-context.
+    pub context: String,
+    /// Default namespace when a tool call doesn't specify one. Empty = "default".
+    pub namespace: String,
+}
+
+impl Default for Kubernetes {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            allow_destructive: false,
+            kubeconfig: String::new(),
+            context: String::new(),
+            namespace: String::new(),
+        }
+    }
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(default)]
 pub struct Cache {
@@ -353,6 +387,7 @@ impl Default for Config {
             cache: Cache::default(),
             network: Network::default(),
             docker: Docker::default(),
+            kubernetes: Kubernetes::default(),
             forges: HashMap::new(),
             docsites: HashMap::new(),
         }
@@ -552,6 +587,21 @@ impl Config {
         }
         if let Ok(v) = std::env::var("LODESTONE_DOCKER_ALLOW_DESTRUCTIVE") {
             self.docker.allow_destructive = is_truthy(&v);
+        }
+        if let Ok(v) = std::env::var("LODESTONE_KUBERNETES_ENABLED") {
+            self.kubernetes.enabled = is_truthy(&v);
+        }
+        if let Ok(v) = std::env::var("LODESTONE_KUBERNETES_ALLOW_DESTRUCTIVE") {
+            self.kubernetes.allow_destructive = is_truthy(&v);
+        }
+        if let Ok(v) = std::env::var("LODESTONE_KUBECONFIG") {
+            self.kubernetes.kubeconfig = v;
+        }
+        if let Ok(v) = std::env::var("LODESTONE_KUBE_CONTEXT") {
+            self.kubernetes.context = v;
+        }
+        if let Ok(v) = std::env::var("LODESTONE_KUBE_NAMESPACE") {
+            self.kubernetes.namespace = v;
         }
         // Accept the conventional GITHUB_TOKEN as well as our namespaced var.
         if let Ok(token) =

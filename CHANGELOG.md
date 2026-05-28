@@ -51,6 +51,13 @@ required), served over Streamable HTTP at `/mcp`.
   read/safe-write — `docker_ps`, `docker_images`, `docker_inspect`, `docker_logs`,
   `docker_info`, `docker_pull`, `docker_run`, `docker_start`; destructive
   (`docker_stop`, `docker_remove`) hidden unless `[docker].allow_destructive`.
+- **Kubernetes cluster interaction** (`[kubernetes]`, on by default) — talks to the
+  API server directly via kube-rs, reading your kubeconfig (default / `$KUBECONFIG`
+  / configured path+context) or in-cluster credentials, no `kubectl`. Granular
+  per-action tools: read/safe-write — `k8s_contexts`, `k8s_get`, `k8s_describe`,
+  `k8s_logs`, `k8s_apply` (server-side apply of kubefiles), `k8s_scale`; destructive
+  `k8s_delete` hidden unless `[kubernetes].allow_destructive`. `kind` accepts
+  kubectl-style names via API discovery.
 - **Self-hosted forges:** register private GitLab/Gitea hosts under `[forges]`;
   each becomes a keyless `code_<id>` provider.
 - **SearXNG provider** (web + code) against a self-hosted instance's JSON API.

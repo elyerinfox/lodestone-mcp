@@ -70,6 +70,22 @@ detail: [containers.md](containers.md#local-docker-daemon-write-access).
 | `docker_stop` | `container` | destructive | Stop a container (opt-in). |
 | `docker_remove` | `container`, `force?` | destructive | Remove a container (opt-in). |
 
+## Kubernetes cluster
+
+Cluster control via the API (kube-rs, reads kubeconfig; no `kubectl`), gated by
+`[kubernetes]` — on by default; `k8s_delete` hidden unless `allow_destructive`.
+Full detail: [containers.md](containers.md#kubernetes-cluster).
+
+| Tool | Arguments | Access | Purpose |
+| --- | --- | --- | --- |
+| `k8s_contexts` | — | read | List kubeconfig contexts + current. |
+| `k8s_get` | `kind`, `name?`, `namespace?` | read | Get one object or list a kind. |
+| `k8s_describe` | `kind`, `name`, `namespace?` | read | Full JSON of one object. |
+| `k8s_logs` | `pod`, `namespace?`, `container?`, `tail?` | read | A pod's logs. |
+| `k8s_apply` | `manifest` | write | Apply a kubefile (multi-doc YAML). |
+| `k8s_scale` | `kind`, `name`, `replicas`, `namespace?` | write | Scale a workload. |
+| `k8s_delete` | `kind`, `name`, `namespace?` | destructive | Delete a resource (opt-in). |
+
 ## Date & time
 
 | Tool | Arguments | Purpose |

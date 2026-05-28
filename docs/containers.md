@@ -69,6 +69,30 @@ gated tool.
 > `docker_*` (daemon) is distinct from `docker_search`/`docker_image`/`docker_tags`
 > (keyless Docker Hub lookups, above), which are unaffected by `[docker]`.
 
+## Kubernetes cluster
+
+A **cluster-control** capability: lodestone talks to the Kubernetes API server
+directly via [kube-rs](https://kube.rs), reading your kubeconfig (default location,
+`$KUBECONFIG`, or a configured path/context) or in-cluster credentials — no
+`kubectl`. Code: [`src/k8s.rs`](../src/k8s.rs). Gated by `[kubernetes]` (see
+[`config/09-kubernetes.toml`](../config/09-kubernetes.toml)); `enabled` on by
+default, `k8s_delete` hidden unless `allow_destructive` is set. `kind` accepts
+kubectl-style names (`pods`, `deploy`, `svc`, `nodes`, …) resolved via API discovery.
+
+| Tool | Arguments | Access | Purpose |
+| --- | --- | --- | --- |
+| `k8s_contexts` | — | read | List kubeconfig contexts + current (no cluster contact). |
+| `k8s_get` | `kind`, `name?`, `namespace?` | read | Get one object (JSON) or list a kind. |
+| `k8s_describe` | `kind`, `name`, `namespace?` | read | Full JSON of one named object. |
+| `k8s_logs` | `pod`, `namespace?`, `container?`, `tail?` | read | A pod's logs. |
+| `k8s_apply` | `manifest` | write | Server-side apply a kubefile (multi-doc YAML). |
+| `k8s_scale` | `kind`, `name`, `replicas`, `namespace?` | write | Scale a workload. |
+| `k8s_delete` | `kind`, `name`, `namespace?` | **destructive** | Delete a resource. |
+
+> Helm release *mutation* (install/upgrade/uninstall) would mean reimplementing
+> Helm, so it's out of scope for the direct-API approach; `docs_helm` and
+> `artifacthub_search` cover Helm discovery instead.
+
 ## Documentation search
 
 The framework-docs family also covers tooling docs: `docs_docker`

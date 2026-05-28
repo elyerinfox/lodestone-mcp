@@ -14,6 +14,7 @@ mod cache;
 mod config;
 mod docker;
 mod hive;
+mod k8s;
 mod oci;
 mod provider;
 mod providers;
@@ -310,6 +311,75 @@ struct DockerRemoveArgs {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct K8sGetArgs {
+    /// Resource kind, e.g. "pods", "deployment", "svc", "nodes", "configmap".
+    kind: String,
+    /// A specific resource name. Omit to list all of the kind.
+    #[serde(default)]
+    name: Option<String>,
+    /// Namespace (for namespaced kinds). Omit to use the configured/default namespace.
+    #[serde(default)]
+    namespace: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct K8sDescribeArgs {
+    /// Resource kind, e.g. "pod", "deployment", "service".
+    kind: String,
+    /// The resource name.
+    name: String,
+    /// Namespace (for namespaced kinds). Omit to use the configured/default namespace.
+    #[serde(default)]
+    namespace: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct K8sLogsArgs {
+    /// Pod name.
+    pod: String,
+    /// Namespace. Omit to use the configured/default namespace.
+    #[serde(default)]
+    namespace: Option<String>,
+    /// Container name (for multi-container pods). Omit for the default container.
+    #[serde(default)]
+    container: Option<String>,
+    /// Trailing log lines to return. Default 200, capped 2000.
+    #[serde(default)]
+    tail: Option<u32>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct K8sApplyArgs {
+    /// One or more Kubernetes manifests (a "kubefile"): YAML, multi-document
+    /// (`---`-separated) allowed. Server-side applied.
+    manifest: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct K8sScaleArgs {
+    /// Workload kind: "deployment", "statefulset", or "replicaset".
+    kind: String,
+    /// The workload name.
+    name: String,
+    /// Desired replica count.
+    replicas: i32,
+    /// Namespace. Omit to use the configured/default namespace.
+    #[serde(default)]
+    namespace: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct K8sDeleteArgs {
+    /// Resource kind, e.g. "pod", "deployment", "service".
+    kind: String,
+    /// The resource name.
+    name: String,
+    /// Namespace (for namespaced kinds). Omit to use the configured/default namespace.
+    #[serde(default)]
+    namespace: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct ArtifactHubArgs {
     /// What to search for (chart/operator/plugin name or keyword).
     query: String,
@@ -408,6 +478,9 @@ struct Lodestone {
     /// Default / hard-cap characters for the retrieval tools (`[retrieval]`).
     default_chars: usize,
     max_chars: usize,
+    /// Kubernetes connection settings (kubeconfig path/context/namespace) for the
+    /// `k8s_*` tools.
+    k8s: Arc<config::Kubernetes>,
     // The filtered tool router; `#[tool_handler(router = self.tool_router)]`
     // uses it for both tool listing and dispatch.
     tool_router: ToolRouter<Lodestone>,
@@ -426,6 +499,7 @@ impl Lodestone {
         retrieval_cache: Option<Arc<cache::TtlCache>>,
         default_chars: usize,
         max_chars: usize,
+        k8s: config::Kubernetes,
         tools_enabled: &[String],
         tools_disabled: &[String],
     ) -> Self {
@@ -445,7 +519,17 @@ impl Lodestone {
             retrieval_cache,
             default_chars: default_chars.max(1),
             max_chars: max_chars.max(1),
+            k8s: Arc::new(k8s),
             tool_router,
+        }
+    }
+
+    /// Build per-call Kubernetes connection options from the stored config.
+    fn k8s_opts(&self) -> k8s::Opts {
+        k8s::Opts {
+            kubeconfig: self.k8s.kubeconfig.clone(),
+            context: self.k8s.context.clone(),
+            namespace: self.k8s.namespace.clone(),
         }
     }
 
@@ -1464,6 +1548,131 @@ impl Lodestone {
         Ok(text_result(out))
     }
 
+    // --- Kubernetes cluster (gated by [kubernetes]; see src/k8s.rs) ----------
+
+    #[tool(
+        description = "List the kubeconfig contexts and the current one (no cluster contact). \
+        Use to see which clusters are configured."
+    )]
+    async fn k8s_contexts(&self) -> Result<CallToolResult, McpError> {
+        let out = k8s::contexts(&self.k8s_opts()).map_err(internal)?;
+        Ok(text_result(out))
+    }
+
+    #[tool(
+        description = "Get Kubernetes resources from the cluster: a single named object (full \
+        JSON) or a list of a kind. `kind` accepts kubectl names (pods, deploy, svc, nodes, …). \
+        Reads your kubeconfig; no kubectl."
+    )]
+    async fn k8s_get(
+        &self,
+        Parameters(args): Parameters<K8sGetArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let out = k8s::get(
+            &self.k8s_opts(),
+            &args.kind,
+            args.name.as_deref(),
+            args.namespace.as_deref(),
+        )
+        .await
+        .map_err(internal)?;
+        Ok(text_result(util::truncate_chars(&out, self.max_chars)))
+    }
+
+    #[tool(
+        description = "Describe one Kubernetes resource (full JSON of the named object). \
+        Reads your kubeconfig; no kubectl."
+    )]
+    async fn k8s_describe(
+        &self,
+        Parameters(args): Parameters<K8sDescribeArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let out = k8s::describe(
+            &self.k8s_opts(),
+            &args.kind,
+            &args.name,
+            args.namespace.as_deref(),
+        )
+        .await
+        .map_err(internal)?;
+        Ok(text_result(util::truncate_chars(&out, self.max_chars)))
+    }
+
+    #[tool(
+        description = "Read a Kubernetes pod's logs (last `tail` lines; optional container). \
+        Reads your kubeconfig; no kubectl."
+    )]
+    async fn k8s_logs(
+        &self,
+        Parameters(args): Parameters<K8sLogsArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let tail = clamp(args.tail, 200, 2000);
+        let out = k8s::logs(
+            &self.k8s_opts(),
+            &args.pod,
+            args.namespace.as_deref(),
+            args.container.as_deref(),
+            tail,
+        )
+        .await
+        .map_err(internal)?;
+        Ok(text_result(util::truncate_chars(&out, self.max_chars)))
+    }
+
+    #[tool(
+        description = "Apply a Kubernetes manifest ('kubefile') to the cluster via server-side \
+        apply. `manifest` is YAML (multi-document allowed). Creates or updates the objects. Reads \
+        your kubeconfig; no kubectl."
+    )]
+    async fn k8s_apply(
+        &self,
+        Parameters(args): Parameters<K8sApplyArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let out = k8s::apply(&self.k8s_opts(), &args.manifest)
+            .await
+            .map_err(internal)?;
+        Ok(text_result(out))
+    }
+
+    #[tool(
+        description = "Scale a Kubernetes workload (deployment/statefulset/replicaset) to a \
+        replica count. Reads your kubeconfig; no kubectl."
+    )]
+    async fn k8s_scale(
+        &self,
+        Parameters(args): Parameters<K8sScaleArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let out = k8s::scale(
+            &self.k8s_opts(),
+            &args.kind,
+            &args.name,
+            args.replicas,
+            args.namespace.as_deref(),
+        )
+        .await
+        .map_err(internal)?;
+        Ok(text_result(out))
+    }
+
+    #[tool(
+        description = "Delete a Kubernetes resource by kind + name. Destructive — only \
+        available when [kubernetes].allow_destructive is set. Reads your kubeconfig; no kubectl."
+    )]
+    async fn k8s_delete(
+        &self,
+        Parameters(args): Parameters<K8sDeleteArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let out = k8s::delete(
+            &self.k8s_opts(),
+            &args.kind,
+            &args.name,
+            args.namespace.as_deref(),
+        )
+        .await
+        .map_err(internal)?;
+        Ok(text_result(out))
+    }
+
     #[tool(
         description = "Translate text into another language with Google Translate (keyless, no API \
         key). `to` is an ISO-639 target code (es, fr, de, ja, zh-CN, …); `from` defaults to \
@@ -1571,6 +1780,9 @@ impl ServerHandler for Lodestone {
                 - docker_ps / docker_images / docker_logs / docker_inspect / docker_info / docker_pull / \
                 docker_run / docker_start (+ docker_stop / docker_remove when allowed): control the LOCAL \
                 Docker daemon (gated by [docker]).\n\
+                - k8s_contexts / k8s_get / k8s_describe / k8s_logs / k8s_apply / k8s_scale \
+                (+ k8s_delete when allowed): interact with a Kubernetes cluster via your kubeconfig \
+                (gated by [kubernetes]).\n\
                 - list_providers: show which sources are active.\n\
                 - hive_status: show the peer-to-peer hivemind graph (if enabled).\n\
                 Each configured provider also has a direct tool named <kind>_<id> \
@@ -2066,6 +2278,18 @@ const DOCKER_TOOLS: &[&str] = &[
 ];
 const DOCKER_DESTRUCTIVE: &[&str] = &["docker_stop", "docker_remove"];
 
+/// Kubernetes tools, and the destructive subset within them.
+const K8S_TOOLS: &[&str] = &[
+    "k8s_contexts",
+    "k8s_get",
+    "k8s_describe",
+    "k8s_logs",
+    "k8s_apply",
+    "k8s_scale",
+    "k8s_delete",
+];
+const K8S_DESTRUCTIVE: &[&str] = &["k8s_delete"];
+
 /// The effective tool denylist: the configured `[tools].disabled`, plus the
 /// local-system tools gated off by their family config (whole family when
 /// disabled, just the destructive ones when destructive isn't allowed).
@@ -2076,6 +2300,11 @@ fn effective_disabled(cfg: &Config) -> Vec<String> {
         deny(DOCKER_TOOLS);
     } else if !cfg.docker.allow_destructive {
         deny(DOCKER_DESTRUCTIVE);
+    }
+    if !cfg.kubernetes.enabled {
+        deny(K8S_TOOLS);
+    } else if !cfg.kubernetes.allow_destructive {
+        deny(K8S_DESTRUCTIVE);
     }
     disabled
 }
@@ -2345,6 +2574,7 @@ async fn main() -> anyhow::Result<()> {
         retrieval_cache,
         cfg.retrieval.default_chars,
         cfg.retrieval.max_chars,
+        cfg.kubernetes.clone(),
         &cfg.tools.enabled,
         &tools_disabled,
     );

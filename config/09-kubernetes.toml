@@ -1,0 +1,23 @@
+# =============================================================================
+# config/09-kubernetes.toml — Kubernetes cluster interaction
+# =============================================================================
+#
+# A CLUSTER-CONTROL capability, separate from the keyless web tools: lodestone
+# talks to the Kubernetes API server directly (kube-rs), reading your kubeconfig
+# (default location / $KUBECONFIG / a path below) or in-cluster credentials. No
+# `kubectl` binary is invoked.
+#
+# Every action is its own tool, for per-action permission granularity. Read +
+# safe-write tools (k8s_contexts, k8s_get, k8s_describe, k8s_logs, k8s_apply,
+# k8s_scale) are exposed when `enabled`. The DESTRUCTIVE tool (k8s_delete) is
+# hidden unless `allow_destructive` is also set.
+# Env: LODESTONE_KUBERNETES_ENABLED, LODESTONE_KUBERNETES_ALLOW_DESTRUCTIVE,
+#      LODESTONE_KUBECONFIG, LODESTONE_KUBE_CONTEXT, LODESTONE_KUBE_NAMESPACE
+# -----------------------------------------------------------------------------
+
+[kubernetes]
+enabled = true             # expose the Kubernetes tools
+allow_destructive = false  # also expose k8s_delete
+kubeconfig = ""            # path to a kubeconfig; empty = default / $KUBECONFIG / in-cluster
+context = ""               # kubeconfig context; empty = the file's current-context
+namespace = ""             # default namespace for tool calls; empty = "default"

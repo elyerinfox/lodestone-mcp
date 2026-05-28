@@ -69,12 +69,14 @@ likely involved). Checked items are done; unchecked are open.
   gated by `[docker]` (on by default; `allow_destructive` off by default hides
   `docker_stop`/`docker_remove`). Docs: `docs/containers.md`.
 
-- [ ] **Kubernetes cluster interaction.** Direct API (kube-rs; reads kubeconfig),
-  granular per-action tools gated by `[kubernetes]` (on by default; destructive
-  opt-in): contexts, get, describe, logs, apply (kubefiles), scale, delete.
-  - **Deferred within this:** `exec` (SPDY/ws), `rollout restart`, and Helm release
-    *mutation* (would reimplement Helm — out of scope for direct-API; Helm docs +
-    Artifact Hub search already cover discovery).
+- [x] **Kubernetes cluster interaction.** Done: `src/k8s.rs` — direct API (kube-rs;
+  reads kubeconfig / `$KUBECONFIG` / in-cluster), granular per-action tools gated by
+  `[kubernetes]` (on by default; destructive opt-in): `k8s_contexts`, `k8s_get`,
+  `k8s_describe`, `k8s_logs`, `k8s_apply` (kubefiles, server-side apply), `k8s_scale`,
+  `k8s_delete`. Kinds resolved via API discovery. Docs: `docs/containers.md`.
+  - **Deferred within this:** `k8s_exec` (SPDY/ws), `rollout restart`, and Helm
+    release *mutation* (would reimplement Helm — out of scope for direct-API; Helm
+    docs + Artifact Hub search already cover discovery).
 
 - [ ] **Docker daemon — more actions.** `docker_build` (tar a context), `docker_exec`,
   and image removal, as further gated tools.
