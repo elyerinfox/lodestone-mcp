@@ -34,3 +34,38 @@ jobs:
 
       - name: Test
         run: cargo test --verbose
+
+  # Build (and briefly run) the Docker image so image breakage is caught on PRs,
+  # not only at release-tag time. Only runs when the image inputs change.
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dorny/paths-filter@v3
+        id: changes
+        with:
+          filters: |
+            image:
+              - 'Dockerfile'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'src/**'
+
+      - name: Build image
+        if: steps.changes.outputs.image == 'true'
+        run: docker build -t lodestone-mcp:ci .
+
+      - name: Smoke-test /health
+        if: steps.changes.outputs.image == 'true'
+        run: |
+          docker run -d --name lodestone -p 8000:8000 lodestone-mcp:ci
+          ok=
+          for _ in $(seq 1 30); do
+            if curl -fsS http://localhost:8000/health; then ok=1; break; fi
+            sleep 1
+          done
+          echo
+          docker logs lodestone || true
+          docker rm -f lodestone >/dev/null 2>&1 || true
+          test "$ok" = "1"

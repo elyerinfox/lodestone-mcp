@@ -22,12 +22,10 @@ likely involved). Checked items are done; unchecked are open.
   replacement) and `Config` deserialization of a merged table with overlay
   precedence (plus serde-default fill-in).
 
-- [ ] **Build and smoke-test the Docker image in CI.**
-  - **Why:** The release workflow ships a Docker image that is never built on a
-    normal push, so breakage is only discovered at tag time.
-  - **How:** Add a CI job that runs `docker build .` (no push) on PRs touching
-    `Dockerfile`/`Cargo.*`/`src/**`; optionally start the container and hit
-    `/mcp` `initialize`.
+- [x] **Build and smoke-test the Docker image in CI.** Done: a `docker` job in
+  `.github/workflows/ci.yml` builds the image (no push) when
+  `Dockerfile`/`Cargo.*`/`src/**` change (gated via `dorny/paths-filter`), then
+  runs the container and polls `/health` to confirm it boots.
 
 ---
 
