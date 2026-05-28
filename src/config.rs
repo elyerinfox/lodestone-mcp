@@ -41,6 +41,24 @@ pub struct Search {
     /// Re-ranking method for "aggregate" results: "reciprocal" (default),
     /// "borda", "breadth" (consensus), or "interleave" (round-robin).
     pub ranking: String,
+    /// Per-request HTTP timeout in seconds, shared by every scraping/API call.
+    /// A slow source can't dominate latency past this.
+    pub timeout_secs: u64,
+    /// Optional per-kind overrides of `strategy`/`ranking`. Empty fields inherit
+    /// the global values above, so e.g. web/code can `aggregate` while qa stays
+    /// `fallback`.
+    pub web: KindSearch,
+    pub code: KindSearch,
+    pub qa: KindSearch,
+}
+
+/// Per-kind override of the search strategy/ranking. An empty string means
+/// "inherit the global `[search]` value".
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct KindSearch {
+    pub strategy: String,
+    pub ranking: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -130,6 +148,10 @@ impl Default for Search {
         Self {
             strategy: "fallback".to_string(),
             ranking: "reciprocal".to_string(),
+            timeout_secs: 25,
+            web: KindSearch::default(),
+            code: KindSearch::default(),
+            qa: KindSearch::default(),
         }
     }
 }
@@ -208,6 +230,11 @@ impl Config {
         }
         if let Ok(ranking) = std::env::var("LODESTONE_SEARCH_RANKING") {
             self.search.ranking = ranking;
+        }
+        if let Ok(secs) = std::env::var("LODESTONE_SEARCH_TIMEOUT_SECS") {
+            if let Ok(n) = secs.trim().parse::<u64>() {
+                self.search.timeout_secs = n;
+            }
         }
         if let Some(sites) = env_list("LODESTONE_CODE_SITES") {
             self.code.sites = sites;
@@ -320,5 +347,88 @@ fn env_list(key: &str) -> Option<Vec<String>> {
         None
     } else {
         Some(list)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn table(s: &str) -> toml::Table {
+        toml::from_str(s).unwrap()
+    }
+
+    #[test]
+    fn merge_overrides_scalars_merges_tables_replaces_arrays() {
+        let mut base = table(
+            r#"
+            bind = "127.0.0.1:8000"
+            [search]
+            strategy = "fallback"
+            ranking = "reciprocal"
+            [providers]
+            web = ["duckduckgo"]
+        "#,
+        );
+        let overlay = table(
+            r#"
+            [search]
+            strategy = "aggregate"
+            [providers]
+            web = ["mojeek", "duckduckgo"]
+        "#,
+        );
+        merge_tables(&mut base, overlay);
+
+        // Nested table merged key-by-key: strategy overridden, ranking preserved.
+        let search = base["search"].as_table().unwrap();
+        assert_eq!(search["strategy"].as_str().unwrap(), "aggregate");
+        assert_eq!(search["ranking"].as_str().unwrap(), "reciprocal");
+        // Arrays are replaced wholesale, never concatenated.
+        let web = base["providers"].as_table().unwrap()["web"]
+            .as_array()
+            .unwrap();
+        assert_eq!(web.len(), 2);
+        // Untouched top-level scalar is kept.
+        assert_eq!(base["bind"].as_str().unwrap(), "127.0.0.1:8000");
+    }
+
+    #[test]
+    fn merged_table_deserializes_with_overlay_precedence() {
+        let mut base = table(
+            r#"
+            [search]
+            strategy = "fallback"
+            timeout_secs = 25
+            [search.qa]
+            strategy = "fallback"
+        "#,
+        );
+        let overlay = table(
+            r#"
+            [search]
+            strategy = "aggregate"
+            timeout_secs = 8
+        "#,
+        );
+        merge_tables(&mut base, overlay);
+
+        let cfg: Config = toml::Value::Table(base).try_into().unwrap();
+        assert_eq!(cfg.search.strategy, "aggregate"); // overlay wins
+        assert_eq!(cfg.search.timeout_secs, 8);
+        assert_eq!(cfg.search.qa.strategy, "fallback"); // per-kind override survives
+        assert!(cfg.search.web.strategy.is_empty()); // unset → inherits at runtime
+    }
+
+    #[test]
+    fn partial_table_fills_defaults() {
+        // A near-empty config still yields a usable Config via serde defaults.
+        let cfg: Config = toml::Value::Table(table("bind = \"0.0.0.0:9000\""))
+            .try_into()
+            .unwrap();
+        assert_eq!(cfg.bind, "0.0.0.0:9000");
+        assert_eq!(cfg.search.timeout_secs, 25);
+        assert_eq!(cfg.search.strategy, "fallback");
+        assert!(!cfg.providers.web.is_empty());
     }
 }

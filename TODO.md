@@ -16,15 +16,15 @@ likely involved). Checked items are done; unchecked are open.
     lite HTML, Mojeek results HTML, grep.app JSON, StackExchange search JSON,
     Medium tag RSS, StackOverflow `/search` HTML, GitHub code-search JSON). Add
     `#[cfg(test)]` unit tests in each provider that call the pure `parse(...)`
-    function on a fixture and assert the extracted fields. Add tests for the
-    forge blob-URL parsers in `src/providers/forge/*` and for `forge::repo_path`.
+    function on a fixture and assert the extracted fields.
+  - **Partly done:** the forge blob-URL parsers and `forge::repo_path` now have
+    tests in `src/providers/forge/mod.rs`. Remaining: the HTML/JSON response
+    fixtures for the engine/grep_app/stackexchange/medium/github parsers.
 
-- [ ] **Config-merge unit tests.**
-  - **Why:** Layered loading (`config/**.toml` deep-merge + `lodestone.toml` +
-    env) is load-bearing; a regression silently changes which providers run.
-  - **How:** Test `merge_tables` (nested override semantics) and `Config`
-    deserialization of a merged table in `src/config.rs`; assert precedence
-    (dir < single file < env).
+- [x] **Config-merge unit tests.** Done: `src/config.rs` tests cover
+  `merge_tables` (nested key-by-key merge, scalar override, wholesale array
+  replacement) and `Config` deserialization of a merged table with overlay
+  precedence (plus serde-default fill-in).
 
 - [ ] **Build and smoke-test the Docker image in CI.**
   - **Why:** The release workflow ships a Docker image that is never built on a
@@ -37,14 +37,10 @@ likely involved). Checked items are done; unchecked are open.
 
 ## Configuration
 
-- [ ] **Per-kind search strategy.**
-  - **Why:** `[search].strategy` is global, but the right choice differs by kind:
-    aggregate is good for web/code coverage, while for Q&A it forces every Q&A
-    provider (e.g. the API) to run even when a scrape would do. A global setting
-    can't express "aggregate web/code, fallback qa".
-  - **How:** Allow `[search] strategy = "..."` plus optional overrides
-    `[search.web]/[search.code]/[search.qa] strategy = "..."`. Thread the
-    resolved strategy per kind into `Registry::search` in `src/provider.rs`.
+- [x] **Per-kind search strategy.** Done: `[search.web]/[search.code]/[search.qa]`
+  override `strategy`/`ranking` (empty field = inherit the global `[search]`),
+  resolved into a per-kind `KindPlan` threaded through `Registry::search`/
+  `describe` in `src/provider.rs`.
 
 - [ ] **Configurable self-hosted forge instances.**
   - **Why:** The `gitlab`/`codeberg`/`gitea` providers hardcode public domains;
@@ -66,11 +62,10 @@ likely involved). Checked items are done; unchecked are open.
   - **How:** New `web`/`code` provider hitting `{instance}/search?format=json`;
     config `[searxng].url`. Parse the JSON `results` array into `SearchResult`.
 
-- [ ] **Provider-level timeouts and limited retries.**
-  - **Why:** A single slow source shouldn't dominate latency; transient failures
-    (esp. DuckDuckGo) deserve one short retry.
-  - **How:** Per-request timeout override and a single backoff retry in the
-    engine `fetch`/`search_raw` and forge `search` paths.
+- [x] **Provider-level timeouts and limited retries.** Done: configurable
+  `[search].timeout_secs` (`LODESTONE_SEARCH_TIMEOUT_SECS`) on the shared HTTP
+  client, plus a single short-backoff retry in engine `search_raw` — which the
+  forge `search` path inherits via its DuckDuckGo/Mojeek calls.
 
 ---
 

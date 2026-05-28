@@ -171,6 +171,11 @@ disabled = []  # applied after `enabled`
 
 [search]
 strategy = "fallback"   # or "aggregate" (merge/re-rank across providers)
+ranking  = "reciprocal"  # aggregate re-ranking; see below
+timeout_secs = 25        # per-request HTTP timeout (one short retry on failure)
+# Optional per-kind overrides (empty = inherit the global values above):
+# [search.web]  → strategy = "aggregate"
+# [search.qa]   → strategy = "fallback"
 
 [providers]
 web  = ["duckduckgo", "mojeek"]
@@ -193,6 +198,7 @@ token = ""               # enables the authenticated `github` code provider
 ```
 
 Env overrides include `LODESTONE_BIND`, `LODESTONE_SEARCH_STRATEGY`,
+`LODESTONE_SEARCH_RANKING`, `LODESTONE_SEARCH_TIMEOUT_SECS`,
 `LODESTONE_WEB_PROVIDERS`, `LODESTONE_CODE_PROVIDERS`, `LODESTONE_QA_PROVIDERS`,
 `LODESTONE_CODE_SITES`, `LODESTONE_STACKEXCHANGE_SITE`,
 `LODESTONE_STACKEXCHANGE_KEY`, `LODESTONE_STACKEXCHANGE_ALLOWED_SITES`,
@@ -231,6 +237,13 @@ The aggregate re-ranking is configurable via `[search].ranking`
   position breaks ties); resists single-engine noise.
 - **interleave** — round-robin: each engine's 1st, then 2nd, …; maximizes
   source diversity.
+
+Strategy and ranking can be set **per kind** with `[search.web]` /
+`[search.code]` / `[search.qa]` (empty fields inherit the global `[search]`
+values) — e.g. aggregate web/code for coverage while keeping qa on fallback so
+the StackExchange API isn't hit on every query. Every request also has a shared
+`[search].timeout_secs` cap and a single short-backoff retry on transient
+failures.
 
 ### Providers
 

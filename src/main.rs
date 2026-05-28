@@ -194,12 +194,13 @@ impl Lodestone {
         default_se_site: String,
         se_key: String,
         se_allowed: Vec<String>,
+        timeout_secs: u64,
         tools_enabled: &[String],
         tools_disabled: &[String],
     ) -> Self {
         let http = reqwest::Client::builder()
             .user_agent(USER_AGENT)
-            .timeout(Duration::from_secs(25))
+            .timeout(Duration::from_secs(timeout_secs.max(1)))
             .build()
             .expect("failed to build HTTP client");
         let tool_router = build_tool_router(&registry, tools_enabled, tools_disabled);
@@ -750,6 +751,7 @@ async fn main() -> anyhow::Result<()> {
         cfg.stackexchange.default_site.clone(),
         cfg.stackexchange.key.clone(),
         cfg.stackexchange.allowed_sites.clone(),
+        cfg.search.timeout_secs,
         &cfg.tools.enabled,
         &cfg.tools.disabled,
     );

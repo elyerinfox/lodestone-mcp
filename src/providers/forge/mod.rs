@@ -112,3 +112,43 @@ impl SearchProvider for ForgeCodeProvider {
         search(self.spec, http, query).await
     }
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn gitlab_blob_url_parses_repo_and_path() {
+        let (repo, path) = (super::gitlab::SPEC.repo_path)(
+            "https://gitlab.com/group/sub/proj/-/blob/main/src/lib.rs",
+        )
+        .unwrap();
+        assert_eq!(repo, "group/sub/proj");
+        assert_eq!(path, "src/lib.rs");
+    }
+
+    #[test]
+    fn gitea_and_codeberg_src_urls_parse() {
+        let (repo, path) = (super::gitea::SPEC.repo_path)(
+            "https://gitea.com/owner/repo/src/branch/main/cmd/main.go",
+        )
+        .unwrap();
+        assert_eq!(repo, "owner/repo");
+        assert_eq!(path, "cmd/main.go");
+
+        let (repo, path) = (super::codeberg::SPEC.repo_path)(
+            "https://codeberg.org/owner/repo/src/commit/abc123/a/b.py",
+        )
+        .unwrap();
+        assert_eq!(repo, "owner/repo");
+        assert_eq!(path, "a/b.py");
+    }
+
+    #[test]
+    fn repo_path_recognizes_github_and_rejects_unknown() {
+        let (repo, path) =
+            super::repo_path("https://github.com/rust-lang/rust/blob/master/README.md").unwrap();
+        assert_eq!(repo, "rust-lang/rust");
+        assert_eq!(path, "README.md");
+
+        assert!(super::repo_path("https://example.com/not/a/forge/page").is_none());
+    }
+}

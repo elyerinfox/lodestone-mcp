@@ -20,6 +20,23 @@ strategy = "fallback"
 # Env: LODESTONE_SEARCH_RANKING
 ranking = "reciprocal"
 
+# Per-request HTTP timeout (seconds) shared by every scraping/API call, so one
+# slow source can't dominate latency. Each engine/forge request also gets a
+# single short-backoff retry on a transient failure.
+# Env: LODESTONE_SEARCH_TIMEOUT_SECS
+timeout_secs = 25
+
+# Optional PER-KIND overrides of strategy/ranking. Empty/unset fields inherit the
+# global values above. Lets you e.g. aggregate web+code for coverage while keeping
+# qa on fallback (so the StackExchange API isn't always hit). Uncomment to use:
+#   [search.web]
+#   strategy = "aggregate"
+#   ranking  = "breadth"
+#   [search.code]
+#   strategy = "aggregate"
+#   [search.qa]
+#   strategy = "fallback"
+
 [providers]
 # Ordered lists per kind. See config/providers/<id>.toml for each provider.
 #   web ids:  duckduckgo, mojeek, medium, google

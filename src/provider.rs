@@ -149,26 +149,51 @@ pub trait SearchProvider: Send + Sync {
     async fn search(&self, http: &Client, query: &SearchQuery) -> Result<Vec<SearchResult>>;
 }
 
+/// The resolved strategy + ranking for one kind (after applying any per-kind
+/// override on top of the global `[search]` settings).
+#[derive(Clone, Copy)]
+struct KindPlan {
+    strategy: Strategy,
+    ranking: Ranking,
+}
+
 /// Holds the configured, ordered providers for each kind and combines them
-/// according to the configured [`Strategy`].
+/// according to the resolved per-kind [`KindPlan`].
 pub struct Registry {
     web: Vec<Arc<dyn SearchProvider>>,
     code: Vec<Arc<dyn SearchProvider>>,
     qa: Vec<Arc<dyn SearchProvider>>,
-    strategy: Strategy,
-    ranking: Ranking,
+    plan_web: KindPlan,
+    plan_code: KindPlan,
+    plan_qa: KindPlan,
 }
 
 impl Registry {
     /// Build the registry from configuration. Unknown provider ids are skipped
     /// with a warning so a typo never takes the whole server down.
     pub fn from_config(cfg: &Config) -> Self {
+        let global_strategy = Strategy::parse(&cfg.search.strategy);
+        let global_ranking = Ranking::parse(&cfg.search.ranking);
+        // Empty override field → inherit the global value.
+        let plan = |k: &crate::config::KindSearch| KindPlan {
+            strategy: if k.strategy.trim().is_empty() {
+                global_strategy
+            } else {
+                Strategy::parse(&k.strategy)
+            },
+            ranking: if k.ranking.trim().is_empty() {
+                global_ranking
+            } else {
+                Ranking::parse(&k.ranking)
+            },
+        };
         Self {
             web: build(ProviderKind::Web, &cfg.providers.web, cfg),
             code: build(ProviderKind::Code, &cfg.providers.code, cfg),
             qa: build(ProviderKind::Qa, &cfg.providers.qa, cfg),
-            strategy: Strategy::parse(&cfg.search.strategy),
-            ranking: Ranking::parse(&cfg.search.ranking),
+            plan_web: plan(&cfg.search.web),
+            plan_code: plan(&cfg.search.code),
+            plan_qa: plan(&cfg.search.qa),
         }
     }
 
@@ -177,6 +202,14 @@ impl Registry {
             ProviderKind::Web => &self.web,
             ProviderKind::Code => &self.code,
             ProviderKind::Qa => &self.qa,
+        }
+    }
+
+    fn plan(&self, kind: ProviderKind) -> KindPlan {
+        match kind {
+            ProviderKind::Web => self.plan_web,
+            ProviderKind::Code => self.plan_code,
+            ProviderKind::Qa => self.plan_qa,
         }
     }
 
@@ -218,7 +251,7 @@ impl Registry {
         http: &Client,
         query: &SearchQuery,
     ) -> (Vec<SearchResult>, String) {
-        match self.strategy {
+        match self.plan(kind).strategy {
             Strategy::Fallback => self.search_fallback(kind, http, query).await,
             Strategy::Aggregate => self.search_aggregate(kind, http, query).await,
         }
@@ -292,35 +325,39 @@ impl Registry {
         } else {
             format!("aggregate ({})", engines.join("+"))
         };
-        (merge(per_engine, query.limit, self.ranking), label)
+        (
+            merge(per_engine, query.limit, self.plan(kind).ranking),
+            label,
+        )
     }
 
-    /// Human-readable summary of the active providers and strategy.
+    /// Human-readable summary of the active providers and each kind's strategy.
     pub fn describe(&self) -> String {
         let line = |kind: ProviderKind| {
+            let plan = self.plan(kind);
             let ids: Vec<&str> = self.chain(kind).iter().map(|p| p.id()).collect();
             let value = if ids.is_empty() {
                 "(none configured)".to_string()
             } else {
-                let sep = match self.strategy {
+                let sep = match plan.strategy {
                     Strategy::Fallback => " → ",
                     Strategy::Aggregate => " + ",
                 };
                 ids.join(sep)
             };
-            format!("{:>4}: {value}", kind.as_str())
-        };
-        let strategy = if self.strategy == Strategy::Aggregate {
-            format!(
-                "{}, ranking: {}",
-                self.strategy.as_str(),
-                self.ranking.as_str()
-            )
-        } else {
-            self.strategy.as_str().to_string()
+            let how = if plan.strategy == Strategy::Aggregate {
+                format!(
+                    "{}, ranking: {}",
+                    plan.strategy.as_str(),
+                    plan.ranking.as_str()
+                )
+            } else {
+                plan.strategy.as_str().to_string()
+            };
+            format!("{:>4}: {value}  [{how}]", kind.as_str())
         };
         format!(
-            "Active providers (strategy: {strategy}):\n{}\n{}\n{}",
+            "Active providers:\n{}\n{}\n{}",
             line(ProviderKind::Web),
             line(ProviderKind::Code),
             line(ProviderKind::Qa),

@@ -123,6 +123,8 @@ impl SearchProvider for HtmlEngineProvider {
 }
 
 /// Fetch + parse for an already-built query string (no kind-specific scoping).
+/// One short backoff retry guards against transient timeouts / IP throttling,
+/// which engines like DuckDuckGo do frequently under load.
 async fn search_raw(
     spec: &EngineSpec,
     http: &Client,
@@ -130,7 +132,14 @@ async fn search_raw(
     render: bool,
     limit: usize,
 ) -> Result<Vec<SearchResult>> {
-    let body = fetch(spec, http, query, render).await?;
+    let body = match fetch(spec, http, query, render).await {
+        Ok(body) => body,
+        Err(first) => {
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+            // Keep the original error if the retry also fails.
+            fetch(spec, http, query, render).await.map_err(|_| first)?
+        }
+    };
     Ok(parse(spec, &body, limit))
 }
 
