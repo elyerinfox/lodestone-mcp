@@ -86,7 +86,8 @@ pub trait SearchProvider: Send + Sync {
 - Return **`Err`** for transport/parse failures (logged as a warning, skipped).
 - The `Registry` runs providers per `ProviderKind` using the configured
   `Strategy`: `Fallback` (first non-empty wins) or `Aggregate` (run all, dedupe
-  by URL, re-rank, annotate engines).
+  by URL, re-rank, annotate engines). The re-ranking methods (default
+  `composite`) are documented in [docs/ranking.md](docs/ranking.md).
 
 ### Rendering is shared and model-controlled
 

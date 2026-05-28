@@ -281,6 +281,8 @@ The aggregate re-ranking is configurable via `[search].ranking`
 - **interleave** — round-robin: each engine's 1st, then 2nd, …; maximizes
   source diversity.
 
+Full reference (formulas, signals, tuning): [docs/ranking.md](docs/ranking.md).
+
 Strategy and ranking can be set **per kind** with `[search.web]` /
 `[search.code]` / `[search.qa]` (empty fields inherit the global `[search]`
 values) — e.g. aggregate web/code for coverage while keeping qa on fallback so

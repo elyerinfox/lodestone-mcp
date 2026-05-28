@@ -3,7 +3,8 @@
 # =============================================================================
 #
 # This file decides WHICH providers run and in WHAT order. Each provider's own
-# settings live in its file under config/providers/.
+# settings live in its file under config/providers/. For how results are scored
+# and merged (the composite ranker, signals, tuning), see ../docs/ranking.md.
 # -----------------------------------------------------------------------------
 
 [search]
