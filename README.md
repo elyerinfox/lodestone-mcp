@@ -258,6 +258,10 @@ and the web archive to stay useful despite this.
 
 ---
 
+## Roadmap
+
+Planned work and known gaps are tracked in [TODO.md](TODO.md).
+
 ## License
 
 MIT.

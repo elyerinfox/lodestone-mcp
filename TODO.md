@@ -1,0 +1,142 @@
+# Roadmap / TODO
+
+Outstanding work and planned improvements for lodestone-mcp. Each item states
+**what** to do, **why** it matters, and **how** to approach it (with the files
+likely involved). Checked items are done; unchecked are open.
+
+---
+
+## Testing & CI
+
+- [ ] **Fixture-based parser tests.**
+  - **Why:** Every provider parses scraped HTML/JSON whose markup changes without
+    warning; today a broken selector fails silently at runtime with zero results.
+    Tests pin parsing behavior and catch breakage in CI without hitting the network.
+  - **How:** Save representative responses under `tests/fixtures/` (DuckDuckGo
+    lite HTML, Mojeek results HTML, grep.app JSON, StackExchange search JSON,
+    Medium tag RSS, StackOverflow `/search` HTML, GitHub code-search JSON). Add
+    `#[cfg(test)]` unit tests in each provider that call the pure `parse(...)`
+    function on a fixture and assert the extracted fields. Add tests for the
+    forge blob-URL parsers in `src/providers/forge/*` and for `forge::repo_path`.
+
+- [ ] **Config-merge unit tests.**
+  - **Why:** Layered loading (`config/**.toml` deep-merge + `lodestone.toml` +
+    env) is load-bearing; a regression silently changes which providers run.
+  - **How:** Test `merge_tables` (nested override semantics) and `Config`
+    deserialization of a merged table in `src/config.rs`; assert precedence
+    (dir < single file < env).
+
+- [ ] **Build and smoke-test the Docker image in CI.**
+  - **Why:** The release workflow ships a Docker image that is never built on a
+    normal push, so breakage is only discovered at tag time.
+  - **How:** Add a CI job that runs `docker build .` (no push) on PRs touching
+    `Dockerfile`/`Cargo.*`/`src/**`; optionally start the container and hit
+    `/mcp` `initialize`.
+
+---
+
+## Configuration
+
+- [ ] **Per-kind search strategy.**
+  - **Why:** `[search].strategy` is global, but the right choice differs by kind:
+    aggregate is good for web/code coverage, while for Q&A it forces every Q&A
+    provider (e.g. the API) to run even when a scrape would do. A global setting
+    can't express "aggregate web/code, fallback qa".
+  - **How:** Allow `[search] strategy = "..."` plus optional overrides
+    `[search.web]/[search.code]/[search.qa] strategy = "..."`. Thread the
+    resolved strategy per kind into `Registry::search` in `src/provider.rs`.
+
+- [ ] **Configurable self-hosted forge instances.**
+  - **Why:** The `gitlab`/`codeberg`/`gitea` providers hardcode public domains;
+    teams run private GitLab/Gitea hosts.
+  - **How:** Let a forge id map to a configured domain, e.g.
+    `[forges.myhost] kind = "gitea", domain = "git.example.com"`, and build a
+    `ForgeCodeProvider` from it (the abstraction already takes a `ForgeSpec` with
+    a domain + URL parser; Gitea/GitLab parsers are layout-based, not
+    host-specific).
+
+---
+
+## Providers
+
+- [ ] **SearXNG provider.**
+  - **Why:** A user-hosted SearXNG instance gives high-quality, keyless,
+    multi-engine results far beyond DuckDuckGo+Mojeek — the strongest keyless
+    web/code option for users willing to run one.
+  - **How:** New `web`/`code` provider hitting `{instance}/search?format=json`;
+    config `[searxng].url`. Parse the JSON `results` array into `SearchResult`.
+
+- [ ] **Provider-level timeouts and limited retries.**
+  - **Why:** A single slow source shouldn't dominate latency; transient failures
+    (esp. DuckDuckGo) deserve one short retry.
+  - **How:** Per-request timeout override and a single backoff retry in the
+    shared `fetch_html_render` / engine `search_raw` paths.
+
+---
+
+## Retrieval
+
+- [ ] **Multi-forge raw file fetch.**
+  - **Why:** `github_fetch_file` only resolves GitHub raw URLs; code search now
+    spans GitLab/Gitea, so reading a result file should work for those too.
+  - **How:** Generalize `retrieve::resolve_raw_github` into a forge-aware
+    resolver (GitLab `/-/raw/`, Gitea `/raw/branch/…`); keep the GitHub path.
+
+- [ ] **StackExchange answers via render.**
+  - **Why:** `stackexchange_answers` always uses the API (quota); for parity with
+    `stackexchange_search`, allow `render=true` to scrape the question page.
+  - **How:** Add a `render` arg to the tool and a scrape path in
+    `src/providers/stackexchange.rs` / `src/retrieve.rs` reusing the shared
+    renderer.
+
+---
+
+## Performance & resilience
+
+- [ ] **Short-lived result cache.**
+  - **Why:** Repeated identical searches/fetches re-hit rate-limited engines.
+  - **How:** In-memory TTL cache keyed by (tool, normalized args); wrap engine
+    calls and `fetch_readable`.
+
+- [ ] **Headless-browser page pool.**
+  - **Why:** The shared `ChromiumRenderer` serializes all renders behind one
+    mutex; concurrent render-heavy use is bottlenecked.
+  - **How:** Maintain a small pool of pages/contexts in `src/browser.rs`,
+    bounded by config.
+
+- [ ] **Aggregate request economy.**
+  - **Why:** In `aggregate` mode each forge provider issues its own DuckDuckGo
+    query, multiplying requests and tripping rate limits.
+  - **How:** Cap concurrency, and/or coalesce site-scoped queries across forges
+    into one engine call then split by domain.
+
+- [ ] **DuckDuckGo endpoint rotation/backoff.**
+  - **Why:** DuckDuckGo blocks aggressively by IP; a single endpoint with no
+    backoff yields empty results under load.
+  - **How:** Rotate `lite`/`html` endpoints and apply backoff in
+    `src/providers/duckduckgo.rs`.
+
+---
+
+## Security & ops
+
+- [ ] **Optional bearer-token auth for the MCP endpoint.**
+  - **Why:** Binding to `0.0.0.0` (containers/LAN) currently exposes the server
+    unauthenticated.
+  - **How:** `[server].auth_token` (or env); an Axum middleware that checks
+    `Authorization: Bearer …` on `/mcp` in `src/main.rs`.
+
+- [ ] **`/health` endpoint.**
+  - **Why:** Container/orchestrator liveness and readiness probes.
+  - **How:** Add a plain Axum route returning 200 alongside the `/mcp` service.
+
+---
+
+## Docs & release
+
+- [ ] **CHANGELOG.md and a tagged release.**
+  - **Why:** Users need to know what changed between versions; the release
+    workflow already triggers on `v*` tags but none exist yet.
+  - **How:** Start `CHANGELOG.md` (Keep a Changelog format); cut `v0.1.0`
+    (`git tag v0.1.0 && git push origin v0.1.0`) to exercise the binary +
+    Docker release pipeline.
