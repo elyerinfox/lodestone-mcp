@@ -76,11 +76,10 @@ likely involved). Checked items are done; unchecked are open.
 
 ## Retrieval
 
-- [ ] **Multi-forge raw file fetch.**
-  - **Why:** `github_fetch_file` only resolves GitHub raw URLs; code search now
-    spans GitLab/Gitea, so reading a result file should work for those too.
-  - **How:** Generalize `retrieve::resolve_raw_github` into a forge-aware
-    resolver (GitLab `/-/raw/`, Gitea `/raw/branch/…`); keep the GitHub path.
+- [x] **Multi-forge raw file fetch.** Done: `retrieve::resolve_raw_file` resolves
+  GitHub (`/blob/`), GitLab (`/-/blob/` → `/-/raw/`), and Gitea/Codeberg
+  (`/src/branch|commit|tag/` → `/raw/…`) URLs (and the GitHub `owner/repo/path`
+  shorthand); the tool is now `fetch_repo_file`.
 
 - [ ] **StackExchange answers via render.**
   - **Why:** `stackexchange_answers` always uses the API (quota); for parity with
@@ -142,9 +141,8 @@ likely involved). Checked items are done; unchecked are open.
   - **How:** `[server].auth_token` (or env); an Axum middleware that checks
     `Authorization: Bearer …` on `/mcp` in `src/main.rs`.
 
-- [ ] **`/health` endpoint.**
-  - **Why:** Container/orchestrator liveness and readiness probes.
-  - **How:** Add a plain Axum route returning 200 alongside the `/mcp` service.
+- [x] **`/health` endpoint.** Done: a plain Axum `GET /health` returning `ok`
+  alongside the `/mcp` service, for container/orchestrator liveness probes.
 
 ---
 

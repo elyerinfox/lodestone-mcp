@@ -12,12 +12,17 @@ use reqwest::Client;
 use crate::util::{html_to_text, truncate_chars};
 
 // ---------------------------------------------------------------------------
-// GitHub raw file fetch (raw.githubusercontent.com — no token)
+// Raw file fetch across forges (no token):
+//   GitHub : github.com/.../blob/<ref>/<path>  → raw.githubusercontent.com/.../<ref>/<path>
+//   GitLab : <host>/.../-/blob/<ref>/<path>     → <host>/.../-/raw/<ref>/<path>
+//   Gitea  : <host>/o/r/src/branch/<ref>/<path> → <host>/o/r/raw/branch/<ref>/<path>
 // ---------------------------------------------------------------------------
 
 static GH_BLOB_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^https?://github\.com/([^/]+)/([^/]+)/(?:blob|raw)/([^/]+)/(.+)$").unwrap()
 });
+static GITEA_SRC_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"/src/(branch|commit|tag)/").unwrap());
 static SHORTHAND_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^([^/\s]+)/([^/\s]+)/(.+)$").unwrap());
 static LINE_FRAG_RE: LazyLock<Regex> =
@@ -29,30 +34,48 @@ pub struct RawTarget {
     pub line_range: Option<(usize, usize)>,
 }
 
-pub fn resolve_raw_github(input: &str) -> Result<RawTarget> {
+/// Resolve a GitHub/GitLab/Gitea blob (or raw) URL — or a GitHub
+/// `owner/repo/path` shorthand — into raw download target(s).
+pub fn resolve_raw_file(input: &str) -> Result<RawTarget> {
     let input = input.trim();
     let (base, line_range) = split_line_fragment(input);
+    let single = |url: String| {
+        Ok(RawTarget {
+            candidates: vec![url],
+            line_range,
+        })
+    };
 
+    // Already-raw passthroughs (GitHub raw host, GitLab `/-/raw/`, Gitea `/raw/<ref-kind>/`).
     if base.starts_with("https://raw.githubusercontent.com/")
         || base.starts_with("http://raw.githubusercontent.com/")
+        || base.contains("/-/raw/")
+        || base.contains("/raw/branch/")
+        || base.contains("/raw/commit/")
+        || base.contains("/raw/tag/")
     {
-        return Ok(RawTarget {
-            candidates: vec![base.to_string()],
-            line_range,
-        });
+        return single(base.to_string());
     }
 
+    // GitHub blob/raw → raw.githubusercontent.com.
     if let Some(c) = GH_BLOB_RE.captures(base) {
-        let raw = format!(
+        return single(format!(
             "https://raw.githubusercontent.com/{}/{}/{}/{}",
             &c[1], &c[2], &c[3], &c[4]
-        );
-        return Ok(RawTarget {
-            candidates: vec![raw],
-            line_range,
-        });
+        ));
     }
 
+    // GitLab blob → raw (same host).
+    if base.contains("/-/blob/") {
+        return single(base.replacen("/-/blob/", "/-/raw/", 1));
+    }
+
+    // Gitea/Codeberg blob (`/src/branch|commit|tag/`) → raw (same host).
+    if GITEA_SRC_RE.is_match(base) {
+        return single(GITEA_SRC_RE.replace(base, "/raw/$1/").into_owned());
+    }
+
+    // `owner/repo/path` shorthand → GitHub (try the common default branches).
     if !base.contains("://") {
         if let Some(c) = SHORTHAND_RE.captures(base) {
             let (owner, repo, path) = (&c[1], &c[2], &c[3]);
@@ -68,7 +91,7 @@ pub fn resolve_raw_github(input: &str) -> Result<RawTarget> {
     }
 
     Err(anyhow!(
-        "could not parse '{input}' as a GitHub file URL or an 'owner/repo/path' reference"
+        "could not parse '{input}' as a GitHub/GitLab/Gitea file URL or an 'owner/repo/path' reference"
     ))
 }
 

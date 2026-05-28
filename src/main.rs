@@ -103,10 +103,10 @@ struct WaybackFetchArgs {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
-struct GithubFetchArgs {
-    /// A github.com blob/raw URL, a raw.githubusercontent.com URL, or an
-    /// `owner/repo/path/to/file` shorthand. A trailing `#L10-L40` line range is
-    /// honored if present.
+struct FetchFileArgs {
+    /// A repo file URL — GitHub (`/blob/`), GitLab (`/-/blob/`), or Gitea/
+    /// Codeberg (`/src/branch/`) — a raw URL, or a GitHub `owner/repo/path/to/file`
+    /// shorthand. A trailing `#L10-L40` line range is honored if present.
     target: String,
     /// First line to return (1-based, inclusive). Optional.
     #[serde(default)]
@@ -221,7 +221,7 @@ impl Lodestone {
     #[tool(
         description = "Search source code across public repositories (via the configured code \
         providers, e.g. grep.app then a GitHub-scoped web search). Returns repo, file path and a \
-        snippet. Use `github_fetch_file` on a result URL to read the full file. Set render=true to \
+        snippet. Use `fetch_repo_file` on a result URL to read the full file. Set render=true to \
         fetch via a real headless browser (slower, but can bypass rate-limits/bot-walls)."
     )]
     async fn code_search(
@@ -303,14 +303,16 @@ impl Lodestone {
         )))
     }
 
-    #[tool(description = "Retrieve the full contents of a file from GitHub via \
-        raw.githubusercontent.com (no token). Accepts a github.com blob URL, a raw URL, or an \
-        `owner/repo/path` shorthand. Optionally restrict to a line range.")]
-    async fn github_fetch_file(
+    #[tool(
+        description = "Retrieve the full contents of a repository file (no token) from GitHub, \
+        GitLab, or Gitea/Codeberg. Accepts a blob URL, a raw URL, or a GitHub `owner/repo/path` \
+        shorthand. Optionally restrict to a line range."
+    )]
+    async fn fetch_repo_file(
         &self,
-        Parameters(args): Parameters<GithubFetchArgs>,
+        Parameters(args): Parameters<FetchFileArgs>,
     ) -> Result<CallToolResult, McpError> {
-        let target = retrieve::resolve_raw_github(&args.target).map_err(invalid)?;
+        let target = retrieve::resolve_raw_file(&args.target).map_err(invalid)?;
 
         let mut last_status = None;
         let mut fetched: Option<(String, String)> = None; // (url, body)
@@ -482,7 +484,7 @@ impl ServerHandler for Lodestone {
                 code and documentation.\n\nTools:\n\
                 - web_search: general web search.\n\
                 - code_search: search source code in public repositories.\n\
-                - github_fetch_file: download a full file from GitHub by URL or owner/repo/path.\n\
+                - fetch_repo_file: download a full file from GitHub/GitLab/Gitea by URL or owner/repo/path.\n\
                 - fetch_page: get readable text of any URL over plain HTTP.\n\
                 - render_page: get readable text of a URL via a headless browser (JS).\n\
                 - wayback_fetch: read a page's archived snapshot from the Wayback Machine.\n\
@@ -490,7 +492,7 @@ impl ServerHandler for Lodestone {
                 - stackexchange_answers: read a question's top answers (with code).\n\
                 - list_providers: show which sources are active.\n\n\
                 Typical flow: search (web_search/code_search/stackexchange_search) → then retrieve \
-                (github_fetch_file / fetch_page / stackexchange_answers) on the most relevant hit."
+                (fetch_repo_file / fetch_page / render_page / stackexchange_answers) on the best hit."
                     .to_string(),
             )
     }
@@ -667,7 +669,9 @@ async fn main() -> anyhow::Result<()> {
         StreamableHttpServerConfig::default().with_cancellation_token(ct.child_token()),
     );
 
-    let app = axum::Router::new().nest_service("/mcp", service);
+    let app = axum::Router::new()
+        .route("/health", axum::routing::get(|| async { "ok" }))
+        .nest_service("/mcp", service);
     let listener = tokio::net::TcpListener::bind(&cfg.bind).await?;
     tracing::info!("lodestone-mcp listening on http://{}/mcp", cfg.bind);
 

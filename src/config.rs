@@ -24,7 +24,7 @@ pub struct Config {
 #[serde(default)]
 pub struct Tools {
     /// Allowlist of tools (skills) to expose. Empty = expose all. Names:
-    /// web_search, code_search, fetch_page, github_fetch_file,
+    /// web_search, code_search, fetch_page, render_page, fetch_repo_file,
     /// stackexchange_search, stackexchange_answers, wayback_fetch, list_providers.
     pub enabled: Vec<String>,
     /// Denylist applied after `enabled`; these tools are never exposed.

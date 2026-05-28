@@ -5,7 +5,7 @@
 # forge logic as gitlab/codeberg/gitea; honors per-call render). If a token is
 # set below, it instead uses GitHub's AUTHENTICATED code-search API (GitHub no
 # longer allows unauthenticated *API* code search — the scrape path doesn't need
-# one). The token is used only for code search; github_fetch_file downloads raw
+# one). The token is used only for code search; fetch_repo_file downloads raw
 # files without it.
 #
 # Enable by adding "github" to the code list in ../02-search.toml. To use the

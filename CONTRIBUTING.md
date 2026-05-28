@@ -97,6 +97,10 @@ bespoke providers that scrape HTML branch on `query.render` and call
 
 ## The provider paradigm
 
+> For a detailed, per-provider reference (what each one does, keyless vs.
+> credentialed, config, caveats), see [docs/providers.md](docs/providers.md).
+> This section is about the *architecture*; that page is about the *providers*.
+
 Sources fall into three tiers, from most-shared to most-specific. **Prefer the
 highest tier that fits:** push everything generic into shared code and keep only
 the genuinely-unique bits in per-source files.

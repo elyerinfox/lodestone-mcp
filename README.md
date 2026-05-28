@@ -60,7 +60,7 @@ Design principles:
 | --- | --- |
 | `web_search` | General web search (DuckDuckGo/Mojeek/…). `render` optional. |
 | `code_search` | Source-code search across configured forges. `render` optional. |
-| `github_fetch_file` | Fetch a full file from GitHub via `raw.githubusercontent.com` (URL, raw URL, or `owner/repo/path`; line ranges). |
+| `fetch_repo_file` | Fetch a full file from GitHub/GitLab/Gitea (blob/raw URL, or GitHub `owner/repo/path`; line ranges). |
 | `fetch_page` | Fetch any URL → readable text over plain HTTP. |
 | `render_page` | Fetch a URL → readable text via a headless browser (runs JS). |
 | `wayback_fetch` | Read a page's archived snapshot from the Wayback Machine. |
@@ -69,8 +69,8 @@ Design principles:
 | `list_providers` | Show the active providers and strategy. |
 
 Typical flow: **search** (`web_search` / `code_search` / `stackexchange_search`)
-→ **retrieve** (`github_fetch_file` / `fetch_page` / `stackexchange_answers`) on
-the best hit.
+→ **retrieve** (`fetch_repo_file` / `fetch_page` / `render_page` /
+`stackexchange_answers`) on the best hit.
 
 ---
 
@@ -82,7 +82,8 @@ Requires a recent Rust toolchain.
 cargo run
 ```
 
-The server listens on `http://127.0.0.1:8000/mcp` by default. It's keyless out of
+The server listens on `http://127.0.0.1:8000/mcp` by default (and `GET /health`
+returns `ok` for liveness checks). It's keyless out of
 the box (DuckDuckGo, Mojeek, grep.app, StackExchange, raw GitHub, Wayback). The
 headless browser is always compiled in; the Google engine and per-call
 `render=true` additionally need a local **Chrome/Chromium** at runtime (only when
@@ -186,7 +187,7 @@ retrieval-only deployment:
 
 ```toml
 [tools]
-enabled = ["fetch_page", "github_fetch_file", "wayback_fetch"]
+enabled = ["fetch_page", "fetch_repo_file", "wayback_fetch"]
 ```
 
 ### Strategies
@@ -209,6 +210,8 @@ The aggregate re-ranking is configurable via `[search].ranking`
   source diversity.
 
 ### Providers
+
+Detailed per-provider reference: [docs/providers.md](docs/providers.md).
 
 | Kind | id | Notes |
 | --- | --- | --- |
@@ -238,8 +241,8 @@ operator, so adding `gitlab.com`, `codeberg.org`, or any Gitea host searches
 them alongside GitHub through the same providers (and honors `render`). GitHub
 itself dropped unauthenticated code search; set a `[github].token` to use the
 authenticated `github` provider, otherwise the keyless site-scoped web search is
-used. `github_fetch_file` retrieves raw files from GitHub; for other forges use
-`fetch_page` on the blob URL.
+used. `fetch_repo_file` retrieves raw files from GitHub, GitLab, and Gitea
+(blob/raw URL, or GitHub `owner/repo/path`).
 
 ---
 
