@@ -64,6 +64,42 @@ impl Strategy {
     }
 }
 
+/// How aggregated results are re-ranked after dedup. Only used by the
+/// `Aggregate` strategy (fallback preserves the winning provider's own order).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Ranking {
+    /// Sum of reciprocal ranks: Σ 1/(rank+1). Rewards high placement and
+    /// cross-engine agreement. (default)
+    Reciprocal,
+    /// Borda count: Σ (N − rank). Linear positional scoring.
+    Borda,
+    /// Consensus: rank by how many engines returned a result, best position as
+    /// the tiebreak. Favors corroborated results (resists single-engine noise).
+    Breadth,
+    /// Round-robin: take each engine's 1st, then 2nd, … Maximizes source
+    /// diversity rather than scoring.
+    Interleave,
+}
+
+impl Ranking {
+    pub fn parse(s: &str) -> Self {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "borda" => Ranking::Borda,
+            "breadth" | "consensus" => Ranking::Breadth,
+            "interleave" | "round_robin" | "roundrobin" => Ranking::Interleave,
+            _ => Ranking::Reciprocal,
+        }
+    }
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Ranking::Reciprocal => "reciprocal",
+            Ranking::Borda => "borda",
+            Ranking::Breadth => "breadth",
+            Ranking::Interleave => "interleave",
+        }
+    }
+}
+
 /// A normalized query handed to any provider.
 #[derive(Debug, Clone)]
 pub struct SearchQuery {
@@ -120,6 +156,7 @@ pub struct Registry {
     code: Vec<Arc<dyn SearchProvider>>,
     qa: Vec<Arc<dyn SearchProvider>>,
     strategy: Strategy,
+    ranking: Ranking,
 }
 
 impl Registry {
@@ -131,6 +168,7 @@ impl Registry {
             code: build(ProviderKind::Code, &cfg.providers.code, cfg),
             qa: build(ProviderKind::Qa, &cfg.providers.qa, cfg),
             strategy: Strategy::parse(&cfg.search.strategy),
+            ranking: Ranking::parse(&cfg.search.ranking),
         }
     }
 
@@ -224,7 +262,7 @@ impl Registry {
         } else {
             format!("aggregate ({})", engines.join("+"))
         };
-        (merge(per_engine, query.limit), label)
+        (merge(per_engine, query.limit, self.ranking), label)
     }
 
     /// Human-readable summary of the active providers and strategy.
@@ -242,9 +280,17 @@ impl Registry {
             };
             format!("{:>4}: {value}", kind.as_str())
         };
+        let strategy = if self.strategy == Strategy::Aggregate {
+            format!(
+                "{}, ranking: {}",
+                self.strategy.as_str(),
+                self.ranking.as_str()
+            )
+        } else {
+            self.strategy.as_str().to_string()
+        };
         format!(
-            "Active providers (strategy: {}):\n{}\n{}\n{}",
-            self.strategy.as_str(),
+            "Active providers (strategy: {strategy}):\n{}\n{}\n{}",
             line(ProviderKind::Web),
             line(ProviderKind::Code),
             line(ProviderKind::Qa),
@@ -264,29 +310,45 @@ fn build(kind: ProviderKind, ids: &[String], cfg: &Config) -> Vec<Arc<dyn Search
         .collect()
 }
 
-/// Merge per-engine result lists into a single ranked list (SearXNG-style):
-/// dedupe by normalized URL, score each unique result by the sum of `1/(rank+1)`
-/// across the engines that returned it, and annotate which engines found it.
-fn merge(per_engine: Vec<(&'static str, Vec<SearchResult>)>, limit: usize) -> Vec<SearchResult> {
-    struct Agg {
-        result: SearchResult,
-        score: f64,
-        engines: Vec<&'static str>,
-    }
+/// One deduplicated result plus the ranks/engines that produced it.
+struct Agg {
+    result: SearchResult,
+    /// Rank (0-based position) of this result within each engine that returned it.
+    ranks: Vec<usize>,
+    engines: Vec<&'static str>,
+}
 
+impl Agg {
+    fn finish(mut self) -> SearchResult {
+        self.result.meta = Some(format!("found by: {}", self.engines.join(", ")));
+        self.result
+    }
+}
+
+/// Merge per-engine result lists into a single list: dedupe by normalized URL,
+/// then order according to `ranking`. Each result is annotated with the engines
+/// that found it.
+fn merge(
+    per_engine: Vec<(&'static str, Vec<SearchResult>)>,
+    limit: usize,
+    ranking: Ranking,
+) -> Vec<SearchResult> {
     let mut map: HashMap<String, Agg> = HashMap::new();
     let mut order: Vec<String> = Vec::new();
+    // Per-engine ordered keys, for the interleave ranking.
+    let mut per_engine_keys: Vec<Vec<String>> = Vec::with_capacity(per_engine.len());
+    let mut max_len = 0usize;
 
     for (engine, results) in per_engine {
+        let mut keys = Vec::with_capacity(results.len());
         for (rank, result) in results.into_iter().enumerate() {
             let key = normalize_url(&result.url);
             if key.is_empty() {
                 continue;
             }
-            let score = 1.0 / (rank as f64 + 1.0);
             match map.get_mut(&key) {
                 Some(agg) => {
-                    agg.score += score;
+                    agg.ranks.push(rank);
                     if !agg.engines.contains(&engine) {
                         agg.engines.push(engine);
                     }
@@ -300,34 +362,132 @@ fn merge(per_engine: Vec<(&'static str, Vec<SearchResult>)>, limit: usize) -> Ve
                 None => {
                     order.push(key.clone());
                     map.insert(
-                        key,
+                        key.clone(),
                         Agg {
                             result,
-                            score,
+                            ranks: vec![rank],
                             engines: vec![engine],
                         },
                     );
                 }
             }
+            keys.push(key);
         }
+        max_len = max_len.max(keys.len());
+        per_engine_keys.push(keys);
+    }
+
+    if ranking == Ranking::Interleave {
+        return interleave(map, &per_engine_keys, max_len, limit);
     }
 
     let mut aggs: Vec<Agg> = order.into_iter().filter_map(|k| map.remove(&k)).collect();
     aggs.sort_by(|a, b| {
-        b.score
-            .partial_cmp(&a.score)
+        score(b, ranking, max_len)
+            .partial_cmp(&score(a, ranking, max_len))
             .unwrap_or(std::cmp::Ordering::Equal)
     });
-    aggs.into_iter()
-        .take(limit)
-        .map(|mut a| {
-            a.result.meta = Some(format!("found by: {}", a.engines.join(", ")));
-            a.result
-        })
-        .collect()
+    aggs.into_iter().take(limit).map(Agg::finish).collect()
+}
+
+/// Score for the comparison-based rankings (higher = better).
+fn score(agg: &Agg, ranking: Ranking, n: usize) -> f64 {
+    let reciprocal: f64 = agg.ranks.iter().map(|r| 1.0 / (*r as f64 + 1.0)).sum();
+    match ranking {
+        Ranking::Reciprocal => reciprocal,
+        Ranking::Borda => agg.ranks.iter().map(|r| (n - r) as f64).sum(),
+        // Consensus first (engine count dominates), reciprocal as the tiebreak.
+        Ranking::Breadth => agg.engines.len() as f64 * 1_000.0 + reciprocal,
+        Ranking::Interleave => reciprocal,
+    }
+}
+
+/// Round-robin across engines: 1st of each, then 2nd, … skipping duplicates.
+fn interleave(
+    mut map: HashMap<String, Agg>,
+    per_engine_keys: &[Vec<String>],
+    max_len: usize,
+    limit: usize,
+) -> Vec<SearchResult> {
+    let mut out = Vec::new();
+    for i in 0..max_len {
+        for keys in per_engine_keys {
+            if let Some(key) = keys.get(i) {
+                if let Some(agg) = map.remove(key) {
+                    out.push(agg.finish());
+                    if out.len() >= limit {
+                        return out;
+                    }
+                }
+            }
+        }
+    }
+    out
 }
 
 fn normalize_url(u: &str) -> String {
     let u = u.split('#').next().unwrap_or(u).trim();
     u.trim_end_matches('/').to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn hit(url: &str) -> SearchResult {
+        SearchResult {
+            url: url.to_string(),
+            title: url.to_string(),
+            ..Default::default()
+        }
+    }
+
+    fn engine(id: &'static str, urls: &[&str]) -> (&'static str, Vec<SearchResult>) {
+        (id, urls.iter().map(|u| hit(u)).collect())
+    }
+
+    fn urls(results: &[SearchResult]) -> Vec<&str> {
+        results.iter().map(|r| r.url.as_str()).collect()
+    }
+
+    #[test]
+    fn reciprocal_rewards_agreement_and_placement() {
+        // y: a@1 (0.5) + b@0 (1.0) = 1.5 ; x: 1.0 ; z: 0.5
+        let per = vec![engine("a", &["x", "y"]), engine("b", &["y", "z"])];
+        let out = merge(per, 10, Ranking::Reciprocal);
+        assert_eq!(urls(&out), ["y", "x", "z"]);
+    }
+
+    #[test]
+    fn breadth_prefers_corroboration_over_placement() {
+        // t appears in both engines but only deep (ranks 3 & 3); x is a single
+        // engine's #1. Reciprocal ranks x first; breadth ranks the corroborated t.
+        let per = vec![
+            engine("a", &["x", "p", "q", "t"]),
+            engine("b", &["u", "v", "w", "t"]),
+        ];
+        let reciprocal = merge(per.clone(), 10, Ranking::Reciprocal);
+        assert_eq!(reciprocal[0].url, "x");
+
+        let breadth = merge(per, 10, Ranking::Breadth);
+        assert_eq!(breadth[0].url, "t");
+    }
+
+    #[test]
+    fn interleave_round_robins_across_engines() {
+        let per = vec![engine("a", &["a1", "a2", "a3"]), engine("b", &["b1", "b2"])];
+        let out = merge(per, 10, Ranking::Interleave);
+        assert_eq!(urls(&out), ["a1", "b1", "a2", "b2", "a3"]);
+    }
+
+    #[test]
+    fn dedupes_by_normalized_url() {
+        let per = vec![
+            engine("a", &["https://x.test/p"]),
+            engine("b", &["https://x.test/p/"]), // trailing slash → same
+        ];
+        let out = merge(per, 10, Ranking::Reciprocal);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].meta.as_deref(), Some("found by: a, b"));
+    }
 }

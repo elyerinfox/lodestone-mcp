@@ -37,6 +37,9 @@ pub struct Search {
     /// How providers are combined: "fallback" (first non-empty wins) or
     /// "aggregate" (query all concurrently and merge — a meta-search).
     pub strategy: String,
+    /// Re-ranking method for "aggregate" results: "reciprocal" (default),
+    /// "borda", "breadth" (consensus), or "interleave" (round-robin).
+    pub ranking: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -125,6 +128,7 @@ impl Default for Search {
     fn default() -> Self {
         Self {
             strategy: "fallback".to_string(),
+            ranking: "reciprocal".to_string(),
         }
     }
 }
@@ -200,6 +204,9 @@ impl Config {
         }
         if let Ok(strategy) = std::env::var("LODESTONE_SEARCH_STRATEGY") {
             self.search.strategy = strategy;
+        }
+        if let Ok(ranking) = std::env::var("LODESTONE_SEARCH_RANKING") {
+            self.search.ranking = ranking;
         }
         if let Some(sites) = env_list("LODESTONE_CODE_SITES") {
             self.code.sites = sites;

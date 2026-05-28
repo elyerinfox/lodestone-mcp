@@ -70,7 +70,7 @@ likely involved). Checked items are done; unchecked are open.
   - **Why:** A single slow source shouldn't dominate latency; transient failures
     (esp. DuckDuckGo) deserve one short retry.
   - **How:** Per-request timeout override and a single backoff retry in the
-    shared `fetch_html_render` / engine `search_raw` paths.
+    engine `fetch`/`search_raw` and forge `search` paths.
 
 ---
 
@@ -88,6 +88,16 @@ likely involved). Checked items are done; unchecked are open.
   - **How:** Add a `render` arg to the tool and a scrape path in
     `src/providers/stackexchange.rs` / `src/retrieve.rs` reusing the shared
     renderer.
+
+- [ ] **PDF parsing, with optional OCR for scanned PDFs.**
+  - **Why:** Lots of docs/specs/papers are PDFs; `fetch_page` currently returns
+    raw/garbled bytes for them, so the model can't read them.
+  - **How:** Detect PDFs in `fetch_readable` (content-type, `.pdf`, `%PDF`
+    magic) and extract the text layer with a Rust crate (`pdf-extract` / `lopdf`).
+    For scanned PDFs with no text layer, optionally OCR via an operator-configured
+    service — e.g. AWS **Textract** or any OCR endpoint — behind a config gate
+    (`[pdf] ocr = "textract", …`). Keyless text extraction first; OCR strictly
+    opt-in (it implies a credentialed external service).
 
 ---
 
@@ -155,11 +165,16 @@ likely involved). Checked items are done; unchecked are open.
     exchanging full query logs. (3) **Consult-then-fetch** — on a query, check
     peers whose Bloom filter matches, request the cached result (reuse the cache
     value format above), and fall back to a normal local search on miss/timeout/
-    low-confidence. (4) **Consensus/trust** — corroborate results across multiple
-    peers and weight by a simple reputation score to resist a single bad peer.
-    Keep it strictly opt-in (`[network] enabled = false` by default), bounded
-    (timeouts, max peers), and careful never to share secrets or raw user inputs
-    beyond hashed/Bloom keys. Likely its own module + a background sync task.
+    low-confidence. (4) **Rank peer results to prevent poisoning (required, not
+    optional).** Never trust a peer's results blindly: corroborate across multiple
+    peers, prefer results that the local engines also surface, and weight peers by
+    a reputation score (decayed by disagreement/staleness). Treat peer data as
+    *hints* that must survive the same dedup/ranking (incl. `breadth`/consensus)
+    as first-party results, and cap any single peer's influence so one malicious
+    or stale node can't dominate. Keep the network strictly opt-in
+    (`[network] enabled = false` by default), bounded (timeouts, max peers), and
+    careful never to share secrets or raw user inputs beyond hashed/Bloom keys.
+    Likely its own module + a background sync task.
 
 ## Docs & release
 

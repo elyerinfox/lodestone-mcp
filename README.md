@@ -190,8 +190,19 @@ enabled = ["fetch_page", "github_fetch_file", "wayback_fetch"]
 - **fallback** (default) — try providers in order; the first non-empty result
   set wins. Fewer requests, lower latency.
 - **aggregate** — query every provider for a kind concurrently, dedupe by URL,
-  and re-rank by a SearXNG-style score (Σ 1/rank), tagging which engines found
-  each result. Broader coverage at the cost of more requests.
+  and re-rank, tagging which engines found each result. Broader coverage at the
+  cost of more requests.
+
+The aggregate re-ranking is configurable via `[search].ranking`
+(`LODESTONE_SEARCH_RANKING`):
+
+- **reciprocal** (default) — Σ 1/(rank+1): rewards high placement and
+  cross-engine agreement.
+- **borda** — Σ (N − rank): linear positional scoring.
+- **breadth** — consensus: rank by how many engines returned a result (best
+  position breaks ties); resists single-engine noise.
+- **interleave** — round-robin: each engine's 1st, then 2nd, …; maximizes
+  source diversity.
 
 ### Providers
 
