@@ -36,3 +36,4 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 chromiumoxide = { version = "0.7", default-features = false, features = ["tokio-runtime"] }
 mdns-sd = "0.20.0"
 chrono = { version = "0.4.44", default-features = false, features = ["clock", "std"] }
+chrono-tz = "0.10.4"

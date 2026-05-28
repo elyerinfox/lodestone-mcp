@@ -30,8 +30,10 @@ required), served over Streamable HTTP at `/mcp`.
 - **Self-hosted forges:** register private GitLab/Gitea hosts under `[forges]`;
   each becomes a keyless `code_<id>` provider.
 - **SearXNG provider** (web + code) against a self-hosted instance's JSON API.
-- **`datetime` tool** — current date/time from the system clock (local with UTC
-  offset, UTC, and Unix timestamp), so the model can know "now".
+- **Date/time tools** — `datetime` (current local/UTC/Unix time, plus an optional
+  IANA timezone), `date_diff` (difference between two dates: days/years and
+  ago/from-now), and `time_convert` (convert a time to another IANA timezone).
+  Helps the model anchor recency and do timezone math (chrono + chrono-tz).
 - **GitHub tools** (keyless, optional `[github].token` to raise the rate limit):
   `github_releases` (release notes / changelogs), `github_user` (profile), and
   `github_repo` (repo metadata), all accepting `owner/repo` or a github.com URL.

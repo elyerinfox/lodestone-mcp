@@ -85,7 +85,9 @@ arguments.
 
 | Tool | Arguments | Purpose |
 | --- | --- | --- |
-| `datetime` | — | Current date/time from the system clock (local + UTC + Unix). The model has no "now". |
+| `datetime` | `timezone?` | Current date/time (local + UTC + Unix), plus an optional IANA timezone. The model has no "now". |
+| `date_diff` | `from`, `to?` | Difference between two dates (days/years, 'ago / from now'); `to` defaults to now. |
+| `time_convert` | `time`, `to_tz`, `from_tz?` | Convert a date/time to another IANA timezone. |
 | `list_providers` | — | Show the active providers, strategy, and ranking. |
 | `hive_status` | — | Show the peer-to-peer hivemind graph (peers, reputation, edges); says disabled when off. |
 
