@@ -8,10 +8,12 @@
 //! Transport: Streamable HTTP, mounted at `/mcp` (works with LM Studio's
 //! `url`-style mcp.json entries and any Streamable-HTTP MCP client).
 
+mod artifacthub;
 mod browser;
 mod cache;
 mod config;
 mod hive;
+mod oci;
 mod provider;
 mod providers;
 mod retrieve;
@@ -213,6 +215,61 @@ struct TimeConvertArgs {
     /// Ignored when the input already has an offset or is a Unix timestamp.
     #[serde(default)]
     from_tz: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct DockerSearchArgs {
+    /// What to search for on Docker Hub (image name, keyword).
+    query: String,
+    /// Maximum number of results to return. Default 10, capped at 25.
+    #[serde(default)]
+    max_results: Option<u32>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct DockerImageArgs {
+    /// A Docker Hub image: `nginx`, `library/nginx`, or `bitnami/redis` (an
+    /// optional `:tag` is ignored — this reports the repository).
+    image: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct DockerTagsArgs {
+    /// A Docker Hub image: `nginx`, `library/nginx`, or `grafana/grafana`.
+    image: String,
+    /// Maximum number of tags to return (newest first). Default 15, capped 50.
+    #[serde(default)]
+    max_results: Option<u32>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct OciTagsArgs {
+    /// An image reference on any OCI registry: `nginx`, `ghcr.io/owner/image`,
+    /// `quay.io/ns/repo`, `localhost:5000/team/app`.
+    reference: String,
+    /// Maximum number of tags to return. Default 30, capped 200.
+    #[serde(default)]
+    max_results: Option<u32>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct OciManifestArgs {
+    /// An image reference (with optional `:tag` or `@sha256:…`) on any OCI
+    /// registry, e.g. `nginx:1.27`, `ghcr.io/owner/image:latest`.
+    reference: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct ArtifactHubArgs {
+    /// What to search for (chart/operator/plugin name or keyword).
+    query: String,
+    /// Optional package-kind filter: helm, olm, krew, falco, opa, kyverno,
+    /// gatekeeper, tekton-task, coredns, container, … Omit to search all kinds.
+    #[serde(default)]
+    kind: Option<String>,
+    /// Maximum number of results to return. Default 10, capped at 30.
+    #[serde(default)]
+    max_results: Option<u32>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -1053,6 +1110,190 @@ impl Lodestone {
     }
 
     #[tool(
+        description = "Search Docker Hub for container images (keyless). Returns name, official/\
+        verified status, stars, pull count, and a short description. Use docker_image for one \
+        image's details, docker_tags to list its tags."
+    )]
+    async fn docker_search(
+        &self,
+        Parameters(args): Parameters<DockerSearchArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let limit = clamp(args.max_results, 10, 25);
+        let key = format!("docker_search|{limit}|{}", args.query);
+        if let Some(cached) = self.retrieval_get(&key) {
+            return Ok(text_result(cached));
+        }
+        let v = oci::hub_search(&self.http, &args.query, limit)
+            .await
+            .map_err(internal)?;
+        let out = format_docker_search(&args.query, &v, limit);
+        self.retrieval_put(key, &out);
+        Ok(text_result(out))
+    }
+
+    #[tool(
+        description = "Get a Docker Hub repository's details (keyless): description, stars, pull \
+        count, last-updated date, and the long description. Accepts `nginx`, `library/nginx`, or \
+        `org/image`."
+    )]
+    async fn docker_image(
+        &self,
+        Parameters(args): Parameters<DockerImageArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let r = oci::parse_ref(&args.image).map_err(|e| invalid(e.to_string()))?;
+        let (ns, repo) = r.hub_namespace_repo().ok_or_else(|| {
+            invalid(format!(
+                "'{}' is not a Docker Hub image; use oci_manifest for other registries",
+                args.image
+            ))
+        })?;
+        let key = format!("docker_image|{ns}/{repo}");
+        if let Some(cached) = self.retrieval_get(&key) {
+            return Ok(text_result(cached));
+        }
+        let v = oci::hub_repo(&self.http, &ns, &repo)
+            .await
+            .map_err(internal)?;
+        let out = format_docker_image(&v, &ns, &repo);
+        self.retrieval_put(key, &out);
+        Ok(text_result(out))
+    }
+
+    #[tool(
+        description = "List a Docker Hub image's tags (keyless), newest first, with compressed \
+        size, last-pushed date, and architectures. Accepts `nginx`, `library/nginx`, or \
+        `org/image`. For non-Docker-Hub registries use oci_tags."
+    )]
+    async fn docker_tags(
+        &self,
+        Parameters(args): Parameters<DockerTagsArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let limit = clamp(args.max_results, 15, 50);
+        let r = oci::parse_ref(&args.image).map_err(|e| invalid(e.to_string()))?;
+        let (ns, repo) = r.hub_namespace_repo().ok_or_else(|| {
+            invalid(format!(
+                "'{}' is not a Docker Hub image; use oci_tags for other registries",
+                args.image
+            ))
+        })?;
+        let key = format!("docker_tags|{limit}|{ns}/{repo}");
+        if let Some(cached) = self.retrieval_get(&key) {
+            return Ok(text_result(cached));
+        }
+        let v = oci::hub_tags(&self.http, &ns, &repo, limit)
+            .await
+            .map_err(internal)?;
+        let out = format_docker_tags(&v, &ns, &repo);
+        self.retrieval_put(key, &out);
+        Ok(text_result(out))
+    }
+
+    #[tool(
+        description = "List tags for an image on ANY OCI registry (keyless, anonymous pull): \
+        Docker Hub, GHCR (ghcr.io), Quay (quay.io), or a self-hosted registry. Accepts `nginx`, \
+        `ghcr.io/owner/image`, `quay.io/ns/repo`. Use oci_manifest to inspect one tag's platforms."
+    )]
+    async fn oci_tags(
+        &self,
+        Parameters(args): Parameters<OciTagsArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let limit = clamp(args.max_results, 30, 200);
+        let r = oci::parse_ref(&args.reference).map_err(|e| invalid(e.to_string()))?;
+        let key = format!("oci_tags|{limit}|{}/{}", r.registry_host, r.repository);
+        if let Some(cached) = self.retrieval_get(&key) {
+            return Ok(text_result(cached));
+        }
+        let (name, tags) = oci::list_tags(&self.http, &r, limit)
+            .await
+            .map_err(internal)?;
+        if tags.is_empty() {
+            return Ok(text_result(format!("No tags found for {}.", r.display())));
+        }
+        let out = format!(
+            "Tags for {}/{name} ({} shown):\n{}",
+            r.registry_host,
+            tags.len(),
+            tags.iter()
+                .map(|t| format!("  {t}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
+        self.retrieval_put(key, &out);
+        Ok(text_result(out))
+    }
+
+    #[tool(
+        description = "Inspect an image's manifest on ANY OCI registry (keyless, anonymous pull). \
+        For a multi-arch image, lists the platforms (os/arch); for a single image, the layer count, \
+        total compressed size, and config digest. Accepts `nginx:1.27`, `ghcr.io/owner/image@sha256:…`."
+    )]
+    async fn oci_manifest(
+        &self,
+        Parameters(args): Parameters<OciManifestArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let r = oci::parse_ref(&args.reference).map_err(|e| invalid(e.to_string()))?;
+        let key = format!("oci_manifest|{}", r.display());
+        if let Some(cached) = self.retrieval_get(&key) {
+            return Ok(text_result(cached));
+        }
+        let m = oci::manifest(&self.http, &r).await.map_err(internal)?;
+        let mut out = format!(
+            "Manifest for {}\n  media type: {}",
+            r.display(),
+            m.media_type
+        );
+        if let Some(d) = &m.digest {
+            out.push_str(&format!("\n  digest: {d}"));
+        }
+        if !m.platforms.is_empty() {
+            out.push_str(&format!(
+                "\n  multi-arch ({} platforms): {}",
+                m.platforms.len(),
+                m.platforms.join(", ")
+            ));
+        } else {
+            out.push_str(&format!(
+                "\n  layers: {} ({})",
+                m.layers,
+                human_size(m.total_size)
+            ));
+            if let Some(c) = &m.config_digest {
+                out.push_str(&format!("\n  config: {c}"));
+            }
+        }
+        self.retrieval_put(key, &out);
+        Ok(text_result(out))
+    }
+
+    #[tool(
+        description = "Search Artifact Hub (keyless) — the index of Kubernetes-ecosystem packages: \
+        Helm charts, Operators, krew plugins, Falco/OPA/Kyverno/Gatekeeper policies, Tekton tasks, \
+        and more. Optional `kind` filter (e.g. helm, olm, krew). Returns name, version, stars, \
+        publisher, and link."
+    )]
+    async fn artifacthub_search(
+        &self,
+        Parameters(args): Parameters<ArtifactHubArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let limit = clamp(args.max_results, 10, 30);
+        let kind = args
+            .kind
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        let key = format!("artifacthub|{limit}|{}|{}", kind.unwrap_or(""), args.query);
+        if let Some(cached) = self.retrieval_get(&key) {
+            return Ok(text_result(cached));
+        }
+        let v = artifacthub::search(&self.http, &args.query, kind, limit)
+            .await
+            .map_err(internal)?;
+        let out = format_artifacthub(&args.query, kind, &v, limit);
+        self.retrieval_put(key, &out);
+        Ok(text_result(out))
+    }
+
+    #[tool(
         description = "Translate text into another language with Google Translate (keyless, no API \
         key). `to` is an ISO-639 target code (es, fr, de, ja, zh-CN, …); `from` defaults to \
         auto-detect. Returns the translation and the detected source language."
@@ -1153,6 +1394,9 @@ impl ServerHandler for Lodestone {
                 - time_convert: convert a date/time to another IANA timezone.\n\
                 - translate / detect_language: Google Translate (keyless) — translate text or \
                 detect its language.\n\
+                - docker_search / docker_image / docker_tags: Docker Hub image search + metadata + tags (keyless).\n\
+                - oci_tags / oci_manifest: list tags / inspect a manifest on any OCI registry (Docker Hub, GHCR, Quay, …).\n\
+                - artifacthub_search: search Artifact Hub (Helm charts, Operators, krew, policies, …).\n\
                 - list_providers: show which sources are active.\n\
                 - hive_status: show the peer-to-peer hivemind graph (if enabled).\n\
                 Each configured provider also has a direct tool named <kind>_<id> \
@@ -1265,6 +1509,236 @@ fn format_docs(query: &str, engine: &str, hits: &[SearchResult]) -> String {
         out.push_str(&format!("\n{}. {}\n   {}\n", i + 1, h.title, h.url));
         if !h.snippet.is_empty() {
             out.push_str(&format!("   {}\n", h.snippet));
+        }
+    }
+    out
+}
+
+/// Compact human byte size (e.g. "36.3 MB").
+fn human_size(bytes: u64) -> String {
+    const UNITS: &[&str] = &["B", "KB", "MB", "GB", "TB"];
+    let mut v = bytes as f64;
+    let mut i = 0;
+    while v >= 1024.0 && i < UNITS.len() - 1 {
+        v /= 1024.0;
+        i += 1;
+    }
+    if i == 0 {
+        format!("{bytes} B")
+    } else {
+        format!("{v:.1} {}", UNITS[i])
+    }
+}
+
+/// Compact human count (e.g. "13.0B", "21.3K") for star/pull tallies.
+fn human_count(n: i64) -> String {
+    let a = n.unsigned_abs() as f64;
+    let (v, suffix) = if a >= 1e9 {
+        (a / 1e9, "B")
+    } else if a >= 1e6 {
+        (a / 1e6, "M")
+    } else if a >= 1e3 {
+        (a / 1e3, "K")
+    } else {
+        return n.to_string();
+    };
+    format!("{}{v:.1}{suffix}", if n < 0 { "-" } else { "" })
+}
+
+fn format_docker_search(query: &str, v: &serde_json::Value, limit: usize) -> String {
+    let mut out = format!("Docker Hub results for \"{query}\":\n");
+    let empty = Vec::new();
+    let results = v
+        .get("results")
+        .and_then(|x| x.as_array())
+        .unwrap_or(&empty);
+    for (i, r) in results.iter().take(limit).enumerate() {
+        let name = r.get("repo_name").and_then(|x| x.as_str()).unwrap_or("");
+        let official = r
+            .get("is_official")
+            .and_then(|x| x.as_bool())
+            .unwrap_or(false);
+        let stars = r.get("star_count").and_then(|x| x.as_i64()).unwrap_or(0);
+        let pulls = r.get("pull_count").and_then(|x| x.as_i64()).unwrap_or(0);
+        let desc = r
+            .get("short_description")
+            .and_then(|x| x.as_str())
+            .unwrap_or("");
+        let url = if official {
+            format!("https://hub.docker.com/_/{name}")
+        } else {
+            format!("https://hub.docker.com/r/{name}")
+        };
+        out.push_str(&format!(
+            "\n{}. {name}{}\n   {url}\n   stars {} · pulls {}\n",
+            i + 1,
+            if official { " [official]" } else { "" },
+            human_count(stars),
+            human_count(pulls),
+        ));
+        if !desc.is_empty() {
+            out.push_str(&format!("   {desc}\n"));
+        }
+    }
+    out
+}
+
+fn format_docker_image(v: &serde_json::Value, ns: &str, repo: &str) -> String {
+    let official = ns == "library";
+    let full = if official {
+        repo.to_string()
+    } else {
+        format!("{ns}/{repo}")
+    };
+    let url = if official {
+        format!("https://hub.docker.com/_/{repo}")
+    } else {
+        format!("https://hub.docker.com/r/{ns}/{repo}")
+    };
+    let mut out = format!("Docker Hub image: {full}");
+    if official {
+        out.push_str(" [official]");
+    }
+    out.push('\n');
+    if let Some(d) = v
+        .get("description")
+        .and_then(|x| x.as_str())
+        .filter(|s| !s.is_empty())
+    {
+        out.push_str(&format!("{d}\n"));
+    }
+    if let Some(s) = v.get("star_count").and_then(|x| x.as_i64()) {
+        out.push_str(&format!("  stars: {}\n", human_count(s)));
+    }
+    if let Some(p) = v.get("pull_count").and_then(|x| x.as_i64()) {
+        out.push_str(&format!("  pulls: {}\n", human_count(p)));
+    }
+    if let Some(u) = v
+        .get("last_updated")
+        .and_then(|x| x.as_str())
+        .and_then(|d| d.get(..10))
+    {
+        out.push_str(&format!("  last updated: {u}\n"));
+    }
+    out.push_str(&format!("  {url}\n"));
+    if let Some(full_desc) = v
+        .get("full_description")
+        .and_then(|x| x.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        out.push('\n');
+        out.push_str(&util::truncate_chars(full_desc, 3000));
+        out.push('\n');
+    }
+    out
+}
+
+fn format_docker_tags(v: &serde_json::Value, ns: &str, repo: &str) -> String {
+    let full = if ns == "library" {
+        repo.to_string()
+    } else {
+        format!("{ns}/{repo}")
+    };
+    let empty = Vec::new();
+    let results = v
+        .get("results")
+        .and_then(|x| x.as_array())
+        .unwrap_or(&empty);
+    let mut out = format!("Tags for {full} ({} shown, newest first):\n", results.len());
+    for t in results {
+        let name = t.get("name").and_then(|x| x.as_str()).unwrap_or("");
+        let size = t.get("full_size").and_then(|x| x.as_u64()).unwrap_or(0);
+        let pushed = t
+            .get("tag_last_pushed")
+            .and_then(|x| x.as_str())
+            .and_then(|d| d.get(..10))
+            .unwrap_or("");
+        let archs: Vec<&str> = t
+            .get("images")
+            .and_then(|x| x.as_array())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|im| im.get("architecture").and_then(|x| x.as_str()))
+                    .filter(|s| !s.is_empty())
+                    .collect()
+            })
+            .unwrap_or_default();
+        out.push_str(&format!("\n  {name}"));
+        let mut facts = Vec::new();
+        if size > 0 {
+            facts.push(human_size(size));
+        }
+        if !pushed.is_empty() {
+            facts.push(pushed.to_string());
+        }
+        if !archs.is_empty() {
+            facts.push(archs.join("/"));
+        }
+        if !facts.is_empty() {
+            out.push_str(&format!("  ({})", facts.join(" · ")));
+        }
+    }
+    out.push('\n');
+    out
+}
+
+fn format_artifacthub(
+    query: &str,
+    kind: Option<&str>,
+    v: &serde_json::Value,
+    limit: usize,
+) -> String {
+    let scope = kind.map(|k| format!(" [{k}]")).unwrap_or_default();
+    let mut out = format!("Artifact Hub results for \"{query}\"{scope}:\n");
+    let empty = Vec::new();
+    let packages = v
+        .get("packages")
+        .and_then(|x| x.as_array())
+        .unwrap_or(&empty);
+    if packages.is_empty() {
+        out.push_str("\n(no packages found)");
+        return out;
+    }
+    for (i, p) in packages.iter().take(limit).enumerate() {
+        let name = p.get("name").and_then(|x| x.as_str()).unwrap_or("");
+        let version = p.get("version").and_then(|x| x.as_str()).unwrap_or("");
+        let stars = p.get("stars").and_then(|x| x.as_i64()).unwrap_or(0);
+        let desc = p.get("description").and_then(|x| x.as_str()).unwrap_or("");
+        let repo = p.get("repository");
+        let kind_slug = repo
+            .and_then(|r| r.get("kind"))
+            .and_then(|x| x.as_u64())
+            .and_then(artifacthub::kind_slug)
+            .unwrap_or("package");
+        let publisher = repo
+            .and_then(|r| {
+                r.get("organization_name")
+                    .or_else(|| r.get("user_alias"))
+                    .or_else(|| r.get("name"))
+            })
+            .and_then(|x| x.as_str())
+            .unwrap_or("");
+        let url = artifacthub::package_url(p);
+        out.push_str(&format!("\n{}. {name}", i + 1));
+        if !version.is_empty() {
+            out.push_str(&format!(" {version}"));
+        }
+        out.push_str(&format!(" [{kind_slug}]"));
+        out.push('\n');
+        out.push_str(&format!("   {url}\n"));
+        let mut facts = Vec::new();
+        if !publisher.is_empty() {
+            facts.push(format!("by {publisher}"));
+        }
+        if stars > 0 {
+            facts.push(format!("★ {}", human_count(stars)));
+        }
+        if !facts.is_empty() {
+            out.push_str(&format!("   {}\n", facts.join(" · ")));
+        }
+        if !desc.is_empty() {
+            out.push_str(&format!("   {desc}\n"));
         }
     }
     out

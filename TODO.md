@@ -57,6 +57,18 @@ likely involved). Checked items are done; unchecked are open.
   (`translate_a/single`), exposed as the `translate` and `detect_language` tools
   (standalone, like the `datetime` family; cached). No API key.
 
+- [x] **Container & cloud-native tools.** Done: `src/oci.rs` (Docker Hub JSON API
+  for `docker_search`/`docker_image`/`docker_tags`; generic OCI Distribution access
+  with the anonymous bearer-token flow for `oci_tags`/`oci_manifest` across Docker
+  Hub/GHCR/Quay/self-hosted) and `src/artifacthub.rs` (`artifacthub_search` over
+  Helm/Operators/krew/policies/Tekton). Plus `docker`/`kubernetes`/`helm` doc sites
+  in the docsite family. All keyless. Docs: `docs/containers.md`.
+  - **Deferred (needs design sign-off):** local **Docker daemon** control and
+    **Kubernetes cluster** interaction (kubefiles/kubectl/helm) as granular
+    per-action skills — a departure from the keyless read-only web scope; pending
+    decisions on transport (shell out to CLIs vs. API), default-off gating, and how
+    destructive actions are surfaced.
+
 - [x] **SearXNG provider.** Done: `src/providers/bespoke/searxng.rs` hits
   `{url}/search?format=json` for web+code (code is `site:`-scoped to
   `[code].sites`), parses the `results` array into `SearchResult`. Config

@@ -53,8 +53,15 @@ underlying fetch through the headless browser.
 | `symfony` | `symfony.com` | off |
 | `astro` | `docs.astro.build` | off |
 | `solid` | `docs.solidjs.com` | off |
+| `docker` | `docs.docker.com` | on |
+| `kubernetes` | `kubernetes.io` | on |
+| `helm` | `helm.sh` | on |
 
 Enable more by adding their ids to `[providers].docs` in `config/02-search.toml`.
+
+> For **container/cloud-native data** (not just docs) — Docker Hub image search,
+> tags and metadata, OCI-registry inspection, and Artifact Hub (Helm/Operators) —
+> see the dedicated tools in [docs/containers.md](../containers.md).
 
 ## Custom doc sites
 Register any documentation host with a `[docsites.<id>]` table (see

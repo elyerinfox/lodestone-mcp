@@ -37,6 +37,14 @@ required), served over Streamable HTTP at `/mcp`.
 - **Translation tools** (Google Translate, keyless — no API key): `translate`
   (translate text to an ISO-639 target; auto-detects the source) and
   `detect_language` (report a text's language). Results are cached.
+- **Container & cloud-native tools** (keyless): `docker_search` / `docker_image` /
+  `docker_tags` (Docker Hub image search, metadata, and tags via the public JSON
+  API); `oci_tags` / `oci_manifest` (list tags and inspect a manifest — platforms
+  or layers/size — on **any** OCI registry: Docker Hub, GHCR, Quay, self-hosted,
+  via the Distribution Spec's anonymous bearer-token flow); and `artifacthub_search`
+  (Artifact Hub: Helm charts, Operators, krew plugins, policies, Tekton tasks, with
+  an optional `kind` filter). The framework-docs family adds `docker`/`kubernetes`/
+  `helm` doc sites (on by default). See `docs/containers.md`.
 - **Self-hosted forges:** register private GitLab/Gitea hosts under `[forges]`;
   each becomes a keyless `code_<id>` provider.
 - **SearXNG provider** (web + code) against a self-hosted instance's JSON API.

@@ -69,8 +69,9 @@ pub struct Tools {
     /// web_search, code_search, docs_search, qa_search, fetch_page, render_page,
     /// webpage_to_pdf, read_pdf, fetch_repo_file, wayback_fetch, github_releases,
     /// github_user, github_repo, datetime, date_diff, time_convert, translate,
-    /// detect_language, list_providers, hive_status. Plus per-provider <kind>_<id>
-    /// tools (e.g. docs_cratesio, docs_react).
+    /// detect_language, docker_search, docker_image, docker_tags, oci_tags,
+    /// oci_manifest, artifacthub_search, list_providers, hive_status. Plus
+    /// per-provider <kind>_<id> tools (e.g. docs_cratesio, docs_react, docs_kubernetes).
     pub enabled: Vec<String>,
     /// Denylist applied after `enabled`; these tools are never exposed.
     pub disabled: Vec<String>,
@@ -283,10 +284,10 @@ pub struct Providers {
     /// Ordered Q&A providers. Known: stackoverflow (alias: stackexchange).
     pub qa: Vec<String>,
     /// Ordered documentation providers. Known registries: cratesio, npm, mdn,
-    /// rubygems, packagist, nuget, hex, aur, dockerhub, archlinux. Known framework
-    /// docs: php, laravel, vue, react, svelte, angular, nextjs, nuxt, django,
-    /// flask, fastapi, rails, spring, tailwind, express, symfony, astro, solid,
-    /// plus any `[docsites.<id>]`.
+    /// rubygems, packagist, nuget, hex, aur, dockerhub, archlinux. Known doc sites:
+    /// php, laravel, vue, react, svelte, angular, nextjs, nuxt, django, flask,
+    /// fastapi, rails, spring, tailwind, express, symfony, astro, solid, docker,
+    /// kubernetes, helm, plus any `[docsites.<id>]`.
     pub docs: Vec<String>,
 }
 
@@ -370,6 +371,9 @@ impl Default for Providers {
                 "vue".into(),
                 "react".into(),
                 "svelte".into(),
+                "docker".into(),
+                "kubernetes".into(),
+                "helm".into(),
             ],
         }
     }

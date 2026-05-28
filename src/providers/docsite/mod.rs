@@ -103,6 +103,19 @@ static SITES: &[DocSiteSpec] = &[
         id: "solid",
         domain: "docs.solidjs.com",
     },
+    // Cloud-native / tooling docs.
+    DocSiteSpec {
+        id: "docker",
+        domain: "docs.docker.com",
+    },
+    DocSiteSpec {
+        id: "kubernetes",
+        domain: "kubernetes.io",
+    },
+    DocSiteSpec {
+        id: "helm",
+        domain: "helm.sh",
+    },
 ];
 
 /// Construct a built-in doc-site provider by id, if known.

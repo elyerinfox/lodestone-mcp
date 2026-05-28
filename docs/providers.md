@@ -126,7 +126,14 @@ rationale, and how to add your own via `[docsites.<id>]`.
 | [`symfony`](providers/frameworks.md) | off | `symfony.com` |
 | [`astro`](providers/frameworks.md) | off | `docs.astro.build` |
 | [`solid`](providers/frameworks.md) | off | `docs.solidjs.com` |
+| [`docker`](providers/frameworks.md) | on | `docs.docker.com` |
+| [`kubernetes`](providers/frameworks.md) | on | `kubernetes.io` |
+| [`helm`](providers/frameworks.md) | on | `helm.sh` |
 | `[docsites.<id>]` | off | your own host |
+
+> Beyond docs, lodestone has **container & cloud-native data tools** — Docker Hub
+> search/metadata/tags, OCI-registry tag/manifest inspection (Docker Hub, GHCR,
+> Quay, …), and Artifact Hub search. See [docs/containers.md](containers.md).
 
 ## Composite providers — multi-mode (`src/providers/composite/`)
 
