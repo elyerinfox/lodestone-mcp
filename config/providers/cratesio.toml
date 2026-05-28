@@ -1,0 +1,8 @@
+# -----------------------------------------------------------------------------
+# Provider: cratesio  (kind: docs)
+# -----------------------------------------------------------------------------
+# Rust crate index. Keyless JSON search of crates.io/api/v1/crates?q=. No
+# tunables. Powers docs_search and the per-provider docs_cratesio tool.
+#
+# Enable/disable in ../02-search.toml (the docs list).
+# -----------------------------------------------------------------------------

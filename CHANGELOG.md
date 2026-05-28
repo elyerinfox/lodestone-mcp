@@ -20,10 +20,11 @@ required), served over Streamable HTTP at `/mcp`.
   per-provider tool per configured source (`<kind>_<id>`, e.g. `web_mojeek`,
   `code_github`, `qa_stackoverflow`). Every tool is independently gateable via
   `[tools]`.
-- **Providers** across four families: engine (`duckduckgo`, `mojeek`, `google`),
-  forge (`gitlab`, `codeberg`, `gitea`), composite (`github`, `stackoverflow`),
-  and bespoke (`grep_app`, `medium`, `searxng`). Each documented under
-  `docs/providers/`.
+- **Providers** across five families: engine (`duckduckgo`, `mojeek`, `google`),
+  forge (`gitlab`, `codeberg`, `gitea`), registry (`cratesio`, `npm`, `mdn` — the
+  `docs` kind, keyless JSON package/doc search via `docs_search`), composite
+  (`github`, `stackoverflow`), and bespoke (`grep_app`, `medium`, `searxng`). Each
+  documented under `docs/providers/`.
 - **Self-hosted forges:** register private GitLab/Gitea hosts under `[forges]`;
   each becomes a keyless `code_<id>` provider.
 - **SearXNG provider** (web + code) against a self-hosted instance's JSON API.

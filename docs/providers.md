@@ -11,8 +11,9 @@ its rationale, features, skills (tools), config, and schema/structs. For the
 ## How providers combine
 
 - **Kinds.** Each provider serves one kind: `web` (general web search), `code`
-  (source-code search), or `qa` (question/answer sites). The tools map to kinds:
-  `web_search` → web, `code_search` → code, `qa_search` → qa.
+  (source-code search), `qa` (question/answer sites), or `docs` (documentation &
+  package registries). The tools map to kinds: `web_search` → web, `code_search`
+  → code, `qa_search` → qa, `docs_search` → docs.
 - **Selection & order.** `config/02-search.toml` (`[providers].web/code/qa`)
   lists the providers per kind, in priority order. Unknown ids are skipped with a
   warning.
@@ -63,6 +64,18 @@ forge's blob-URL layout parsed into `(repo, path)`. Kind: **code**.
 | [`gitlab`](providers/gitlab.md) | off | Site-scoped search of `gitlab.com`. |
 | [`codeberg`](providers/codeberg.md) | off | Site-scoped search of `codeberg.org` (Gitea). |
 | [`gitea`](providers/gitea.md) | off | Site-scoped search of `gitea.com`. |
+
+## Registry family — spec-driven doc/package search (`src/providers/registry/`)
+
+Shared `RegistryProvider` driven by a `RegistrySpec`: a keyless JSON search API
+mapped declaratively (results pointer + per-item name/description/url/version).
+Kind: **docs**. JSON APIs, so `render` doesn't apply.
+
+| Provider | Default | Notes |
+| --- | --- | --- |
+| [`cratesio`](providers/cratesio.md) | on | Rust crate index (`crates.io/api/v1/crates`). |
+| [`npm`](providers/npm.md) | on | Node package index (`registry.npmjs.org`). |
+| [`mdn`](providers/mdn.md) | on | MDN Web Docs reference (`developer.mozilla.org`). |
 
 ## Composite providers — multi-mode (`src/providers/composite/`)
 

@@ -79,6 +79,15 @@ struct CodeSearchArgs {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct DocsSearchArgs {
+    /// What to look for — a library/package name, API, or documentation topic.
+    query: String,
+    /// Maximum number of results to return. Default 10, capped at 25.
+    #[serde(default)]
+    max_results: Option<u32>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct FetchPageArgs {
     /// Absolute URL of the page to fetch.
     url: String,
@@ -272,6 +281,35 @@ impl Lodestone {
             return Ok(text_result(format!("No code results for: {}", args.query)));
         }
         Ok(text_result(format_code(&args.query, &engine, &hits)))
+    }
+
+    #[tool(
+        description = "Search developer documentation and package registries (crates.io, npm, MDN, \
+        …) — no API key. Returns matching packages/pages with name, version, URL and description. \
+        Use for finding a library or an API reference; then `fetch_page` to read a result."
+    )]
+    async fn docs_search(
+        &self,
+        Parameters(args): Parameters<DocsSearchArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let q = SearchQuery {
+            text: args.query.clone(),
+            language: None,
+            site: None,
+            limit: clamp(args.max_results, 10, 25),
+            render: false,
+        };
+        let (hits, engine) = self
+            .registry
+            .search(ProviderKind::Docs, &self.http, &q)
+            .await;
+        if hits.is_empty() {
+            return Ok(text_result(format!(
+                "No documentation results for: {}",
+                args.query
+            )));
+        }
+        Ok(text_result(format_docs(&args.query, &engine, &hits)))
     }
 
     #[tool(
@@ -524,6 +562,7 @@ impl ServerHandler for Lodestone {
                 code and documentation.\n\nTools:\n\
                 - web_search: general web search.\n\
                 - code_search: search source code in public repositories.\n\
+                - docs_search: search docs & package registries (crates.io, npm, MDN).\n\
                 - fetch_repo_file: download a full file from GitHub/GitLab/Gitea by URL or owner/repo/path.\n\
                 - fetch_page: get readable text of any URL over plain HTTP.\n\
                 - render_page: get readable text of a URL via a headless browser (JS).\n\
@@ -534,7 +573,7 @@ impl ServerHandler for Lodestone {
                 Each configured provider also has a direct tool named <kind>_<id> \
                 (e.g. web_mojeek, code_github, qa_stackoverflow) to target one source. \
                 StackOverflow adds qa_stackoverflow_answers to read a question's top answers (with code).\n\n\
-                Typical flow: search (web_search/code_search/qa_search) → then retrieve \
+                Typical flow: search (web_search/code_search/docs_search/qa_search) → then retrieve \
                 (fetch_repo_file / fetch_page / render_page / qa_stackoverflow_answers) on the best hit."
                     .to_string(),
             )
@@ -572,6 +611,17 @@ fn format_code(query: &str, engine: &str, hits: &[SearchResult]) -> String {
         }
         if let Some(meta) = &h.meta {
             out.push_str(&format!("   [{meta}]\n"));
+        }
+    }
+    out
+}
+
+fn format_docs(query: &str, engine: &str, hits: &[SearchResult]) -> String {
+    let mut out = format!("Documentation results for \"{query}\" (via {engine}):\n");
+    for (i, h) in hits.iter().enumerate() {
+        out.push_str(&format!("\n{}. {}\n   {}\n", i + 1, h.title, h.url));
+        if !h.snippet.is_empty() {
+            out.push_str(&format!("   {}\n", h.snippet));
         }
     }
     out
@@ -686,6 +736,7 @@ fn provider_call<'a>(
         let text = match kind {
             ProviderKind::Web => format_web(&q.text, id, &hits),
             ProviderKind::Code => format_code(&q.text, id, &hits),
+            ProviderKind::Docs => format_docs(&q.text, id, &hits),
             ProviderKind::Qa => {
                 let site = q.site.as_deref().unwrap_or("stackoverflow");
                 format_qa(&q.text, site, &hits)

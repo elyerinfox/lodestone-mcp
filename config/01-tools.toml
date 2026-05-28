@@ -5,8 +5,8 @@
 # Each tool is independent. Filtering applies to BOTH tools/list and dispatch
 # (a hidden tool returns "tool not found").
 #
-# General tools: web_search, code_search, qa_search, fetch_page, render_page,
-#        fetch_repo_file, wayback_fetch, list_providers, hive_status
+# General tools: web_search, code_search, docs_search, qa_search, fetch_page,
+#        render_page, fetch_repo_file, wayback_fetch, list_providers, hive_status
 # Per-provider tools: one per configured provider, named <kind>_<id>
 #        (e.g. web_mojeek, code_github, qa_stackoverflow). Auto-generated from
 #        02-search.toml; filter them here by those names just like any tool.

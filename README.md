@@ -51,6 +51,13 @@ Design principles:
 4. **Parallelize — always.** Independent work runs concurrently; aggregate
    sourcing spawns each provider on its own task across the multi-threaded
    runtime, and no path blocks the runtime with sync I/O.
+5. **Everything is enable/disable-able.** Every capability has an explicit
+   off switch: tools via `[tools]` (allow/deny), each provider via its
+   `[providers].<kind>` list and its per-provider tool gate, and subsystems via
+   their own flag (`[cache].enabled`, `[network].enabled`, `[network].mdns`, …).
+6. **Every provider is documented.** A new provider ships with a per-provider page
+   under `docs/providers/`, an index row in `docs/providers.md`, and a README
+   table row — so an end user can understand and enable it without reading code.
 
 ---
 
@@ -67,6 +74,7 @@ arguments.
 | --- | --- | --- |
 | `web_search` | `query`, `max_results?`, `render?` | General web search (DuckDuckGo, Mojeek, …). |
 | `code_search` | `query`, `language?`, `max_results?`, `render?` | Source-code search across the configured forges (`[code].sites`). |
+| `docs_search` | `query`, `max_results?` | Documentation & package registries (crates.io, npm, MDN). Keyless JSON APIs. |
 | `qa_search` | `query`, `site?`, `max_results?`, `render?` | The configured Q&A providers (StackExchange network: StackOverflow, Server Fault, …). |
 
 **Retrieve** — fetch one known thing.
@@ -306,6 +314,9 @@ Detailed per-provider reference: [docs/providers.md](docs/providers.md).
 | code | `github` | Composite: keyless GitHub web scrape by default; uses the authenticated API when a token is set. |
 | code | `gitlab` / `codeberg` / `gitea` | Keyless per-forge code search — one file per forge sharing an abstract `ForgeCodeProvider` (declarative `ForgeSpec`: domain + blob-URL parser). |
 | qa | `stackoverflow` | StackExchange API (keyless; optional key raises quota). With `render=true`, scrapes stackoverflow.com via headless browser instead. |
+| docs | `cratesio` | Rust crate index — keyless `crates.io` JSON search. |
+| docs | `npm` | Node package index — keyless `registry.npmjs.org` JSON search. |
+| docs | `mdn` | MDN Web Docs reference — keyless JSON search. |
 
 **Self-hosted forges.** Register private GitLab/Gitea instances under `[forges]`
 (see `config/04-forges.toml`): each `[forges.<id>] kind = "gitlab"|"gitea",

@@ -30,6 +30,8 @@ pub enum ProviderKind {
     Code,
     /// Question/answer sites (e.g. StackExchange network).
     Qa,
+    /// Documentation & package registries (crates.io, npm, MDN, …).
+    Docs,
 }
 
 impl ProviderKind {
@@ -38,6 +40,7 @@ impl ProviderKind {
             ProviderKind::Web => "web",
             ProviderKind::Code => "code",
             ProviderKind::Qa => "qa",
+            ProviderKind::Docs => "docs",
         }
     }
 }
@@ -172,9 +175,11 @@ pub struct Registry {
     web: Vec<Arc<dyn SearchProvider>>,
     code: Vec<Arc<dyn SearchProvider>>,
     qa: Vec<Arc<dyn SearchProvider>>,
+    docs: Vec<Arc<dyn SearchProvider>>,
     plan_web: KindPlan,
     plan_code: KindPlan,
     plan_qa: KindPlan,
+    plan_docs: KindPlan,
     cache: Option<Arc<TtlCache>>,
     hive: Option<Arc<Hive>>,
     /// Per-engine quality weights for the composite ranker (default 1.0).
@@ -212,9 +217,11 @@ impl Registry {
             web: build(ProviderKind::Web, &cfg.providers.web, cfg),
             code: build(ProviderKind::Code, &cfg.providers.code, cfg),
             qa: build(ProviderKind::Qa, &cfg.providers.qa, cfg),
+            docs: build(ProviderKind::Docs, &cfg.providers.docs, cfg),
             plan_web: plan(&cfg.search.web),
             plan_code: plan(&cfg.search.code),
             plan_qa: plan(&cfg.search.qa),
+            plan_docs: plan(&cfg.search.docs),
             cache,
             hive,
             weights: cfg.search.engine_weights.clone(),
@@ -236,6 +243,7 @@ impl Registry {
             ProviderKind::Web => &self.web,
             ProviderKind::Code => &self.code,
             ProviderKind::Qa => &self.qa,
+            ProviderKind::Docs => &self.docs,
         }
     }
 
@@ -244,16 +252,22 @@ impl Registry {
             ProviderKind::Web => self.plan_web,
             ProviderKind::Code => self.plan_code,
             ProviderKind::Qa => self.plan_qa,
+            ProviderKind::Docs => self.plan_docs,
         }
     }
 
     /// Every configured provider as `(kind, id)` — used to expose one direct
     /// tool per provider.
     pub fn list(&self) -> Vec<(ProviderKind, &'static str)> {
-        [ProviderKind::Web, ProviderKind::Code, ProviderKind::Qa]
-            .into_iter()
-            .flat_map(|kind| self.chain(kind).iter().map(move |p| (kind, p.id())))
-            .collect()
+        [
+            ProviderKind::Web,
+            ProviderKind::Code,
+            ProviderKind::Qa,
+            ProviderKind::Docs,
+        ]
+        .into_iter()
+        .flat_map(|kind| self.chain(kind).iter().map(move |p| (kind, p.id())))
+        .collect()
     }
 
     /// Run a single named provider directly (no chain/strategy). Returns its
@@ -469,10 +483,11 @@ impl Registry {
             format!("{:>4}: {value}  [{how}]", kind.as_str())
         };
         format!(
-            "Active providers:\n{}\n{}\n{}",
+            "Active providers:\n{}\n{}\n{}\n{}",
             line(ProviderKind::Web),
             line(ProviderKind::Code),
             line(ProviderKind::Qa),
+            line(ProviderKind::Docs),
         )
     }
 }

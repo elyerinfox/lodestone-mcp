@@ -27,6 +27,15 @@ that breaks one is wrong by definition.
    the multi-threaded runtime; any new multi-source or I/O-bound path must
    overlap its work (`tokio::spawn` / `join`) and must never block the runtime
    with sync I/O or long CPU work on the async threads.
+5. **Everything is enable/disable-able.** Every capability ships with an explicit
+   off switch. Tools are gated by `[tools]` (allow/deny). Each provider is gated
+   by membership in its `[providers].<kind>` list and by its per-provider tool.
+   Any new subsystem must add its own flag (e.g. `[cache].enabled`,
+   `[network].enabled`, `[network].mdns`) — no capability is always-on-only.
+6. **Every provider is documented.** A provider is not done until an end user can
+   understand and enable it without reading the source: a per-provider page under
+   `docs/providers/`, an index row in `docs/providers.md`, and a README table row
+   (see the contribution checklist below).
 
 ## Architecture at a glance
 
@@ -45,6 +54,8 @@ src/
                  duckduckgo, mojeek, google.
     forge/       Spec-driven code forges (ForgeCodeProvider + ForgeSpec, and the
                  shared `forge::search`): gitlab, codeberg, gitea.
+    registry/    Spec-driven doc/package registries (RegistryProvider +
+                 RegistrySpec, JSON APIs, `docs` kind): cratesio, npm, mdn.
     composite/   Multi-mode providers that dispatch (and reuse a family):
                  github (scrape↔API), stackexchange (API↔render).
     bespoke/     Unique transport/parse providers: grep_app (JSON), medium (RSS),
@@ -126,6 +137,7 @@ source a tiny file that just declares its spec:
 | --- | --- | --- | --- |
 | `engine/` (web search) | `HtmlEngineProvider` | `EngineSpec` — url, `Method` (GET/POST/Browser), `Extract` (two CSS selectors *or* a custom fn), code-scope, extra params | duckduckgo, mojeek, google |
 | `forge/` (code forges) | `ForgeCodeProvider` / `forge::search` | `ForgeSpec` — id, domain, blob-URL → `(repo, path)` parser | gitlab, codeberg, gitea (GitHub reuses `forge::search` — see below) |
+| `registry/` (doc/package registries, `docs` kind) | `RegistryProvider` | `RegistrySpec` — url, query/size params, results JSON pointer, item map (name/description/url field-or-template/version pointers) | cratesio, npm, mdn |
 
 Google is an engine too — it just declares `Method::Browser` (always render via
 headless Chrome) and an `Extract::Custom` parser for its messy markup, instead

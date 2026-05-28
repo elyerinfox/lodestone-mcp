@@ -50,9 +50,9 @@ pub struct ForgeInstance {
 #[serde(default)]
 pub struct Tools {
     /// Allowlist of tools (skills) to expose. Empty = expose all. Names:
-    /// web_search, code_search, qa_search, fetch_page, render_page,
+    /// web_search, code_search, docs_search, qa_search, fetch_page, render_page,
     /// fetch_repo_file, wayback_fetch, list_providers, hive_status. Plus
-    /// per-provider <kind>_<id> tools (e.g. qa_stackoverflow, qa_stackoverflow_answers).
+    /// per-provider <kind>_<id> tools (e.g. docs_cratesio, qa_stackoverflow_answers).
     pub enabled: Vec<String>,
     /// Denylist applied after `enabled`; these tools are never exposed.
     pub disabled: Vec<String>,
@@ -83,6 +83,7 @@ pub struct Search {
     pub web: KindSearch,
     pub code: KindSearch,
     pub qa: KindSearch,
+    pub docs: KindSearch,
 }
 
 /// Per-kind override of the search strategy/ranking. An empty string means
@@ -221,6 +222,8 @@ pub struct Providers {
     pub code: Vec<String>,
     /// Ordered Q&A providers. Known: stackoverflow (alias: stackexchange).
     pub qa: Vec<String>,
+    /// Ordered documentation/package-registry providers. Known: cratesio, npm, mdn.
+    pub docs: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -279,6 +282,7 @@ impl Default for Search {
             web: KindSearch::default(),
             code: KindSearch::default(),
             qa: KindSearch::default(),
+            docs: KindSearch::default(),
         }
     }
 }
@@ -289,6 +293,7 @@ impl Default for Providers {
             web: vec!["duckduckgo".into(), "mojeek".into()],
             code: vec!["grep_app".into(), "duckduckgo".into(), "mojeek".into()],
             qa: vec!["stackoverflow".into()],
+            docs: vec!["cratesio".into(), "npm".into(), "mdn".into()],
         }
     }
 }
@@ -345,6 +350,9 @@ impl Config {
         }
         if let Some(list) = env_list("LODESTONE_QA_PROVIDERS") {
             self.providers.qa = list;
+        }
+        if let Some(list) = env_list("LODESTONE_DOCS_PROVIDERS") {
+            self.providers.docs = list;
         }
         if let Ok(site) = std::env::var("LODESTONE_STACKEXCHANGE_SITE") {
             self.stackexchange.default_site = site;

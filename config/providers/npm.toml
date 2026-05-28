@@ -1,0 +1,8 @@
+# -----------------------------------------------------------------------------
+# Provider: npm  (kind: docs)
+# -----------------------------------------------------------------------------
+# Node package index. Keyless JSON search of registry.npmjs.org/-/v1/search?text=.
+# No tunables. Powers docs_search and the per-provider docs_npm tool.
+#
+# Enable/disable in ../02-search.toml (the docs list).
+# -----------------------------------------------------------------------------
