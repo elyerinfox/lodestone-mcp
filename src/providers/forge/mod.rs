@@ -54,6 +54,36 @@ pub(super) fn make(id: &str) -> Option<ForgeCodeProvider> {
     Some(ForgeCodeProvider { spec })
 }
 
+/// Build a provider for a user-configured self-hosted forge. `kind` selects the
+/// blob-URL layout ("gitlab", or "gitea"/"codeberg"); `domain` is the host to
+/// scope the search to. The id/domain/spec are leaked to `'static` (config
+/// forges live for the whole process), reusing the existing layout parsers —
+/// which are host-agnostic regexes, so they work for any domain.
+pub(super) fn make_configured(id: &str, kind: &str, domain: &str) -> Option<ForgeCodeProvider> {
+    if id.is_empty() || domain.is_empty() {
+        tracing::warn!(id, "configured forge missing a domain; skipping");
+        return None;
+    }
+    let repo_path = match kind.trim().to_ascii_lowercase().as_str() {
+        "gitlab" => gitlab::SPEC.repo_path,
+        "gitea" | "codeberg" => gitea::SPEC.repo_path,
+        other => {
+            tracing::warn!(
+                id,
+                kind = other,
+                "unknown forge kind (use \"gitlab\" or \"gitea\"); skipping"
+            );
+            return None;
+        }
+    };
+    let spec: &'static ForgeSpec = Box::leak(Box::new(ForgeSpec {
+        id: Box::leak(id.to_string().into_boxed_str()),
+        domain: Box::leak(domain.to_string().into_boxed_str()),
+        repo_path,
+    }));
+    Some(ForgeCodeProvider { spec })
+}
+
 /// Shared site-scoped code search for one forge. Scrape-first (DuckDuckGo, then
 /// Mojeek); `render` is honored only when the caller requested it.
 pub(super) async fn search(
@@ -150,5 +180,28 @@ mod tests {
         assert_eq!(path, "README.md");
 
         assert!(super::repo_path("https://example.com/not/a/forge/page").is_none());
+    }
+
+    #[test]
+    fn configured_forge_uses_layout_and_domain() {
+        // Gitea layout on a self-hosted host.
+        let p = super::make_configured("myhost", "gitea", "git.example.com").unwrap();
+        assert_eq!(p.spec.id, "myhost");
+        assert_eq!(p.spec.domain, "git.example.com");
+        let (repo, path) =
+            (p.spec.repo_path)("https://git.example.com/o/r/src/branch/main/a.rs").unwrap();
+        assert_eq!(repo, "o/r");
+        assert_eq!(path, "a.rs");
+
+        // GitLab layout maps to the /-/blob/ parser.
+        let g = super::make_configured("priv-gl", "gitlab", "gl.example.com").unwrap();
+        let (repo, path) =
+            (g.spec.repo_path)("https://gl.example.com/grp/proj/-/blob/main/x.rs").unwrap();
+        assert_eq!(repo, "grp/proj");
+        assert_eq!(path, "x.rs");
+
+        // Unknown kind / missing domain are rejected.
+        assert!(super::make_configured("x", "svn", "h.example.com").is_none());
+        assert!(super::make_configured("x", "gitea", "").is_none());
     }
 }

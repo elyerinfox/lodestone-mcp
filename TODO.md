@@ -42,14 +42,11 @@ likely involved). Checked items are done; unchecked are open.
   resolved into a per-kind `KindPlan` threaded through `Registry::search`/
   `describe` in `src/provider.rs`.
 
-- [ ] **Configurable self-hosted forge instances.**
-  - **Why:** The `gitlab`/`codeberg`/`gitea` providers hardcode public domains;
-    teams run private GitLab/Gitea hosts.
-  - **How:** Let a forge id map to a configured domain, e.g.
-    `[forges.myhost] kind = "gitea", domain = "git.example.com"`, and build a
-    `ForgeCodeProvider` from it (the abstraction already takes a `ForgeSpec` with
-    a domain + URL parser; Gitea/GitLab parsers are layout-based, not
-    host-specific).
+- [x] **Configurable self-hosted forge instances.** Done: `[forges.<id>] kind =
+  "gitlab"|"gitea", domain = "…"` (`config/04-forges.toml`) builds a
+  `ForgeCodeProvider` via `forge::make_configured` (leaks id/domain/spec to
+  `'static`, reusing the host-agnostic layout parsers). Activate by adding `<id>`
+  to `[providers].code`; it gets a `code_<id>` tool automatically.
 
 ---
 

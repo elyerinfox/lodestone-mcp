@@ -4,6 +4,8 @@
 //! Precedence (lowest to highest): built-in defaults < `lodestone.toml`
 //! (or `$LODESTONE_CONFIG`) < environment variables.
 
+use std::collections::HashMap;
+
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
@@ -23,6 +25,22 @@ pub struct Config {
     pub stackexchange: StackExchange,
     pub google: Google,
     pub github: Github,
+    /// User-defined self-hosted forges, keyed by provider id. Each entry becomes
+    /// a keyless code provider (and a `code_<id>` tool) once its id is listed in
+    /// `[providers].code`. Example: `[forges.myhost] kind = "gitea", domain =
+    /// "git.example.com"`.
+    pub forges: HashMap<String, ForgeInstance>,
+}
+
+/// A user-configured self-hosted code forge (GitLab or Gitea/Codeberg layout).
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct ForgeInstance {
+    /// URL layout / search behavior: "gitlab", or "gitea" (also covers Codeberg
+    /// and other Gitea instances). Determines how blob URLs are parsed.
+    pub kind: String,
+    /// Host the search is scoped to, e.g. "git.example.com" (no scheme).
+    pub domain: String,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -137,6 +155,7 @@ impl Default for Config {
             stackexchange: StackExchange::default(),
             google: Google::default(),
             github: Github::default(),
+            forges: HashMap::new(),
         }
     }
 }

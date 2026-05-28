@@ -1,0 +1,35 @@
+# =============================================================================
+# config/04-forges.toml — self-hosted code forges
+# =============================================================================
+#
+# Define your own GitLab/Gitea instances as keyless code providers. Each entry is
+# keyed by the provider id you'll use elsewhere. An entry becomes active once its
+# id is added to `[providers].code` in 02-search.toml, and it automatically gets a
+# direct `code_<id>` tool.
+#
+# Like the built-in forges, a configured forge does a keyless, site-scoped web
+# search (DuckDuckGo → Mojeek, render-aware) of its `domain` and parses result
+# URLs into repo/path using the chosen layout. No tokens, no API.
+#
+#   kind   = "gitlab"                # blob-URL layout: "gitlab" (…/-/blob/…)
+#                                    #   or "gitea" (…/src/branch|commit|tag/…),
+#                                    #   which also fits Codeberg & other Gitea.
+#   domain = "git.example.com"       # host to scope the search to (no scheme).
+#
+# Example — uncomment and adjust, then add "myhost" to [providers].code:
+#
+#   [forges.myhost]
+#   kind   = "gitea"
+#   domain = "git.example.com"
+#
+#   [forges.work-gitlab]
+#   kind   = "gitlab"
+#   domain = "gitlab.internal.corp"
+#
+# Tip: to also let the generic web code-search engines cover the host, add its
+# domain to [code].sites in 03-code.toml. To read a result file, fetch_repo_file
+# already handles GitLab `/-/blob/` and Gitea `/src/…` URLs on any host.
+# -----------------------------------------------------------------------------
+
+# (No forges defined by default — keyless GitHub/GitLab/Gitea work out of the box
+# via 02-search.toml. Add [forges.<id>] tables above to register private hosts.)

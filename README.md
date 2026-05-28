@@ -268,6 +268,12 @@ Detailed per-provider reference: [docs/providers.md](docs/providers.md).
 | code | `gitlab` / `codeberg` / `gitea` | Keyless per-forge code search — one file per forge sharing an abstract `ForgeCodeProvider` (declarative `ForgeSpec`: domain + blob-URL parser). |
 | qa | `stackoverflow` | StackExchange API (keyless; optional key raises quota). With `render=true`, scrapes stackoverflow.com via headless browser instead. |
 
+**Self-hosted forges.** Register private GitLab/Gitea instances under `[forges]`
+(see `config/04-forges.toml`): each `[forges.<id>] kind = "gitlab"|"gitea",
+domain = "git.example.com"` becomes a keyless code provider once `<id>` is added
+to `[providers].code`, and gets a `code_<id>` tool. It reuses the same
+site-scoped search + blob-URL parsing as the built-in forges, on your host.
+
 ### Rendering (model-controlled)
 
 `web_search`, `code_search`, `qa_search` (and the per-provider `<kind>_<id>`

@@ -60,6 +60,12 @@ pub fn make(kind: ProviderKind, id: &str, cfg: &Config) -> Option<Box<dyn Search
         (ProviderKind::Qa, "stackoverflow") | (ProviderKind::Qa, "stackexchange") => {
             Some(Box::new(StackExchange::new(cfg.stackexchange.key.clone())))
         }
+        // User-configured self-hosted forge (id defined under [forges]).
+        (ProviderKind::Code, id) if cfg.forges.contains_key(id) => {
+            let inst = &cfg.forges[id];
+            forge::make_configured(id, &inst.kind, &inst.domain)
+                .map(|p| Box::new(p) as Box<dyn SearchProvider>)
+        }
         _ => None,
     }
 }
