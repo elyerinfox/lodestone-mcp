@@ -58,7 +58,8 @@ Design principles:
 | `web_search` | General web search (DuckDuckGo/Mojeek/…). `render` optional. |
 | `code_search` | Source-code search across configured forges. `render` optional. |
 | `github_fetch_file` | Fetch a full file from GitHub via `raw.githubusercontent.com` (URL, raw URL, or `owner/repo/path`; line ranges). |
-| `fetch_page` | Fetch any URL → readable text. Archive fallback; `render` optional. |
+| `fetch_page` | Fetch any URL → readable text over plain HTTP. |
+| `render_page` | Fetch a URL → readable text via a headless browser (runs JS). |
 | `wayback_fetch` | Read a page's archived snapshot from the Wayback Machine. |
 | `stackexchange_search` | Search StackOverflow / StackExchange. |
 | `stackexchange_answers` | Read a question's body and top answers (with code). |
@@ -220,10 +221,11 @@ The aggregate re-ranking is configurable via `[search].ranking`
 
 ### Rendering (model-controlled)
 
-`web_search`, `code_search`, and `fetch_page` accept `render: true`. When set,
-the HTML-scraping providers fetch through a **shared, persistent headless Chrome**
-instead of plain HTTP — useful for JS-heavy pages or to slip past
-rate-limits/bot-walls. It needs a local Chrome/Chromium at runtime, and it's
+`web_search`, `code_search`, and `stackexchange_search` accept `render: true`,
+and `render_page` is the dedicated page-render skill. When used, the work goes
+through a **shared, persistent headless Chrome** instead of plain HTTP — useful
+for JS-heavy pages or to slip past rate-limits/bot-walls. It needs a local
+Chrome/Chromium at runtime, and it's
 slower, so it's left to the model to request per call.
 
 ### Forges (GitLab, Gitea, …)

@@ -78,16 +78,15 @@ struct FetchPageArgs {
     /// Max characters of extracted text to return. Default 8000, capped 40000.
     #[serde(default)]
     max_chars: Option<u32>,
-    /// Read the Wayback Machine's archived copy directly instead of the live
-    /// page. When false (default), the live page is fetched and the archive is
-    /// only used as a fallback if the live fetch fails.
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct RenderPageArgs {
+    /// Absolute URL of the page to render.
+    url: String,
+    /// Max characters of extracted text to return. Default 8000, capped 40000.
     #[serde(default)]
-    use_archive: Option<bool>,
-    /// Render the page in a real headless browser (executes JavaScript) instead
-    /// of a plain HTTP GET. Use for JS-heavy/SPA pages whose content is empty
-    /// otherwise. Needs a local Chrome/Chromium at runtime.
-    #[serde(default)]
-    render: Option<bool>,
+    max_chars: Option<u32>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -247,54 +246,42 @@ impl Lodestone {
     }
 
     #[tool(
-        description = "Fetch a web page and return its readable text content (HTML stripped to \
-        text). Good for reading docs, blog posts and articles found via web_search. Set \
-        render=true to load the page in a real headless browser (runs JavaScript) for SPA/JS-heavy \
-        sites; falls back to the web archive if a live fetch fails."
+        description = "Fetch a web page over plain HTTP and return its readable text (HTML \
+        stripped). The default way to read a page (docs, blogs, articles). If it fails or comes \
+        back empty (JS-heavy/SPA), try `render_page`; for a page that's down/changed/blocked, try \
+        `wayback_fetch`."
     )]
     async fn fetch_page(
         &self,
         Parameters(args): Parameters<FetchPageArgs>,
     ) -> Result<CallToolResult, McpError> {
         let max = clamp(args.max_chars, 8000, 40000);
+        let text = retrieve::fetch_readable(&self.http, &args.url, max)
+            .await
+            .map_err(internal)?;
+        Ok(text_result(format!("Source: {}\n\n{}", args.url, text)))
+    }
 
-        // Explicitly requested a headless-browser render.
-        if args.render.unwrap_or(false) {
-            use crate::browser::PageRenderer;
-            let html = browser::shared_global()
-                .render(&args.url)
-                .await
-                .map_err(internal)?;
-            let text = util::truncate_chars(&util::html_to_text(&html), max);
-            return Ok(text_result(format!(
-                "Source (rendered): {}\n\n{}",
-                args.url, text
-            )));
-        }
-
-        // Explicitly requested the archived copy.
-        if args.use_archive.unwrap_or(false) {
-            let (snapshot, text) = retrieve::wayback_fetch(&self.http, &args.url, None, max)
-                .await
-                .map_err(internal)?;
-            return Ok(text_result(format!(
-                "Source (archived): {snapshot}\n\n{text}"
-            )));
-        }
-
-        // Try the live page; on failure, fall back to the Wayback Machine.
-        match retrieve::fetch_readable(&self.http, &args.url, max).await {
-            Ok(text) => Ok(text_result(format!("Source: {}\n\n{}", args.url, text))),
-            Err(live_err) => {
-                match retrieve::wayback_fetch(&self.http, &args.url, None, max).await {
-                    Ok((snapshot, text)) => Ok(text_result(format!(
-                        "Live fetch failed ({live_err}); served the archived copy instead.\n\
-                     Source (archived): {snapshot}\n\n{text}"
-                    ))),
-                    Err(_) => Err(internal(live_err)),
-                }
-            }
-        }
+    #[tool(
+        description = "Fetch a web page through a real headless browser (executes JavaScript) and \
+        return its readable text. Use for JS-heavy/SPA pages, or when `fetch_page` is empty or \
+        blocked. Slower than fetch_page and needs a local Chrome/Chromium at runtime."
+    )]
+    async fn render_page(
+        &self,
+        Parameters(args): Parameters<RenderPageArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        use crate::browser::PageRenderer;
+        let max = clamp(args.max_chars, 8000, 40000);
+        let html = browser::shared_global()
+            .render(&args.url)
+            .await
+            .map_err(internal)?;
+        let text = util::truncate_chars(&util::html_to_text(&html), max);
+        Ok(text_result(format!(
+            "Source (rendered): {}\n\n{}",
+            args.url, text
+        )))
     }
 
     #[tool(
@@ -496,7 +483,8 @@ impl ServerHandler for Lodestone {
                 - web_search: general web search.\n\
                 - code_search: search source code in public repositories.\n\
                 - github_fetch_file: download a full file from GitHub by URL or owner/repo/path.\n\
-                - fetch_page: get readable text of any URL (falls back to the web archive).\n\
+                - fetch_page: get readable text of any URL over plain HTTP.\n\
+                - render_page: get readable text of a URL via a headless browser (JS).\n\
                 - wayback_fetch: read a page's archived snapshot from the Wayback Machine.\n\
                 - stackexchange_search: find StackOverflow/StackExchange questions.\n\
                 - stackexchange_answers: read a question's top answers (with code).\n\
