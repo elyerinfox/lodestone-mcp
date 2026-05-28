@@ -10,7 +10,7 @@ use reqwest::Client;
 use crate::provider::{ProviderKind, SearchProvider, SearchQuery, SearchResult};
 use crate::util::html_to_text;
 
-pub(super) struct GrepApp;
+pub(crate) struct GrepApp;
 
 #[async_trait]
 impl SearchProvider for GrepApp {

@@ -15,12 +15,12 @@ use reqwest::Client;
 use crate::provider::{ProviderKind, SearchProvider, SearchQuery, SearchResult};
 use crate::util::decode_entities;
 
-pub(super) struct StackExchange {
+pub(crate) struct StackExchange {
     key: String,
 }
 
 impl StackExchange {
-    pub(super) fn new(key: String) -> Self {
+    pub(crate) fn new(key: String) -> Self {
         Self { key }
     }
 

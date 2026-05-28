@@ -20,7 +20,7 @@ static LINK_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)<link>(.*?)<
 static DESC_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?s)<description>(.*?)</description>").unwrap());
 
-pub(super) struct Medium;
+pub(crate) struct Medium;
 
 #[async_trait::async_trait]
 impl SearchProvider for Medium {

@@ -12,8 +12,8 @@ use anyhow::Result;
 use async_trait::async_trait;
 use reqwest::Client;
 
-use super::forge::{self, ForgeSpec};
 use crate::provider::{ProviderKind, SearchProvider, SearchQuery, SearchResult};
+use crate::providers::forge::{self, ForgeSpec};
 use crate::retrieve::github_repo_path;
 use crate::util::collapse_ws;
 
@@ -28,12 +28,12 @@ fn extract(url: &str) -> Option<(String, String)> {
     github_repo_path(url).map(|(repo, _branch, path)| (repo, path))
 }
 
-pub(super) struct Github {
+pub(crate) struct Github {
     token: String,
 }
 
 impl Github {
-    pub(super) fn new(token: String) -> Self {
+    pub(crate) fn new(token: String) -> Self {
         Self { token }
     }
 

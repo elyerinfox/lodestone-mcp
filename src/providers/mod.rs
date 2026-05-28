@@ -1,12 +1,10 @@
 //! Concrete [`SearchProvider`] implementations, one per file, plus the
 //! id → provider factory and helpers shared by the HTML-scraping engines.
 
+mod bespoke;
+mod composite;
 mod engine;
 mod forge;
-mod github;
-mod grep_app;
-mod medium;
-mod stackexchange;
 
 use std::sync::OnceLock;
 
@@ -40,10 +38,8 @@ fn code_sites() -> &'static [String] {
 /// active config. (The same engine, e.g. duckduckgo, behaves differently for
 /// web vs code.)
 pub fn make(kind: ProviderKind, id: &str, cfg: &Config) -> Option<Box<dyn SearchProvider>> {
-    use github::Github;
-    use grep_app::GrepApp;
-    use medium::Medium;
-    use stackexchange::StackExchange;
+    use bespoke::{GrepApp, Medium};
+    use composite::{Github, StackExchange};
 
     match (kind, id) {
         // Spec-driven search engines (web + code), shared via HtmlEngineProvider.

@@ -38,17 +38,16 @@ src/
   provider.rs    The core interface: SearchProvider trait, ProviderKind,
                  Strategy, SearchQuery, SearchResult, and the Registry that
                  combines providers (fallback chain or aggregate meta-search).
-  providers/
+  providers/      Providers, grouped by family (one subfolder per family).
     mod.rs       Provider factory `make()` + shared helpers (scoped queries,
                  result zipping, `finish`, the configurable code-site list).
-    engine/      Spec-driven web/code search engines (HtmlEngineProvider +
-                 EngineSpec): duckduckgo, mojeek, google.
+    engine/      Spec-driven search engines (HtmlEngineProvider + EngineSpec):
+                 duckduckgo, mojeek, google.
     forge/       Spec-driven code forges (ForgeCodeProvider + ForgeSpec, and the
                  shared `forge::search`): gitlab, codeberg, gitea.
-    github.rs                   Composite: forge scrape (default) + GitHub API (token).
-    grep_app.rs                 grep.app JSON code search (bespoke).
-    medium.rs                   Medium tag RSS (bespoke).
-    stackexchange.rs            StackExchange API + render-scrape (composite).
+    composite/   Multi-mode providers that dispatch (and reuse a family):
+                 github (scrape↔API), stackexchange (API↔render).
+    bespoke/     Unique transport/parse providers: grep_app (JSON), medium (RSS).
   browser.rs     PageRenderer trait + a persistent, process-shared
                  ChromiumRenderer. Any provider can render on demand.
   retrieve.rs    Retrieval of one known resource: raw GitHub files, readable
@@ -174,12 +173,18 @@ becomes a `SearchProvider` the registry treats identically (tier 1).
 
 ### Adding a bespoke provider (tier 3)
 
-1. Create `src/providers/<name>.rs` implementing `SearchProvider`. Do all `.await`
-   first to get owned data, then parse **synchronously** (see the invariant
-   below). For HTML scraping, honor `query.render` via `browser::shared_global()`.
-2. Add `mod <name>;` and a `make()` arm in `providers/mod.rs`; run code results
-   through `super::finish(...)` for forge filtering/enrichment.
+1. Create `src/providers/bespoke/<name>.rs` implementing `SearchProvider`. Do all
+   `.await` first to get owned data, then parse **synchronously** (see the
+   invariant below). For HTML scraping, honor `query.render` via
+   `browser::shared_global()`.
+2. In `bespoke/mod.rs` add `mod <name>;` and `pub(crate) use <name>::<Type>;`,
+   then add a `make()` arm in `providers/mod.rs`; run code results through
+   `super::finish(...)` for forge filtering/enrichment.
 3. Add `config/providers/<name>.toml` and document the id.
+
+A **composite** provider (one that dispatches between modes, like `github` or
+`stackexchange`) goes in `src/providers/composite/` the same way — and may reuse
+a family (e.g. `crate::providers::forge::search`) for one of its modes.
 
 ## Invariants & conventions
 

@@ -24,105 +24,98 @@ how to add one) see [CONTRIBUTING.md](../CONTRIBUTING.md).
 - **Keyless** (golden rule). Everything works without accounts/keys; the only
   credentials are *optional* (a GitHub token, a StackExchange key).
 
-Config lives in granular per-provider files under `config/providers/`; see
-[`config.example`-style files](../config/) and the README for the full schema.
+Config lives in granular per-provider files under `config/providers/`; see those
+files and the README for the full schema. Providers below are grouped by
+**family** (matching `src/providers/`), not by kind.
 
 ---
 
-## Web search providers
+## Engine family — spec-driven search (`src/providers/engine/`)
+
+Shared `HtmlEngineProvider` driven by an `EngineSpec`. Each engine serves **both
+`web` and `code`** kinds; in code mode it scopes to the forges in `[code].sites`.
+`render` is honored per call (the model's opt-in).
 
 ### `duckduckgo`
-- **Kinds:** web, code · **Keyless:** yes · **Family:** engine (`EngineSpec`)
-- **How:** Scrapes the `lite.duckduckgo.com` HTML endpoint (POST). Honors the
-  `site:` operator, so in code mode it scopes precisely to `[code].sites`.
-- **Render:** honored (`render=true` loads the same query in the browser, which
-  can slip past rate-limiting).
-- **Caveats:** DuckDuckGo rate-limits aggressively by IP (especially datacenter
-  IPs); pair it with `mojeek` as a fallback.
+- **Keyless:** yes. Scrapes `lite.duckduckgo.com` (POST). Honors `site:`, so code
+  mode scopes precisely.
+- **Caveats:** rate-limits aggressively by IP (esp. datacenter IPs); pair with
+  `mojeek`. `render=true` can slip past the rate-limit.
 
 ### `mojeek`
-- **Kinds:** web, code · **Keyless:** yes · **Family:** engine
-- **How:** Scrapes `www.mojeek.com/search` (GET) — an independent index that is
-  far more tolerant of automation, making it a reliable fallback. It has no
-  `site:` operator, so code mode appends the forge domains as keywords and filters
-  results to them.
-- **Render:** honored.
+- **Keyless:** yes. Scrapes `www.mojeek.com/search` (GET); an independent index,
+  very tolerant of automation — the reliable fallback. No `site:`, so code mode
+  appends the forge domains as keywords and filters results to them.
 
 ### `google`
-- **Kinds:** web, code · **Keyless:** yes (no API key) · **Family:** engine
-- **How:** Drives the shared **headless Chrome** (`Method::Browser`) to load
-  `google.com/search`, with a custom parser for Google's markup. Honors `site:`
-  for code mode.
-- **Requirements:** a local Chrome/Chromium at runtime (the browser is always
-  compiled in; Chrome is only needed when this runs).
-- **Caveats:** the one **always-render** provider (Google has no scrapeable
-  endpoint). CAPTCHA-prone on datacenter IPs; keep `mojeek` in the chain. Not in
-  the default lists — add `"google"` to opt in.
-
-### `medium`
-- **Kinds:** web · **Keyless:** yes · **Family:** bespoke (RSS)
-- **How:** Medium's search is bot-walled, so this treats the query as a Medium
-  **tag** and returns recent articles from `medium.com/feed/tag/<tag>` (RSS).
-- **Caveats:** it surfaces *recent posts for a topic*, not full-text relevance
-  search. Not in the default lists — add `"medium"` to opt in.
+- **Keyless:** yes (no API key). Drives the shared **headless Chrome**
+  (`Method::Browser`) over `google.com/search` with a custom parser; honors
+  `site:` for code mode.
+- **Requirements / caveats:** the one **always-render** provider (Google has no
+  scrapeable endpoint); needs a local Chrome at runtime, CAPTCHA-prone on
+  datacenter IPs. Not in the default lists — add `"google"` to opt in.
 
 ---
 
-## Code search providers
+## Forge family — spec-driven code search (`src/providers/forge/`)
 
-### `github`
-- **Kind:** code · **Keyless:** yes (token optional) · **Family:** composite
-- **How:** Two modes chosen at runtime:
-  - **default (keyless):** a site-scoped web scrape of `github.com` (reuses the
-    shared `forge::search` — DuckDuckGo → Mojeek, render-aware).
-  - **token set:** GitHub's authenticated code-search API
-    (`api.github.com/search/code`), which returns matched code fragments as
-    snippets. GitHub no longer allows *unauthenticated* API code search, so the
-    API path needs a token; the scrape path never does.
-- **Config:** `config/providers/github.toml` → `[github].token` (or
-  `GITHUB_TOKEN` / `LODESTONE_GITHUB_TOKEN`). A classic PAT with `public_repo`,
-  or a fine-grained PAT with read-only Contents.
+Shared `ForgeCodeProvider` / `forge::search` driven by a `ForgeSpec`: a keyless,
+site-scoped web search of one forge (DuckDuckGo → Mojeek, render-aware) with that
+forge's blob-URL layout parsed into `(repo, path)`. Kind: **code**.
 
 ### `gitlab` · `codeberg` · `gitea`
-- **Kind:** code · **Keyless:** yes · **Family:** forge (`ForgeSpec`)
-- **How:** Each is a site-scoped web search of its domain (`gitlab.com`,
-  `codeberg.org`, `gitea.com`) via the shared `forge::search`, parsing that
-  forge's blob-URL layout into `(repo, path)`. Render-aware.
+- **Keyless:** yes. Search `gitlab.com`, `codeberg.org`, and `gitea.com`
+  respectively.
 - **Caveats:** results depend on the search engines indexing those forges (often
-  thinner than GitHub). Not in the default lists — add them to opt in. Reading a
-  result file works via `fetch_repo_file` (handles GitLab/Gitea blob URLs).
-
-### `grep_app`
-- **Kind:** code · **Keyless:** yes · **Family:** bespoke (JSON API)
-- **How:** Queries grep.app's JSON code-search endpoint and builds GitHub blob
-  URLs from the hits.
-- **Caveats:** grep.app is frequently behind a bot-challenge that returns HTML
-  instead of JSON; when that happens it yields nothing and the chain falls
-  through.
-
-### `duckduckgo` / `mojeek` / `google` (code mode)
-The web engines above also serve `code` kind: they run a `site:`-scoped (or
-keyword-scoped, for Mojeek) search over `[code].sites` and parse GitHub/GitLab/
-Gitea result URLs into `(repo, path)`. This is the keyless default for GitHub
-code search when no `github` token is set.
+  thinner than GitHub). Not in the default lists — add them to opt in. Read a
+  result file with `fetch_repo_file` (handles GitLab/Gitea blob URLs).
 
 ---
 
-## Q&A providers
+## Composite providers — multi-mode (`src/providers/composite/`)
 
-### `stackoverflow` (alias `stackexchange`)
-- **Kind:** qa · **Keyless:** yes (key optional) · **Family:** composite
-- **How:** Two modes:
-  - **default:** the keyless StackExchange public API
-    (`api.stackexchange.com`). An optional key raises the per-IP quota.
+Bespoke shells that pick a mode at runtime, reusing a family for one of them.
+
+### `github` (kind: code)
+- **Keyless:** yes (token optional). Two modes:
+  - **default (keyless):** site-scoped web scrape of `github.com`, reusing
+    `forge::search` (DuckDuckGo → Mojeek, render-aware).
+  - **token set:** GitHub's authenticated code-search API
+    (`api.github.com/search/code`), returning matched code fragments as snippets.
+    GitHub dropped *unauthenticated* API code search, so the API path needs a
+    token; the scrape path never does.
+- **Config:** `config/providers/github.toml` → `[github].token` (or
+  `GITHUB_TOKEN` / `LODESTONE_GITHUB_TOKEN`).
+
+### `stackoverflow` (alias `stackexchange`, kind: qa)
+- **Keyless:** yes (key optional). Two modes:
+  - **default:** the keyless StackExchange API (`api.stackexchange.com`); an
+    optional key raises the per-IP quota.
   - **`render=true`:** scrapes `stackoverflow.com/search` via the headless
-    browser (no quota); applies to the `stackoverflow` site only.
+    browser (no quota); `stackoverflow` site only.
 - **Config:** `config/providers/stackexchange.toml` →
-  - `default_site` — the site slug used when a call doesn't specify one
-    (`stackoverflow`, `serverfault`, `superuser`, `askubuntu`, `unix`, …; the
-    `api_site_parameter` from <https://api.stackexchange.com/2.3/sites>).
+  - `default_site` — site slug used when a call omits one (`stackoverflow`,
+    `serverfault`, `superuser`, `askubuntu`, `unix`, …; the `api_site_parameter`
+    from <https://api.stackexchange.com/2.3/sites>).
   - `key` — optional API key (raises quota; not a login). Prefer
     `LODESTONE_STACKEXCHANGE_KEY`.
   - `allowed_sites` — guardrail allowlist of site slugs (empty = any).
-- **Related tool:** `stackexchange_answers` reads a question's body and top
-  answers (always via the API; honors the same `default_site`/key/allowlist).
+- **Related tool:** `stackexchange_answers` reads a question's body + top answers
+  (always via the API; honors the same `default_site`/key/allowlist).
+
+---
+
+## Bespoke providers — unique transport/parse (`src/providers/bespoke/`)
+
+### `grep_app` (kind: code)
+- **Keyless:** yes. Queries grep.app's JSON code-search endpoint and builds GitHub
+  blob URLs from the hits.
+- **Caveats:** frequently behind a bot-challenge that returns HTML instead of
+  JSON; when that happens it yields nothing and the chain falls through.
+
+### `medium` (kind: web)
+- **Keyless:** yes. Medium's search is bot-walled, so this treats the query as a
+  Medium **tag** and returns recent articles from `medium.com/feed/tag/<tag>`
+  (RSS).
+- **Caveats:** surfaces *recent posts for a topic*, not full-text relevance
+  search. Not in the default lists — add `"medium"` to opt in.
