@@ -47,8 +47,14 @@ fn parse(text: &str, max: usize) -> Vec<SearchResult> {
     };
     let mut out = Vec::new();
     for h in hits {
-        let repo = h.pointer("/repo/raw").and_then(|x| x.as_str()).unwrap_or("");
-        let path = h.pointer("/path/raw").and_then(|x| x.as_str()).unwrap_or("");
+        let repo = h
+            .pointer("/repo/raw")
+            .and_then(|x| x.as_str())
+            .unwrap_or("");
+        let path = h
+            .pointer("/path/raw")
+            .and_then(|x| x.as_str())
+            .unwrap_or("");
         let branch = h
             .pointer("/branch/raw")
             .and_then(|x| x.as_str())

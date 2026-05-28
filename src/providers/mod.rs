@@ -3,13 +3,12 @@
 
 mod duckduckgo;
 mod github_api;
-mod grep_app;
-mod mojeek;
-mod stackexchange;
 #[cfg(feature = "google")]
 mod google;
-#[cfg(feature = "browser")]
-mod stackoverflow_scrape;
+mod grep_app;
+mod medium;
+mod mojeek;
+mod stackexchange;
 
 use std::sync::{LazyLock, OnceLock};
 
@@ -50,12 +49,14 @@ pub fn make(kind: ProviderKind, id: &str, cfg: &Config) -> Option<Box<dyn Search
     use duckduckgo::DuckDuckGo;
     use github_api::GithubApi;
     use grep_app::GrepApp;
+    use medium::Medium;
     use mojeek::Mojeek;
     use stackexchange::StackExchange;
 
     match (kind, id) {
         (ProviderKind::Web, "duckduckgo") => Some(Box::new(DuckDuckGo { kind })),
         (ProviderKind::Web, "mojeek") => Some(Box::new(Mojeek { kind })),
+        (ProviderKind::Web, "medium") => Some(Box::new(Medium)),
         (ProviderKind::Code, "grep_app") => Some(Box::new(GrepApp)),
         (ProviderKind::Code, "duckduckgo") => Some(Box::new(DuckDuckGo { kind })),
         (ProviderKind::Code, "mojeek") => Some(Box::new(Mojeek { kind })),
@@ -71,15 +72,11 @@ pub fn make(kind: ProviderKind, id: &str, cfg: &Config) -> Option<Box<dyn Search
             }
         }
         (ProviderKind::Qa, "stackoverflow") | (ProviderKind::Qa, "stackexchange") => {
-            Some(Box::new(StackExchange))
+            Some(Box::new(StackExchange::new(cfg.stackexchange.key.clone())))
         }
         #[cfg(feature = "google")]
         (ProviderKind::Web, "google") | (ProviderKind::Code, "google") => {
             Some(Box::new(google::Google::new(kind)))
-        }
-        #[cfg(feature = "browser")]
-        (ProviderKind::Qa, "stackoverflow_scrape") => {
-            Some(Box::new(stackoverflow_scrape::StackOverflowScrape::new()))
         }
         _ => None,
     }

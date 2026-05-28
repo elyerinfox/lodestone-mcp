@@ -28,7 +28,12 @@ impl Google {
         let num = limit.clamp(1, 20).to_string();
         let url = Url::parse_with_params(
             "https://www.google.com/search",
-            &[("q", query), ("num", num.as_str()), ("hl", "en"), ("gl", "us")],
+            &[
+                ("q", query),
+                ("num", num.as_str()),
+                ("hl", "en"),
+                ("gl", "us"),
+            ],
         )?;
         crate::browser::shared_global().render(url.as_str()).await
     }

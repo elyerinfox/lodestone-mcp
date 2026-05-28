@@ -138,8 +138,10 @@ token = ""               # enables the authenticated `github` code provider
 
 Env overrides include `LODESTONE_BIND`, `LODESTONE_SEARCH_STRATEGY`,
 `LODESTONE_WEB_PROVIDERS`, `LODESTONE_CODE_PROVIDERS`, `LODESTONE_QA_PROVIDERS`,
-`LODESTONE_CODE_SITES`, `LODESTONE_CHROME_PATH`, `LODESTONE_CHROME_NO_SANDBOX`,
-`LODESTONE_CHROME_ARGS`, and `LODESTONE_GITHUB_TOKEN` / `GITHUB_TOKEN`.
+`LODESTONE_CODE_SITES`, `LODESTONE_STACKEXCHANGE_SITE`,
+`LODESTONE_STACKEXCHANGE_KEY`, `LODESTONE_STACKEXCHANGE_ALLOWED_SITES`,
+`LODESTONE_CHROME_PATH`, `LODESTONE_CHROME_NO_SANDBOX`, `LODESTONE_CHROME_ARGS`,
+and `LODESTONE_GITHUB_TOKEN` / `GITHUB_TOKEN`.
 
 ### Strategies
 
@@ -155,12 +157,12 @@ Env overrides include `LODESTONE_BIND`, `LODESTONE_SEARCH_STRATEGY`,
 | --- | --- | --- |
 | web | `duckduckgo` | DuckDuckGo lite scrape. Rate-limits by IP. |
 | web | `mojeek` | Independent index; tolerant of automation. |
+| web | `medium` | Recent Medium articles for the query (treated as a tag) via RSS. |
 | web/code | `google` | Headless Chrome. Needs `--features google` + Chrome. |
 | code | `grep_app` | grep.app JSON API (often bot-walled → empty). |
 | code | `duckduckgo` / `mojeek` | `site:`-scoped to `[code].sites`. |
 | code | `github` | Authenticated GitHub code-search API. Needs a token. |
-| qa | `stackoverflow` | Keyless StackExchange API (~300 req/day per IP). |
-| qa | `stackoverflow_scrape` | Scrapes SO via headless browser. Needs `--features browser`. |
+| qa | `stackoverflow` | StackExchange API (keyless; optional key raises quota). With `render=true`, scrapes stackoverflow.com via headless browser instead. |
 
 ### Rendering (model-controlled)
 

@@ -22,8 +22,7 @@ use std::time::Duration;
 use rmcp::{
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
     model::*,
-    schemars,
-    tool, tool_handler, tool_router,
+    schemars, tool, tool_handler, tool_router,
     transport::streamable_http_server::{
         session::local::LocalSessionManager, StreamableHttpServerConfig, StreamableHttpService,
     },
@@ -130,6 +129,11 @@ struct StackSearchArgs {
     /// Maximum number of results to return. Default 8, capped at 25.
     #[serde(default)]
     max_results: Option<u32>,
+    /// Scrape stackoverflow.com via a headless browser instead of the API
+    /// (avoids the API quota; stackoverflow site only). Requires the
+    /// `browser`/`google` feature; otherwise ignored.
+    #[serde(default)]
+    render: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -153,6 +157,8 @@ struct Lodestone {
     http: reqwest::Client,
     registry: Arc<Registry>,
     default_se_site: Arc<str>,
+    se_key: Arc<str>,
+    se_allowed: Arc<[String]>,
     // Consumed by the `#[tool_handler]` macro for tool dispatch.
     #[allow(dead_code)]
     tool_router: ToolRouter<Lodestone>,
@@ -160,7 +166,12 @@ struct Lodestone {
 
 #[tool_router]
 impl Lodestone {
-    fn new(registry: Arc<Registry>, default_se_site: String) -> Self {
+    fn new(
+        registry: Arc<Registry>,
+        default_se_site: String,
+        se_key: String,
+        se_allowed: Vec<String>,
+    ) -> Self {
         let http = reqwest::Client::builder()
             .user_agent(USER_AGENT)
             .timeout(Duration::from_secs(25))
@@ -170,8 +181,15 @@ impl Lodestone {
             http,
             registry,
             default_se_site: default_se_site.into(),
+            se_key: se_key.into(),
+            se_allowed: se_allowed.into(),
             tool_router: Self::tool_router(),
         }
+    }
+
+    /// Guardrail: is `site` permitted by the configured StackExchange allowlist?
+    fn se_site_allowed(&self, site: &str) -> bool {
+        self.se_allowed.is_empty() || self.se_allowed.iter().any(|s| s == site)
     }
 
     #[tool(
@@ -190,7 +208,10 @@ impl Lodestone {
             limit: clamp(args.max_results, 8, 25),
             render: args.render.unwrap_or(false),
         };
-        let (hits, engine) = self.registry.search(ProviderKind::Web, &self.http, &q).await;
+        let (hits, engine) = self
+            .registry
+            .search(ProviderKind::Web, &self.http, &q)
+            .await;
         if hits.is_empty() {
             return Ok(text_result(format!("No web results for: {}", args.query)));
         }
@@ -214,7 +235,10 @@ impl Lodestone {
             limit: clamp(args.max_results, 10, 25),
             render: args.render.unwrap_or(false),
         };
-        let (hits, engine) = self.registry.search(ProviderKind::Code, &self.http, &q).await;
+        let (hits, engine) = self
+            .registry
+            .search(ProviderKind::Code, &self.http, &q)
+            .await;
         if hits.is_empty() {
             return Ok(text_result(format!("No code results for: {}", args.query)));
         }
@@ -263,19 +287,23 @@ impl Lodestone {
             let (snapshot, text) = retrieve::wayback_fetch(&self.http, &args.url, None, max)
                 .await
                 .map_err(internal)?;
-            return Ok(text_result(format!("Source (archived): {snapshot}\n\n{text}")));
+            return Ok(text_result(format!(
+                "Source (archived): {snapshot}\n\n{text}"
+            )));
         }
 
         // Try the live page; on failure, fall back to the Wayback Machine.
         match retrieve::fetch_readable(&self.http, &args.url, max).await {
             Ok(text) => Ok(text_result(format!("Source: {}\n\n{}", args.url, text))),
-            Err(live_err) => match retrieve::wayback_fetch(&self.http, &args.url, None, max).await {
-                Ok((snapshot, text)) => Ok(text_result(format!(
-                    "Live fetch failed ({live_err}); served the archived copy instead.\n\
+            Err(live_err) => {
+                match retrieve::wayback_fetch(&self.http, &args.url, None, max).await {
+                    Ok((snapshot, text)) => Ok(text_result(format!(
+                        "Live fetch failed ({live_err}); served the archived copy instead.\n\
                      Source (archived): {snapshot}\n\n{text}"
-                ))),
-                Err(_) => Err(internal(live_err)),
-            },
+                    ))),
+                    Err(_) => Err(internal(live_err)),
+                }
+            }
         }
     }
 
@@ -293,14 +321,14 @@ impl Lodestone {
             retrieve::wayback_fetch(&self.http, &args.url, args.timestamp.as_deref(), max)
                 .await
                 .map_err(internal)?;
-        Ok(text_result(format!("Source (archived): {snapshot}\n\n{text}")))
+        Ok(text_result(format!(
+            "Source (archived): {snapshot}\n\n{text}"
+        )))
     }
 
-    #[tool(
-        description = "Retrieve the full contents of a file from GitHub via \
+    #[tool(description = "Retrieve the full contents of a file from GitHub via \
         raw.githubusercontent.com (no token). Accepts a github.com blob URL, a raw URL, or an \
-        `owner/repo/path` shorthand. Optionally restrict to a line range."
-    )]
+        `owner/repo/path` shorthand. Optionally restrict to a line range.")]
     async fn github_fetch_file(
         &self,
         Parameters(args): Parameters<GithubFetchArgs>,
@@ -348,9 +376,10 @@ impl Lodestone {
     }
 
     #[tool(
-        description = "Search the Q&A providers (StackOverflow / StackExchange, keyless). Returns \
-        matching questions with score, answer count and links. Use `stackexchange_answers` to \
-        read the actual answers."
+        description = "Search the Q&A providers (StackOverflow / StackExchange). Returns matching \
+        questions with score, answer count and links. Uses the keyless API by default; set \
+        render=true to scrape stackoverflow.com via a headless browser (no API quota). Use \
+        `stackexchange_answers` to read the actual answers."
     )]
     async fn stackexchange_search(
         &self,
@@ -360,16 +389,24 @@ impl Lodestone {
             .site
             .clone()
             .unwrap_or_else(|| self.default_se_site.to_string());
+        if !self.se_site_allowed(&site) {
+            return Err(invalid(format!(
+                "site '{site}' is not in the configured StackExchange allowlist"
+            )));
+        }
         let q = SearchQuery {
             text: args.query.clone(),
             language: None,
             site: Some(site.clone()),
             limit: clamp(args.max_results, 8, 25),
-            render: false,
+            render: args.render.unwrap_or(false),
         };
         let (hits, _engine) = self.registry.search(ProviderKind::Qa, &self.http, &q).await;
         if hits.is_empty() {
-            return Ok(text_result(format!("No {site} results for: {}", args.query)));
+            return Ok(text_result(format!(
+                "No {site} results for: {}",
+                args.query
+            )));
         }
         Ok(text_result(format_qa(&args.query, &site, &hits)))
     }
@@ -386,12 +423,20 @@ impl Lodestone {
             .site
             .clone()
             .unwrap_or_else(|| self.default_se_site.to_string());
+        if !self.se_site_allowed(&site) {
+            return Err(invalid(format!(
+                "site '{site}' is not in the configured StackExchange allowlist"
+            )));
+        }
         let max = clamp(args.max_answers, 3, 10);
         let qid = retrieve::extract_question_id(&args.question).ok_or_else(|| {
-            invalid(format!("could not find a question id in '{}'", args.question))
+            invalid(format!(
+                "could not find a question id in '{}'",
+                args.question
+            ))
         })?;
 
-        let (q, a) = retrieve::se_answers(&self.http, &qid, &site, max)
+        let (q, a) = retrieve::se_answers(&self.http, &qid, &site, max, &self.se_key)
             .await
             .map_err(internal)?;
 
@@ -595,7 +640,12 @@ async fn main() -> anyhow::Result<()> {
     let registry = Arc::new(Registry::from_config(&cfg));
     tracing::info!("\n{}", registry.describe());
 
-    let server = Lodestone::new(registry, cfg.stackexchange.default_site.clone());
+    let server = Lodestone::new(
+        registry,
+        cfg.stackexchange.default_site.clone(),
+        cfg.stackexchange.key.clone(),
+        cfg.stackexchange.allowed_sites.clone(),
+    );
     let ct = CancellationToken::new();
 
     let service = StreamableHttpService::new(

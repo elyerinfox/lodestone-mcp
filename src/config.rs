@@ -35,7 +35,7 @@ pub struct CodeSearch {
     pub sites: Vec<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 #[serde(default)]
 pub struct Google {
     /// Path to a Chrome/Chromium executable for headless rendering. Empty =
@@ -48,7 +48,7 @@ pub struct Google {
     pub args: Vec<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 #[serde(default)]
 pub struct Github {
     /// Optional GitHub token (classic or fine-grained with read access). When
@@ -74,6 +74,12 @@ pub struct Providers {
 pub struct StackExchange {
     /// Default StackExchange site when a tool call doesn't specify one.
     pub default_site: String,
+    /// Optional API key. Not a login — it just raises the per-IP request quota
+    /// (~300/day keyless → ~10k/day). Prefer the LODESTONE_STACKEXCHANGE_KEY env var.
+    pub key: String,
+    /// Guardrail: if non-empty, only these sites may be searched/read; other
+    /// sites are rejected. Empty means any site is allowed.
+    pub allowed_sites: Vec<String>,
 }
 
 impl Default for Config {
@@ -98,28 +104,10 @@ impl Default for CodeSearch {
     }
 }
 
-impl Default for Github {
-    fn default() -> Self {
-        Self {
-            token: String::new(),
-        }
-    }
-}
-
 impl Default for Search {
     fn default() -> Self {
         Self {
             strategy: "fallback".to_string(),
-        }
-    }
-}
-
-impl Default for Google {
-    fn default() -> Self {
-        Self {
-            chrome_path: String::new(),
-            no_sandbox: false,
-            args: Vec::new(),
         }
     }
 }
@@ -138,6 +126,8 @@ impl Default for StackExchange {
     fn default() -> Self {
         Self {
             default_site: "stackoverflow".to_string(),
+            key: String::new(),
+            allowed_sites: Vec::new(),
         }
     }
 }
@@ -183,6 +173,12 @@ impl Config {
         if let Ok(site) = std::env::var("LODESTONE_STACKEXCHANGE_SITE") {
             self.stackexchange.default_site = site;
         }
+        if let Ok(key) = std::env::var("LODESTONE_STACKEXCHANGE_KEY") {
+            self.stackexchange.key = key;
+        }
+        if let Some(sites) = env_list("LODESTONE_STACKEXCHANGE_ALLOWED_SITES") {
+            self.stackexchange.allowed_sites = sites;
+        }
         if let Ok(strategy) = std::env::var("LODESTONE_SEARCH_STRATEGY") {
             self.search.strategy = strategy;
         }
@@ -199,14 +195,19 @@ impl Config {
             self.google.args = args;
         }
         // Accept the conventional GITHUB_TOKEN as well as our namespaced var.
-        if let Ok(token) = std::env::var("LODESTONE_GITHUB_TOKEN").or_else(|_| std::env::var("GITHUB_TOKEN")) {
+        if let Ok(token) =
+            std::env::var("LODESTONE_GITHUB_TOKEN").or_else(|_| std::env::var("GITHUB_TOKEN"))
+        {
             self.github.token = token;
         }
     }
 }
 
 fn is_truthy(v: &str) -> bool {
-    matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on")
+    matches!(
+        v.trim().to_ascii_lowercase().as_str(),
+        "1" | "true" | "yes" | "on"
+    )
 }
 
 /// Parse a comma-separated env var into a trimmed, non-empty list.

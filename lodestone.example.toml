@@ -23,20 +23,20 @@ strategy = "fallback"
 # In "fallback" mode providers are tried left-to-right (first to return results
 # wins). In "aggregate" mode all of them run and the results are merged.
 [providers]
-# Known web providers:  duckduckgo, mojeek, google*
+# Known web providers:  duckduckgo, mojeek, medium, google*
 web = ["duckduckgo", "mojeek"]
 # Known code providers: grep_app, duckduckgo, mojeek, github**, google*
 code = ["grep_app", "duckduckgo", "mojeek"]
-# Known Q&A providers:  stackoverflow (keyless API), stackoverflow_scrape*
+# Known Q&A providers:  stackoverflow  (keyless API; pass render=true on the call
+#                       to scrape stackoverflow.com via a headless browser*)
 qa = ["stackoverflow"]
-#  * "google" / "stackoverflow_scrape" require building with --features google
-#    (or browser) and a local Chrome/Chromium.
+#  * "google" and qa render=true require building with --features google (or
+#    browser) and a local Chrome/Chromium.
 #  ** "github" requires a token (see [github] below).
 #
 # Examples (uncomment to use):
-# web  = ["google", "duckduckgo", "mojeek"]
+# web  = ["google", "duckduckgo", "mojeek", "medium"]
 # code = ["github", "grep_app", "duckduckgo", "mojeek"]
-# qa   = ["stackoverflow_scrape", "stackoverflow"]
 
 [code]
 # Forge domains that code_search is scoped to (via `site:` on the web
@@ -48,6 +48,12 @@ sites = ["github.com"]
 # Default site for stackexchange_search / stackexchange_answers when a call
 # doesn't specify one (e.g. serverfault, superuser, askubuntu, unix, ...).
 default_site = "stackoverflow"
+# Optional API key — not a login, just raises the per-IP quota (~300/day →
+# ~10k/day). Prefer the LODESTONE_STACKEXCHANGE_KEY env var over committing it.
+key = ""
+# Guardrail: if non-empty, only these sites may be searched/read; any other
+# site is rejected. Empty = allow any site.
+allowed_sites = []
 
 [google]
 # Only used with --features browser/google. Path to Chrome/Chromium; empty =

@@ -203,8 +203,7 @@ fn to_raw_snapshot(url: &str) -> String {
 // StackExchange thread retrieval (keyless public API)
 // ---------------------------------------------------------------------------
 
-static QUESTION_ID_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"/questions/(\d+)").unwrap());
+static QUESTION_ID_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"/questions/(\d+)").unwrap());
 
 pub fn extract_question_id(input: &str) -> Option<String> {
     let t = input.trim();
@@ -214,18 +213,24 @@ pub fn extract_question_id(input: &str) -> Option<String> {
     QUESTION_ID_RE.captures(t).map(|c| c[1].to_string())
 }
 
-/// Fetch `(question_json, answers_json)` for a question id.
+/// Fetch `(question_json, answers_json)` for a question id. An optional API key
+/// (empty = none) raises the per-IP quota.
 pub async fn se_answers(
     client: &Client,
     question_id: &str,
     site: &str,
     max: usize,
+    key: &str,
 ) -> Result<(serde_json::Value, serde_json::Value)> {
+    let mut q_params = vec![("site", site), ("filter", "withbody")];
+    if !key.is_empty() {
+        q_params.push(("key", key));
+    }
     let question = client
         .get(format!(
             "https://api.stackexchange.com/2.3/questions/{question_id}"
         ))
-        .query(&[("site", site), ("filter", "withbody")])
+        .query(&q_params)
         .send()
         .await?
         .error_for_status()?
@@ -233,17 +238,21 @@ pub async fn se_answers(
         .await?;
 
     let pagesize = max.clamp(1, 30).to_string();
+    let mut a_params = vec![
+        ("order", "desc"),
+        ("sort", "votes"),
+        ("site", site),
+        ("filter", "withbody"),
+        ("pagesize", pagesize.as_str()),
+    ];
+    if !key.is_empty() {
+        a_params.push(("key", key));
+    }
     let answers = client
         .get(format!(
             "https://api.stackexchange.com/2.3/questions/{question_id}/answers"
         ))
-        .query(&[
-            ("order", "desc"),
-            ("sort", "votes"),
-            ("site", site),
-            ("filter", "withbody"),
-            ("pagesize", pagesize.as_str()),
-        ])
+        .query(&a_params)
         .send()
         .await?
         .error_for_status()?
