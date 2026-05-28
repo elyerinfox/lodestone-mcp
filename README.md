@@ -113,6 +113,10 @@ Precedence: built-in defaults < `lodestone.toml` (or `$LODESTONE_CONFIG`) < env.
 ```toml
 bind = "127.0.0.1:8000"
 
+[tools]
+enabled = []   # which tools to expose; empty = all
+disabled = []  # applied after `enabled`
+
 [search]
 strategy = "fallback"   # or "aggregate" (merge/re-rank across providers)
 
@@ -142,6 +146,20 @@ Env overrides include `LODESTONE_BIND`, `LODESTONE_SEARCH_STRATEGY`,
 `LODESTONE_STACKEXCHANGE_KEY`, `LODESTONE_STACKEXCHANGE_ALLOWED_SITES`,
 `LODESTONE_CHROME_PATH`, `LODESTONE_CHROME_NO_SANDBOX`, `LODESTONE_CHROME_ARGS`,
 and `LODESTONE_GITHUB_TOKEN` / `GITHUB_TOKEN`.
+
+### Tools (skills)
+
+Each tool is an independent, modular capability. By default all are exposed;
+restrict them with `[tools]` (or `LODESTONE_TOOLS_ENABLED` /
+`LODESTONE_TOOLS_DISABLED`, comma-separated). `enabled` is an allowlist (empty =
+all); `disabled` is applied afterward. Filtering affects both `tools/list` and
+dispatch — a hidden tool returns "tool not found". For example, a
+retrieval-only deployment:
+
+```toml
+[tools]
+enabled = ["fetch_page", "github_fetch_file", "wayback_fetch"]
+```
 
 ### Strategies
 

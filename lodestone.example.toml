@@ -13,6 +13,16 @@
 # Use 0.0.0.0 to accept connections from outside the host (e.g. in Docker).
 bind = "127.0.0.1:8000"
 
+[tools]
+# Granular control over which tools (skills) the server exposes. Each is an
+# independent capability; expose only what you need.
+#   web_search, code_search, fetch_page, github_fetch_file,
+#   stackexchange_search, stackexchange_answers, wayback_fetch, list_providers
+# `enabled` empty = expose all; otherwise only the listed tools. `disabled` is
+# applied afterward. (Env: LODESTONE_TOOLS_ENABLED / LODESTONE_TOOLS_DISABLED.)
+enabled = []
+disabled = []
+
 [search]
 # How the providers of a kind are combined:
 #   "fallback"  - try them in order; first non-empty result set wins (fast).

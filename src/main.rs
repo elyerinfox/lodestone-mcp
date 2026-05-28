@@ -159,8 +159,8 @@ struct Lodestone {
     default_se_site: Arc<str>,
     se_key: Arc<str>,
     se_allowed: Arc<[String]>,
-    // Consumed by the `#[tool_handler]` macro for tool dispatch.
-    #[allow(dead_code)]
+    // The filtered tool router; `#[tool_handler(router = self.tool_router)]`
+    // uses it for both tool listing and dispatch.
     tool_router: ToolRouter<Lodestone>,
 }
 
@@ -171,6 +171,8 @@ impl Lodestone {
         default_se_site: String,
         se_key: String,
         se_allowed: Vec<String>,
+        tools_enabled: &[String],
+        tools_disabled: &[String],
     ) -> Self {
         let http = reqwest::Client::builder()
             .user_agent(USER_AGENT)
@@ -183,7 +185,7 @@ impl Lodestone {
             default_se_site: default_se_site.into(),
             se_key: se_key.into(),
             se_allowed: se_allowed.into(),
-            tool_router: Self::tool_router(),
+            tool_router: build_tool_router(tools_enabled, tools_disabled),
         }
     }
 
@@ -491,7 +493,7 @@ impl Lodestone {
     }
 }
 
-#[tool_handler]
+#[tool_handler(router = self.tool_router)]
 impl ServerHandler for Lodestone {
     fn get_info(&self) -> ServerInfo {
         let mut implementation = Implementation::from_build_env();
@@ -576,6 +578,40 @@ fn format_qa(query: &str, site: &str, hits: &[SearchResult]) -> String {
 // Helpers
 // ---------------------------------------------------------------------------
 
+/// Build the tool router exposing only the configured subset of tools (skills).
+/// `enabled` empty = expose all; `disabled` is applied afterward.
+fn build_tool_router(enabled: &[String], disabled: &[String]) -> ToolRouter<Lodestone> {
+    let mut router = Lodestone::tool_router();
+    let names: Vec<String> = router
+        .list_all()
+        .iter()
+        .map(|t| t.name.to_string())
+        .collect();
+
+    for requested in enabled.iter().chain(disabled.iter()) {
+        if !names.contains(requested) {
+            tracing::warn!(
+                tool = requested.as_str(),
+                "unknown tool name in [tools]; ignoring"
+            );
+        }
+    }
+    for name in &names {
+        let keep = (enabled.is_empty() || enabled.contains(name)) && !disabled.contains(name);
+        if !keep {
+            router.remove_route(name);
+        }
+    }
+    let active = router
+        .list_all()
+        .iter()
+        .map(|t| t.name.to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    tracing::info!("active tools: {active}");
+    router
+}
+
 fn clamp(value: Option<u32>, default: u32, max: u32) -> usize {
     value.unwrap_or(default).clamp(1, max) as usize
 }
@@ -645,6 +681,8 @@ async fn main() -> anyhow::Result<()> {
         cfg.stackexchange.default_site.clone(),
         cfg.stackexchange.key.clone(),
         cfg.stackexchange.allowed_sites.clone(),
+        &cfg.tools.enabled,
+        &cfg.tools.disabled,
     );
     let ct = CancellationToken::new();
 

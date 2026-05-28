@@ -11,12 +11,24 @@ use serde::Deserialize;
 pub struct Config {
     /// `host:port` the HTTP server binds to.
     pub bind: String,
+    pub tools: Tools,
     pub providers: Providers,
     pub search: Search,
     pub code: CodeSearch,
     pub stackexchange: StackExchange,
     pub google: Google,
     pub github: Github,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct Tools {
+    /// Allowlist of tools (skills) to expose. Empty = expose all. Names:
+    /// web_search, code_search, fetch_page, github_fetch_file,
+    /// stackexchange_search, stackexchange_answers, wayback_fetch, list_providers.
+    pub enabled: Vec<String>,
+    /// Denylist applied after `enabled`; these tools are never exposed.
+    pub disabled: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -86,6 +98,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             bind: "127.0.0.1:8000".to_string(),
+            tools: Tools::default(),
             providers: Providers::default(),
             search: Search::default(),
             code: CodeSearch::default(),
@@ -160,6 +173,12 @@ impl Config {
     fn apply_env(&mut self) {
         if let Ok(bind) = std::env::var("LODESTONE_BIND") {
             self.bind = bind;
+        }
+        if let Some(list) = env_list("LODESTONE_TOOLS_ENABLED") {
+            self.tools.enabled = list;
+        }
+        if let Some(list) = env_list("LODESTONE_TOOLS_DISABLED") {
+            self.tools.disabled = list;
         }
         if let Some(list) = env_list("LODESTONE_WEB_PROVIDERS") {
             self.providers.web = list;
