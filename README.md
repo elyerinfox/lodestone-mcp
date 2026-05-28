@@ -56,30 +56,43 @@ Design principles:
 
 ## Tools
 
-| Tool | Purpose |
-| --- | --- |
-| `web_search` | General web search (DuckDuckGo/Mojeek/…). `render` optional. |
-| `code_search` | Source-code search across configured forges. `render` optional. |
-| `fetch_repo_file` | Fetch a full file from GitHub/GitLab/Gitea (blob/raw URL, or GitHub `owner/repo/path`; line ranges). |
-| `fetch_page` | Fetch any URL → readable text over plain HTTP. |
-| `render_page` | Fetch a URL → readable text via a headless browser (runs JS). |
-| `wayback_fetch` | Read a page's archived snapshot from the Wayback Machine. |
-| `stackexchange_search` | Search StackOverflow / StackExchange. |
-| `stackexchange_answers` | Read a question's body and top answers (with code). |
-| `list_providers` | Show the active providers and strategy. |
+Tools come in two tiers — **general** (aggregated, everyday) and **per-provider**
+(target one source). Every tool can be hidden via `[tools]`. `?` marks optional
+arguments.
 
-Typical flow: **search** (`web_search` / `code_search` / `stackexchange_search`)
-→ **retrieve** (`fetch_repo_file` / `fetch_page` / `render_page` /
-`stackexchange_answers`) on the best hit.
+**Search** — query all configured providers of the kind (combined per
+`[search].strategy`). All accept `render` to route through the headless browser.
 
-Tools come in two tiers:
+| Tool | Arguments | Purpose |
+| --- | --- | --- |
+| `web_search` | `query`, `max_results?`, `render?` | General web search (DuckDuckGo, Mojeek, …). |
+| `code_search` | `query`, `language?`, `max_results?`, `render?` | Source-code search across the configured forges (`[code].sites`). |
+| `stackexchange_search` | `query`, `site?`, `max_results?`, `render?` | StackOverflow / StackExchange questions. |
 
-- **General** (above) — the aggregated, everyday tools; each search tool queries
-  all configured providers of its kind (per `[search].strategy`).
-- **Per-provider** — one direct tool per *configured* provider, named
-  `<kind>_<id>` (e.g. `web_mojeek`, `code_github`, `qa_stackoverflow`), to target
-  a single source and bypass the chain/strategy. They're generated from your
-  config and are gateable like any tool via `[tools]`.
+**Retrieve** — fetch one known thing.
+
+| Tool | Arguments | Purpose |
+| --- | --- | --- |
+| `fetch_page` | `url`, `max_chars?` | Page → readable text over plain HTTP (the default reader). |
+| `render_page` | `url`, `max_chars?` | Page → readable text via a headless browser (runs JS). |
+| `fetch_repo_file` | `target`, `start_line?`, `end_line?` | A file from GitHub/GitLab/Gitea — blob/raw URL, or GitHub `owner/repo/path` (a `#L10-L40` fragment works too). |
+| `wayback_fetch` | `url`, `timestamp?`, `max_chars?` | Archived snapshot from the Wayback Machine. |
+| `stackexchange_answers` | `question`, `site?`, `max_answers?` | A question's body + top answers (with code). |
+
+**Meta**
+
+| Tool | Arguments | Purpose |
+| --- | --- | --- |
+| `list_providers` | — | Show the active providers, strategy, and ranking. |
+
+**Per-provider** — one direct tool per *configured* provider, named `<kind>_<id>`
+(e.g. `web_mojeek`, `code_github`, `qa_stackoverflow`), args `query`,
+`max_results?`, `language?`, `site?`, `render?`. Targets a single source,
+bypassing the chain/strategy. Generated from your config and gateable via
+`[tools]`.
+
+Typical flow: **search** → **retrieve** the best hit (`fetch_page` /
+`render_page` / `fetch_repo_file` / `stackexchange_answers`).
 
 ---
 
