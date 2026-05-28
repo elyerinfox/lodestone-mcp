@@ -40,24 +40,16 @@ Design principles:
 
 ## Golden rules (non-negotiable)
 
-1. **Scrape is the default; render is optional and a fallback.** Sources fetch
-   over plain HTTP by default; the headless browser runs only when the model asks
-   for it (a `render` flag, or the `render_page` tool). (The `google` engine is
-   the one exception — it can't be scraped, so it's browser-only and opt-in.)
-2. **The LLM always decides.** `render` is a per-call flag the model controls;
-   the server never enables it on its own.
-3. **Keyless by default.** Credentials (GitHub token, StackExchange key) are
-   optional enhancements over a keyless fallback — never required.
-4. **Parallelize — always.** Independent work runs concurrently; aggregate
-   sourcing spawns each provider on its own task across the multi-threaded
-   runtime, and no path blocks the runtime with sync I/O.
-5. **Everything is enable/disable-able.** Every capability has an explicit
-   off switch: tools via `[tools]` (allow/deny), each provider via its
-   `[providers].<kind>` list and its per-provider tool gate, and subsystems via
-   their own flag (`[cache].enabled`, `[network].enabled`, `[network].mdns`, …).
-6. **Every provider is documented.** A new provider ships with a per-provider page
-   under `docs/providers/`, an index row in `docs/providers.md`, and a README
-   table row — so an end user can understand and enable it without reading code.
+The project's invariants live in one place — [docs/golden-rules.md](docs/golden-rules.md):
+
+1. **Scrape is the default; render is optional** (model-controlled `render` flag).
+2. **The LLM always decides** (rendering and what to retrieve next).
+3. **Keyless by default** (credentials are strictly optional enhancements).
+4. **Parallelize — always** (concurrent sourcing, never block the runtime).
+5. **Everything is enable/disable-able** (tools, providers, and subsystems).
+6. **Every provider is documented** (per-provider page + index + README row).
+
+See [docs/golden-rules.md](docs/golden-rules.md) for the full statement of each.
 
 ---
 

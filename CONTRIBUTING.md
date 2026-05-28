@@ -5,37 +5,18 @@ correct, and how to extend it (the common case: adding a search provider).
 
 ## Golden rules (non-negotiable)
 
-These are project invariants. New code and providers must uphold them; a change
-that breaks one is wrong by definition.
+The project invariants are maintained in one place:
+**[docs/golden-rules.md](docs/golden-rules.md)**. New code and providers must
+uphold all of them; a change that breaks one is wrong by definition. In brief:
 
-1. **Scrape is the default; render is optional and a fallback.** Every source
-   fetches over plain HTTP by default. The headless browser is never the default
-   path — it runs only when the model explicitly asks for it (a `render` flag on
-   a search, or the dedicated `render_page` tool), as its fallback when a plain
-   fetch isn't enough. The server never silently substitutes rendering. (The sole
-   exception is the `google` engine, which has no scrapeable endpoint and is
-   therefore browser-only and strictly opt-in via config.)
-2. **The LLM always decides.** Rendering is a per-call `render` flag the calling
-   model sets; the server never enables it on its own. The model likewise drives
-   what to retrieve next. We expose capabilities and defaults — we don't make the
-   call for it.
-3. **Keyless by default.** No source requires an account or key on the default
-   path. Credentials (a GitHub token, a StackExchange key) are strictly optional
-   enhancements layered over a keyless fallback, never a precondition.
-4. **Parallelize — always.** Independent work must run concurrently, never
-   sequentially. Aggregate search sources every provider on its own task across
-   the multi-threaded runtime; any new multi-source or I/O-bound path must
-   overlap its work (`tokio::spawn` / `join`) and must never block the runtime
-   with sync I/O or long CPU work on the async threads.
-5. **Everything is enable/disable-able.** Every capability ships with an explicit
-   off switch. Tools are gated by `[tools]` (allow/deny). Each provider is gated
-   by membership in its `[providers].<kind>` list and by its per-provider tool.
-   Any new subsystem must add its own flag (e.g. `[cache].enabled`,
-   `[network].enabled`, `[network].mdns`) — no capability is always-on-only.
-6. **Every provider is documented.** A provider is not done until an end user can
-   understand and enable it without reading the source: a per-provider page under
-   `docs/providers/`, an index row in `docs/providers.md`, and a README table row
-   (see the contribution checklist below).
+1. Scrape is the default; render is optional (model-controlled).
+2. The LLM always decides.
+3. Keyless by default (credentials strictly optional).
+4. Parallelize — always.
+5. Everything is enable/disable-able.
+6. Every provider is documented.
+
+Read [docs/golden-rules.md](docs/golden-rules.md) for the full statement of each.
 
 ## Architecture at a glance
 
@@ -232,9 +213,9 @@ tick all of these:
 - [ ] **Index row in [docs/providers.md](docs/providers.md)** under its family,
       linking to the new page.
 - [ ] **README provider + tools tables** rows added.
-- [ ] **Golden rules upheld:** keyless by default (any credential is optional,
-      documented, and has a keyless fallback); scrape-default / render-optional;
-      parallel-friendly; no blocking I/O on the async runtime.
+- [ ] **All [golden rules](docs/golden-rules.md) upheld** — in particular keyless
+      by default, scrape-default / render-optional, enable/disable-able, and
+      documented.
 - [ ] **Stable, snake_case `id`** — it becomes the auto-generated per-provider
       tool name `<kind>_<id>` (e.g. `code_<id>`), so pick it deliberately.
 - [ ] **A fixture-based parse test** where practical (pin the scraper/parser).
