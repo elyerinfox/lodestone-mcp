@@ -24,8 +24,10 @@ its rationale, features, skills (tools), config, and schema/structs. For the
 - **Render** (golden rule: scrape is default). HTML-scraping providers fetch over
   plain HTTP unless the model sets `render=true`, which routes them through the
   shared headless browser. The `google` engine is the one always-render provider.
-- **Keyless** (golden rule). Everything works without accounts/keys; the only
-  credentials are *optional* (a GitHub token, a StackExchange key).
+- **Keyless** (golden rule). Everything works without accounts/keys; credentials
+  are *optional* enhancements, never required (a GitHub token, a StackExchange key,
+  and the keyed `brave` / `google_cse` web engines, which are off unless a key is
+  set).
 
 ### Tools per provider
 
@@ -52,6 +54,18 @@ Shared `HtmlEngineProvider` driven by an `EngineSpec`. Each engine serves **both
 | [`duckduckgo`](providers/duckduckgo.md) | on (web+code) | Keyless `lite.duckduckgo.com`; honors `site:`. Rate-limits by IP. |
 | [`mojeek`](providers/mojeek.md) | on (web+code) | Keyless independent index; tolerant fallback. Keyword-scoped code. |
 | [`google`](providers/google.md) | off | Always-render (headless Chrome); broadest index, CAPTCHA-prone. |
+
+## API engine family — keyed JSON web search (`src/providers/apiengine/`)
+
+Shared `ApiProvider` driven by an `ApiSpec`: a keyed JSON web-search API mapped
+declaratively (auth via header or query param, results pointer, title/url/snippet).
+Kind: **web**. **Optional** (golden rule 3) — each is off unless its key is set and
+never replaces the keyless providers.
+
+| Provider | Default | Notes |
+| --- | --- | --- |
+| [`brave`](providers/brave.md) | off (keyed) | Brave Search API; needs `[brave].key`. |
+| [`google_cse`](providers/google_cse.md) | off (keyed) | Google Programmable Search; needs `[google_cse].key` + `.cx`. |
 
 ## Forge family — spec-driven code search (`src/providers/forge/`)
 

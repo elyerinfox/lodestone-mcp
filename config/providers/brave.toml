@@ -1,0 +1,14 @@
+# -----------------------------------------------------------------------------
+# Provider: brave  (kind: web)  — optional, KEYED
+# -----------------------------------------------------------------------------
+# Brave Search API. Active ONLY when a key is set (golden rule 3: optional, never
+# required). Off by default. To enable: set the key below (or LODESTONE_BRAVE_KEY)
+# and add "brave" to the web list in ../02-search.toml.
+#
+# Get a key at https://brave.com/search/api/ . Prefer the env var so the secret
+# isn't written to a file. The key is never logged or committed.
+# -----------------------------------------------------------------------------
+
+[brave]
+# Env: LODESTONE_BRAVE_KEY
+key = ""

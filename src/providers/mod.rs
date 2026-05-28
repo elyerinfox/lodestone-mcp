@@ -1,6 +1,7 @@
 //! Concrete [`SearchProvider`] implementations, one per file, plus the
 //! id → provider factory and helpers shared by the HTML-scraping engines.
 
+mod apiengine;
 mod bespoke;
 mod composite;
 mod engine;
@@ -48,6 +49,29 @@ pub fn make(kind: ProviderKind, id: &str, cfg: &Config) -> Option<Box<dyn Search
         (ProviderKind::Web, "duckduckgo" | "mojeek" | "google")
         | (ProviderKind::Code, "duckduckgo" | "mojeek" | "google") => {
             engine::make(kind, id).map(|p| Box::new(p) as Box<dyn SearchProvider>)
+        }
+        // Keyed web-search APIs (optional; active only when the key is configured).
+        (ProviderKind::Web, "brave") => {
+            let key = cfg.brave.key.clone();
+            if key.is_empty() {
+                tracing::warn!(
+                    "brave web provider needs [brave].key (or LODESTONE_BRAVE_KEY); skipping"
+                );
+                None
+            } else {
+                apiengine::make("brave", key, Vec::new())
+                    .map(|p| Box::new(p) as Box<dyn SearchProvider>)
+            }
+        }
+        (ProviderKind::Web, "google_cse") => {
+            let (key, cx) = (cfg.google_cse.key.clone(), cfg.google_cse.cx.clone());
+            if key.is_empty() || cx.is_empty() {
+                tracing::warn!("google_cse web provider needs [google_cse].key and .cx; skipping");
+                None
+            } else {
+                apiengine::make("google_cse", key, vec![("cx".to_string(), cx)])
+                    .map(|p| Box::new(p) as Box<dyn SearchProvider>)
+            }
         }
         (ProviderKind::Web, "medium") => Some(Box::new(Medium)),
         (ProviderKind::Code, "grep_app") => Some(Box::new(GrepApp)),

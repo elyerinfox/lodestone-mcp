@@ -58,7 +58,8 @@ strategy = "aggregate"
 
 [providers]
 # Ordered lists per kind. See config/providers/<id>.toml for each provider.
-#   web ids:  duckduckgo, mojeek, medium, google, searxng
+#   web ids:  duckduckgo, mojeek, medium, google, searxng,
+#             brave, google_cse   (keyed APIs — need a key; see below)
 #   code ids: grep_app, duckduckgo, mojeek, google, github,
 #             gitlab, codeberg, gitea, searxng, <your [forges.*] ids>
 #   qa ids:   stackoverflow
@@ -67,7 +68,9 @@ strategy = "aggregate"
 # (`google` drives a headless browser — needs a local Chrome. `github` is
 #  keyless by default (web scrape) and uses the GitHub API only if a token is
 #  set. gitlab/codeberg/gitea are keyless per-forge code providers. `searxng`
-#  needs [searxng].url set. Self-hosted forge ids come from config/04-forges.toml.)
+#  needs [searxng].url set. Self-hosted forge ids come from config/04-forges.toml.
+#  `brave`/`google_cse` are optional KEYED web APIs — off unless their key is set
+#  (see config/providers/brave.toml and google_cse.toml); never required.)
 # Env: LODESTONE_WEB_PROVIDERS / LODESTONE_CODE_PROVIDERS / LODESTONE_QA_PROVIDERS
 #      / LODESTONE_DOCS_PROVIDERS
 web = ["duckduckgo", "mojeek"]

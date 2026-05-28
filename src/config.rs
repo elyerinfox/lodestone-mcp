@@ -26,6 +26,8 @@ pub struct Config {
     pub google: Google,
     pub github: Github,
     pub searxng: Searxng,
+    pub brave: Brave,
+    pub google_cse: GoogleCse,
     pub cache: Cache,
     pub network: Network,
     /// User-defined self-hosted forges, keyed by provider id. Each entry becomes
@@ -194,6 +196,28 @@ impl Default for Cache {
     }
 }
 
+/// Brave Search API (keyed). The `brave` web provider is active only when `key`
+/// is set — it's a strictly optional enhancement, never required.
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct Brave {
+    /// Brave Search API subscription token. Get one at
+    /// <https://brave.com/search/api/>. Prefer the env var `LODESTONE_BRAVE_KEY`.
+    pub key: String,
+}
+
+/// Google Programmable Search / Custom Search JSON API (keyed). The `google_cse`
+/// web provider is active only when both `key` and `cx` are set.
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct GoogleCse {
+    /// API key (Google Cloud). Prefer `LODESTONE_GOOGLE_CSE_KEY`.
+    pub key: String,
+    /// Programmable Search Engine id (the `cx` parameter). Create one at
+    /// <https://programmablesearchengine.google.com/>. Prefer `LODESTONE_GOOGLE_CSE_CX`.
+    pub cx: String,
+}
+
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]
 pub struct Searxng {
@@ -256,6 +280,8 @@ impl Default for Config {
             google: Google::default(),
             github: Github::default(),
             searxng: Searxng::default(),
+            brave: Brave::default(),
+            google_cse: GoogleCse::default(),
             cache: Cache::default(),
             network: Network::default(),
             forges: HashMap::new(),
@@ -388,6 +414,15 @@ impl Config {
         }
         if let Ok(url) = std::env::var("LODESTONE_SEARXNG_URL") {
             self.searxng.url = url;
+        }
+        if let Ok(key) = std::env::var("LODESTONE_BRAVE_KEY") {
+            self.brave.key = key;
+        }
+        if let Ok(key) = std::env::var("LODESTONE_GOOGLE_CSE_KEY") {
+            self.google_cse.key = key;
+        }
+        if let Ok(cx) = std::env::var("LODESTONE_GOOGLE_CSE_CX") {
+            self.google_cse.cx = cx;
         }
         if let Ok(v) = std::env::var("LODESTONE_CACHE_ENABLED") {
             self.cache.enabled = is_truthy(&v);

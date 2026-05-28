@@ -52,6 +52,8 @@ src/
                  result zipping, `finish`, the configurable code-site list).
     engine/      Spec-driven search engines (HtmlEngineProvider + EngineSpec):
                  duckduckgo, mojeek, google.
+    apiengine/   Spec-driven KEYED JSON web-search APIs (ApiProvider + ApiSpec),
+                 off unless a key is set: brave, google_cse.
     forge/       Spec-driven code forges (ForgeCodeProvider + ForgeSpec, and the
                  shared `forge::search`): gitlab, codeberg, gitea.
     registry/    Spec-driven doc/package registries (RegistryProvider +
@@ -137,7 +139,8 @@ source a tiny file that just declares its spec:
 | --- | --- | --- | --- |
 | `engine/` (web search) | `HtmlEngineProvider` | `EngineSpec` — url, `Method` (GET/POST/Browser), `Extract` (two CSS selectors *or* a custom fn), code-scope, extra params | duckduckgo, mojeek, google |
 | `forge/` (code forges) | `ForgeCodeProvider` / `forge::search` | `ForgeSpec` — id, domain, blob-URL → `(repo, path)` parser | gitlab, codeberg, gitea (GitHub reuses `forge::search` — see below) |
-| `registry/` (doc/package registries, `docs` kind) | `RegistryProvider` | `RegistrySpec` — url, query/size params, results JSON pointer, item map (name/description/url field-or-template/version pointers) | cratesio, npm, mdn |
+| `registry/` (doc/package registries, `docs` kind) | `RegistryProvider` | `RegistrySpec` — url, query/size params, results JSON pointer, item map (name/description/url field-or-template/version pointers) | cratesio, npm, mdn, … |
+| `apiengine/` (keyed web search, `web` kind) | `ApiProvider` | `ApiSpec` — url, query/size params, `Auth` (key as header or query param), results pointer, title/link/snippet pointers | brave, google_cse (off unless keyed) |
 
 Google is an engine too — it just declares `Method::Browser` (always render via
 headless Chrome) and an `Extract::Custom` parser for its messy markup, instead

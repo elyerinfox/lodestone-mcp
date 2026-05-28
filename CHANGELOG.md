@@ -60,8 +60,10 @@ required), served over Streamable HTTP at `/mcp`.
 - **Docker image** bundling Chromium; **CI** (fmt/clippy/build/test) plus a
   path-gated Docker build + `/health` smoke test; release workflow on `v*` tags.
 - **Optional credentials**, all keyless-by-default: GitHub token (authenticated
-  code-search API) and StackExchange API key (raises quota), read from config or
-  env, never logged or committed.
+  code-search API), StackExchange API key (raises quota), and the keyed
+  `apiengine` web providers `brave` (Brave Search API) and `google_cse` (Google
+  Programmable Search) — each off unless its key is set. Read from config or env,
+  never logged or committed.
 
 [Unreleased]: https://github.com/elyerinfox/lodestone-mcp/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/elyerinfox/lodestone-mcp/releases/tag/v0.1.0

@@ -1,0 +1,19 @@
+# -----------------------------------------------------------------------------
+# Provider: google_cse  (kind: web)  — optional, KEYED
+# -----------------------------------------------------------------------------
+# Google Programmable Search (Custom Search JSON API). Active ONLY when both a key
+# and a search-engine id (cx) are set (golden rule 3: optional, never required).
+# Off by default. To enable: set key + cx below (or the env vars) and add
+# "google_cse" to the web list in ../02-search.toml.
+#
+# - key: a Google Cloud API key with the Custom Search API enabled.
+# - cx:  a Programmable Search Engine id from
+#        https://programmablesearchengine.google.com/ (set it to search the whole
+#        web). Prefer the env vars so secrets aren't written to a file.
+# -----------------------------------------------------------------------------
+
+[google_cse]
+# Env: LODESTONE_GOOGLE_CSE_KEY
+key = ""
+# Env: LODESTONE_GOOGLE_CSE_CX
+cx = ""
