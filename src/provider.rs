@@ -9,6 +9,7 @@
 //!   re-rank the merged results (a built-in SearXNG-style meta-search).
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -117,9 +118,9 @@ pub trait SearchProvider: Send + Sync {
 /// Holds the configured, ordered providers for each kind and combines them
 /// according to the configured [`Strategy`].
 pub struct Registry {
-    web: Vec<Box<dyn SearchProvider>>,
-    code: Vec<Box<dyn SearchProvider>>,
-    qa: Vec<Box<dyn SearchProvider>>,
+    web: Vec<Arc<dyn SearchProvider>>,
+    code: Vec<Arc<dyn SearchProvider>>,
+    qa: Vec<Arc<dyn SearchProvider>>,
     strategy: Strategy,
 }
 
@@ -135,7 +136,7 @@ impl Registry {
         }
     }
 
-    fn chain(&self, kind: ProviderKind) -> &[Box<dyn SearchProvider>] {
+    fn chain(&self, kind: ProviderKind) -> &[Arc<dyn SearchProvider>] {
         match kind {
             ProviderKind::Web => &self.web,
             ProviderKind::Code => &self.code,
@@ -183,20 +184,37 @@ impl Registry {
         http: &Client,
         query: &SearchQuery,
     ) -> (Vec<SearchResult>, String) {
-        let futures = self.chain(kind).iter().map(|provider| {
-            let provider = provider.as_ref();
-            async move {
-                match provider.search(http, query).await {
-                    Ok(results) => (provider.id(), results),
-                    Err(e) => {
-                        tracing::warn!(provider = provider.id(), error = %e, "provider failed");
-                        (provider.id(), Vec::new())
+        // Source every provider in parallel: each runs on its own task so both
+        // network I/O and (CPU-bound) HTML parsing overlap across the runtime's
+        // worker threads, rather than being polled on a single task.
+        let handles: Vec<_> = self
+            .chain(kind)
+            .iter()
+            .map(|provider| {
+                let provider = Arc::clone(provider);
+                let http = http.clone();
+                let query = query.clone();
+                tokio::spawn(async move {
+                    let id = provider.id();
+                    match provider.search(&http, &query).await {
+                        Ok(results) => (id, results),
+                        Err(e) => {
+                            tracing::warn!(provider = id, error = %e, "provider failed");
+                            (id, Vec::new())
+                        }
                     }
-                }
+                })
+            })
+            .collect();
+
+        let mut per_engine: Vec<(&'static str, Vec<SearchResult>)> =
+            Vec::with_capacity(handles.len());
+        for handle in handles {
+            match handle.await {
+                Ok(pair) => per_engine.push(pair),
+                Err(e) => tracing::warn!(error = %e, "provider task failed to join"),
             }
-        });
-        let per_engine: Vec<(&'static str, Vec<SearchResult>)> =
-            futures::future::join_all(futures).await;
+        }
 
         let engines: Vec<&str> = per_engine
             .iter()
@@ -236,10 +254,10 @@ impl Registry {
     }
 }
 
-fn build(kind: ProviderKind, ids: &[String], cfg: &Config) -> Vec<Box<dyn SearchProvider>> {
+fn build(kind: ProviderKind, ids: &[String], cfg: &Config) -> Vec<Arc<dyn SearchProvider>> {
     ids.iter()
         .filter_map(|id| match providers::make(kind, id, cfg) {
-            Some(p) => Some(p),
+            Some(p) => Some(Arc::from(p)),
             None => {
                 tracing::warn!(kind = kind.as_str(), id, "unknown provider id; skipping");
                 None
