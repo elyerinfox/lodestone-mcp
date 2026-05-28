@@ -1,0 +1,8 @@
+# -----------------------------------------------------------------------------
+# Provider: packagist  (kind: docs)  — opt-in
+# -----------------------------------------------------------------------------
+# PHP/Composer package index. Keyless JSON search of packagist.org/search.json.
+# No tunables. Powers docs_search and the per-provider docs_packagist tool.
+#
+# Enable by adding "packagist" to the docs list in ../02-search.toml.
+# -----------------------------------------------------------------------------

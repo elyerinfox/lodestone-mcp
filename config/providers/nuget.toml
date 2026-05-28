@@ -1,0 +1,9 @@
+# -----------------------------------------------------------------------------
+# Provider: nuget  (kind: docs)  — opt-in
+# -----------------------------------------------------------------------------
+# .NET package index. Keyless JSON search via the NuGet search service
+# (azuresearch-usnc.nuget.org/query). No tunables. Powers docs_search and the
+# per-provider docs_nuget tool.
+#
+# Enable by adding "nuget" to the docs list in ../02-search.toml.
+# -----------------------------------------------------------------------------

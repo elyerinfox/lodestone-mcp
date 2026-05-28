@@ -317,6 +317,7 @@ Detailed per-provider reference: [docs/providers.md](docs/providers.md).
 | docs | `cratesio` | Rust crate index — keyless `crates.io` JSON search. |
 | docs | `npm` | Node package index — keyless `registry.npmjs.org` JSON search. |
 | docs | `mdn` | MDN Web Docs reference — keyless JSON search. |
+| docs | `rubygems` / `packagist` / `nuget` / `hex` | Opt-in keyless registries (Ruby, PHP, .NET, Elixir). |
 
 **Self-hosted forges.** Register private GitLab/Gitea instances under `[forges]`
 (see `config/04-forges.toml`): each `[forges.<id>] kind = "gitlab"|"gitea",

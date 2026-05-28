@@ -1,0 +1,8 @@
+# -----------------------------------------------------------------------------
+# Provider: hex  (kind: docs)  — opt-in
+# -----------------------------------------------------------------------------
+# Elixir/Erlang package index. Keyless JSON search of hex.pm/api/packages.
+# No tunables. Powers docs_search and the per-provider docs_hex tool.
+#
+# Enable by adding "hex" to the docs list in ../02-search.toml.
+# -----------------------------------------------------------------------------

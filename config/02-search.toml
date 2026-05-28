@@ -51,13 +51,19 @@ timeout_secs = 25
 #   [search.qa]
 #   strategy = "fallback"
 
+# `docs` spans several ecosystems, so aggregate across the configured registries
+# (merge + composite rank) rather than stopping at the first non-empty one.
+[search.docs]
+strategy = "aggregate"
+
 [providers]
 # Ordered lists per kind. See config/providers/<id>.toml for each provider.
 #   web ids:  duckduckgo, mojeek, medium, google, searxng
 #   code ids: grep_app, duckduckgo, mojeek, google, github,
 #             gitlab, codeberg, gitea, searxng, <your [forges.*] ids>
 #   qa ids:   stackoverflow
-#   docs ids: cratesio, npm, mdn   (keyless package/doc registries)
+#   docs ids: cratesio, npm, mdn (default), plus opt-in rubygems, packagist,
+#             nuget, hex   (keyless package/doc registries)
 # (`google` drives a headless browser — needs a local Chrome. `github` is
 #  keyless by default (web scrape) and uses the GitHub API only if a token is
 #  set. gitlab/codeberg/gitea are keyless per-forge code providers. `searxng`
@@ -68,3 +74,5 @@ web = ["duckduckgo", "mojeek"]
 code = ["grep_app", "duckduckgo", "mojeek"]
 qa = ["stackoverflow"]
 docs = ["cratesio", "npm", "mdn"]
+# Add more ecosystems as desired:
+#   docs = ["cratesio", "npm", "mdn", "rubygems", "packagist", "nuget", "hex"]

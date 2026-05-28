@@ -1,0 +1,8 @@
+# -----------------------------------------------------------------------------
+# Provider: rubygems  (kind: docs)  — opt-in
+# -----------------------------------------------------------------------------
+# Ruby package index. Keyless JSON search of rubygems.org/api/v1/search.json.
+# No tunables. Powers docs_search and the per-provider docs_rubygems tool.
+#
+# Enable by adding "rubygems" to the docs list in ../02-search.toml.
+# -----------------------------------------------------------------------------

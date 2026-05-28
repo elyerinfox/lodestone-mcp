@@ -14,8 +14,12 @@
 //! per-provider `docs_<id>` tool.
 
 mod cratesio;
+mod hex;
 mod mdn;
 mod npm;
+mod nuget;
+mod packagist;
+mod rubygems;
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -61,6 +65,10 @@ pub(super) fn make(id: &str) -> Option<RegistryProvider> {
         "cratesio" => &cratesio::SPEC,
         "npm" => &npm::SPEC,
         "mdn" => &mdn::SPEC,
+        "rubygems" => &rubygems::SPEC,
+        "packagist" => &packagist::SPEC,
+        "nuget" => &nuget::SPEC,
+        "hex" => &hex::SPEC,
         _ => return None,
     };
     Some(RegistryProvider { spec })
@@ -207,6 +215,44 @@ mod tests {
         );
         assert_eq!(out[0].title, "Array.map()");
         assert!(out[0].meta.is_none());
+    }
+
+    #[test]
+    fn rubygems_parse_root_array() {
+        // RubyGems returns a top-level array; the empty results pointer selects it.
+        let v = serde_json::json!([
+            {"name": "rails", "info": "Full-stack web framework", "version": "8.1.3"}
+        ]);
+        let out = parse(&rubygems::SPEC, &v, 10);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].url, "https://rubygems.org/gems/rails");
+        assert_eq!(out[0].title, "rails 8.1.3");
+        assert_eq!(out[0].snippet, "Full-stack web framework");
+    }
+
+    #[test]
+    fn nuget_parse_data_with_id_key() {
+        let v = serde_json::json!({
+            "data": [
+                {"@type": "Package", "id": "Newtonsoft.Json", "version": "13.0.3",
+                 "description": "JSON for .NET"}
+            ]
+        });
+        let out = parse(&nuget::SPEC, &v, 10);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].title, "Newtonsoft.Json 13.0.3");
+        assert_eq!(out[0].url, "https://www.nuget.org/packages/Newtonsoft.Json");
+    }
+
+    #[test]
+    fn hex_parse_nested_description() {
+        let v = serde_json::json!([
+            {"name": "phoenix", "meta": {"description": "Productive web framework"}}
+        ]);
+        let out = parse(&hex::SPEC, &v, 10);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].url, "https://hex.pm/packages/phoenix");
+        assert_eq!(out[0].snippet, "Productive web framework");
     }
 
     #[test]

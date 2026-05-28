@@ -76,6 +76,10 @@ Kind: **docs**. JSON APIs, so `render` doesn't apply.
 | [`cratesio`](providers/cratesio.md) | on | Rust crate index (`crates.io/api/v1/crates`). |
 | [`npm`](providers/npm.md) | on | Node package index (`registry.npmjs.org`). |
 | [`mdn`](providers/mdn.md) | on | MDN Web Docs reference (`developer.mozilla.org`). |
+| [`rubygems`](providers/rubygems.md) | off | Ruby gem index (`rubygems.org`). |
+| [`packagist`](providers/packagist.md) | off | PHP/Composer index (`packagist.org`). |
+| [`nuget`](providers/nuget.md) | off | .NET package index (NuGet search service). |
+| [`hex`](providers/hex.md) | off | Elixir/Erlang index (`hex.pm`). |
 
 ## Composite providers — multi-mode (`src/providers/composite/`)
 

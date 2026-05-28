@@ -21,8 +21,10 @@ required), served over Streamable HTTP at `/mcp`.
   `code_github`, `qa_stackoverflow`). Every tool is independently gateable via
   `[tools]`.
 - **Providers** across five families: engine (`duckduckgo`, `mojeek`, `google`),
-  forge (`gitlab`, `codeberg`, `gitea`), registry (`cratesio`, `npm`, `mdn` — the
-  `docs` kind, keyless JSON package/doc search via `docs_search`), composite
+  forge (`gitlab`, `codeberg`, `gitea`), registry (the `docs` kind, keyless JSON
+  package/doc search via `docs_search`: `cratesio`/`npm`/`mdn` on by default, plus
+  opt-in `rubygems`/`packagist`/`nuget`/`hex`; the kind aggregates across
+  ecosystems), composite
   (`github`, `stackoverflow`), and bespoke (`grep_app`, `medium`, `searxng`). Each
   documented under `docs/providers/`.
 - **Self-hosted forges:** register private GitLab/Gitea hosts under `[forges]`;

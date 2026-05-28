@@ -73,9 +73,10 @@ pub fn make(kind: ProviderKind, id: &str, cfg: &Config) -> Option<Box<dyn Search
             Some(Box::new(StackExchange::new(cfg.stackexchange.key.clone())))
         }
         // Spec-driven documentation / package registries (keyless JSON APIs).
-        (ProviderKind::Docs, "cratesio" | "npm" | "mdn") => {
-            registry::make(id).map(|p| Box::new(p) as Box<dyn SearchProvider>)
-        }
+        (
+            ProviderKind::Docs,
+            "cratesio" | "npm" | "mdn" | "rubygems" | "packagist" | "nuget" | "hex",
+        ) => registry::make(id).map(|p| Box::new(p) as Box<dyn SearchProvider>),
         // User-configured self-hosted forge (id defined under [forges]).
         (ProviderKind::Code, id) if cfg.forges.contains_key(id) => {
             let inst = &cfg.forges[id];
