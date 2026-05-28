@@ -56,6 +56,13 @@ required), served over Streamable HTTP at `/mcp`.
   type, year, DOI, and a doi.org link (metadata; IEEE/SAE are paywalled, NIST is
   free). Plus `ieee`/`sae`/`nist` doc-site providers (`docs_ieee`/`docs_sae`/
   `docs_nist`) for the publishers' own pages.
+- **Local filesystem skills** (`[filesystem]`, **off by default** — explicit grant
+  required): `fs_read`, `fs_list`, `fs_stat`, `fs_find`, `fs_write`, `fs_edit`,
+  `fs_mkdir`, plus destructive `fs_delete`/`fs_move` (only when `allow_destructive`).
+  All paths are confined to `[filesystem].roots` (default: the working directory);
+  `..` and symlink escapes are rejected.
+- **More doc sites:** `ffmpeg` (ffmpeg.org), `nvidia` (docs.nvidia.com), `intel_arc`
+  (intel.com) — on by default → `docs_ffmpeg` / `docs_nvidia` / `docs_intel_arc`.
 - **Local utility skills** (no network): `json_query` / `json_format` /
   `yaml_to_json` / `json_to_yaml` (parse, search by JSON Pointer, convert, format);
   `regex_search` / `regex_replace` (Rust regex syntax); `math_eval` (arithmetic/

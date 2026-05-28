@@ -134,6 +134,19 @@ static SITES: &[DocSiteSpec] = &[
         id: "kernel",
         domain: "docs.kernel.org",
     },
+    DocSiteSpec {
+        id: "ffmpeg",
+        domain: "ffmpeg.org",
+    },
+    // Hardware / GPU vendor docs.
+    DocSiteSpec {
+        id: "nvidia",
+        domain: "docs.nvidia.com",
+    },
+    DocSiteSpec {
+        id: "intel_arc",
+        domain: "intel.com",
+    },
 ];
 
 /// Construct a built-in doc-site provider by id, if known.

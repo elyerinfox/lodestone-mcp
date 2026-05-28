@@ -96,6 +96,25 @@ Full detail: [containers.md](containers.md#kubernetes-cluster).
 | `k8s_scale` | `kind`, `name`, `replicas`, `namespace?` | write | Scale a workload. |
 | `k8s_delete` | `kind`, `name`, `namespace?` | destructive | Delete a resource (opt-in). |
 
+## Local filesystem
+
+Read/edit files on the machine. **Off by default** — gated by `[filesystem]`
+(`enabled`, then `allow_destructive` for delete/move). Every path is confined to
+`[filesystem].roots` (default: the working directory); `..` and symlink escapes are
+rejected. See [`config/10-filesystem.toml`](../config/10-filesystem.toml).
+
+| Tool | Arguments | Access | Purpose |
+| --- | --- | --- | --- |
+| `fs_read` | `path`, `max_chars?` | read | Read a file's text. |
+| `fs_list` | `path?` | read | List a directory's entries. |
+| `fs_stat` | `path` | read | A path's type/size/modified/read-only. |
+| `fs_find` | `pattern`, `path?` | read | Find files by name (`*` glob or substring). |
+| `fs_write` | `path`, `content` | write | Create/overwrite a file. |
+| `fs_edit` | `path`, `old_string`, `new_string`, `replace_all?` | write | Replace text in a file. |
+| `fs_mkdir` | `path` | write | Create a directory (with parents). |
+| `fs_delete` | `path`, `recursive?` | **destructive** | Delete a file/directory. |
+| `fs_move` | `source`, `dest` | **destructive** | Move/rename a path. |
+
 ## Date & time
 
 | Tool | Arguments | Purpose |

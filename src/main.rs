@@ -62,6 +62,8 @@ pub(crate) struct Lodestone {
     /// Kubernetes connection settings (kubeconfig path/context/namespace) for the
     /// `k8s_*` tools.
     pub(crate) k8s: Arc<config::Kubernetes>,
+    /// Filesystem roots/permissions for the `fs_*` tools.
+    pub(crate) fs: Arc<config::Filesystem>,
     // The filtered tool router; `#[tool_handler(router = self.tool_router)]`
     // uses it for both tool listing and dispatch.
     tool_router: ToolRouter<Lodestone>,
@@ -81,6 +83,7 @@ impl Lodestone {
         default_chars: usize,
         max_chars: usize,
         k8s: config::Kubernetes,
+        fs: config::Filesystem,
         tools_enabled: &[String],
         tools_disabled: &[String],
     ) -> Self {
@@ -101,6 +104,7 @@ impl Lodestone {
             default_chars: default_chars.max(1),
             max_chars: max_chars.max(1),
             k8s: Arc::new(k8s),
+            fs: Arc::new(fs),
             tool_router,
         }
     }
@@ -190,6 +194,9 @@ impl ServerHandler for Lodestone {
                 - k8s_contexts / k8s_get / k8s_describe / k8s_logs / k8s_apply / k8s_scale \
                 (+ k8s_delete when allowed): interact with a Kubernetes cluster via your kubeconfig \
                 (gated by [kubernetes]).\n\
+                - fs_read / fs_list / fs_stat / fs_find / fs_write / fs_edit / fs_mkdir \
+                (+ fs_delete / fs_move when allowed): read & edit local files within \
+                [filesystem].roots (OFF by default — must be explicitly granted).\n\
                 - json_query / json_format / yaml_to_json / json_to_yaml: parse, search, and \
                 convert JSON/YAML (local).\n\
                 - regex_search / regex_replace: match and substitute with regular expressions (local).\n\
@@ -409,6 +416,7 @@ async fn main() -> anyhow::Result<()> {
         cfg.retrieval.default_chars,
         cfg.retrieval.max_chars,
         cfg.kubernetes.clone(),
+        cfg.filesystem.clone(),
         &cfg.tools.enabled,
         &tools_disabled,
     );

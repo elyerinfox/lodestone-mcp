@@ -33,6 +33,7 @@ pub struct Config {
     pub network: Network,
     pub docker: Docker,
     pub kubernetes: Kubernetes,
+    pub filesystem: Filesystem,
     /// User-defined self-hosted forges, keyed by provider id. Each entry becomes
     /// a keyless code provider (and a `code_<id>` tool) once its id is listed in
     /// `[providers].code`. Example: `[forges.myhost] kind = "gitea", domain =
@@ -81,8 +82,10 @@ pub struct Tools {
     /// docker_logs, docker_info, docker_pull, docker_run, docker_start,
     /// docker_stop, docker_remove. Kubernetes (gated by [kubernetes]):
     /// k8s_contexts, k8s_get, k8s_describe, k8s_logs, k8s_apply, k8s_scale,
-    /// k8s_delete. Plus per-provider <kind>_<id> tools (e.g. docs_cratesio,
-    /// docs_react, docs_kubernetes).
+    /// k8s_delete. Filesystem (gated by [filesystem], off by default): fs_read,
+    /// fs_list, fs_stat, fs_find, fs_write, fs_edit, fs_mkdir, fs_delete, fs_move.
+    /// Plus per-provider <kind>_<id> tools (e.g. docs_cratesio, docs_react,
+    /// docs_kubernetes).
     pub enabled: Vec<String>,
     /// Denylist applied after `enabled`; these tools are never exposed.
     pub disabled: Vec<String>,
@@ -255,6 +258,22 @@ impl Default for Kubernetes {
     }
 }
 
+/// Local filesystem read/edit (`src/skills/filesystem.rs`). A powerful, dangerous
+/// capability — **off by default**; the user must explicitly grant it. All paths
+/// are confined to `roots` (default: the working directory), and destructive ops
+/// (`fs_delete`, `fs_move`) are hidden unless `allow_destructive` is also set.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct Filesystem {
+    /// Expose the filesystem tools at all. OFF by default — set to true to grant.
+    pub enabled: bool,
+    /// Also expose the destructive tools (`fs_delete`, `fs_move`).
+    pub allow_destructive: bool,
+    /// Allowed base directories; every path must resolve inside one of these
+    /// (symlinks resolved). Empty = the server's current working directory only.
+    pub roots: Vec<String>,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(default)]
 pub struct Cache {
@@ -351,7 +370,8 @@ pub struct Providers {
     /// rubygems, packagist, nuget, hex, aur, dockerhub, archlinux. Known doc sites:
     /// php, laravel, vue, react, svelte, angular, nextjs, nuxt, django, flask,
     /// fastapi, rails, spring, tailwind, express, symfony, astro, solid, docker,
-    /// kubernetes, helm, ieee, sae, nist, kernel, plus any `[docsites.<id>]`.
+    /// kubernetes, helm, ieee, sae, nist, kernel, ffmpeg, nvidia, intel_arc, plus
+    /// any `[docsites.<id>]`.
     pub docs: Vec<String>,
 }
 
@@ -392,6 +412,7 @@ impl Default for Config {
             network: Network::default(),
             docker: Docker::default(),
             kubernetes: Kubernetes::default(),
+            filesystem: Filesystem::default(),
             forges: HashMap::new(),
             docsites: HashMap::new(),
         }
@@ -444,6 +465,9 @@ impl Default for Providers {
                 "sae".into(),
                 "nist".into(),
                 "kernel".into(),
+                "ffmpeg".into(),
+                "nvidia".into(),
+                "intel_arc".into(),
             ],
         }
     }
@@ -610,6 +634,15 @@ impl Config {
         }
         if let Ok(v) = std::env::var("LODESTONE_KUBE_NAMESPACE") {
             self.kubernetes.namespace = v;
+        }
+        if let Ok(v) = std::env::var("LODESTONE_FS_ENABLED") {
+            self.filesystem.enabled = is_truthy(&v);
+        }
+        if let Ok(v) = std::env::var("LODESTONE_FS_ALLOW_DESTRUCTIVE") {
+            self.filesystem.allow_destructive = is_truthy(&v);
+        }
+        if let Some(roots) = env_list("LODESTONE_FS_ROOTS") {
+            self.filesystem.roots = roots;
         }
         // Accept the conventional GITHUB_TOKEN as well as our namespaced var.
         if let Ok(token) =

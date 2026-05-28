@@ -17,6 +17,7 @@ pub mod arxiv;
 pub mod data;
 pub mod datetime;
 pub mod docker;
+pub mod filesystem;
 pub mod github;
 pub mod huggingface;
 pub mod kernel;
@@ -115,6 +116,7 @@ fn all_skills() -> Vec<Box<dyn Skill>> {
     skills.extend(artifacthub::skills());
     skills.extend(docker::skills());
     skills.extend(kubernetes::skills());
+    skills.extend(filesystem::skills());
     skills.extend(datetime::skills());
     skills.extend(translate::skills());
     skills.extend(data::skills());
@@ -155,6 +157,12 @@ pub fn disabled_by_config(cfg: &crate::config::Config) -> Vec<String> {
         cfg.kubernetes.allow_destructive,
         kubernetes::TOOL_NAMES,
         kubernetes::DESTRUCTIVE_NAMES,
+    );
+    gate(
+        cfg.filesystem.enabled,
+        cfg.filesystem.allow_destructive,
+        filesystem::TOOL_NAMES,
+        filesystem::DESTRUCTIVE_NAMES,
     );
     out
 }

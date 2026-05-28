@@ -1,0 +1,24 @@
+# =============================================================================
+# config/10-filesystem.toml — local filesystem read/edit (DANGEROUS, opt-in)
+# =============================================================================
+#
+# Lets the model READ and EDIT files on this machine. This is powerful and
+# destructive, so it is OFF BY DEFAULT — you must explicitly grant it.
+#
+# Safety model:
+#   * Every path is confined to `roots` (default: the server's working directory).
+#     `..` is rejected and symlinks are resolved, so tools cannot escape a root.
+#   * Read + safe-write tools (fs_read, fs_list, fs_stat, fs_find, fs_write,
+#     fs_edit, fs_mkdir) appear when `enabled = true`.
+#   * DESTRUCTIVE tools (fs_delete, fs_move) appear only when `allow_destructive`
+#     is ALSO true.
+#   * Run behind an MCP host that approves tool calls; scope `roots` narrowly.
+# Env: LODESTONE_FS_ENABLED, LODESTONE_FS_ALLOW_DESTRUCTIVE, LODESTONE_FS_ROOTS
+# -----------------------------------------------------------------------------
+
+[filesystem]
+enabled = false            # OFF by default — set true to grant file access
+allow_destructive = false  # also expose fs_delete / fs_move
+# Confine all paths to these base dirs (no scheme). Empty = the working directory.
+#   roots = ["C:/Users/me/projects/myapp"]
+roots = []

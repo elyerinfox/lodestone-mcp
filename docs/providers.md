@@ -133,6 +133,9 @@ rationale, and how to add your own via `[docsites.<id>]`.
 | [`sae`](providers/frameworks.md) | on | `sae.org` (standards; paywalled) |
 | [`nist`](providers/frameworks.md) | on | `nist.gov` (free pubs; `read_pdf` for full text) |
 | [`kernel`](providers/frameworks.md) | on | `docs.kernel.org` (Linux kernel docs; see also `kernel_releases`) |
+| [`ffmpeg`](providers/frameworks.md) | on | `ffmpeg.org` |
+| [`nvidia`](providers/frameworks.md) | on | `docs.nvidia.com` |
+| [`intel_arc`](providers/frameworks.md) | on | `intel.com` (Intel/Arc; query-scoped) |
 | `[docsites.<id>]` | off | your own host |
 
 > Beyond docs, lodestone has **container & cloud-native data tools** — Docker Hub

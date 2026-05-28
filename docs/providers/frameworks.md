@@ -60,6 +60,9 @@ underlying fetch through the headless browser.
 | `sae` | `sae.org` | on |
 | `nist` | `nist.gov` | on |
 | `kernel` | `docs.kernel.org` | on |
+| `ffmpeg` | `ffmpeg.org` | on |
+| `nvidia` | `docs.nvidia.com` | on |
+| `intel_arc` | `intel.com` | on |
 
 Enable more by adding their ids to `[providers].docs` in `config/02-search.toml`.
 

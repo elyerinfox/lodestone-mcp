@@ -22,6 +22,8 @@
 # Standards: standards_search (IEEE/SAE/NIST/ISO/… metadata via Crossref)
 # Research/ML: arxiv_search, arxiv_get, hf_search, hf_model
 # Reference: wikipedia_search, wikipedia_summary, kernel_releases
+# Filesystem (gated by [filesystem] in 10-filesystem.toml; OFF by default): fs_read,
+#        fs_list, fs_stat, fs_find, fs_write, fs_edit, fs_mkdir, fs_delete, fs_move
 # Per-provider tools: one per configured provider, named <kind>_<id>
 #        (e.g. web_mojeek, code_github, qa_stackoverflow). Auto-generated from
 #        02-search.toml; filter them here by those names just like any tool.
