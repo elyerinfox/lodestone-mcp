@@ -64,9 +64,16 @@ pub struct Search {
     /// How providers are combined: "fallback" (first non-empty wins) or
     /// "aggregate" (query all concurrently and merge — a meta-search).
     pub strategy: String,
-    /// Re-ranking method for "aggregate" results: "reciprocal" (default),
-    /// "borda", "breadth" (consensus), or "interleave" (round-robin).
+    /// Re-ranking method for "aggregate" results: "composite" (default, a
+    /// multi-signal fusion), "reciprocal", "borda", "breadth" (consensus), or
+    /// "interleave" (round-robin).
     pub ranking: String,
+    /// Per-engine quality weights for the composite ranker (id -> weight, default
+    /// 1.0). E.g. trust Mojeek a bit less: `[search.engine_weights] mojeek = 0.8`.
+    pub engine_weights: std::collections::HashMap<String, f64>,
+    /// Extra domains given an authority boost by the composite ranker, on top of
+    /// a small built-in set (e.g. "docs.rs", "stackoverflow.com").
+    pub trusted_domains: Vec<String>,
     /// Per-request HTTP timeout in seconds, shared by every scraping/API call.
     /// A slow source can't dominate latency past this.
     pub timeout_secs: u64,
@@ -265,7 +272,9 @@ impl Default for Search {
     fn default() -> Self {
         Self {
             strategy: "fallback".to_string(),
-            ranking: "reciprocal".to_string(),
+            ranking: "composite".to_string(),
+            engine_weights: std::collections::HashMap::new(),
+            trusted_domains: Vec::new(),
             timeout_secs: 25,
             web: KindSearch::default(),
             code: KindSearch::default(),

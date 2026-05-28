@@ -28,8 +28,11 @@ required), served over Streamable HTTP at `/mcp`.
   each becomes a keyless `code_<id>` provider.
 - **SearXNG provider** (web + code) against a self-hosted instance's JSON API.
 - **Search strategies** `fallback` and `aggregate` (concurrent meta-search) with
-  configurable ranking (`reciprocal`, `borda`, `breadth`, `interleave`), all
-  overridable **per kind** via `[search.web]/[search.code]/[search.qa]`.
+  a **composite** ranker by default — weighted Reciprocal Rank Fusion (k=60) ×
+  cross-engine consensus × lexical relevance × authority, then MMR domain
+  diversification (tunable via `[search.engine_weights]`/`trusted_domains`) — plus
+  `reciprocal`, `borda`, `breadth`, and `interleave`, all overridable **per kind**
+  via `[search.web]/[search.code]/[search.qa]`.
 - **Model-controlled rendering:** any HTML-scraping provider can run through a
   shared, persistent headless Chrome via a per-call `render` flag; scrape is the
   default.

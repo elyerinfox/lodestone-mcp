@@ -13,12 +13,25 @@
 strategy = "fallback"
 
 # How "aggregate" re-ranks the merged results (ignored by "fallback"):
-#   "reciprocal" = Σ 1/(rank+1) — high placement + cross-engine agreement (default)
+#   "composite"  = multi-signal default: weighted Reciprocal Rank Fusion (k=60)
+#                  × cross-engine consensus × lexical query relevance × authority,
+#                  then domain-diversified (MMR). Strongest, most robust.
+#   "reciprocal" = Σ 1/(rank+1) — high placement + cross-engine agreement
 #   "borda"      = Σ (N − rank) — linear positional scoring
 #   "breadth"    = consensus: how many engines returned it (best position breaks ties)
 #   "interleave" = round-robin: each engine's 1st, then 2nd, … (max source diversity)
 # Env: LODESTONE_SEARCH_RANKING
-ranking = "reciprocal"
+ranking = "composite"
+
+# Composite ranker tuning (optional):
+# Per-engine quality weights (id -> weight, default 1.0) used by the RRF term.
+#   [search.engine_weights]
+#   duckduckgo = 1.0
+#   mojeek     = 0.8
+# Extra domains given an authority boost, on top of a small built-in set
+# (stackoverflow.com, developer.mozilla.org, docs.rs, github.com, …):
+#   trusted_domains = ["internal.docs.corp"]
+trusted_domains = []
 
 # Per-request HTTP timeout (seconds) shared by every scraping/API call, so one
 # slow source can't dominate latency. Each engine/forge request also gets a

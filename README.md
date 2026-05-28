@@ -169,8 +169,10 @@ disabled = []  # applied after `enabled`
 
 [search]
 strategy = "fallback"   # or "aggregate" (merge/re-rank across providers)
-ranking  = "reciprocal"  # aggregate re-ranking; see below
+ranking  = "composite"   # composite | reciprocal | borda | breadth | interleave
 timeout_secs = 25        # per-request HTTP timeout (one short retry on failure)
+# [search.engine_weights]  duckduckgo = 1.0   # composite per-engine weights
+# trusted_domains = ["internal.docs.corp"]    # extra authority-boosted domains
 # Optional per-kind overrides (empty = inherit the global values above):
 # [search.web]  → strategy = "aggregate"
 # [search.qa]   → strategy = "fallback"
@@ -265,8 +267,14 @@ enabled = ["fetch_page", "fetch_repo_file", "wayback_fetch"]
 The aggregate re-ranking is configurable via `[search].ranking`
 (`LODESTONE_SEARCH_RANKING`):
 
-- **reciprocal** (default) — Σ 1/(rank+1): rewards high placement and
-  cross-engine agreement.
+- **composite** (default) — a multi-signal fusion that goes beyond a
+  weighted-position sum (what SearXNG-style mergers do): **weighted Reciprocal
+  Rank Fusion** (canonical k=60, more robust than 1/(rank+1)) × **cross-engine
+  consensus** × **lexical relevance** (query-term coverage in title/snippet) ×
+  **authority** (HTTPS, trusted domains, resolved code, Q&A votes), then
+  **domain-diversified** with an MMR-style decay so one site can't monopolize the
+  top results. Tunable via `[search.engine_weights]` and `[search].trusted_domains`.
+- **reciprocal** — Σ 1/(rank+1): rewards high placement and cross-engine agreement.
 - **borda** — Σ (N − rank): linear positional scoring.
 - **breadth** — consensus: rank by how many engines returned a result (best
   position breaks ties); resists single-engine noise.
@@ -366,7 +374,7 @@ code-aware, MCP-native, self-hosted.**
 | Headless JS render | **On demand** | No | n/a (hosted) | No | Yes | n/a |
 | Archive fallback | **Yes** | No | No | No | No | No |
 | Self-hosted / offline-friendly | Yes (single binary) | Yes (Python+Redis) | No (SaaS) | Yes | No (SaaS) | partial |
-| Result breadth / ranking | Basic | **Strong** | Strong | n/a | Strong | n/a |
+| Result breadth / ranking | **Strong** (composite: RRF + consensus + relevance + authority + diversity) | Strong | Strong | n/a | Strong | n/a |
 
 ¹ Optional GitHub token for authenticated code search; everything else keyless.
 

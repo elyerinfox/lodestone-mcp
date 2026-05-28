@@ -70,8 +70,12 @@ impl Strategy {
 /// `Aggregate` strategy (fallback preserves the winning provider's own order).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Ranking {
+    /// Multi-signal default: Reciprocal Rank Fusion (weighted, k=60) × consensus
+    /// across engines × lexical query relevance × authority, then domain-diversified
+    /// (MMR). Stronger and more robust than a plain weighted-position sum.
+    Composite,
     /// Sum of reciprocal ranks: Σ 1/(rank+1). Rewards high placement and
-    /// cross-engine agreement. (default)
+    /// cross-engine agreement.
     Reciprocal,
     /// Borda count: Σ (N − rank). Linear positional scoring.
     Borda,
@@ -86,14 +90,17 @@ pub enum Ranking {
 impl Ranking {
     pub fn parse(s: &str) -> Self {
         match s.trim().to_ascii_lowercase().as_str() {
+            "reciprocal" | "rrf_simple" => Ranking::Reciprocal,
             "borda" => Ranking::Borda,
             "breadth" | "consensus" => Ranking::Breadth,
             "interleave" | "round_robin" | "roundrobin" => Ranking::Interleave,
-            _ => Ranking::Reciprocal,
+            // "composite" / "rrf" / "fusion" / anything unknown → the strong default.
+            _ => Ranking::Composite,
         }
     }
     pub fn as_str(&self) -> &'static str {
         match self {
+            Ranking::Composite => "composite",
             Ranking::Reciprocal => "reciprocal",
             Ranking::Borda => "borda",
             Ranking::Breadth => "breadth",
@@ -170,6 +177,10 @@ pub struct Registry {
     plan_qa: KindPlan,
     cache: Option<Arc<TtlCache>>,
     hive: Option<Arc<Hive>>,
+    /// Per-engine quality weights for the composite ranker (default 1.0).
+    weights: HashMap<String, f64>,
+    /// Extra trusted domains given an authority boost (composite ranker).
+    trusted: Vec<String>,
 }
 
 impl Registry {
@@ -206,6 +217,8 @@ impl Registry {
             plan_qa: plan(&cfg.search.qa),
             cache,
             hive,
+            weights: cfg.search.engine_weights.clone(),
+            trusted: cfg.search.trusted_domains.clone(),
         }
     }
 
@@ -419,8 +432,13 @@ impl Registry {
         } else {
             format!("aggregate ({})", engines.join("+"))
         };
+        let ctx = RankCtx {
+            query,
+            weights: &self.weights,
+            trusted: &self.trusted,
+        };
         (
-            merge(per_engine, query.limit, self.plan(kind).ranking),
+            merge(per_engine, query.limit, self.plan(kind).ranking, &ctx),
             label,
         )
     }
@@ -484,19 +502,37 @@ fn build(kind: ProviderKind, ids: &[String], cfg: &Config) -> Vec<Arc<dyn Search
         .collect()
 }
 
-/// One deduplicated result plus the ranks/engines that produced it.
+/// One deduplicated result plus the `(engine, rank)` sources that produced it.
 struct Agg {
     result: SearchResult,
-    /// Rank (0-based position) of this result within each engine that returned it.
-    ranks: Vec<usize>,
-    engines: Vec<&'static str>,
+    /// Each engine that returned this result and the 0-based position it gave it.
+    sources: Vec<(&'static str, usize)>,
 }
 
 impl Agg {
+    /// Distinct engines (in first-seen order) that returned this result.
+    fn engines(&self) -> Vec<&'static str> {
+        let mut out: Vec<&'static str> = Vec::new();
+        for (e, _) in &self.sources {
+            if !out.contains(e) {
+                out.push(e);
+            }
+        }
+        out
+    }
+
     fn finish(mut self) -> SearchResult {
-        self.result.meta = Some(format!("found by: {}", self.engines.join(", ")));
+        self.result.meta = Some(format!("found by: {}", self.engines().join(", ")));
         self.result
     }
+}
+
+/// Context the composite ranker uses beyond positions: the query (for lexical
+/// relevance), per-engine weights, and extra trusted domains.
+pub(crate) struct RankCtx<'a> {
+    pub query: &'a SearchQuery,
+    pub weights: &'a HashMap<String, f64>,
+    pub trusted: &'a [String],
 }
 
 /// Merge per-engine result lists into a single list: dedupe by normalized URL,
@@ -506,6 +542,7 @@ fn merge(
     per_engine: Vec<(&'static str, Vec<SearchResult>)>,
     limit: usize,
     ranking: Ranking,
+    ctx: &RankCtx,
 ) -> Vec<SearchResult> {
     let mut map: HashMap<String, Agg> = HashMap::new();
     let mut order: Vec<String> = Vec::new();
@@ -522,10 +559,7 @@ fn merge(
             }
             match map.get_mut(&key) {
                 Some(agg) => {
-                    agg.ranks.push(rank);
-                    if !agg.engines.contains(&engine) {
-                        agg.engines.push(engine);
-                    }
+                    agg.sources.push((engine, rank));
                     if result.snippet.len() > agg.result.snippet.len() {
                         agg.result.snippet = result.snippet;
                     }
@@ -539,8 +573,7 @@ fn merge(
                         key.clone(),
                         Agg {
                             result,
-                            ranks: vec![rank],
-                            engines: vec![engine],
+                            sources: vec![(engine, rank)],
                         },
                     );
                 }
@@ -551,29 +584,185 @@ fn merge(
         per_engine_keys.push(keys);
     }
 
-    if ranking == Ranking::Interleave {
-        return interleave(map, &per_engine_keys, max_len, limit);
+    match ranking {
+        Ranking::Interleave => interleave(map, &per_engine_keys, max_len, limit),
+        Ranking::Composite => {
+            let aggs: Vec<Agg> = order.into_iter().filter_map(|k| map.remove(&k)).collect();
+            composite(aggs, limit, ctx)
+        }
+        _ => {
+            let mut aggs: Vec<Agg> = order.into_iter().filter_map(|k| map.remove(&k)).collect();
+            aggs.sort_by(|a, b| {
+                score(b, ranking, max_len)
+                    .partial_cmp(&score(a, ranking, max_len))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+            aggs.into_iter().take(limit).map(Agg::finish).collect()
+        }
     }
-
-    let mut aggs: Vec<Agg> = order.into_iter().filter_map(|k| map.remove(&k)).collect();
-    aggs.sort_by(|a, b| {
-        score(b, ranking, max_len)
-            .partial_cmp(&score(a, ranking, max_len))
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-    aggs.into_iter().take(limit).map(Agg::finish).collect()
 }
 
 /// Score for the comparison-based rankings (higher = better).
 fn score(agg: &Agg, ranking: Ranking, n: usize) -> f64 {
-    let reciprocal: f64 = agg.ranks.iter().map(|r| 1.0 / (*r as f64 + 1.0)).sum();
+    let reciprocal: f64 = agg
+        .sources
+        .iter()
+        .map(|(_, r)| 1.0 / (*r as f64 + 1.0))
+        .sum();
     match ranking {
-        Ranking::Reciprocal => reciprocal,
-        Ranking::Borda => agg.ranks.iter().map(|r| (n - r) as f64).sum(),
+        Ranking::Borda => agg.sources.iter().map(|(_, r)| (n - r) as f64).sum(),
         // Consensus first (engine count dominates), reciprocal as the tiebreak.
-        Ranking::Breadth => agg.engines.len() as f64 * 1_000.0 + reciprocal,
-        Ranking::Interleave => reciprocal,
+        Ranking::Breadth => agg.engines().len() as f64 * 1_000.0 + reciprocal,
+        // Reciprocal / Composite (composite handled elsewhere) / Interleave.
+        _ => reciprocal,
     }
+}
+
+/// Reciprocal Rank Fusion constant. The canonical k≈60 damps the dominance of
+/// rank-0 results, making fusion across engines far more robust than 1/(rank+1).
+const RRF_K: f64 = 60.0;
+/// Per extra corroborating engine, multiply the score by (1 + this).
+const CONSENSUS_BONUS: f64 = 0.25;
+/// Weight of lexical query relevance and of authority in the composite product.
+const LEXICAL_WEIGHT: f64 = 0.5;
+/// Each repeat of a domain in the output multiplies its score by this (MMR-style
+/// diversification → broader, less redundant results).
+const DIVERSITY_DECAY: f64 = 0.6;
+
+/// High-signal developer domains given a small authority boost by default; users
+/// can extend this via `[search].trusted_domains`.
+const BUILTIN_TRUSTED: &[&str] = &[
+    "stackoverflow.com",
+    "developer.mozilla.org",
+    "docs.rs",
+    "doc.rust-lang.org",
+    "rust-lang.org",
+    "github.com",
+    "docs.python.org",
+    "pkg.go.dev",
+    "kubernetes.io",
+    "wikipedia.org",
+    "man7.org",
+];
+
+/// The composite ranker: score each result by weighted RRF × consensus × lexical
+/// relevance × authority, then greedily select with a per-domain decay so one site
+/// can't monopolize the top results.
+fn composite(aggs: Vec<Agg>, limit: usize, ctx: &RankCtx) -> Vec<SearchResult> {
+    let terms = query_terms(&ctx.query.text);
+    // (base score, domain, finished result)
+    let mut scored: Vec<(f64, String, SearchResult)> = aggs
+        .into_iter()
+        .map(|agg| {
+            let rrf: f64 = agg
+                .sources
+                .iter()
+                .map(|(e, r)| engine_weight(e, ctx.weights) / (RRF_K + *r as f64))
+                .sum();
+            let consensus = 1.0 + CONSENSUS_BONUS * (agg.engines().len().saturating_sub(1) as f64);
+            let haystack = format!("{} {}", agg.result.title, agg.result.snippet);
+            let lexical = 1.0 + LEXICAL_WEIGHT * term_coverage(&terms, &haystack);
+            let authority = 1.0 + authority(&agg.result, ctx.trusted);
+            let base = rrf * consensus * lexical * authority;
+            let domain = domain_of(&agg.result.url);
+            (base, domain, agg.finish())
+        })
+        .collect();
+
+    // Greedy MMR-style selection: each already-picked occurrence of a domain
+    // decays that domain's remaining candidates.
+    let mut out = Vec::with_capacity(limit.min(scored.len()));
+    let mut domain_count: HashMap<String, i32> = HashMap::new();
+    while out.len() < limit && !scored.is_empty() {
+        let mut best_i = 0;
+        let mut best_eff = f64::MIN;
+        for (i, (base, domain, _)) in scored.iter().enumerate() {
+            let seen = domain_count.get(domain).copied().unwrap_or(0);
+            let eff = base * DIVERSITY_DECAY.powi(seen);
+            if eff > best_eff {
+                best_eff = eff;
+                best_i = i;
+            }
+        }
+        let (_, domain, result) = scored.remove(best_i);
+        *domain_count.entry(domain).or_insert(0) += 1;
+        out.push(result);
+    }
+    out
+}
+
+fn engine_weight(engine: &str, weights: &HashMap<String, f64>) -> f64 {
+    weights.get(engine).copied().unwrap_or(1.0).max(0.0)
+}
+
+/// Fraction of distinct query terms that appear (as substrings) in `text`. 0 when
+/// there are no usable terms (so it contributes a neutral factor).
+fn term_coverage(terms: &[String], text: &str) -> f64 {
+    if terms.is_empty() {
+        return 0.0;
+    }
+    let hay = text.to_ascii_lowercase();
+    let hits = terms.iter().filter(|t| hay.contains(t.as_str())).count();
+    hits as f64 / terms.len() as f64
+}
+
+/// Lowercased query tokens worth matching: drops search operators (`site:` …),
+/// quotes/punctuation, and very short tokens.
+fn query_terms(text: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for tok in text.split_whitespace() {
+        if tok.contains(':') {
+            continue; // operator like site:/lang:
+        }
+        let t: String = tok
+            .chars()
+            .filter(|c| c.is_alphanumeric())
+            .collect::<String>()
+            .to_ascii_lowercase();
+        if t.len() >= 2 && !out.contains(&t) {
+            out.push(t);
+        }
+    }
+    out
+}
+
+/// Host of a URL, lowercased, without a leading `www.`.
+fn domain_of(url: &str) -> String {
+    match url::Url::parse(url) {
+        Ok(u) => u
+            .host_str()
+            .map(|h| h.trim_start_matches("www.").to_ascii_lowercase())
+            .unwrap_or_default(),
+        Err(_) => String::new(),
+    }
+}
+
+/// Small additive authority signal in roughly [0, ~0.6]: HTTPS, a trusted domain,
+/// resolved code (repo) hits, and Q&A vote count.
+fn authority(result: &SearchResult, trusted: &[String]) -> f64 {
+    let mut a = 0.0;
+    if result.url.starts_with("https://") {
+        a += 0.05;
+    }
+    let domain = domain_of(&result.url);
+    let is_trusted = !domain.is_empty()
+        && (BUILTIN_TRUSTED
+            .iter()
+            .any(|d| domain == *d || domain.ends_with(&format!(".{d}")))
+            || trusted.iter().any(|d| {
+                let d = d.trim_start_matches("www.").to_ascii_lowercase();
+                domain == d || domain.ends_with(&format!(".{d}"))
+            }));
+    if is_trusted {
+        a += 0.15;
+    }
+    if result.repo.is_some() {
+        a += 0.05;
+    }
+    if let Some(votes) = result.score {
+        a += (votes.clamp(0, 100) as f64 / 100.0) * 0.3;
+    }
+    a
 }
 
 /// Round-robin across engines: 1st of each, then 2nd, … skipping duplicates.
@@ -616,6 +805,14 @@ mod tests {
         }
     }
 
+    fn hit_t(url: &str, title: &str) -> SearchResult {
+        SearchResult {
+            url: url.to_string(),
+            title: title.to_string(),
+            ..Default::default()
+        }
+    }
+
     fn engine(id: &'static str, urls: &[&str]) -> (&'static str, Vec<SearchResult>) {
         (id, urls.iter().map(|u| hit(u)).collect())
     }
@@ -624,11 +821,41 @@ mod tests {
         results.iter().map(|r| r.url.as_str()).collect()
     }
 
+    /// Owns the values a `RankCtx` borrows, so tests can build one cheaply.
+    struct TestCtx {
+        q: SearchQuery,
+        w: HashMap<String, f64>,
+        t: Vec<String>,
+    }
+    impl TestCtx {
+        fn new(text: &str) -> Self {
+            Self {
+                q: SearchQuery {
+                    text: text.to_string(),
+                    language: None,
+                    site: None,
+                    limit: 10,
+                    render: false,
+                },
+                w: HashMap::new(),
+                t: Vec::new(),
+            }
+        }
+        fn ctx(&self) -> RankCtx<'_> {
+            RankCtx {
+                query: &self.q,
+                weights: &self.w,
+                trusted: &self.t,
+            }
+        }
+    }
+
     #[test]
     fn reciprocal_rewards_agreement_and_placement() {
         // y: a@1 (0.5) + b@0 (1.0) = 1.5 ; x: 1.0 ; z: 0.5
+        let tc = TestCtx::new("");
         let per = vec![engine("a", &["x", "y"]), engine("b", &["y", "z"])];
-        let out = merge(per, 10, Ranking::Reciprocal);
+        let out = merge(per, 10, Ranking::Reciprocal, &tc.ctx());
         assert_eq!(urls(&out), ["y", "x", "z"]);
     }
 
@@ -636,32 +863,68 @@ mod tests {
     fn breadth_prefers_corroboration_over_placement() {
         // t appears in both engines but only deep (ranks 3 & 3); x is a single
         // engine's #1. Reciprocal ranks x first; breadth ranks the corroborated t.
+        let tc = TestCtx::new("");
         let per = vec![
             engine("a", &["x", "p", "q", "t"]),
             engine("b", &["u", "v", "w", "t"]),
         ];
-        let reciprocal = merge(per.clone(), 10, Ranking::Reciprocal);
+        let reciprocal = merge(per.clone(), 10, Ranking::Reciprocal, &tc.ctx());
         assert_eq!(reciprocal[0].url, "x");
 
-        let breadth = merge(per, 10, Ranking::Breadth);
+        let breadth = merge(per, 10, Ranking::Breadth, &tc.ctx());
         assert_eq!(breadth[0].url, "t");
     }
 
     #[test]
     fn interleave_round_robins_across_engines() {
+        let tc = TestCtx::new("");
         let per = vec![engine("a", &["a1", "a2", "a3"]), engine("b", &["b1", "b2"])];
-        let out = merge(per, 10, Ranking::Interleave);
+        let out = merge(per, 10, Ranking::Interleave, &tc.ctx());
         assert_eq!(urls(&out), ["a1", "b1", "a2", "b2", "a3"]);
     }
 
     #[test]
     fn dedupes_by_normalized_url() {
+        let tc = TestCtx::new("");
         let per = vec![
             engine("a", &["https://x.test/p"]),
             engine("b", &["https://x.test/p/"]), // trailing slash → same
         ];
-        let out = merge(per, 10, Ranking::Reciprocal);
+        let out = merge(per, 10, Ranking::Reciprocal, &tc.ctx());
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].meta.as_deref(), Some("found by: a, b"));
+    }
+
+    #[test]
+    fn composite_diversifies_by_domain() {
+        // One engine returns two results from d1 then one from d2. A naive
+        // position sort would keep both d1 hits on top; the composite ranker
+        // demotes the repeated domain so d2 surfaces second.
+        let tc = TestCtx::new("");
+        let per = vec![engine(
+            "a",
+            &["https://d1.com/1", "https://d1.com/2", "https://d2.com/1"],
+        )];
+        let out = merge(per, 10, Ranking::Composite, &tc.ctx());
+        assert_eq!(
+            urls(&out),
+            ["https://d1.com/1", "https://d2.com/1", "https://d1.com/2"]
+        );
+    }
+
+    #[test]
+    fn composite_rewards_lexical_relevance() {
+        // Same domain, same engine; the deeper result whose title matches the
+        // query should outrank the shallow off-topic one.
+        let tc = TestCtx::new("rust async");
+        let per = vec![(
+            "a",
+            vec![
+                hit_t("https://x.com/a", "unrelated city guide"),
+                hit_t("https://x.com/b", "rust async runtime guide"),
+            ],
+        )];
+        let out = merge(per, 10, Ranking::Composite, &tc.ctx());
+        assert_eq!(out[0].url, "https://x.com/b");
     }
 }
