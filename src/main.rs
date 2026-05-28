@@ -136,6 +136,31 @@ struct FetchFileArgs {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct GithubReleasesArgs {
+    /// A GitHub repo as `owner/repo` or a github.com URL.
+    repo: String,
+    /// Max releases to return (newest first). Default 5, capped 30.
+    #[serde(default)]
+    max_results: Option<u32>,
+    /// Include pre-releases and drafts (default false = stable releases only).
+    #[serde(default)]
+    include_prereleases: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct GithubUserArgs {
+    /// A GitHub username or org login (e.g. `rust-lang`, `@octocat`, or a
+    /// github.com/<user> URL).
+    user: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct GithubRepoArgs {
+    /// A GitHub repo as `owner/repo` or a github.com URL.
+    repo: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct StackSearchArgs {
     /// The question/problem to search for.
     query: String,
@@ -196,6 +221,8 @@ struct Lodestone {
     default_se_site: Arc<str>,
     se_key: Arc<str>,
     se_allowed: Arc<[String]>,
+    /// Optional GitHub token (raises the API rate limit for `github_releases`).
+    github_token: Arc<str>,
     /// Caches retrieval-tool output (page text, files, answers) keyed by request.
     /// Separate from the search/hive cache so it never enters peer digests.
     retrieval_cache: Option<Arc<cache::TtlCache>>,
@@ -215,6 +242,7 @@ impl Lodestone {
         default_se_site: String,
         se_key: String,
         se_allowed: Vec<String>,
+        github_token: String,
         timeout_secs: u64,
         retrieval_cache: Option<Arc<cache::TtlCache>>,
         default_chars: usize,
@@ -234,6 +262,7 @@ impl Lodestone {
             default_se_site: default_se_site.into(),
             se_key: se_key.into(),
             se_allowed: se_allowed.into(),
+            github_token: github_token.into(),
             retrieval_cache,
             default_chars: default_chars.max(1),
             max_chars: max_chars.max(1),
@@ -500,6 +529,138 @@ impl Lodestone {
     }
 
     #[tool(
+        description = "List a GitHub repository's releases (newest first): tag, name, date, and \
+        release notes. Accepts `owner/repo` or a github.com URL. Keyless (set [github].token to \
+        raise the API rate limit). Use for changelogs or 'what changed in version X'."
+    )]
+    async fn github_releases(
+        &self,
+        Parameters(args): Parameters<GithubReleasesArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let repo = retrieve::github_owner_repo(&args.repo)
+            .ok_or_else(|| invalid(format!("not a GitHub owner/repo: '{}'", args.repo)))?;
+        let max = clamp(args.max_results, 5, 30);
+        let prereleases = args.include_prereleases.unwrap_or(false);
+        let key = format!("ghrel|{repo}|{max}|{prereleases}");
+        if let Some(cached) = self.retrieval_get(&key) {
+            return Ok(text_result(cached));
+        }
+        // Pre-releases/drafts are filtered client-side, so over-fetch when excluding them.
+        let per = if prereleases { max } else { (max * 3).min(100) }.to_string();
+        let v = retrieve::github_api(
+            &self.http,
+            &format!("/repos/{repo}/releases"),
+            &self.github_token,
+            &[("per_page", per.as_str())],
+        )
+        .await
+        .map_err(internal)?;
+
+        let empty = Vec::new();
+        let mut out = format!("Releases for {repo}:\n");
+        let mut shown = 0usize;
+        for r in v.as_array().unwrap_or(&empty) {
+            let pre = r
+                .get("prerelease")
+                .and_then(|x| x.as_bool())
+                .unwrap_or(false);
+            let draft = r.get("draft").and_then(|x| x.as_bool()).unwrap_or(false);
+            if !prereleases && (pre || draft) {
+                continue;
+            }
+            let tag = r.get("tag_name").and_then(|x| x.as_str()).unwrap_or("");
+            let name = r
+                .get("name")
+                .and_then(|x| x.as_str())
+                .filter(|s| !s.is_empty())
+                .unwrap_or(tag);
+            let date = r
+                .get("published_at")
+                .and_then(|x| x.as_str())
+                .and_then(|d| d.get(..10))
+                .unwrap_or("");
+            let url = r.get("html_url").and_then(|x| x.as_str()).unwrap_or("");
+            let body = r.get("body").and_then(|x| x.as_str()).unwrap_or("").trim();
+            shown += 1;
+            out.push_str(&format!(
+                "\n{shown}. {name} ({tag}){} — {date}\n   {url}\n",
+                if pre { " [prerelease]" } else { "" }
+            ));
+            if !body.is_empty() {
+                out.push_str(&indent(&util::truncate_chars(body, 4000), "   "));
+                out.push('\n');
+            }
+            if shown >= max {
+                break;
+            }
+        }
+        if shown == 0 {
+            return Ok(text_result(format!(
+                "No {}releases found for {repo}.",
+                if prereleases { "" } else { "stable " }
+            )));
+        }
+        let out = util::truncate_chars(&out, self.max_chars);
+        self.retrieval_put(key, &out);
+        Ok(text_result(out))
+    }
+
+    #[tool(
+        description = "Get a GitHub user's or org's public profile: name, bio, company, location, \
+        blog, public repo count, followers. Accepts a username/login or github.com URL. Keyless."
+    )]
+    async fn github_user(
+        &self,
+        Parameters(args): Parameters<GithubUserArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let user = retrieve::github_user_login(&args.user)
+            .ok_or_else(|| invalid(format!("not a GitHub username: '{}'", args.user)))?;
+        let key = format!("ghuser|{user}");
+        if let Some(cached) = self.retrieval_get(&key) {
+            return Ok(text_result(cached));
+        }
+        let v = retrieve::github_api(
+            &self.http,
+            &format!("/users/{user}"),
+            &self.github_token,
+            &[],
+        )
+        .await
+        .map_err(internal)?;
+        let out = format_github_user(&v, &user);
+        self.retrieval_put(key, &out);
+        Ok(text_result(out))
+    }
+
+    #[tool(
+        description = "Get a GitHub repository's metadata: description, stars, forks, primary \
+        language, topics, license, default branch, homepage, and timestamps. Accepts `owner/repo` \
+        or a github.com URL. Keyless."
+    )]
+    async fn github_repo(
+        &self,
+        Parameters(args): Parameters<GithubRepoArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let repo = retrieve::github_owner_repo(&args.repo)
+            .ok_or_else(|| invalid(format!("not a GitHub owner/repo: '{}'", args.repo)))?;
+        let key = format!("ghrepo|{repo}");
+        if let Some(cached) = self.retrieval_get(&key) {
+            return Ok(text_result(cached));
+        }
+        let v = retrieve::github_api(
+            &self.http,
+            &format!("/repos/{repo}"),
+            &self.github_token,
+            &[],
+        )
+        .await
+        .map_err(internal)?;
+        let out = format_github_repo(&v, &repo);
+        self.retrieval_put(key, &out);
+        Ok(text_result(out))
+    }
+
+    #[tool(
         description = "Search the configured Q&A providers (currently the StackExchange network: \
         StackOverflow, Server Fault, Super User, Ask Ubuntu, …). Returns matching questions with \
         score, answer count and links. Uses the keyless API by default; set render=true to scrape \
@@ -649,6 +810,7 @@ impl ServerHandler for Lodestone {
                 - code_search: search source code in public repositories.\n\
                 - docs_search: search docs & package registries (crates.io, npm, MDN).\n\
                 - fetch_repo_file: download a full file from GitHub/GitLab/Gitea by URL or owner/repo/path.\n\
+                - github_releases / github_user / github_repo: GitHub release notes, profiles, repo metadata (keyless).\n\
                 - fetch_page: get readable text of any URL over plain HTTP.\n\
                 - render_page: get readable text of a URL via a headless browser (JS).\n\
                 - wayback_fetch: read a page's archived snapshot from the Wayback Machine.\n\
@@ -708,6 +870,114 @@ fn format_docs(query: &str, engine: &str, hits: &[SearchResult]) -> String {
         if !h.snippet.is_empty() {
             out.push_str(&format!("   {}\n", h.snippet));
         }
+    }
+    out
+}
+
+fn format_github_user(v: &serde_json::Value, fallback: &str) -> String {
+    let s = |k: &str| v.get(k).and_then(|x| x.as_str()).filter(|x| !x.is_empty());
+    let n = |k: &str| v.get(k).and_then(|x| x.as_i64());
+    let login = s("login").unwrap_or(fallback);
+    let kind = s("type").unwrap_or("User");
+    let mut out = format!("{kind}: {login}");
+    if let Some(name) = s("name") {
+        out.push_str(&format!(" ({name})"));
+    }
+    out.push('\n');
+    if let Some(bio) = s("bio") {
+        out.push_str(&format!("{bio}\n"));
+    }
+    let mut facts = Vec::new();
+    if let Some(c) = s("company") {
+        facts.push(format!("company: {c}"));
+    }
+    if let Some(l) = s("location") {
+        facts.push(format!("location: {l}"));
+    }
+    if let Some(blog) = s("blog") {
+        facts.push(format!("blog: {blog}"));
+    }
+    if let Some(e) = s("email") {
+        facts.push(format!("email: {e}"));
+    }
+    if let Some(r) = n("public_repos") {
+        facts.push(format!("public repos: {r}"));
+    }
+    if let Some(f) = n("followers") {
+        facts.push(format!("followers: {f}"));
+    }
+    if let Some(f) = n("following") {
+        facts.push(format!("following: {f}"));
+    }
+    if let Some(joined) = s("created_at").and_then(|d| d.get(..10)) {
+        facts.push(format!("joined: {joined}"));
+    }
+    for f in facts {
+        out.push_str(&format!("  {f}\n"));
+    }
+    if let Some(u) = s("html_url") {
+        out.push_str(&format!("  {u}\n"));
+    }
+    out
+}
+
+fn format_github_repo(v: &serde_json::Value, fallback: &str) -> String {
+    let s = |k: &str| v.get(k).and_then(|x| x.as_str()).filter(|x| !x.is_empty());
+    let n = |k: &str| v.get(k).and_then(|x| x.as_i64());
+    let flag = |k: &str| v.get(k).and_then(|x| x.as_bool()).unwrap_or(false);
+    let full = s("full_name").unwrap_or(fallback);
+    let mut out = full.to_string();
+    if flag("archived") {
+        out.push_str(" [archived]");
+    }
+    if flag("fork") {
+        out.push_str(" [fork]");
+    }
+    out.push('\n');
+    if let Some(d) = s("description") {
+        out.push_str(&format!("{d}\n"));
+    }
+    let mut facts = Vec::new();
+    if let Some(x) = n("stargazers_count") {
+        facts.push(format!("stars: {x}"));
+    }
+    if let Some(x) = n("forks_count") {
+        facts.push(format!("forks: {x}"));
+    }
+    if let Some(x) = n("open_issues_count") {
+        facts.push(format!("open issues: {x}"));
+    }
+    if let Some(lang) = s("language") {
+        facts.push(format!("language: {lang}"));
+    }
+    if let Some(topics) = v.get("topics").and_then(|x| x.as_array()) {
+        let t: Vec<&str> = topics.iter().filter_map(|x| x.as_str()).collect();
+        if !t.is_empty() {
+            facts.push(format!("topics: {}", t.join(", ")));
+        }
+    }
+    if let Some(lic) = v
+        .get("license")
+        .and_then(|l| l.get("spdx_id"))
+        .and_then(|x| x.as_str())
+        .filter(|x| !x.is_empty() && *x != "NOASSERTION")
+    {
+        facts.push(format!("license: {lic}"));
+    }
+    if let Some(db) = s("default_branch") {
+        facts.push(format!("default branch: {db}"));
+    }
+    if let Some(hp) = s("homepage") {
+        facts.push(format!("homepage: {hp}"));
+    }
+    if let Some(pa) = s("pushed_at").and_then(|d| d.get(..10)) {
+        facts.push(format!("last push: {pa}"));
+    }
+    for f in facts {
+        out.push_str(&format!("  {f}\n"));
+    }
+    if let Some(u) = s("html_url") {
+        out.push_str(&format!("  {u}\n"));
     }
     out
 }
@@ -988,6 +1258,7 @@ async fn main() -> anyhow::Result<()> {
         cfg.stackexchange.default_site.clone(),
         cfg.stackexchange.key.clone(),
         cfg.stackexchange.allowed_sites.clone(),
+        cfg.github.token.clone(),
         cfg.search.timeout_secs,
         retrieval_cache,
         cfg.retrieval.default_chars,

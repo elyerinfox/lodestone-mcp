@@ -30,6 +30,9 @@ required), served over Streamable HTTP at `/mcp`.
 - **Self-hosted forges:** register private GitLab/Gitea hosts under `[forges]`;
   each becomes a keyless `code_<id>` provider.
 - **SearXNG provider** (web + code) against a self-hosted instance's JSON API.
+- **GitHub tools** (keyless, optional `[github].token` to raise the rate limit):
+  `github_releases` (release notes / changelogs), `github_user` (profile), and
+  `github_repo` (repo metadata), all accepting `owner/repo` or a github.com URL.
 - **Search strategies** `fallback` and `aggregate` (concurrent meta-search) with
   a **composite** ranker by default — weighted Reciprocal Rank Fusion (k=60) ×
   cross-engine consensus × lexical relevance × authority, then MMR domain

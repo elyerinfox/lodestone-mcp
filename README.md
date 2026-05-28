@@ -77,6 +77,9 @@ arguments.
 | `render_page` | `url`, `max_chars?` | Page → readable text via a headless browser (runs JS). |
 | `fetch_repo_file` | `target`, `start_line?`, `end_line?` | A file from GitHub/GitLab/Gitea — blob/raw URL, or GitHub `owner/repo/path` (a `#L10-L40` fragment works too). |
 | `wayback_fetch` | `url`, `timestamp?`, `max_chars?` | Archived snapshot from the Wayback Machine. |
+| `github_releases` | `repo`, `max_results?`, `include_prereleases?` | A repo's releases (newest first): tag, date, notes. Keyless (optional `[github].token`). |
+| `github_user` | `user` | A GitHub user/org profile (bio, company, repos, followers). |
+| `github_repo` | `repo` | Repo metadata (stars, language, topics, license, default branch, …). |
 
 **Meta**
 

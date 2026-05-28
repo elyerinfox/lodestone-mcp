@@ -54,8 +54,9 @@ pub struct ForgeInstance {
 pub struct Tools {
     /// Allowlist of tools (skills) to expose. Empty = expose all. Names:
     /// web_search, code_search, docs_search, qa_search, fetch_page, render_page,
-    /// fetch_repo_file, wayback_fetch, list_providers, hive_status. Plus
-    /// per-provider <kind>_<id> tools (e.g. docs_cratesio, qa_stackoverflow_answers).
+    /// fetch_repo_file, wayback_fetch, github_releases, github_user, github_repo,
+    /// list_providers, hive_status. Plus per-provider <kind>_<id> tools (e.g.
+    /// docs_cratesio, qa_stackoverflow_answers).
     pub enabled: Vec<String>,
     /// Denylist applied after `enabled`; these tools are never exposed.
     pub disabled: Vec<String>,

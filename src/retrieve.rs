@@ -122,6 +122,59 @@ pub fn github_repo_path(url: &str) -> Option<(String, String, String)> {
     })
 }
 
+/// Parse a GitHub `owner/repo` from a shorthand (`owner/repo`, optionally with
+/// more path) or a github.com URL. Returns `None` if it can't.
+pub fn github_owner_repo(input: &str) -> Option<String> {
+    let mut s = input.trim();
+    for prefix in ["https://", "http://", "www.", "github.com/"] {
+        s = s.strip_prefix(prefix).unwrap_or(s);
+    }
+    let s = s.trim_start_matches('/');
+    let mut parts = s.split('/').filter(|p| !p.is_empty());
+    let owner = parts.next()?.trim();
+    let repo = parts.next()?.trim().trim_end_matches(".git");
+    if owner.is_empty() || repo.is_empty() || owner.contains(' ') || repo.contains(' ') {
+        return None;
+    }
+    Some(format!("{owner}/{repo}"))
+}
+
+/// Parse a GitHub username/org login from a bare login (`rust-lang`), an `@login`,
+/// or a github.com URL. Returns the first path segment.
+pub fn github_user_login(input: &str) -> Option<String> {
+    let mut s = input.trim().trim_start_matches('@');
+    for prefix in ["https://", "http://", "www.", "github.com/"] {
+        s = s.strip_prefix(prefix).unwrap_or(s);
+    }
+    let login = s.trim_start_matches('/').split('/').next()?.trim();
+    if login.is_empty() || login.contains(' ') {
+        return None;
+    }
+    Some(login.to_string())
+}
+
+/// GET a GitHub REST API path (e.g. `/users/rust-lang`) and return the JSON.
+/// Keyless; an optional token (empty = none) raises the rate limit. Used by the
+/// `github_*` tools.
+pub async fn github_api(
+    client: &Client,
+    path: &str,
+    token: &str,
+    query: &[(&str, &str)],
+) -> Result<serde_json::Value> {
+    let mut req = client
+        .get(format!("https://api.github.com{path}"))
+        .header("Accept", "application/vnd.github+json")
+        .header("X-GitHub-Api-Version", "2022-11-28");
+    if !query.is_empty() {
+        req = req.query(query);
+    }
+    if !token.is_empty() {
+        req = req.bearer_auth(token);
+    }
+    Ok(req.send().await?.error_for_status()?.json().await?)
+}
+
 /// GET a URL, returning `(body, status)`.
 pub async fn fetch_text(client: &Client, url: &str) -> Result<(String, reqwest::StatusCode)> {
     let resp = client.get(url).send().await?;
@@ -283,4 +336,40 @@ pub async fn se_answers(
         .await?;
 
     Ok((question, answers))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{github_owner_repo, github_user_login};
+
+    #[test]
+    fn owner_repo_from_shorthand_and_urls() {
+        assert_eq!(
+            github_owner_repo("rust-lang/rust").as_deref(),
+            Some("rust-lang/rust")
+        );
+        assert_eq!(
+            github_owner_repo("https://github.com/rust-lang/rust").as_deref(),
+            Some("rust-lang/rust")
+        );
+        assert_eq!(
+            github_owner_repo("https://github.com/rust-lang/rust/releases").as_deref(),
+            Some("rust-lang/rust")
+        );
+        assert_eq!(
+            github_owner_repo("github.com/a/b.git").as_deref(),
+            Some("a/b")
+        );
+        assert_eq!(github_owner_repo("not-a-repo"), None);
+    }
+
+    #[test]
+    fn user_login_from_shorthand_and_urls() {
+        assert_eq!(github_user_login("rust-lang").as_deref(), Some("rust-lang"));
+        assert_eq!(github_user_login("@octocat").as_deref(), Some("octocat"));
+        assert_eq!(
+            github_user_login("https://github.com/torvalds").as_deref(),
+            Some("torvalds")
+        );
+    }
 }
