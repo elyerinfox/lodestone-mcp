@@ -11,6 +11,11 @@ use serde::Deserialize;
 pub struct Config {
     /// `host:port` the HTTP server binds to.
     pub bind: String,
+    /// Optional bearer token. When non-empty, every request to `/mcp` must send
+    /// `Authorization: Bearer <token>`; otherwise it's rejected with 401. Empty
+    /// (default) leaves the endpoint open. `/health` is never authenticated.
+    /// Recommended when binding to `0.0.0.0` (containers/LAN).
+    pub auth_token: String,
     pub tools: Tools,
     pub providers: Providers,
     pub search: Search,
@@ -124,6 +129,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             bind: "127.0.0.1:8000".to_string(),
+            auth_token: String::new(),
             tools: Tools::default(),
             providers: Providers::default(),
             search: Search::default(),
@@ -200,6 +206,9 @@ impl Config {
     fn apply_env(&mut self) {
         if let Ok(bind) = std::env::var("LODESTONE_BIND") {
             self.bind = bind;
+        }
+        if let Ok(token) = std::env::var("LODESTONE_AUTH_TOKEN") {
+            self.auth_token = token;
         }
         if let Some(list) = env_list("LODESTONE_TOOLS_ENABLED") {
             self.tools.enabled = list;

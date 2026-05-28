@@ -1,12 +1,17 @@
-# For running inside the provided Docker image (which bundles Chromium and is
-# built with --features google). The image already sets equivalent values via
-# environment variables; this file is the config-file equivalent.
+# For running inside the provided Docker image (which bundles Chromium). The
+# image already sets equivalent values via environment variables; this file is
+# the config-file equivalent.
 #
 #   Usage:  docker run -p 8000:8000 \
 #             -v "$PWD/examples/docker.toml:/app/lodestone.toml:ro" lodestone-mcp
 
 # Bind on all interfaces so the published port is reachable from the host.
 bind = "0.0.0.0:8000"
+
+# Binding to 0.0.0.0 exposes /mcp beyond localhost — set a bearer token so it
+# isn't open. Prefer the env var (e.g. `docker run -e LODESTONE_AUTH_TOKEN=…`)
+# over writing the secret here.
+auth_token = ""
 
 [search]
 strategy = "aggregate"

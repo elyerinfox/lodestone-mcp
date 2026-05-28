@@ -18,3 +18,11 @@
 #   127.0.0.1:8000 → local only (default).  0.0.0.0:8000 → reachable externally.
 # Env: LODESTONE_BIND
 bind = "127.0.0.1:8000"
+
+# Optional bearer token guarding the /mcp endpoint. When non-empty, every request
+# must send `Authorization: Bearer <token>` or it's rejected with 401; /health is
+# always open for liveness probes. Empty (default) = no auth. Strongly recommended
+# whenever you bind to 0.0.0.0 (containers/LAN). Prefer the env var so the secret
+# isn't written to a file.
+# Env: LODESTONE_AUTH_TOKEN
+auth_token = ""

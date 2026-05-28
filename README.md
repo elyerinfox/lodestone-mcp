@@ -160,10 +160,7 @@ The full schema, as a single annotated block:
 
 ```toml
 bind = "127.0.0.1:8000"
-
-[tools]
-enabled = []   # which tools to expose; empty = all
-disabled = []  # applied after `enabled`
+auth_token = ""          # bearer token for /mcp; empty = open (set when on 0.0.0.0)
 
 [tools]
 enabled = []   # which tools to expose; empty = all
@@ -197,13 +194,23 @@ args        = []
 token = ""               # enables the authenticated `github` code provider
 ```
 
-Env overrides include `LODESTONE_BIND`, `LODESTONE_SEARCH_STRATEGY`,
+Env overrides include `LODESTONE_BIND`, `LODESTONE_AUTH_TOKEN`,
+`LODESTONE_SEARCH_STRATEGY`,
 `LODESTONE_SEARCH_RANKING`, `LODESTONE_SEARCH_TIMEOUT_SECS`,
 `LODESTONE_WEB_PROVIDERS`, `LODESTONE_CODE_PROVIDERS`, `LODESTONE_QA_PROVIDERS`,
 `LODESTONE_CODE_SITES`, `LODESTONE_STACKEXCHANGE_SITE`,
 `LODESTONE_STACKEXCHANGE_KEY`, `LODESTONE_STACKEXCHANGE_ALLOWED_SITES`,
 `LODESTONE_CHROME_PATH`, `LODESTONE_CHROME_NO_SANDBOX`, `LODESTONE_CHROME_ARGS`,
 and `LODESTONE_GITHUB_TOKEN` / `GITHUB_TOKEN`.
+
+### Authentication
+
+By default `/mcp` is unauthenticated (fine for the local `127.0.0.1` default).
+When exposing the server beyond localhost (e.g. binding to `0.0.0.0` in a
+container or on a LAN), set `auth_token` (or `LODESTONE_AUTH_TOKEN`): every `/mcp`
+request must then send `Authorization: Bearer <token>` or it's rejected with
+`401`. The token is compared in constant time, and `/health` stays open for
+liveness probes.
 
 ### Tools (skills)
 

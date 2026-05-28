@@ -727,6 +727,37 @@ fn slice_lines(s: &str, start: usize, end: usize) -> String {
 // Bootstrap
 // ---------------------------------------------------------------------------
 
+/// Reject `/mcp` requests lacking the configured `Authorization: Bearer <token>`.
+async fn require_bearer(
+    axum::extract::State(token): axum::extract::State<Arc<str>>,
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    let presented = req
+        .headers()
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|h| h.to_str().ok())
+        .and_then(|h| h.strip_prefix("Bearer "));
+    match presented {
+        Some(t) if ct_eq(t.as_bytes(), token.as_bytes()) => next.run(req).await,
+        _ => (axum::http::StatusCode::UNAUTHORIZED, "unauthorized\n").into_response(),
+    }
+}
+
+/// Constant-time byte-slice equality — no early return on first mismatch, so a
+/// matching prefix can't be discovered via response timing.
+fn ct_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
@@ -763,9 +794,17 @@ async fn main() -> anyhow::Result<()> {
         StreamableHttpServerConfig::default().with_cancellation_token(ct.child_token()),
     );
 
+    // The MCP endpoint, optionally guarded by a bearer token. `/health` is always
+    // open so container/orchestrator probes work without credentials.
+    let mut mcp = axum::Router::new().nest_service("/mcp", service);
+    if !cfg.auth_token.is_empty() {
+        let token: Arc<str> = Arc::from(cfg.auth_token.as_str());
+        mcp = mcp.layer(axum::middleware::from_fn_with_state(token, require_bearer));
+        tracing::info!("MCP endpoint requires bearer authentication");
+    }
     let app = axum::Router::new()
         .route("/health", axum::routing::get(|| async { "ok" }))
-        .nest_service("/mcp", service);
+        .merge(mcp);
     let listener = tokio::net::TcpListener::bind(&cfg.bind).await?;
     tracing::info!("lodestone-mcp listening on http://{}/mcp", cfg.bind);
 

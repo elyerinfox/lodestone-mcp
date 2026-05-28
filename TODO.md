@@ -130,11 +130,10 @@ likely involved). Checked items are done; unchecked are open.
 
 ## Security & ops
 
-- [ ] **Optional bearer-token auth for the MCP endpoint.**
-  - **Why:** Binding to `0.0.0.0` (containers/LAN) currently exposes the server
-    unauthenticated.
-  - **How:** `[server].auth_token` (or env); an Axum middleware that checks
-    `Authorization: Bearer …` on `/mcp` in `src/main.rs`.
+- [x] **Optional bearer-token auth for the MCP endpoint.** Done: top-level
+  `auth_token` (`LODESTONE_AUTH_TOKEN`); when set, an Axum `from_fn_with_state`
+  middleware requires `Authorization: Bearer <token>` on `/mcp` (constant-time
+  compare, 401 otherwise). `/health` stays open for probes.
 
 - [x] **`/health` endpoint.** Done: a plain Axum `GET /health` returning `ok`
   alongside the `/mcp` service, for container/orchestrator liveness probes.
