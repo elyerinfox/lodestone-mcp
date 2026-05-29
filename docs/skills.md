@@ -85,15 +85,20 @@ behind the search tools see [providers.md](providers.md).
 | [data](skills/data.md) | `json_query`, `json_format`, `yaml_to_json`, `json_to_yaml` | Parse/convert JSON & YAML. |
 | [regex](skills/regex.md) | `regex_search`, `regex_replace` | Match/substitute with Rust regex. |
 | [math](skills/math.md) | `math_eval`, `math_solve`, `geo_distance`, `geo_azimuth`, `wave_frequency` | Arithmetic/algebra, geo distance/bearing, wave conversions. |
-| [finance](skills/finance.md) | `compound_interest`, `loan_payment`, `currency_convert` | Interest/loan math + keyless currency conversion (ECB). |
 | [units](skills/units.md) | `convert_units` | Unit conversion across many dimensions. |
 
-## Space, markets & science (keyless)
+## Finance & markets (keyless)
+
+| Skill | Tools | What |
+| --- | --- | --- |
+| [finance](skills/finance.md) | `compound_interest`, `loan_payment`, `currency_convert` | Interest/loan math + keyless currency conversion (ECB). |
+| [stocks](skills/stocks.md) | `stock_quote`, `yahoo_quote`, `yahoo_history`, `yahoo_search` | Delayed stock/index/FX/crypto quotes, OHLC history & symbol search (keyless Stooq + Yahoo Finance). |
+
+## Space & astronomy (keyless)
 
 | Skill | Tools | What |
 | --- | --- | --- |
 | [nasa](skills/nasa.md) | `nasa_apod`, `nasa_neo`, `nasa_mars_photos` | NASA open data (DEMO_KEY; optional `[nasa].key`). |
-| [stocks](skills/stocks.md) | `stock_quote` | Delayed stock/index/FX quotes (keyless Stooq). |
 | [satellite](skills/satellite.md) | `sat_tle`, `sat_position`, `sat_observe` | SGP4 orbit propagation: sub-point + observer look-angles. |
 
 ## Introspection

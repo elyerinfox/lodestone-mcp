@@ -45,6 +45,7 @@ pub mod sysinfo;
 pub mod translate;
 pub mod units;
 pub mod wikipedia;
+pub mod yahoo;
 
 use std::sync::Arc;
 
@@ -143,6 +144,7 @@ fn all_skills() -> Vec<Box<dyn Skill>> {
     skills.extend(units::skills());
     skills.extend(nasa::skills());
     skills.extend(stocks::skills());
+    skills.extend(yahoo::skills());
     skills.extend(satellite::skills());
     skills.extend(serial::skills());
     skills.extend(printer::skills());
@@ -183,7 +185,8 @@ pub fn disabled_by_config(cfg: &crate::config::Config) -> Vec<String> {
     // Serial / printer hardware skills — off by default.
     hide_if_off(cfg.serial.enabled, serial::TOOL_NAMES);
     hide_if_off(cfg.printer.enabled, printer::TOOL_NAMES);
-    // Stock quotes — on by default, but gateable.
+    // Stock quotes — on by default, but gateable. Yahoo Finance shares the gate.
     hide_if_off(cfg.stocks.enabled, stocks::TOOL_NAMES);
+    hide_if_off(cfg.stocks.enabled, yahoo::TOOL_NAMES);
     out
 }

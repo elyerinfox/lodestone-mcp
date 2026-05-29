@@ -228,7 +228,7 @@ PDFs, rendered pages) for reuse, with TTL + size retention.
 | `translate` | `text`, `to`, `from?` | Translate text via Google Translate (keyless); `to` is an ISO-639 code, `from` auto-detects. |
 | `detect_language` | `text` | Detect a text's language (ISO-639 code) via Google Translate (keyless). |
 
-## Data, math & units (local, no network)
+## Data, JSON & regex (local, no network)
 
 | Tool | Arguments | Purpose |
 | --- | --- | --- |
@@ -238,30 +238,46 @@ PDFs, rendered pages) for reuse, with TTL + size retention.
 | `json_to_yaml` | `data` | Convert JSON → YAML. |
 | `regex_search` | `pattern`, `text`, `all?`, `ignore_case?` | Find regex matches and their capture groups (Rust `regex` syntax). |
 | `regex_replace` | `pattern`, `text`, `replacement`, `all?`, `ignore_case?` | Substitute regex matches (`$1`/`${name}` refs). |
+
+## Math, science & units (local, no network)
+
+| Tool | Arguments | Purpose |
+| --- | --- | --- |
 | `math_eval` | `expression` | Evaluate an arithmetic/scientific expression (sqrt, sin, pi, `^`, …). |
 | `math_solve` | `equation` | Solve a linear/quadratic equation in `x` (e.g. `x^2 - 5x + 6 = 0`). |
 | `geo_distance` | `lat1`, `lon1`, `lat2`, `lon2` | Great-circle distance between two coordinates (km + mi). |
 | `geo_azimuth` | `lat1`, `lon1`, `lat2`, `lon2` | Initial bearing/azimuth (+ back azimuth, compass) between two coordinates. |
 | `wave_frequency` | `frequency_hz?`, `wavelength_m?`, `speed_m_s?` | Convert frequency ↔ wavelength ↔ period (v = f·λ). |
-| `compound_interest` | `principal`, `annual_rate_percent`, `years`, `compounds_per_year?` | Compound-interest future value + interest earned. |
-| `loan_payment` | `principal`, `annual_rate_percent`, `months` | Amortized monthly payment, total paid, total interest. |
-| `currency_convert` | `amount`, `from`, `to` | Convert currencies via keyless ECB reference rates (Frankfurter); cached. |
 | `convert_units` | `value`, `from`, `to` | Convert between units (length/mass/volume/area/speed/time/data/temperature). |
 
-## Space, markets & science (keyless)
+## Finance & markets
+
+Money math (local) plus keyless market data. Quotes are delayed/reference data, not
+a live trading feed.
+
+| Tool | Arguments | Purpose |
+| --- | --- | --- |
+| `currency_convert` | `amount`, `from`, `to` | Convert currencies via keyless ECB reference rates (Frankfurter); cached. |
+| `compound_interest` | `principal`, `annual_rate_percent`, `years`, `compounds_per_year?` | Compound-interest future value + interest earned. |
+| `loan_payment` | `principal`, `annual_rate_percent`, `months` | Amortized monthly payment, total paid, total interest. |
+| `stock_quote` | `symbol` | Delayed stock/index/FX quote via keyless Stooq (OHLC + volume). |
+| `yahoo_quote` | `symbol` | Delayed Yahoo Finance quote: price, change/%, day & 52-week range, volume, currency, exchange. |
+| `yahoo_history` | `symbol`, `range?`, `interval?` | OHLC price history (date, O/H/L/C, volume) from Yahoo; pick range (1d…max) + bar interval. |
+| `yahoo_search` | `query` | Resolve a company name / partial ticker to Yahoo symbols (type + exchange). |
+
+## Space & astronomy (keyless)
+
+NASA works keyless via `DEMO_KEY`; set `[nasa].key` (`LODESTONE_NASA_KEY`) to raise
+the rate limit.
 
 | Tool | Arguments | Purpose |
 | --- | --- | --- |
 | `nasa_apod` | `date?` | NASA Astronomy Picture of the Day (title, image/video URL, explanation). |
 | `nasa_neo` | `date?` | Near-Earth objects for a day (diameter, hazardous flag, miss distance, velocity). |
 | `nasa_mars_photos` | `rover?`, `sol?`, `earth_date?`, `max_results?` | Mars rover photo URLs (camera + date). |
-| `stock_quote` | `symbol` | Delayed stock/index/FX quote via keyless Stooq (OHLC + volume). |
 | `sat_tle` | `query` | Fetch a satellite's current TLE from CelesTrak (by NORAD id or name). |
 | `sat_position` | `tle_line1`, `tle_line2`, `at?` | SGP4 sub-point: latitude, longitude, altitude, speed. |
 | `sat_observe` | `tle_line1`, `tle_line2`, `observer_lat`, `observer_lon`, `observer_alt_km?`, `at?` | Azimuth/elevation/range from an observer. |
-
-NASA works keyless via `DEMO_KEY`; set `[nasa].key` (`LODESTONE_NASA_KEY`) to raise
-the rate limit. Stock data is delayed/reference, not a trading feed.
 
 ## Meta
 

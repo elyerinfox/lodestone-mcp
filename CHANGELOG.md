@@ -6,6 +6,25 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Yahoo Finance skill** (`yahoo_quote`, `yahoo_history`, `yahoo_search`): keyless,
+  richer market data than the Stooq `stock_quote` — a full quote (change/%, day &
+  52-week range, exchange, currency), OHLC history over a chosen range/interval, and
+  symbol search. Uses Yahoo's public JSON endpoints (no key, no crumb). Gated by the
+  existing `[stocks]` toggle.
+- **Search circuit breaker** (`[search].breaker_threshold` / `breaker_cooldown_secs`):
+  after N consecutive provider failures the source is skipped for a cooldown so it
+  fails fast instead of re-waiting the deadline each call.
+
+### Changed
+
+- **Per-provider search deadline** (`[search].provider_timeout_secs`, default 10):
+  an unresponsive provider is dropped instead of stalling the whole search — the
+  other engines still return in aggregate, and the chain moves on in fallback.
+- **Docs:** `docs/tools.md` regrouped strictly by purpose (finance/markets split out
+  from space/astronomy); README gains a hivemind "be a good neighbor" section.
+
 ## [0.1.0] - unreleased
 
 First release: a keyless MCP server that searches and retrieves code and docs from
