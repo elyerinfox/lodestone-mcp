@@ -7,8 +7,10 @@
 # `status -sb`, `log --oneline -10`, `commit -m "msg"`.
 #
 #   * enabled = true (default)         -> tool exposed.
-#   * allow_destructive = false        -> blocks push, reset, clean, rebase,
-#       filter-branch, filter-repo, gc, prune, reflog. Set true to allow them.
+#   * allow_destructive = false        -> destructive subcommands (push, reset,
+#       clean, rebase, filter-branch, filter-repo, gc, prune, reflog) require a
+#       per-call confirmation token first (call again with confirm=<token>). Set
+#       true to pre-authorize them (skip the prompt).
 #   * repo = ""                        -> default working directory (empty = CWD);
 #       a per-call `repo` argument overrides it.
 # Env: LODESTONE_GIT_ENABLED, LODESTONE_GIT_ALLOW_DESTRUCTIVE, LODESTONE_GIT_REPO
@@ -16,6 +18,6 @@
 
 [git]
 enabled = true
-allow_destructive = false  # allow push/reset/clean/rebase/…
+allow_destructive = false  # pre-authorize push/reset/clean/rebase/… (skip the confirm prompt)
 repo = ""                  # default repo dir; empty = the server's CWD
 timeout_secs = 60

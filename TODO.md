@@ -104,6 +104,19 @@ likely involved). Checked items are done; unchecked are open.
   (read-only, on by default); blocking work runs on `spawn_blocking`. Docs + config
   (`config/13-sysinfo.toml`) added.
 
+- [ ] **SDR skill (RTL-SDR / HackRF).** Not supported yet. Would wrap `rtl-sdr` /
+  `hackrf` (or `soapysdr`) to scan/sample radio — heavy native deps + hardware +
+  drivers, off by default, side-effecting (tuning) → guarded. Likely shell out to
+  `rtl_power`/`rtl_fm`/`hackrf_transfer` first (dependency safeguard when absent)
+  rather than linking the C libs. Scope: `sdr_devices`, `sdr_scan` (power spectrum).
+
+- [ ] **Background tasks & alerts.** A scheduler so the server can run periodic jobs
+  (e.g. poll a feed, watch a container/quote/satellite pass) and surface alerts.
+  MCP is request/response, so delivery is the hard part — options: MCP logging/
+  notifications to the client, or a results buffer the model polls via a tool
+  (`tasks_list`/`task_result`). The hivemind already runs a background sync loop to
+  build on. Define create/list/cancel tools + a `[tasks]` config (off by default).
+
 - [ ] **FFmpeg conversion skill.** There's an `ffmpeg` *docs* provider (`docs_ffmpeg`)
   but no conversion tool. Add `ffmpeg_convert` (input path, output path, optional
   args/codec/format) that shells out to the local `ffmpeg` binary — off by default

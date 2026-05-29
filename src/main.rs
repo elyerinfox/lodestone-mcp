@@ -597,9 +597,9 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("\n{}", registry.describe());
 
     // Gate the local-system tool families by their config: when a family is off,
-    // hide all its tools; when on but destructive actions aren't allowed, hide
-    // just those. (Done by extending the [tools] denylist before the router is
-    // built, so the gating reuses the same filtering path.)
+    // hide all its tools. (Destructive actions are NOT hidden — they're exposed and
+    // gated at call time by the confirmation guard.) Done by extending the [tools]
+    // denylist before the router is built, so the gating reuses the same filtering path.
     let tools_disabled = effective_disabled(&cfg);
 
     let server = Lodestone::new(

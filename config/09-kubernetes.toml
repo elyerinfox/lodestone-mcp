@@ -9,15 +9,16 @@
 #
 # Every action is its own tool, for per-action permission granularity. Read +
 # safe-write tools (k8s_contexts, k8s_get, k8s_describe, k8s_logs, k8s_apply,
-# k8s_scale) are exposed when `enabled`. The DESTRUCTIVE tool (k8s_delete) is
-# hidden unless `allow_destructive` is also set.
+# k8s_scale) are exposed when `enabled`. The DESTRUCTIVE tool (k8s_delete) is also
+# exposed but requires a per-call confirmation token (first call returns it; call
+# again with confirm=<token>); `allow_destructive` pre-authorizes it, skipping the prompt.
 # Env: LODESTONE_KUBERNETES_ENABLED, LODESTONE_KUBERNETES_ALLOW_DESTRUCTIVE,
 #      LODESTONE_KUBECONFIG, LODESTONE_KUBE_CONTEXT, LODESTONE_KUBE_NAMESPACE
 # -----------------------------------------------------------------------------
 
 [kubernetes]
 enabled = true             # expose the Kubernetes tools
-allow_destructive = false  # also expose k8s_delete
+allow_destructive = false  # pre-authorize k8s_delete (skip the confirm prompt)
 kubeconfig = ""            # path to a kubeconfig; empty = default / $KUBECONFIG / in-cluster
 context = ""               # kubeconfig context; empty = the file's current-context
 namespace = ""             # default namespace for tool calls; empty = "default"
