@@ -86,6 +86,7 @@ behind the search tools see [providers.md](providers.md).
 | [data](skills/data.md) | `json_query`, `json_format`, `yaml_to_json`, `json_to_yaml` | Parse/convert JSON & YAML. |
 | [regex](skills/regex.md) | `regex_search`, `regex_replace` | Match/substitute with Rust regex. |
 | [math](skills/math.md) | `math_eval`, `math_solve`, `geo_distance`, `geo_azimuth`, `wave_frequency` | Arithmetic/algebra, geo distance/bearing, wave conversions. |
+| [forecast](skills/forecast.md) | `forecast` | Time-series forecasting (Holt / Holt-Winters), local. |
 | [units](skills/units.md) | `convert_units` | Unit conversion across many dimensions. |
 
 ## Finance & markets (keyless)

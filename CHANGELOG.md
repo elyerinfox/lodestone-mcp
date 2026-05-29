@@ -8,6 +8,10 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Forecasting skill** (`forecast`): local time-series forecasting via exponential
+  smoothing — Holt's linear trend or Holt-Winters additive (with a `season_length`),
+  smoothing constants grid-searched on in-sample error, plus an approximate interval.
+  A pragmatic single-binary stand-in for Prophet/SARIMAX (no Python, no network).
 - **News-feed skill** (`news_feed`): fetch recent items (title/link/date/summary)
   from any keyless RSS 2.0 or Atom feed — a URL or a built-in shorthand
   (`hackernews`, `bbc`, `theverge`, `arstechnica`, `lobsters`, `lwn`). Read-only,

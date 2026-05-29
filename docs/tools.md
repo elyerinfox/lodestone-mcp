@@ -249,6 +249,7 @@ PDFs, rendered pages) for reuse, with TTL + size retention.
 | `geo_distance` | `lat1`, `lon1`, `lat2`, `lon2` | Great-circle distance between two coordinates (km + mi). |
 | `geo_azimuth` | `lat1`, `lon1`, `lat2`, `lon2` | Initial bearing/azimuth (+ back azimuth, compass) between two coordinates. |
 | `wave_frequency` | `frequency_hz?`, `wavelength_m?`, `speed_m_s?` | Convert frequency ↔ wavelength ↔ period (v = f·λ). |
+| `forecast` | `values`, `horizon`, `season_length?` | Forecast a numeric series (Holt / Holt-Winters exponential smoothing) with an approximate interval. |
 | `convert_units` | `value`, `from`, `to` | Convert between units (length/mass/volume/area/speed/time/data/temperature). |
 
 ## Finance & markets

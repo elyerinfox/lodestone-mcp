@@ -153,12 +153,14 @@ likely involved). Checked items are done; unchecked are open.
   confirmation guard, and a clear "ffmpeg not on PATH" safeguard. Maybe `ffmpeg_probe`
   (ffprobe metadata, read-only).
 
-- [ ] **Time-series forecasting skill.** Forecast a numeric series (trend/seasonality).
-  Prophet/SARIMAX are Python/statsmodels-heavy; in pure Rust the `augurs` crate (MSTL/
-  ETS/AR) or a hand-rolled Holt-Winters + simple ARIMA is the practical path. Tool:
-  `forecast` (values + horizon → point forecast + interval). Pure compute, local.
-  Pulling real Prophet/SARIMAX would mean an embedded Python or a sidecar — out of
-  scope for the single-binary model; document the chosen approximation.
+- [x] **Time-series forecasting skill.** Done: `src/skills/forecast.rs` — `forecast`
+  (values + horizon + optional `season_length` → point forecasts + an approximate
+  ~95% interval). Hand-rolled, zero-dependency exponential smoothing: Holt's linear
+  trend, or Holt-Winters additive when a season length is given; smoothing constants
+  picked by a small grid search on in-sample one-step error; naive carry-forward for
+  series too short to fit. Documented as a deliberate single-binary approximation of
+  Prophet/SARIMAX (which would need embedded Python / a sidecar). Docs:
+  `docs/skills/forecast.md`.
 
 - [x] **News feed skill.** Done: `src/skills/news.rs` — `news_feed` (a feed URL or a
   built-in shorthand → recent items: title/link/date/summary). Handles RSS 2.0 and

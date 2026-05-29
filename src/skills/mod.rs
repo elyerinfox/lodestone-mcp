@@ -20,6 +20,7 @@ pub mod datetime;
 pub mod docker;
 pub mod filesystem;
 pub mod finance;
+pub mod forecast;
 pub mod git;
 pub mod github;
 pub mod guard;
@@ -143,6 +144,7 @@ fn all_skills() -> Vec<Box<dyn Skill>> {
     skills.extend(regex::skills());
     skills.extend(math::skills());
     skills.extend(finance::skills());
+    skills.extend(forecast::skills());
     skills.extend(units::skills());
     skills.extend(nasa::skills());
     skills.extend(stocks::skills());
