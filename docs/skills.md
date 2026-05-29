@@ -72,6 +72,7 @@ behind the search tools see [providers.md](providers.md).
 | --- | --- | --- |
 | [serial](skills/serial.md) | `serial_ports`, `serial_send`, `serial_read` | Raw serial-device I/O (`serial_send` guarded). |
 | [printer](skills/printer.md) | `printer_list`, `printer_print` | OS printing (CUPS / Windows; `printer_print` guarded). |
+| [sdr](skills/sdr.md) | `sdr_devices`, `sdr_scan` | List SDRs + sweep the RF spectrum (RTL-SDR/HackRF; receive-only). |
 
 ## Caching & storage
 

@@ -21,3 +21,10 @@ timeout_ms = 1000
 [printer]
 # Expose the printer_* tools. Env: LODESTONE_PRINTER_ENABLED
 enabled = false
+
+# Software-defined radio (sdr_devices / sdr_scan) — shells out to rtl_test /
+# hackrf_info (discovery) and rtl_power (a spectrum sweep). OFF by default; needs
+# the RTL-SDR / HackRF tools installed and hardware attached. RECEIVE-ONLY — no
+# transmission path is exposed. Env: LODESTONE_SDR_ENABLED
+[sdr]
+enabled = false

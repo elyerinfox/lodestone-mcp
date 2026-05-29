@@ -204,6 +204,8 @@ guard. See [`config/16-devices.toml`](../config/16-devices.toml).
 | `serial_read` | `port`, `baud?`, `timeout_ms?`, `max_bytes?` | read | Read from a serial port for a timeout (text + hex). |
 | `printer_list` | — | read | List printers (CUPS / Windows spooler). |
 | `printer_print` | `text`, `printer?`, `confirm?`, `trust?` | **side-effecting** | Print text (confirm first). |
+| `sdr_devices` | — | read | List attached SDRs (RTL-SDR via `rtl_test`, HackRF via `hackrf_info`). |
+| `sdr_scan` | `start_mhz`, `end_mhz`, `bin_khz?`, `top?` | read | Sweep the spectrum (`rtl_power`) and report the strongest bins. Receive-only. |
 
 ## Databases
 

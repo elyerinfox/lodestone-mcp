@@ -40,6 +40,7 @@ pub struct Config {
     pub sysinfo: Sysinfo,
     pub ffmpeg: Ffmpeg,
     pub spreadsheet: Spreadsheet,
+    pub sdr: Sdr,
     pub serial: Serial,
     pub printer: Printer,
     pub nasa: Nasa,
@@ -455,6 +456,16 @@ pub struct Spreadsheet {
     pub enabled: bool,
 }
 
+/// SDR skill (`src/skills/sdr.rs`) — list software-defined radios and sweep the
+/// spectrum by shelling out to `rtl_power`/`rtl_test`/`hackrf_info`. **Off by
+/// default** (hardware + native tools). Receive-only; no transmission.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct Sdr {
+    /// Expose the `sdr_*` tools.
+    pub enabled: bool,
+}
+
 /// Serial-port skill (`src/skills/serial.rs`) — read/write raw serial devices.
 /// **Off by default** (hardware access); writes go through the confirmation guard.
 #[derive(Debug, Clone, Deserialize)]
@@ -694,6 +705,7 @@ impl Default for Config {
             sysinfo: Sysinfo::default(),
             ffmpeg: Ffmpeg::default(),
             spreadsheet: Spreadsheet::default(),
+            sdr: Sdr::default(),
             serial: Serial::default(),
             printer: Printer::default(),
             nasa: Nasa::default(),
@@ -1021,6 +1033,9 @@ impl Config {
         }
         if let Ok(v) = std::env::var("LODESTONE_SPREADSHEET_ENABLED") {
             self.spreadsheet.enabled = is_truthy(&v);
+        }
+        if let Ok(v) = std::env::var("LODESTONE_SDR_ENABLED") {
+            self.sdr.enabled = is_truthy(&v);
         }
         if let Ok(v) = std::env::var("LODESTONE_SERIAL_ENABLED") {
             self.serial.enabled = is_truthy(&v);

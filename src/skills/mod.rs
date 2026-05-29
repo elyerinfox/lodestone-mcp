@@ -38,6 +38,7 @@ pub mod regex;
 pub mod retrieve;
 pub mod rfc;
 pub mod satellite;
+pub mod sdr;
 pub mod search;
 pub mod serial;
 pub mod shell;
@@ -155,6 +156,7 @@ fn all_skills() -> Vec<Box<dyn Skill>> {
     skills.extend(yahoo::skills());
     skills.extend(satellite::skills());
     skills.extend(serial::skills());
+    skills.extend(sdr::skills());
     skills.extend(printer::skills());
     skills.extend(meta::skills());
     skills
@@ -194,9 +196,10 @@ pub fn disabled_by_config(cfg: &crate::config::Config) -> Vec<String> {
     hide_if_off(!cfg.databases.is_empty(), databases::TOOL_NAMES);
     // File-store tools are gated by [store] (cache_status stays always-on).
     hide_if_off(cfg.store.enabled, store::TOOL_NAMES);
-    // Serial / printer hardware skills — off by default.
+    // Serial / printer / SDR hardware skills — off by default.
     hide_if_off(cfg.serial.enabled, serial::TOOL_NAMES);
     hide_if_off(cfg.printer.enabled, printer::TOOL_NAMES);
+    hide_if_off(cfg.sdr.enabled, sdr::TOOL_NAMES);
     // Stock quotes — on by default, but gateable. Yahoo Finance shares the gate.
     hide_if_off(cfg.stocks.enabled, stocks::TOOL_NAMES);
     hide_if_off(cfg.stocks.enabled, yahoo::TOOL_NAMES);

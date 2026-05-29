@@ -8,6 +8,10 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **SDR skill** (`sdr_devices`, `sdr_scan`): list software-defined radios and sweep
+  the RF spectrum by shelling out to `rtl_test`/`hackrf_info`/`rtl_power`. Off by
+  default (`[sdr]`); **receive-only** (no transmit), with hardware/tool-absent
+  safeguards.
 - **Spreadsheet skill** (`sheet_read`, `sheet_query`, `sheet_write`): read/filter/write
   CSV/TSV and XLSX/XLS/ODS. Off by default (`[spreadsheet]`); paths confined to
   `[filesystem].roots`, writes routed through the confirmation guard. CSV via `csv`,

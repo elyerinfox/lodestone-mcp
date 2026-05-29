@@ -124,11 +124,12 @@ likely involved). Checked items are done; unchecked are open.
     needed. The `render=true` path remains the real bypass (a true browser isn't
     IP-blocked) but needs a working headless Chrome.
 
-- [ ] **SDR skill (RTL-SDR / HackRF).** Not supported yet. Would wrap `rtl-sdr` /
-  `hackrf` (or `soapysdr`) to scan/sample radio — heavy native deps + hardware +
-  drivers, off by default, side-effecting (tuning) → guarded. Likely shell out to
-  `rtl_power`/`rtl_fm`/`hackrf_transfer` first (dependency safeguard when absent)
-  rather than linking the C libs. Scope: `sdr_devices`, `sdr_scan` (power spectrum).
+- [x] **SDR skill (RTL-SDR / HackRF).** Done: `src/skills/sdr.rs` — `sdr_devices`
+  (probe via `rtl_test`/`hackrf_info`) and `sdr_scan` (single `rtl_power` sweep →
+  strongest bins). Shells out to the standard CLI tools (no C-lib linking);
+  dependency-absent safeguard ("not on PATH"). Off by default (`[sdr]`) and
+  **receive-only** — no transmit path is exposed (chose safety over wrapping
+  `hackrf_transfer -t`). Docs: `docs/skills/sdr.md`.
 
 - [ ] **Background tasks & alerts.** Two parts:
   1. **A tasks skill** — `task_list`, `task_status`, `task_result`, `task_cancel`
