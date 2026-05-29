@@ -168,6 +168,17 @@ confirms at call time (see above).
 | `ffmpeg_probe` | `input` | read | Media metadata: format, duration, bitrate, per-stream codec/resolution/sample-rate. |
 | `ffmpeg_convert` | `input`, `output`, `args?`, `confirm?`, `trust?` | write | Convert/transcode; extra ffmpeg flags via pre-split `args` (confirm first). |
 
+## Spreadsheets (CSV / XLSX)
+
+Read/query/write tabular files. **Off by default** (`[spreadsheet]`); paths confined
+to `[filesystem].roots`; `sheet_write` confirms at call time (see above).
+
+| Tool | Arguments | Access | Purpose |
+| --- | --- | --- | --- |
+| `sheet_read` | `path`, `sheet?`, `max_rows?` | read | Read a CSV/TSV/XLSX/XLS/ODS sheet as a table. |
+| `sheet_query` | `path`, `column`, `equals`, `sheet?`, `select?`, `max_rows?` | read | Filter rows by a header column == value, project columns. |
+| `sheet_write` | `path`, `rows`, `sheet_name?`, `confirm?`, `trust?` | write | Write rows to CSV/TSV or XLSX (format by extension; confirm first). |
+
 ## System information
 
 Read-only host facts, gated by `[sysinfo]` (on by default; cross-platform — Linux

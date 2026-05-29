@@ -62,6 +62,7 @@ behind the search tools see [providers.md](providers.md).
 | [shell](skills/shell.md) | **off** `[shell]` | `shell_run` | Run a command (allowlist or unrestricted). |
 | [git](skills/git.md) | on `[git]` | `git_run` | Run git in a repo (destructive subcommands guarded). |
 | [ffmpeg](skills/ffmpeg.md) | **off** `[ffmpeg]` | `ffmpeg_probe`, `ffmpeg_convert` | Probe/convert local media (paths confined to roots; convert guarded). |
+| [spreadsheet](skills/spreadsheet.md) | **off** `[spreadsheet]` | `sheet_read`, `sheet_query`, `sheet_write` | Read/query/write CSV & XLSX (paths confined to roots; write guarded). |
 | [sysinfo](skills/sysinfo.md) | on `[sysinfo]` | `system_info`, `system_disks`, `system_gpu` | Host/CPU/memory/disk + NVIDIA GPU (read-only). |
 | [databases](skills/databases.md) | off (until `[databases.<id>]`) | `db_list`, `db_query`, `redis_command` | Query Postgres/MySQL/Redis (writes guarded). |
 

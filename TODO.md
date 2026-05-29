@@ -168,11 +168,12 @@ likely involved). Checked items are done; unchecked are open.
   sources: hackernews, bbc, theverge, arstechnica, lobsters, lwn. Docs:
   `docs/skills/news.md`.
 
-- [ ] **Spreadsheet skill.** Read/edit tabular data. CSV is built-in (Rust `csv`);
-  XLSX via `calamine` (read) + `rust_xlsxwriter` (write). Tools: `sheet_read`
-  (range/sheet → rows), `sheet_query` (filter/select), `sheet_write` (cells/append).
-  File writes are confined like the filesystem skill (`[filesystem].roots`) and go
-  through the confirmation guard; off by default or behind `[filesystem]`.
+- [x] **Spreadsheet skill.** Done: `src/skills/spreadsheet.rs` — `sheet_read`,
+  `sheet_query` (filter rows by a header column == value, project `select` columns),
+  and `sheet_write`. CSV/TSV via `csv`, XLSX/XLS/ODS reads via `calamine`, XLSX writes
+  via `rust_xlsxwriter`; blocking work on `spawn_blocking`. Off by default
+  (`[spreadsheet]`); paths confined to `[filesystem].roots`; `sheet_write` routed
+  through the confirmation guard. Docs: `docs/skills/spreadsheet.md`.
 
 - [x] **Serial device skill.** Done: `src/skills/serial.rs` — `serial_ports`,
   `serial_send` (guarded write), `serial_read` (timed read → text + hex) via the

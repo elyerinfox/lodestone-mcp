@@ -31,3 +31,10 @@ roots = []
 # Env: LODESTONE_FFMPEG_ENABLED
 [ffmpeg]
 enabled = false
+
+# Spreadsheet skill (sheet_read / sheet_query / sheet_write) — read/query/write
+# CSV/TSV and XLSX/XLS/ODS. OFF by default. Paths are confined to the
+# [filesystem].roots above; sheet_write goes through the confirmation guard.
+# Env: LODESTONE_SPREADSHEET_ENABLED
+[spreadsheet]
+enabled = false

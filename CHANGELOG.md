@@ -8,6 +8,10 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Spreadsheet skill** (`sheet_read`, `sheet_query`, `sheet_write`): read/filter/write
+  CSV/TSV and XLSX/XLS/ODS. Off by default (`[spreadsheet]`); paths confined to
+  `[filesystem].roots`, writes routed through the confirmation guard. CSV via `csv`,
+  XLSX reads via `calamine`, XLSX writes via `rust_xlsxwriter`.
 - **FFmpeg skill** (`ffmpeg_probe`, `ffmpeg_convert`): probe and convert local media
   by shelling out to a system FFmpeg. Off by default (`[ffmpeg]`); paths confined to
   `[filesystem].roots`, conversions routed through the confirmation guard, with a

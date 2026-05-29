@@ -41,6 +41,7 @@ pub mod satellite;
 pub mod search;
 pub mod serial;
 pub mod shell;
+pub mod spreadsheet;
 pub mod standards;
 pub mod stocks;
 pub mod store;
@@ -135,6 +136,7 @@ fn all_skills() -> Vec<Box<dyn Skill>> {
     skills.extend(kubernetes::skills());
     skills.extend(filesystem::skills());
     skills.extend(ffmpeg::skills());
+    skills.extend(spreadsheet::skills());
     skills.extend(shell::skills());
     skills.extend(git::skills());
     skills.extend(sysinfo::skills());
@@ -186,6 +188,8 @@ pub fn disabled_by_config(cfg: &crate::config::Config) -> Vec<String> {
     hide_if_off(cfg.sysinfo.enabled, sysinfo::TOOL_NAMES);
     // FFmpeg conversion — off by default (needs a local ffmpeg).
     hide_if_off(cfg.ffmpeg.enabled, ffmpeg::TOOL_NAMES);
+    // Spreadsheet read/query/write — off by default (file I/O).
+    hide_if_off(cfg.spreadsheet.enabled, spreadsheet::TOOL_NAMES);
     // Database tools appear only when at least one [databases.<id>] is configured.
     hide_if_off(!cfg.databases.is_empty(), databases::TOOL_NAMES);
     // File-store tools are gated by [store] (cache_status stays always-on).

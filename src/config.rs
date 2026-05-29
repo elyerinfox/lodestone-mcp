@@ -39,6 +39,7 @@ pub struct Config {
     pub git: Git,
     pub sysinfo: Sysinfo,
     pub ffmpeg: Ffmpeg,
+    pub spreadsheet: Spreadsheet,
     pub serial: Serial,
     pub printer: Printer,
     pub nasa: Nasa,
@@ -444,6 +445,16 @@ pub struct Ffmpeg {
     pub enabled: bool,
 }
 
+/// Spreadsheet skill (`src/skills/spreadsheet.rs`) — read/query/write CSV & XLSX.
+/// **Off by default**; paths are confined to `[filesystem].roots` and writes go
+/// through the confirmation guard.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct Spreadsheet {
+    /// Expose the `sheet_*` tools.
+    pub enabled: bool,
+}
+
 /// Serial-port skill (`src/skills/serial.rs`) — read/write raw serial devices.
 /// **Off by default** (hardware access); writes go through the confirmation guard.
 #[derive(Debug, Clone, Deserialize)]
@@ -682,6 +693,7 @@ impl Default for Config {
             git: Git::default(),
             sysinfo: Sysinfo::default(),
             ffmpeg: Ffmpeg::default(),
+            spreadsheet: Spreadsheet::default(),
             serial: Serial::default(),
             printer: Printer::default(),
             nasa: Nasa::default(),
@@ -1006,6 +1018,9 @@ impl Config {
         }
         if let Ok(v) = std::env::var("LODESTONE_FFMPEG_ENABLED") {
             self.ffmpeg.enabled = is_truthy(&v);
+        }
+        if let Ok(v) = std::env::var("LODESTONE_SPREADSHEET_ENABLED") {
+            self.spreadsheet.enabled = is_truthy(&v);
         }
         if let Ok(v) = std::env::var("LODESTONE_SERIAL_ENABLED") {
             self.serial.enabled = is_truthy(&v);
