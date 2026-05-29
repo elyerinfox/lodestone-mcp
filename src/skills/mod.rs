@@ -34,6 +34,7 @@ pub mod nasa;
 pub mod news;
 pub mod oci;
 pub mod printer;
+pub mod pubmed;
 pub mod regex;
 pub mod retrieve;
 pub mod rfc;
@@ -129,6 +130,7 @@ fn all_skills() -> Vec<Box<dyn Skill>> {
     skills.extend(huggingface::skills());
     skills.extend(wikipedia::skills());
     skills.extend(news::skills());
+    skills.extend(pubmed::skills());
     skills.extend(kernel::skills());
     skills.extend(github::skills());
     skills.extend(oci::skills());

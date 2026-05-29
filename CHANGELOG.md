@@ -8,6 +8,10 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **PubMed skill** (`pubmed_search`, `pubmed_summary`): search the biomedical
+  literature and read abstracts via NCBI E-utilities (esearch/esummary/efetch).
+  Keyless (optional `LODESTONE_NCBI_API_KEY` raises the rate limit); cached; supports
+  PubMed field tags. Links to pubmed.ncbi.nlm.nih.gov.
 - **Galaxy** (optional, off by default): links constellations across networks. The
   **broker** is a *separate binary*, `lodestone-galaxy` — a rendezvous directory of
   `{ constellation → public ingress endpoint(s) }`, configured by env

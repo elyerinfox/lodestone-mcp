@@ -39,6 +39,7 @@ behind the search tools see [providers.md](providers.md).
 | [rfc](skills/rfc.md) | `rfc_get`, `rfc_search` | IETF RFCs by number or title. |
 | [standards](skills/standards.md) | `standards_search` | IEEE/SAE/NIST/ISO metadata via Crossref. |
 | [arxiv](skills/arxiv.md) | `arxiv_search`, `arxiv_get` | arXiv papers (PDF URLs feed `read_pdf`). |
+| [pubmed](skills/pubmed.md) | `pubmed_search`, `pubmed_summary` | Biomedical literature + abstracts (NCBI E-utilities, keyless). |
 | [huggingface](skills/huggingface.md) | `hf_search`, `hf_model` | Hugging Face Hub models/datasets. |
 | [wikipedia](skills/wikipedia.md) | `wikipedia_search`, `wikipedia_summary` | Wikipedia search + article text. |
 | [news](skills/news.md) | `news_feed` | Recent items from any RSS/Atom feed (or a built-in shorthand). |
