@@ -53,10 +53,12 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   by shelling out to a system FFmpeg. Off by default (`[ffmpeg]`); paths confined to
   `[filesystem].roots`, conversions routed through the confirmation guard, with a
   clear "not on PATH" message when FFmpeg is missing.
-- **Forecasting skill** (`forecast`): local time-series forecasting via exponential
-  smoothing — Holt's linear trend or Holt-Winters additive (with a `season_length`),
-  smoothing constants grid-searched on in-sample error, plus an approximate interval.
-  A pragmatic single-binary stand-in for Prophet/SARIMAX (no Python, no network).
+- **Forecasting skills** — one tool per method, no hidden auto-selection:
+  `forecast_holt_linear` (level + trend) and `forecast_holt_winters` (level + trend +
+  additive season, needs a `season_length` and ≥2 full seasons). Smoothing constants
+  (`alpha`/`beta`/`gamma`) can be pinned per call or, if omitted, are grid-searched on
+  in-sample error; both return an approximate interval. A pragmatic single-binary
+  stand-in for Prophet/SARIMAX (no Python, no network).
 - **News-feed skill** (`news_feed`): fetch recent items (title/link/date/summary)
   from any keyless RSS 2.0 or Atom feed — a URL or a built-in shorthand
   (`hackernews`, `bbc`, `theverge`, `arstechnica`, `lobsters`, `lwn`). Read-only,

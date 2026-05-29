@@ -91,7 +91,7 @@ behind the search tools see [providers.md](providers.md).
 | [translate](skills/translate.md) | `translate`, `detect_language` | Google Translate (keyless). |
 | [data](skills/data.md) | `json_query`, `json_format`, `yaml_to_json`, `json_to_yaml` | Parse/convert JSON & YAML. |
 | [regex](skills/regex.md) | `regex_search`, `regex_replace` | Match/substitute with Rust regex. |
-| [forecast](skills/forecast.md) | `forecast` | Time-series forecasting (Holt / Holt-Winters), local. |
+| [forecast](skills/forecast.md) | `forecast_holt_linear`, `forecast_holt_winters` | Time-series forecasting — one tool per method (Holt linear / Holt-Winters), local. |
 | [units](skills/units.md) | `convert_units` | Unit conversion across many dimensions. |
 
 ## Math & science (local, by field)

@@ -294,7 +294,8 @@ to discover ids/equations/signatures.
 | `physics_formula` / `physics_formula_list` | `name`, `args` / `filter?` | ~70 physics formulas (mechanics, gravitation, EM, thermo, waves/optics, relativity, atomic/nuclear, fluids). |
 | `physical_constant` | `name?` | SI physical constants (c, G, h, k_B, R, …). |
 | `wave_frequency` | `frequency_hz?`, `wavelength_m?`, `speed_m_s?` | Convert frequency ↔ wavelength ↔ period (v = f·λ). |
-| `forecast` | `values`, `horizon`, `season_length?` | Forecast a numeric series (Holt / Holt-Winters) with an approximate interval. |
+| `forecast_holt_linear` | `values`, `horizon`, `alpha?`, `beta?` | Forecast a numeric series with Holt's linear trend (level + trend), approximate interval. |
+| `forecast_holt_winters` | `values`, `horizon`, `season_length`, `alpha?`, `beta?`, `gamma?` | Forecast a seasonal series with Holt-Winters additive (level + trend + season). |
 | `convert_units` | `value`, `from`, `to` | Convert between units (length/mass/volume/area/speed/time/data/temperature). |
 
 ## Finance & markets
