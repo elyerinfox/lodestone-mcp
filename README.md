@@ -162,6 +162,40 @@ strategies, caching, forges/doc-sites: **[docs/configuration.md](docs/configurat
 | [comparison.md](docs/comparison.md) | How Lodestone compares; limitations. |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Architecture and how to add a skill/provider. |
 
+## Hivemind — share the load, be a good neighbor
+
+Lodestone reaches the open web by scraping search engines and fetching from
+rate-limited sources (arXiv, IETF, registries, …). Those limits are almost always
+enforced **per IP**, not per user — so when several people share an uplink (an
+office, a lab, a campus, a VPN, a household behind one NAT), every redundant scrape
+you make spends a budget your neighbors also draw on. Hammer DuckDuckGo from a
+shared egress and *everyone* behind that address starts seeing tarpits and 403s,
+not just you. The cost of one greedy node is paid by the whole network.
+
+The opt-in [**hivemind**](docs/hivemind.md) turns that dynamic around. When you
+enable it, your instance first asks its peers whether one of them has *already*
+fetched a query or file before it goes to the open web:
+
+- **Fewer requests per IP.** A result or PDF that any one node retrieves is served
+  to the others, so the group hits the rate-limited source once instead of N times.
+  You stop competing with your colleagues for the same shrinking budget — and stop
+  being the reason their searches start failing.
+- **You give as much as you get.** Every node both consults and serves: the cache
+  you fill from your own work softens the next person's load, and theirs softens
+  yours. A shared connection becomes a reason the experience gets *better* as more
+  people join, not worse.
+- **Privacy-preserving by design.** Only *hashes* of query keys cross the wire
+  (never raw query text), responses carry only already-public web results/bytes
+  (never secrets), peer data is trusted only by content-verified consensus, and the
+  `/hive` endpoints can require a shared `[network].token`. It stays strictly
+  opt-in and is never a dependency — local search works with zero peers.
+
+If you run more than one instance, or share a network with others who do, please
+consider turning it on for your peers' sake: set `[network].enabled = true` (LAN
+peers are found automatically over mDNS; add `[network].peers` for off-LAN nodes).
+See [`config/06-network.toml`](config/06-network.toml) and
+[docs/hivemind.md](docs/hivemind.md).
+
 ## Golden rules
 
 The project's non-negotiable invariants live in
