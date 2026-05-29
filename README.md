@@ -76,35 +76,77 @@ the [golden rules](docs/golden-rules.md).
 
 ## What it enables
 
-Because the skills compose, a model can chain them into real, multi-step work. A few
-concrete examples, by field:
+Because the skills compose, a model can chain them into real, multi-step work. The
+tree below is scoped by domain → sub-field → the concrete capability and tools.
 
-- **Research & academia.** "Find the *Attention Is All You Need* paper and summarize
-  its method" → `arxiv_search` → `read_pdf` on the free PDF (shared across your
-  constellation so you don't re-download). Look up an **RFC** (`rfc_get`) or a **NIST/IEEE
-  standard** (`standards_search`), read a **Wikipedia** article, or pull a
-  reproducibility dataset/model card from **Hugging Face** (`hf_model`).
-- **Astronomy & aerospace.** "When is the ISS next over Berlin?" → `sat_tle "ISS"` →
-  `sat_observe` from your coordinates for azimuth/elevation/range; `sat_position` for
-  the live ground sub-point. Pair with **NASA** APOD / near-Earth-object / Mars-rover
-  data (`nasa_*`).
-- **Physics & engineering.** Convert frequency ↔ wavelength ↔ period
-  (`wave_frequency`), great-circle distance and bearing between coordinates
-  (`geo_distance`/`geo_azimuth`), arbitrary unit conversions (`convert_units`), and
-  evaluate/solve formulas (`math_eval`/`math_solve`).
-- **DevOps & SRE.** Triage a box without a shell: `docker_ps` → `docker_logs`,
-  `k8s_get` → `k8s_logs` → `k8s_scale`, `system_info`/`system_disks`/`system_gpu`,
-  `git_run`, and a guarded `db_query`/`redis_command` to inspect state. Destructive
+### Academia & research
+
+- **Biomedicine & life sciences** — search the literature with `pubmed_search` and
+  read an abstract with `pubmed_summary`; reach the rest of NCBI with `ncbi_search` /
+  `ncbi_summary`: **genetics** (`db=gene`, `clinvar`, `snp`), **proteomics/genomics**
+  (`protein`, `nucleotide`, `assembly`, `genome`), **taxonomy** (`taxonomy`), and
+  full-text via PubMed Central (`pmc`). e.g. "BRCA1 variants linked to breast cancer"
+  → `pubmed_search` → `ncbi_search db=clinvar`.
+- **Physics, math & CS** — find a preprint with `arxiv_search` and read the free PDF
+  with `read_pdf` (shared across your [constellation](docs/constellation.md), so you
+  don't re-download); evaluate/solve expressions (`math_eval` / `math_solve`); pull a
+  model/dataset card from **Hugging Face** (`hf_model` / `hf_search`).
+- **Engineering & standards** — look up an **IETF RFC** (`rfc_get` / `rfc_search`)
+  or an **IEEE / SAE / NIST / ISO** standard (`standards_search`, with DOI links and
+  free NIST full text via `read_pdf`); unit conversions across dimensions
+  (`convert_units`).
+- **General reference** — `wikipedia_search` / `wikipedia_summary`, plus
+  `web_search` → `fetch_page` / `render_page` for anything else (with a Wayback
+  fallback, `wayback_fetch`).
+
+### Astronomy & aerospace
+
+- **Orbital tracking** — "when is the ISS next over Berlin?" → `sat_tle "ISS"` (fetch
+  the current TLE from CelesTrak) → `sat_observe` from your coordinates for
+  **azimuth / elevation / range**, or `sat_position` for the live **ground sub-point**
+  (lat/lon/alt/speed) via SGP4 propagation.
+- **NASA open data** — astronomy picture of the day (`nasa_apod`), **near-Earth
+  objects** with miss-distance/velocity/hazard flags (`nasa_neo`), and **Mars-rover**
+  imagery (`nasa_mars_photos`).
+- **Radio & signals** — convert **frequency ↔ wavelength ↔ period** (`wave_frequency`,
+  e.g. antenna sizing, Doppler); with hardware, scan the RF spectrum (`sdr_scan`).
+- **Geospatial** — great-circle **distance** and initial **bearing/azimuth** between
+  coordinates (`geo_distance` / `geo_azimuth`) — ground stations, flight legs, siting.
+
+### Software & infrastructure
+
+- **Development** — `code_search` across GitHub/GitLab/Gitea → `fetch_repo_file` to
+  read the exact source; `docs_search` across crates.io / npm / MDN and framework
+  docs; `github_releases` to summarize what changed between versions.
+- **DevOps & SRE** — triage a box without a shell: `docker_ps` → `docker_logs`,
+  `k8s_get` → `k8s_logs` → `k8s_scale`, `system_info` / `system_disks` / `system_gpu`,
+  `git_run`, and a guarded `db_query` / `redis_command` to inspect state. Destructive
   steps (delete/remove/exec) pause for confirmation.
-- **Software development.** `code_search` across GitHub/GitLab/Gitea →
-  `fetch_repo_file` to read the exact source; `docs_search` across crates.io/npm/MDN
-  and framework docs; `github_releases` to summarize what changed.
-- **Finance & data.** `currency_convert` (live ECB rates), `compound_interest` /
-  `loan_payment`, `stock_quote`, and JSON/YAML/`regex` wrangling for ad-hoc data.
-- **Self-hosted fleets.** Run several instances with the opt-in
-  [constellation](docs/constellation.md): a result or PDF one node fetched is served to the
-  others (content-verified, hash-only on the wire) — dodging the rate limits of
+- **Containers & registries** — image/tag/manifest lookups across Docker Hub, any OCI
+  registry, and Artifact Hub (`docker_search`, `oci_tags`, `oci_manifest`,
+  `artifacthub_search`).
+
+### Markets, data & media
+
+- **Finance & markets** — live FX (`currency_convert`, ECB), interest/loan math
+  (`compound_interest` / `loan_payment`), and delayed equity/index/crypto quotes,
+  history, and symbol search (`stock_quote`, `yahoo_quote` / `yahoo_history` /
+  `yahoo_search`).
+- **Time series & news** — forecast a numeric series (`forecast`, Holt-Winters) and
+  follow any RSS/Atom feed (`news_feed`).
+- **Data & files** — JSON/YAML/`regex` wrangling, CSV/XLSX read-query-write
+  (`sheet_*`), media probe/convert (`ffmpeg_*`), PDFs (`read_pdf` / `webpage_to_pdf`).
+
+### Operating a fleet
+
+- **Constellation** — run several instances with the opt-in
+  [constellation](docs/constellation.md): a result or PDF one node fetched is served to
+  the others (content-verified, hash-only on the wire) — dodging the rate limits of
   arXiv, IETF, search engines, and friends.
+- **Galaxy** — optionally link constellations across networks through a broker
+  directory (no proxying); see [docs/constellation.md → Galaxy](docs/constellation.md#galaxy--linking-constellations).
+- **Background work** — fan out long searches with `task_run` and collect them later
+  via `task_result` (off by default, `[tasks]`).
 
 The full, exhaustive lists: **[skills](docs/skills.md)** · **[tools](docs/tools.md)**
 · **[providers](docs/providers.md)**.
