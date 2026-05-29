@@ -160,9 +160,11 @@ likely involved). Checked items are done; unchecked are open.
   Pulling real Prophet/SARIMAX would mean an embedded Python or a sidecar — out of
   scope for the single-binary model; document the chosen approximation.
 
-- [ ] **News feed skill.** Subscribe-style RSS/Atom news by topic/source (generalizes
-  the existing Medium RSS provider). Tool: `news_feed` (url or known source + topic →
-  recent headlines/links/dates). Keyless RSS/Atom parse (`roxmltree`), cached.
+- [x] **News feed skill.** Done: `src/skills/news.rs` — `news_feed` (a feed URL or a
+  built-in shorthand → recent items: title/link/date/summary). Handles RSS 2.0 and
+  Atom via `roxmltree` (CDATA/HTML flattened); read-only, keyless, cached. Built-in
+  sources: hackernews, bbc, theverge, arstechnica, lobsters, lwn. Docs:
+  `docs/skills/news.md`.
 
 - [ ] **Spreadsheet skill.** Read/edit tabular data. CSV is built-in (Rust `csv`);
   XLSX via `calamine` (read) + `rust_xlsxwriter` (write). Tools: `sheet_read`

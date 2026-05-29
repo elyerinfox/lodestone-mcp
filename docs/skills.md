@@ -41,6 +41,7 @@ behind the search tools see [providers.md](providers.md).
 | [arxiv](skills/arxiv.md) | `arxiv_search`, `arxiv_get` | arXiv papers (PDF URLs feed `read_pdf`). |
 | [huggingface](skills/huggingface.md) | `hf_search`, `hf_model` | Hugging Face Hub models/datasets. |
 | [wikipedia](skills/wikipedia.md) | `wikipedia_search`, `wikipedia_summary` | Wikipedia search + article text. |
+| [news](skills/news.md) | `news_feed` | Recent items from any RSS/Atom feed (or a built-in shorthand). |
 | [kernel](skills/kernel.md) | `kernel_releases` | Current Linux kernel releases. |
 | [github](skills/github.md) | `github_releases`, `github_user`, `github_repo` | GitHub release notes / profile / repo metadata. |
 

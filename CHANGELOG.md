@@ -8,6 +8,10 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **News-feed skill** (`news_feed`): fetch recent items (title/link/date/summary)
+  from any keyless RSS 2.0 or Atom feed — a URL or a built-in shorthand
+  (`hackernews`, `bbc`, `theverge`, `arstechnica`, `lobsters`, `lwn`). Read-only,
+  cached; generalizes the Medium tag-RSS provider.
 - **Yahoo Finance skill** (`yahoo_quote`, `yahoo_history`, `yahoo_search`): keyless,
   richer market data than the Stooq `stock_quote` — a full quote (change/%, day &
   52-week range, exchange, currency), OHLC history over a chosen range/interval, and

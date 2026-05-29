@@ -39,6 +39,7 @@ Fetch one known thing.
 | `wikipedia_search` | `query`, `lang?`, `max_results?` | Search Wikipedia (MediaWiki API); titles + snippets + URLs. |
 | `wikipedia_summary` | `title`, `lang?`, `full?`, `max_chars?` | An article's lead summary, or the full plain-text article. |
 | `kernel_releases` | — | Current Linux kernel releases (mainline/stable/longterm + dates/EOL) from kernel.org. |
+| `news_feed` | `source`, `max_results?` | Recent items (title/link/date/summary) from an RSS or Atom feed — a URL or a shorthand (`hackernews`, `bbc`, `theverge`, `arstechnica`, `lobsters`, `lwn`). |
 
 ## GitHub (keyless; optional `[github].token` raises the rate limit)
 

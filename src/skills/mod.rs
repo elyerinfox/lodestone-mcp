@@ -29,6 +29,7 @@ pub mod kubernetes;
 pub mod math;
 pub mod meta;
 pub mod nasa;
+pub mod news;
 pub mod oci;
 pub mod printer;
 pub mod regex;
@@ -123,6 +124,7 @@ fn all_skills() -> Vec<Box<dyn Skill>> {
     skills.extend(arxiv::skills());
     skills.extend(huggingface::skills());
     skills.extend(wikipedia::skills());
+    skills.extend(news::skills());
     skills.extend(kernel::skills());
     skills.extend(github::skills());
     skills.extend(oci::skills());
