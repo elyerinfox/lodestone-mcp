@@ -8,6 +8,58 @@ It is **never a dependency**: with zero peers (or the feature off) every instanc
 works exactly as a standalone server. It is **off by default** (`[network].enabled
 = false`).
 
+## Terminology
+
+These terms are used throughout this page (and in the config/tools); definitions
+come first so the rest reads unambiguously.
+
+**Structure**
+
+- **Instance** / **node** — one running `lodestone-mcp` server. The two words are
+  used interchangeably here ("node" when talking about the graph, "instance" when
+  talking about the process).
+- **Peer** — another instance this node knows about and can consult.
+- **Constellation** — a single mesh of instances that discover each other **directly**
+  (static `[network].peers` + LAN mDNS) and share caches. The base layer; this whole
+  page is about it unless the galaxy is named.
+- **Galaxy** — an *optional* layer above constellations that links **multiple
+  constellations** across networks. See [Galaxy](#galaxy--linking-constellations).
+- **Broker** — the separate `lodestone-galaxy` binary at the center of a galaxy: a
+  directory of `{ constellation → public endpoint(s) }`. It **never proxies** traffic;
+  it only hands back endpoints so constellations talk directly.
+
+**Identity**
+
+- **`node_id`** — a stable id for *one instance* (OS machine id + bind port; override
+  `[network].node_id`). Unique per process, stable across restarts.
+- **constellation id** — a *shared* id for all members of one constellation
+  (`[network].id`, distinct from `node_id`). Nodes that reach each other **converge to
+  the smallest id**, so a mesh registers in the galaxy as one entry, not one per node.
+- **`ingress`** — a constellation's publicly-reachable URL(s), registered with a broker
+  so other constellations can connect inbound.
+
+**Mechanism**
+
+- **Digest** — what a node publishes every `sync_secs` at `GET /constellation/digest`:
+  a Bloom filter of the key hashes it has cached, plus its known peers (for gossip).
+- **Bloom filter** — a compact probabilistic set: lets a peer ask "do you *maybe* have
+  this hash?" without listing contents. Hashes only — never raw query text.
+- **Consult / consensus** — on a local cache miss, a node *consults* Bloom-matching
+  peers for a key and trusts the answer only when `>= min_agreement` peers
+  **corroborate** it (reputation-weighted) — the anti-poisoning gate.
+- **Relay** — forwarding a consult a hop or two (≤ `relay_hops`, max 2) toward a node
+  that holds the key, for peers not reachable directly.
+- **Gossip** — including known-peer lists in the digest so the mesh grows from a seed.
+- **Reputation** — a per-peer score (EMA) of how well a peer's answers match consensus
+  / local truth; weights its votes and decays toward neutral when unreachable.
+
+**Data shared**
+
+- **Blob** — a cached *file's raw bytes* (from the `[store]` file store, e.g. a fetched
+  PDF), shared over the mesh addressed by content hash.
+- **Seed ratio** — per-blob `served_bytes / fetched_bytes` (BitTorrent-style), surfaced
+  by `constellation_seeds`.
+
 ## Guarantees
 
 - **Privacy.** Only *hashes* of normalized query keys cross the wire — never raw
