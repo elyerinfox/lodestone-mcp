@@ -76,6 +76,12 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Databases are now ad-hoc (no preconfiguration).** Dropped the stored
+  `[databases.<id>]` instances and `db_list`; `db_query`/`redis_command` take a
+  `connection` URL passed in the call (the credentials the user hands the model),
+  with the engine inferred from the scheme. Gated by a simple `[databases].enabled`
+  toggle; writes still confirm at call time (`[databases].allow_destructive`
+  pre-authorizes), and URLs are never logged (summaries show only scheme + host).
 - **`shell_run` now confirms at call time.** Because a shell command is arbitrary
   code, every `shell_run` is treated as destructive and routed through the
   confirmation guard (golden rule 8): the first call returns a one-time token and runs

@@ -221,18 +221,18 @@ guard. See [`config/16-devices.toml`](../config/16-devices.toml).
 
 ## Databases
 
-Query configured PostgreSQL / MySQL / Redis instances. **Off by default** — the
-tools appear only when at least one `[databases.<id>]` is configured (a URL is a
-credential-bearing opt-in). Reads run immediately; writes/DDL (SQL) and write/admin
-commands (Redis) confirm at call time (see above), and a per-instance
-`allow_destructive` pre-authorizes them. See
+Query PostgreSQL / MySQL / Redis. **Off by default** (`[databases].enabled`); **no
+preconfiguration** — you pass a `connection` URL in each call (the engine is inferred
+from its scheme), so connections come from the conversation, never stored config.
+URLs are secrets (never logged). Reads run immediately; writes/DDL (SQL) and
+write/admin commands (Redis) confirm at call time (see above); `[databases].
+allow_destructive` pre-authorizes. See
 [`config/14-databases.toml`](../config/14-databases.toml).
 
 | Tool | Arguments | Access | Purpose |
 | --- | --- | --- | --- |
-| `db_list` | — | read | List configured databases (id + kind; never URLs). |
-| `db_query` | `database`, `sql`, `confirm?`, `trust?` | read / **destructive** | Run SQL on a postgres/mysql instance (writes confirm first). |
-| `redis_command` | `database`, `command`, `confirm?`, `trust?` | read / **destructive** | Run a Redis command (writes confirm first). |
+| `db_query` | `connection`, `sql`, `confirm?`, `trust?` | read / **destructive** | Run SQL on a `postgres://`/`mysql://` connection (writes confirm first). |
+| `redis_command` | `connection`, `command`, `confirm?`, `trust?` | read / **destructive** | Run a Redis command on a `redis://` connection (writes confirm first). |
 
 ## Caching & file store
 

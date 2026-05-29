@@ -56,24 +56,21 @@ pub struct Config {
     /// a keyless `docs` provider (and a `docs_<id>` tool) once its id is listed in
     /// `[providers].docs`. Example: `[docsites.mydocs] domain = "docs.example.com"`.
     pub docsites: HashMap<String, DocSiteInstance>,
-    /// User-defined database connections, keyed by id. Each entry enables the
-    /// database tools (`db_query` / `redis_command`) against it. **Off by default**:
-    /// the tools appear only when at least one is configured. Example:
-    /// `[databases.app] kind = "postgres", url = "postgres://…"`.
-    pub databases: HashMap<String, DatabaseInstance>,
+    /// Database skills (`db_query` / `redis_command`). **No preconfiguration**: there
+    /// is no stored connection — the caller passes a connection URL in each call (the
+    /// user hands it to the model in conversation). Off by default.
+    pub databases: Databases,
 }
 
-/// A user-configured database connection for the database skills.
+/// Global settings for the database skills. Connections are always ad-hoc (passed per
+/// call), so there are no stored instances/credentials.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
-pub struct DatabaseInstance {
-    /// Engine: "postgres", "mysql", or "redis".
-    pub kind: String,
-    /// Connection URL, e.g. "postgres://user:pass@host/db", "mysql://…",
-    /// "redis://host:6379". A URL is a credential — never logged or committed.
-    pub url: String,
+pub struct Databases {
+    /// Expose `db_query` / `redis_command`. Off by default.
+    pub enabled: bool,
     /// Pre-authorize writes/DDL (SQL) and write/admin commands (Redis), skipping the
-    /// per-call confirmation prompt. Off by default.
+    /// per-call confirmation prompt. Off by default — writes confirm at call time.
     pub allow_destructive: bool,
 }
 
@@ -792,7 +789,7 @@ impl Default for Config {
             stocks: Stocks::default(),
             forges: HashMap::new(),
             docsites: HashMap::new(),
-            databases: HashMap::new(),
+            databases: Databases::default(),
         }
     }
 }
@@ -1124,6 +1121,12 @@ impl Config {
             if let Ok(n) = n.trim().parse::<u64>() {
                 self.shell.timeout_secs = n;
             }
+        }
+        if let Ok(v) = std::env::var("LODESTONE_DATABASES_ENABLED") {
+            self.databases.enabled = is_truthy(&v);
+        }
+        if let Ok(v) = std::env::var("LODESTONE_DATABASES_ALLOW_DESTRUCTIVE") {
+            self.databases.allow_destructive = is_truthy(&v);
         }
         if let Ok(v) = std::env::var("LODESTONE_GIT_ENABLED") {
             self.git.enabled = is_truthy(&v);

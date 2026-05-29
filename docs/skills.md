@@ -13,7 +13,7 @@ behind the search tools see [providers.md](providers.md).
 - **`[tools]`** — any tool can be allow/deny-listed (`config/01-tools.toml`).
 - **Family switches** — local-system families have their own `enabled` flag
   (`[docker]`, `[kubernetes]`, `[filesystem]`, `[shell]`, `[git]`, `[sysinfo]`,
-  `[serial]`, `[printer]`, `[store]`, `[databases.<id>]`, `[network]`). Filesystem,
+  `[serial]`, `[printer]`, `[store]`, `[databases]`, `[network]`). Filesystem,
   shell, serial, printer, databases, and the file store are **off by default**.
 - **Destructive confirmation** (golden rule 8) — destructive actions are *exposed*
   but never fire unguarded: the first call returns a one-time `confirm` token and
@@ -66,7 +66,7 @@ behind the search tools see [providers.md](providers.md).
 | [ffmpeg](skills/ffmpeg.md) | **off** `[ffmpeg]` | `ffmpeg_probe`, `ffmpeg_convert` | Probe/convert local media (paths confined to roots; convert guarded). |
 | [spreadsheet](skills/spreadsheet.md) | **off** `[spreadsheet]` | `sheet_read`, `sheet_query`, `sheet_write` | Read/query/write CSV & XLSX (paths confined to roots; write guarded). |
 | [sysinfo](skills/sysinfo.md) | on `[sysinfo]` | `system_info`, `system_disks`, `system_gpu` | Host/CPU/memory/disk + NVIDIA GPU (read-only). |
-| [databases](skills/databases.md) | off (until `[databases.<id>]`) | `db_list`, `db_query`, `redis_command` | Query Postgres/MySQL/Redis (writes guarded). |
+| [databases](skills/databases.md) | **off** `[databases]` | `db_query`, `redis_command` | Query Postgres/MySQL/Redis via a connection URL passed in the call (no preconfig; writes guarded). |
 
 ## Devices (off by default)
 

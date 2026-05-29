@@ -76,8 +76,9 @@ pub(crate) struct Lodestone {
     pub(crate) shell: Arc<config::Shell>,
     /// Git CLI policy (repo, destructive gating) for `git_run`.
     pub(crate) git: Arc<config::Git>,
-    /// Configured database connections (id → kind/url) for the database skills.
-    pub(crate) databases: Arc<std::collections::HashMap<String, config::DatabaseInstance>>,
+    /// Database-skill settings (enabled + allow_destructive). Connections are ad-hoc
+    /// (passed per call), so no stored instances/credentials.
+    pub(crate) databases: Arc<config::Databases>,
     /// Optional on-disk file store for fetched bytes (the `store_*` tools).
     pub(crate) store: Option<Arc<store::FileStore>>,
     /// Per-session confirmation state for destructive actions (the client-agnostic
@@ -111,7 +112,7 @@ impl Lodestone {
         fs: config::Filesystem,
         shell: config::Shell,
         git: config::Git,
-        databases: std::collections::HashMap<String, config::DatabaseInstance>,
+        databases: config::Databases,
         store: Option<Arc<store::FileStore>>,
         tools_enabled: &[String],
         tools_disabled: &[String],
@@ -298,8 +299,8 @@ impl ServerHandler for Lodestone {
                 confirm first — token, then confirm=<token>).\n\
                 - system_info / system_disks / system_gpu: read-only host facts (OS/CPU/memory, \
                 disks, NVIDIA GPU via NVML); gated by [sysinfo].\n\
-                - db_list / db_query / redis_command: query configured PostgreSQL/MySQL/Redis \
-                databases ([databases]; off until one is configured). Writes confirm first.\n\
+                - db_query / redis_command: query PostgreSQL/MySQL/Redis via a connection URL \
+                passed in the call (no preconfiguration; gated by [databases]). Writes confirm first.\n\
                 - cache_status: report the search/retrieval caches + file store. store_fetch / \
                 store_get / store_list / store_purge: cache fetched files on disk ([store]).\n\
                 - json_query / json_format / yaml_to_json / json_to_yaml: parse, search, and \

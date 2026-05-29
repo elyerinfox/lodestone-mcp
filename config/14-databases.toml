@@ -2,30 +2,19 @@
 # config/14-databases.toml — database client skills (off by default)
 # =============================================================================
 #
-# Define database connections to enable the database tools. The family is OFF
-# until at least one connection is configured (a URL is a deliberate opt-in).
-# Tools: db_list, db_query (postgres/mysql), redis_command (redis).
+# NO PRECONFIGURATION: there are no stored connections or credentials here. When
+# enabled, the model is given a connection URL in the conversation and passes it on
+# each call. Tools: db_query (postgres/mysql), redis_command (redis).
 #
 # Reads run immediately; writes/DDL (SQL) and write/admin commands (Redis) are
 # DESTRUCTIVE — the first call returns a confirmation token and does nothing, then
-# you call again with confirm=<token> (or confirm + trust=true). Set
-# allow_destructive = true on an instance to pre-authorize (skip the prompt).
-#
-# A connection URL is a CREDENTIAL — keep real URLs in the gitignored
-# lodestone.toml (or env-substituted config), never commit them. Example:
-#
-#   [databases.app]
-#   kind = "postgres"                       # postgres | mysql | redis
-#   url  = "postgres://user:pass@localhost/app"
-#   allow_destructive = false
-#
-#   [databases.cache]
-#   kind = "redis"
-#   url  = "redis://127.0.0.1:6379"
-#
-#   [databases.reporting]
-#   kind = "mysql"
-#   url  = "mysql://user:pass@db.internal:3306/reporting"
+# you call again with confirm=<token> (or confirm + trust=true to whitelist that
+# connection for the session). allow_destructive = true pre-authorizes (skips the
+# prompt). Connection URLs are credentials — never logged or returned (summaries
+# show only scheme + host).
+# Env: LODESTONE_DATABASES_ENABLED, LODESTONE_DATABASES_ALLOW_DESTRUCTIVE
 # -----------------------------------------------------------------------------
 
-# (no connections configured by default — the database tools stay hidden)
+[databases]
+enabled = false           # OFF by default — set true to expose db_query / redis_command
+allow_destructive = false # true = skip the per-write confirmation prompt

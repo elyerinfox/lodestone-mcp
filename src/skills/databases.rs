@@ -1,11 +1,13 @@
-//! Database client skills — query configured PostgreSQL / MySQL / Redis instances.
+//! Database client skills — query PostgreSQL / MySQL / Redis.
 //!
-//! Connections come from `[databases.<id>]` (kind + URL). The family is **off by
-//! default**: its tools appear only when at least one instance is configured (a URL
-//! is a deliberate, credential-bearing opt-in). Read queries run freely; **writes /
-//! DDL** (SQL) and **write / admin commands** (Redis) are routed through the
-//! confirmation [`guard`](crate::skills::guard) (golden rule 8), and a per-instance
-//! `allow_destructive` pre-authorizes them. URLs are secrets — never returned/logged.
+//! **No preconfiguration:** there are no stored connections. The caller passes a
+//! `connection` URL in each call — the credentials the user hands the model in
+//! conversation — and connectivity happens through that exchange. The family is
+//! gated by `[databases].enabled` (off by default). Read queries run freely; **writes
+//! / DDL** (SQL) and **write / admin commands** (Redis) are routed through the
+//! confirmation [`guard`](crate::skills::guard) (golden rule 8); `[databases].
+//! allow_destructive` pre-authorizes. Connection URLs are secrets — they are never
+//! returned or logged (summaries/errors show only scheme + host).
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -17,13 +19,12 @@ use rmcp::ErrorData as McpError;
 use serde::Deserialize;
 use sqlx::{Column, Row};
 
-use crate::config::DatabaseInstance;
 use crate::skills::guard::Decision;
-use crate::skills::{schema_for, NoArgs, Skill, SkillCtx};
+use crate::skills::{schema_for, Skill, SkillCtx};
 use crate::util::truncate_chars;
-use crate::{internal, invalid, text_result, Lodestone};
+use crate::{internal, invalid, text_result};
 
-pub const TOOL_NAMES: &[&str] = &["db_list", "db_query", "redis_command"];
+pub const TOOL_NAMES: &[&str] = &["db_query", "redis_command"];
 
 /// Max rows rendered from a query result (the query still runs in full).
 const MAX_ROWS: usize = 200;
@@ -76,18 +77,30 @@ const REDIS_READ: &[&str] = &[
     "DUMP",
 ];
 
-fn instance<'a>(server: &'a Lodestone, id: &str) -> Result<&'a DatabaseInstance, McpError> {
-    server.databases.get(id).ok_or_else(|| {
-        let known: Vec<&str> = server.databases.keys().map(|s| s.as_str()).collect();
-        invalid(format!(
-            "no database '{id}' configured (known: {}). Add it under [databases.{id}].",
-            if known.is_empty() {
-                "none".to_string()
-            } else {
-                known.join(", ")
-            }
-        ))
-    })
+/// Engine implied by a connection URL's scheme, or `None` if unrecognized.
+fn scheme_kind(url: &str) -> Option<&'static str> {
+    let lower = url.trim().to_ascii_lowercase();
+    if lower.starts_with("postgres://") || lower.starts_with("postgresql://") {
+        Some("postgres")
+    } else if lower.starts_with("mysql://") {
+        Some("mysql")
+    } else if lower.starts_with("redis://") || lower.starts_with("rediss://") {
+        Some("redis")
+    } else {
+        None
+    }
+}
+
+/// A credential-free label for a connection URL (drops any `user:pass@`), for use in
+/// confirmation summaries and errors. Never expose the raw URL.
+fn redact(url: &str) -> String {
+    match url.trim().split_once("://") {
+        Some((scheme, rest)) => {
+            let host = rest.rsplit_once('@').map(|(_, h)| h).unwrap_or(rest);
+            format!("{scheme}://{host}")
+        }
+        None => "(connection)".to_string(),
+    }
 }
 
 /// First SQL keyword (uppercased), used to classify read vs. write.
@@ -103,63 +116,35 @@ fn first_keyword(sql: &str) -> String {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct DbQueryArgs {
-    /// Configured database id (a `[databases.<id>]`, kind postgres or mysql).
-    database: String,
+    /// Connection URL: `postgres://user:pass@host:5432/db` or `mysql://…`. Provided in
+    /// the call (no preconfiguration); the engine is inferred from the scheme.
+    connection: String,
     /// SQL to run. SELECT/SHOW/EXPLAIN/… read freely; anything else (INSERT/UPDATE/
     /// DELETE/DDL) is destructive and needs confirmation.
     sql: String,
     /// One-time token from a prior call's confirmation prompt. Omit on the first call.
     #[serde(default)]
     confirm: Option<String>,
-    /// With `confirm`, also stop asking for writes to this database this session.
+    /// With `confirm`, stop asking for writes to this connection this session.
     #[serde(default)]
     trust: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct RedisCmdArgs {
-    /// Configured database id (a `[databases.<id>]`, kind redis).
-    database: String,
+    /// Connection URL: `redis://host:6379` or `rediss://…`. Provided in the call.
+    connection: String,
     /// Redis command, e.g. `GET mykey` or `HGETALL user:1` (parsed like a shell line).
     command: String,
     /// One-time token from a prior call's confirmation prompt. Omit on the first call.
     #[serde(default)]
     confirm: Option<String>,
-    /// With `confirm`, also stop asking for writes to this database this session.
+    /// With `confirm`, stop asking for writes to this connection this session.
     #[serde(default)]
     trust: Option<bool>,
 }
 
 // --- skills -----------------------------------------------------------------
-
-pub struct DbList;
-impl Skill for DbList {
-    fn name(&self) -> &'static str {
-        "db_list"
-    }
-    fn description(&self) -> &'static str {
-        "List the configured databases (id and kind: postgres/mysql/redis). Connection URLs are \
-        never shown."
-    }
-    fn schema(&self) -> Arc<JsonObject> {
-        schema_for::<NoArgs>()
-    }
-    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
-        Box::pin(async move {
-            let server = ctx.server;
-            if server.databases.is_empty() {
-                return Ok(text_result("No databases configured ([databases.<id>])."));
-            }
-            let mut ids: Vec<&String> = server.databases.keys().collect();
-            ids.sort();
-            let mut out = format!("Databases ({}):\n", ids.len());
-            for id in ids {
-                out.push_str(&format!("  {id}  ({})\n", server.databases[id].kind));
-            }
-            Ok(text_result(out))
-        })
-    }
-}
 
 pub struct DbQuery;
 impl Skill for DbQuery {
@@ -167,10 +152,11 @@ impl Skill for DbQuery {
         "db_query"
     }
     fn description(&self) -> &'static str {
-        "Run SQL against a configured PostgreSQL or MySQL database. Reads (SELECT/SHOW/EXPLAIN/…) \
-        run immediately; writes/DDL are destructive — the first call returns a confirmation token \
-        and does nothing, so call again with confirm=<token> (or confirm + trust=true). Returns \
-        result rows or rows-affected."
+        "Run SQL against PostgreSQL or MySQL using a `connection` URL you pass in (e.g. \
+        postgres://user:pass@host/db) — no preconfiguration. Reads (SELECT/SHOW/EXPLAIN/…) run \
+        immediately; writes/DDL are destructive — the first call returns a confirmation token and \
+        does nothing, so call again with confirm=<token> (or confirm + trust=true). Returns result \
+        rows or rows-affected."
     }
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<DbQueryArgs>()
@@ -178,23 +164,22 @@ impl Skill for DbQuery {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (server, args) = ctx.parse::<DbQueryArgs>()?;
-            let inst = instance(server, &args.database)?;
-            let kind = inst.kind.trim().to_ascii_lowercase();
-            if kind != "postgres" && kind != "mysql" {
-                return Err(invalid(format!(
-                    "db_query supports postgres/mysql; '{}' is kind '{}'. Use redis_command for Redis.",
-                    args.database, inst.kind
-                )));
+            let conn = args.connection.trim();
+            let kind = scheme_kind(conn).ok_or_else(|| {
+                invalid("connection must be a postgres:// (or postgresql://) or mysql:// URL")
+            })?;
+            if kind == "redis" {
+                return Err(invalid("that's a redis:// URL — use redis_command instead"));
             }
             let keyword = first_keyword(&args.sql);
             let read = SQL_READ.contains(&keyword.as_str());
             if !read {
                 let preview: String = args.sql.trim().chars().take(80).collect();
-                let summary = format!("run on {}: {preview}", args.database);
+                let summary = format!("run on {}: {preview}", redact(conn));
                 if let Decision::Challenge(msg) = server.guard.check(
-                    &format!("db_query:{}", args.database),
+                    &format!("db_query:{conn}"),
                     "db_query",
-                    inst.allow_destructive,
+                    server.databases.allow_destructive,
                     &summary,
                     args.confirm.as_deref(),
                     args.trust.unwrap_or(false),
@@ -202,9 +187,9 @@ impl Skill for DbQuery {
                     return Ok(text_result(msg));
                 }
             }
-            let out = match kind.as_str() {
-                "postgres" => run_pg(&inst.url, &args.sql, read).await,
-                _ => run_mysql(&inst.url, &args.sql, read).await,
+            let out = match kind {
+                "postgres" => run_pg(conn, &args.sql, read).await,
+                _ => run_mysql(conn, &args.sql, read).await,
             }
             .map_err(internal)?;
             Ok(text_result(truncate_chars(&out, server.max_chars)))
@@ -218,9 +203,10 @@ impl Skill for RedisCommand {
         "redis_command"
     }
     fn description(&self) -> &'static str {
-        "Run a command against a configured Redis database. Read commands (GET/HGETALL/KEYS/…) run \
-        immediately; writes/admin commands are destructive — the first call returns a confirmation \
-        token and does nothing, so call again with confirm=<token> (or confirm + trust=true)."
+        "Run a Redis command using a `connection` URL you pass in (redis://host:6379) — no \
+        preconfiguration. Read commands (GET/HGETALL/KEYS/…) run immediately; writes/admin commands \
+        are destructive — the first call returns a confirmation token and does nothing, so call \
+        again with confirm=<token> (or confirm + trust=true)."
     }
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<RedisCmdArgs>()
@@ -228,12 +214,9 @@ impl Skill for RedisCommand {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (server, args) = ctx.parse::<RedisCmdArgs>()?;
-            let inst = instance(server, &args.database)?;
-            if !inst.kind.trim().eq_ignore_ascii_case("redis") {
-                return Err(invalid(format!(
-                    "redis_command needs a redis database; '{}' is kind '{}'.",
-                    args.database, inst.kind
-                )));
+            let conn = args.connection.trim();
+            if scheme_kind(conn) != Some("redis") {
+                return Err(invalid("connection must be a redis:// or rediss:// URL"));
             }
             let parts = shell_words::split(args.command.trim())
                 .map_err(|e| invalid(format!("could not parse command: {e}")))?;
@@ -243,11 +226,11 @@ impl Skill for RedisCommand {
             let name = parts[0].to_ascii_uppercase();
             let read = REDIS_READ.contains(&name.as_str());
             if !read {
-                let summary = format!("{} on {}", args.command.trim(), args.database);
+                let summary = format!("{} on {}", args.command.trim(), redact(conn));
                 if let Decision::Challenge(msg) = server.guard.check(
-                    &format!("redis_command:{}", args.database),
+                    &format!("redis_command:{conn}"),
                     "redis_command",
-                    inst.allow_destructive,
+                    server.databases.allow_destructive,
                     &summary,
                     args.confirm.as_deref(),
                     args.trust.unwrap_or(false),
@@ -255,7 +238,7 @@ impl Skill for RedisCommand {
                     return Ok(text_result(msg));
                 }
             }
-            let out = run_redis(&inst.url, &parts).await.map_err(internal)?;
+            let out = run_redis(conn, &parts).await.map_err(internal)?;
             Ok(text_result(truncate_chars(&out, server.max_chars)))
         })
     }
@@ -468,12 +451,12 @@ fn format_redis(v: &redis::Value) -> String {
 
 /// The skills this module contributes (gating happens in `disabled_by_config`).
 pub fn skills() -> Vec<Box<dyn Skill>> {
-    vec![Box::new(DbList), Box::new(DbQuery), Box::new(RedisCommand)]
+    vec![Box::new(DbQuery), Box::new(RedisCommand)]
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{first_keyword, format_redis};
+    use super::{first_keyword, format_redis, redact, scheme_kind};
 
     #[test]
     fn classifies_sql_keyword() {
@@ -481,6 +464,26 @@ mod tests {
         assert_eq!(first_keyword("WITH x AS (...) SELECT"), "WITH");
         assert_eq!(first_keyword("DELETE FROM t"), "DELETE");
         assert_eq!(first_keyword("(SELECT 1)"), "SELECT");
+    }
+
+    #[test]
+    fn infers_engine_from_scheme() {
+        assert_eq!(scheme_kind("postgres://u@h/db"), Some("postgres"));
+        assert_eq!(scheme_kind("postgresql://h/db"), Some("postgres"));
+        assert_eq!(scheme_kind("mysql://h/db"), Some("mysql"));
+        assert_eq!(scheme_kind("redis://h:6379"), Some("redis"));
+        assert_eq!(scheme_kind("rediss://h"), Some("redis"));
+        assert_eq!(scheme_kind("http://h"), None);
+    }
+
+    #[test]
+    fn redact_hides_credentials() {
+        assert_eq!(
+            redact("postgres://user:secret@db.example:5432/app"),
+            "postgres://db.example:5432/app"
+        );
+        assert_eq!(redact("redis://cache:6379"), "redis://cache:6379");
+        assert!(!redact("mysql://u:p@h/d").contains("p@"));
     }
 
     #[test]
