@@ -157,6 +157,17 @@ them. See [`config/12-git.toml`](../config/12-git.toml).
 | --- | --- | --- |
 | `git_run` | `args`, `repo?`, `confirm?`, `trust?` | Run `git <args>` (without the leading `git`); returns exit code + output. |
 
+## Media conversion (FFmpeg)
+
+Shells out to a local `ffmpeg`/`ffprobe`. **Off by default** (`[ffmpeg]`); needs
+FFmpeg on `PATH`. Paths are confined to `[filesystem].roots`; `ffmpeg_convert`
+confirms at call time (see above).
+
+| Tool | Arguments | Access | Purpose |
+| --- | --- | --- | --- |
+| `ffmpeg_probe` | `input` | read | Media metadata: format, duration, bitrate, per-stream codec/resolution/sample-rate. |
+| `ffmpeg_convert` | `input`, `output`, `args?`, `confirm?`, `trust?` | write | Convert/transcode; extra ffmpeg flags via pre-split `args` (confirm first). |
+
 ## System information
 
 Read-only host facts, gated by `[sysinfo]` (on by default; cross-platform — Linux

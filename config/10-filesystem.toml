@@ -23,3 +23,11 @@ allow_destructive = false  # pre-authorize fs_delete / fs_move (skip the confirm
 # Confine all paths to these base dirs (no scheme). Empty = the working directory.
 #   roots = ["C:/Users/me/projects/myapp"]
 roots = []
+
+# FFmpeg media conversion (ffmpeg_probe / ffmpeg_convert) — shells out to a local
+# `ffmpeg`/`ffprobe`. OFF by default; needs FFmpeg installed on PATH. Input/output
+# paths are confined to the [filesystem].roots above (same `..`/symlink rules), and
+# ffmpeg_convert (which writes a file) goes through the confirmation guard.
+# Env: LODESTONE_FFMPEG_ENABLED
+[ffmpeg]
+enabled = false

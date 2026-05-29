@@ -61,6 +61,7 @@ behind the search tools see [providers.md](providers.md).
 | [filesystem](skills/filesystem.md) | **off** `[filesystem]` | `fs_read`/`list`/`stat`/`find`/`write`/`edit`/`mkdir` + **destructive** `delete`/`move` | Read/edit files, confined to `roots`. |
 | [shell](skills/shell.md) | **off** `[shell]` | `shell_run` | Run a command (allowlist or unrestricted). |
 | [git](skills/git.md) | on `[git]` | `git_run` | Run git in a repo (destructive subcommands guarded). |
+| [ffmpeg](skills/ffmpeg.md) | **off** `[ffmpeg]` | `ffmpeg_probe`, `ffmpeg_convert` | Probe/convert local media (paths confined to roots; convert guarded). |
 | [sysinfo](skills/sysinfo.md) | on `[sysinfo]` | `system_info`, `system_disks`, `system_gpu` | Host/CPU/memory/disk + NVIDIA GPU (read-only). |
 | [databases](skills/databases.md) | off (until `[databases.<id>]`) | `db_list`, `db_query`, `redis_command` | Query Postgres/MySQL/Redis (writes guarded). |
 

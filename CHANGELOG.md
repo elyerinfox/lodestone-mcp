@@ -8,6 +8,10 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **FFmpeg skill** (`ffmpeg_probe`, `ffmpeg_convert`): probe and convert local media
+  by shelling out to a system FFmpeg. Off by default (`[ffmpeg]`); paths confined to
+  `[filesystem].roots`, conversions routed through the confirmation guard, with a
+  clear "not on PATH" message when FFmpeg is missing.
 - **Forecasting skill** (`forecast`): local time-series forecasting via exponential
   smoothing — Holt's linear trend or Holt-Winters additive (with a `season_length`),
   smoothing constants grid-searched on in-sample error, plus an approximate interval.

@@ -18,6 +18,7 @@ pub mod data;
 pub mod databases;
 pub mod datetime;
 pub mod docker;
+pub mod ffmpeg;
 pub mod filesystem;
 pub mod finance;
 pub mod forecast;
@@ -133,6 +134,7 @@ fn all_skills() -> Vec<Box<dyn Skill>> {
     skills.extend(docker::skills());
     skills.extend(kubernetes::skills());
     skills.extend(filesystem::skills());
+    skills.extend(ffmpeg::skills());
     skills.extend(shell::skills());
     skills.extend(git::skills());
     skills.extend(sysinfo::skills());
@@ -182,6 +184,8 @@ pub fn disabled_by_config(cfg: &crate::config::Config) -> Vec<String> {
     hide_if_off(cfg.shell.enabled, shell::TOOL_NAMES);
     hide_if_off(cfg.git.enabled, git::TOOL_NAMES);
     hide_if_off(cfg.sysinfo.enabled, sysinfo::TOOL_NAMES);
+    // FFmpeg conversion — off by default (needs a local ffmpeg).
+    hide_if_off(cfg.ffmpeg.enabled, ffmpeg::TOOL_NAMES);
     // Database tools appear only when at least one [databases.<id>] is configured.
     hide_if_off(!cfg.databases.is_empty(), databases::TOOL_NAMES);
     // File-store tools are gated by [store] (cache_status stays always-on).

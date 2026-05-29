@@ -38,6 +38,7 @@ pub struct Config {
     pub shell: Shell,
     pub git: Git,
     pub sysinfo: Sysinfo,
+    pub ffmpeg: Ffmpeg,
     pub serial: Serial,
     pub printer: Printer,
     pub nasa: Nasa,
@@ -433,6 +434,16 @@ impl Default for Sysinfo {
     }
 }
 
+/// FFmpeg conversion skill (`src/skills/ffmpeg.rs`) — shells out to a local `ffmpeg`
+/// / `ffprobe`. **Off by default**; input/output paths are confined to
+/// `[filesystem].roots` and conversions go through the confirmation guard.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct Ffmpeg {
+    /// Expose `ffmpeg_convert` / `ffmpeg_probe`.
+    pub enabled: bool,
+}
+
 /// Serial-port skill (`src/skills/serial.rs`) — read/write raw serial devices.
 /// **Off by default** (hardware access); writes go through the confirmation guard.
 #[derive(Debug, Clone, Deserialize)]
@@ -670,6 +681,7 @@ impl Default for Config {
             shell: Shell::default(),
             git: Git::default(),
             sysinfo: Sysinfo::default(),
+            ffmpeg: Ffmpeg::default(),
             serial: Serial::default(),
             printer: Printer::default(),
             nasa: Nasa::default(),
@@ -991,6 +1003,9 @@ impl Config {
         }
         if let Ok(v) = std::env::var("LODESTONE_SYSINFO_ENABLED") {
             self.sysinfo.enabled = is_truthy(&v);
+        }
+        if let Ok(v) = std::env::var("LODESTONE_FFMPEG_ENABLED") {
+            self.ffmpeg.enabled = is_truthy(&v);
         }
         if let Ok(v) = std::env::var("LODESTONE_SERIAL_ENABLED") {
             self.serial.enabled = is_truthy(&v);

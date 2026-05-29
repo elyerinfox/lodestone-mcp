@@ -146,12 +146,12 @@ likely involved). Checked items are done; unchecked are open.
   default (`[tasks]`); ensure cancellation + resource caps so runaway fan-out can't
   exhaust the host.
 
-- [ ] **FFmpeg conversion skill.** There's an `ffmpeg` *docs* provider (`docs_ffmpeg`)
-  but no conversion tool. Add `ffmpeg_convert` (input path, output path, optional
-  args/codec/format) that shells out to the local `ffmpeg` binary — off by default
-  (`[ffmpeg]`), paths confined to `[filesystem].roots`, output writes go through the
-  confirmation guard, and a clear "ffmpeg not on PATH" safeguard. Maybe `ffmpeg_probe`
-  (ffprobe metadata, read-only).
+- [x] **FFmpeg conversion skill.** Done: `src/skills/ffmpeg.rs` — `ffmpeg_convert`
+  (input/output + pre-split `args`) shells out to the local `ffmpeg`; `ffmpeg_probe`
+  (read-only) summarizes `ffprobe` JSON (format/duration/bitrate + per-stream
+  codec/resolution/sample-rate). Off by default (`[ffmpeg]`); both paths confined to
+  `[filesystem].roots`; convert routed through the confirmation guard; missing-binary
+  safeguard ("not on PATH — install FFmpeg"). Docs: `docs/skills/ffmpeg.md`.
 
 - [x] **Time-series forecasting skill.** Done: `src/skills/forecast.rs` — `forecast`
   (values + horizon + optional `season_length` → point forecasts + an approximate

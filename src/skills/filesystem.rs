@@ -103,8 +103,9 @@ fn confine(roots: &[PathBuf], path: &str) -> Result<PathBuf, String> {
     Ok(full)
 }
 
-/// `confine`, mapped to an MCP error.
-fn resolve(fs: &Filesystem, path: &str) -> Result<PathBuf, McpError> {
+/// `confine`, mapped to an MCP error. Reused by other skills (e.g. ffmpeg) that
+/// must keep file paths inside the configured `[filesystem].roots`.
+pub(crate) fn resolve(fs: &Filesystem, path: &str) -> Result<PathBuf, McpError> {
     let roots = roots(fs).map_err(invalid)?;
     confine(&roots, path).map_err(invalid)
 }
