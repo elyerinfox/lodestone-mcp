@@ -64,7 +64,7 @@ src/
                  ChromiumRenderer. Any provider can render on demand.
   config.rs      Config struct + file (TOML) and env-var loading.
   cache.rs       In-memory TTL cache used by the Registry for search results.
-  hive/          Opt-in P2P hivemind: Bloom-filter digests, consult-then-fetch
+  constellation/          Opt-in P2P constellation: Bloom-filter digests, consult-then-fetch
                  with consensus/reputation anti-poisoning, mDNS + gossip
                  discovery, bounded relay across the mesh graph.
   util.rs        HTML→text, whitespace/entity helpers, truncation.

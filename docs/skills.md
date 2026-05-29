@@ -77,7 +77,7 @@ behind the search tools see [providers.md](providers.md).
 
 | Skill | Tools | What |
 | --- | --- | --- |
-| [store](skills/store.md) | `cache_status`, `store_fetch`, `store_get`, `store_list`, `store_purge` | On-disk file store (`[store]`, off by default) + cache stats; shared over the [hivemind](hivemind.md). |
+| [store](skills/store.md) | `cache_status`, `store_fetch`, `store_get`, `store_list`, `store_purge` | On-disk file store (`[store]`, off by default) + cache stats; shared over the [constellation](constellation.md). |
 
 ## Utilities (local; translate/currency keyless)
 
@@ -109,4 +109,4 @@ behind the search tools see [providers.md](providers.md).
 
 | Skill | Tools | What |
 | --- | --- | --- |
-| [meta](skills/meta.md) | `list_providers`, `hive_status`, `hive_peers`, `hive_seeds` | Active providers; the hivemind graph, hop distances, and seed ratios. |
+| [meta](skills/meta.md) | `list_providers`, `constellation_status`, `constellation_peers`, `constellation_seeds` | Active providers; the constellation graph, hop distances, and seed ratios. |

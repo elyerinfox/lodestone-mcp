@@ -308,9 +308,9 @@ the rate limit.
 | Tool | Arguments | Purpose |
 | --- | --- | --- |
 | `list_providers` | — | Show the active providers, strategy, and ranking. |
-| `hive_status` | — | Show the peer-to-peer hivemind graph (peers, machine ids, reputation, edges); says disabled when off. |
-| `hive_peers` | — | List hivemind nodes and how many **hops** away each is (direct = 1), with machine id/reputation. |
-| `hive_seeds` | — | Per-blob **seed ratio** (bytes served to peers vs. fetched from them), BitTorrent-style. |
+| `constellation_status` | — | Show the peer-to-peer constellation graph (peers, machine ids, reputation, edges); says disabled when off. |
+| `constellation_peers` | — | List constellation nodes and how many **hops** away each is (direct = 1), with machine id/reputation. |
+| `constellation_seeds` | — | Per-blob **seed ratio** (bytes served to peers vs. fetched from them), BitTorrent-style. |
 
 ## Per-provider
 

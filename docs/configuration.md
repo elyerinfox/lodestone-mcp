@@ -71,11 +71,11 @@ enabled = true           # cache search results in memory (cleared on restart)
 ttl_secs = 300           # freshness window
 max_entries = 512        # memory bound
 
-[network]                # opt-in peer-to-peer hivemind (see hivemind.md)
+[network]                # opt-in peer-to-peer constellation (see constellation.md)
 enabled = false
 peers = []               # static peer base URLs (also gossiped + mDNS-discovered)
 mdns = true              # LAN auto-discovery (when enabled)
-token = ""               # optional shared secret for /hive endpoints
+token = ""               # optional shared secret for /constellation endpoints
 min_agreement = 2        # peers needed to trust a result without local search
 relay_hops = 1           # forward a query a hop or two across the mesh (max 2)
 state_file = ""          # persist peer reputations across restarts (path)
@@ -162,7 +162,7 @@ provider; register any **documentation host** under `[docsites.<id>]`
 ([`config/07-docsites.toml`](../config/07-docsites.toml)) to get a keyless
 `docs_<id>` provider. See [providers.md](providers.md).
 
-## Hivemind (peer-to-peer)
+## Constellation (peer-to-peer)
 
 The opt-in `[network]` layer is documented in full — design, wire protocol,
-anti-poisoning, and a two-node test — in [hivemind.md](hivemind.md).
+anti-poisoning, and a two-node test — in [constellation.md](constellation.md).

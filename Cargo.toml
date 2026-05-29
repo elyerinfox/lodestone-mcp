@@ -62,7 +62,7 @@ redis = { version = "0.27", default-features = false, features = ["tokio-comp", 
 # via the OS APIs). GPU stats via NVML (loaded at runtime; absent = graceful error).
 sysinfo = "0.32"
 nvml-wrapper = "0.10"
-# Stable per-machine id for the hivemind node identity (OS machine GUID).
+# Stable per-machine id for the constellation node identity (OS machine GUID).
 machine-uid = "0.5"
 # Satellite trajectory: SGP4 orbital propagation from TLE element sets.
 sgp4 = "2"

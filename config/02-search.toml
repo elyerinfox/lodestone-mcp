@@ -69,9 +69,9 @@ breaker_cooldown_secs = 60
 # "json to yaml" stays distinct from "yaml to json"). With this ON, each search is
 # ALSO keyed by an order-independent "concept signature" (stemmed token set), so a
 # differently-worded but equivalent query can reuse a cached — or, over the
-# hivemind, a peer's — result when the exact key misses. Trade-off: a bag-of-words
+# constellation, a peer's — result when the exact key misses. Trade-off: a bag-of-words
 # signature is order-insensitive, so direction-sensitive phrasings can collide;
-# hence off by default. (The hive path stays consensus-gated regardless.)
+# hence off by default. (The constellation path stays consensus-gated regardless.)
 # Env: LODESTONE_SEARCH_FUZZY_MATCH
 fuzzy_match = false
 

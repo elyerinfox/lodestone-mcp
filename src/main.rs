@@ -11,7 +11,7 @@
 mod browser;
 mod cache;
 mod config;
-mod hive;
+mod constellation;
 mod provider;
 mod providers;
 mod skills;
@@ -59,7 +59,7 @@ pub(crate) struct Lodestone {
     /// Serial-port policy (baud/timeout) for the `serial_*` tools.
     pub(crate) serial: Arc<config::Serial>,
     /// Caches retrieval-tool output (page text, files, answers) keyed by request.
-    /// Separate from the search/hive cache so it never enters peer digests.
+    /// Separate from the search/constellation cache so it never enters peer digests.
     pub(crate) retrieval_cache: Option<Arc<cache::TtlCache>>,
     /// Default / hard-cap characters for the retrieval tools (`[retrieval]`).
     pub(crate) default_chars: usize,
@@ -166,18 +166,18 @@ impl Lodestone {
     }
 
     /// Look up cached retrieval output for `key`: the local retrieval cache first,
-    /// then (Bloom-gated, so a true miss costs nothing) a hive peer that has it —
+    /// then (Bloom-gated, so a true miss costs nothing) a constellation peer that has it —
     /// letting one node's fetched/parsed text serve the mesh. Entries are keyed by
-    /// hash, matching what the hive advertises and serves.
+    /// hash, matching what the constellation advertises and serves.
     pub(crate) async fn retrieval_get(&self, key: &str) -> Option<String> {
-        let hash = crate::hive::hash_key(key);
+        let hash = crate::constellation::hash_key(key);
         if let Some(c) = &self.retrieval_cache {
             if let Some(v) = c.get(&hash) {
                 return Some(v);
             }
         }
-        if let Some(hive) = self.registry.hive() {
-            if let Some(bytes) = hive.consult_blob_hash(&hash).await {
+        if let Some(constellation) = self.registry.constellation() {
+            if let Some(bytes) = constellation.consult_blob_hash(&hash).await {
                 let text = String::from_utf8_lossy(&bytes).into_owned();
                 if !text.is_empty() {
                     if let Some(c) = &self.retrieval_cache {
@@ -191,18 +191,18 @@ impl Lodestone {
     }
 
     /// Cache non-empty retrieval output for `key` (failures/empties are skipped so
-    /// they can be retried). Keyed by hash so the hivemind can advertise/serve it.
+    /// they can be retried). Keyed by hash so the constellation can advertise/serve it.
     pub(crate) fn retrieval_put(&self, key: String, value: &str) {
         if value.is_empty() {
             return;
         }
         if let Some(c) = &self.retrieval_cache {
-            c.put(crate::hive::hash_key(&key), value.to_string());
+            c.put(crate::constellation::hash_key(&key), value.to_string());
         }
     }
 
     /// Fetch a URL's bytes, dodging the source when possible: the local file store
-    /// first, then a hive peer that already has it (so a cached PDF/file from arXiv,
+    /// first, then a constellation peer that already has it (so a cached PDF/file from arXiv,
     /// IETF, … isn't re-downloaded from the rate-limited source), then finally the
     /// source — caching the result in the store so this node and the mesh can serve
     /// it next time. With no `[store]`/`[network]` configured this is just a plain
@@ -213,8 +213,8 @@ impl Lodestone {
                 return Ok(bytes);
             }
         }
-        if let Some(hive) = self.registry.hive() {
-            if let Some(bytes) = hive.consult_blob(url).await {
+        if let Some(constellation) = self.registry.constellation() {
+            if let Some(bytes) = constellation.consult_blob(url).await {
                 if let Some(store) = &self.store {
                     let _ = store.put(url, &bytes).await;
                 }
@@ -315,7 +315,7 @@ impl ServerHandler for Lodestone {
                 [printer], off by default).\n\
                 - convert_units: convert between units (length/mass/volume/area/speed/time/data/temperature).\n\
                 - list_providers: show which sources are active.\n\
-                - hive_status / hive_peers / hive_seeds: inspect the peer-to-peer hivemind — mesh \
+                - constellation_status / constellation_peers / constellation_seeds: inspect the peer-to-peer constellation — mesh \
                 graph, per-node hop distance, and per-blob seed ratios (if enabled).\n\
                 Each configured provider also has a direct tool named <kind>_<id> \
                 (e.g. web_mojeek, code_github, qa_stackoverflow) to target one source. \
@@ -454,36 +454,36 @@ fn bearer_token(headers: &axum::http::HeaderMap) -> Option<&str> {
         .and_then(|h| h.strip_prefix("Bearer "))
 }
 
-/// Hivemind peer endpoints (`/hive/digest`, `/hive/query`), each guarded by the
+/// Constellation peer endpoints (`/constellation/digest`, `/constellation/query`), each guarded by the
 /// optional `[network].token`. Returns only cached search results — never secrets.
-fn hive_routes(hive: Arc<hive::Hive>) -> axum::Router {
+fn constellation_routes(constellation: Arc<constellation::Constellation>) -> axum::Router {
     use axum::extract::State;
     use axum::http::{HeaderMap, StatusCode};
     use axum::response::IntoResponse;
     use axum::routing::{get, post};
 
     async fn digest(
-        State(hive): State<Arc<hive::Hive>>,
+        State(constellation): State<Arc<constellation::Constellation>>,
         headers: HeaderMap,
     ) -> axum::response::Response {
-        if !hive.token_ok(bearer_token(&headers)) {
+        if !constellation.token_ok(bearer_token(&headers)) {
             return (StatusCode::UNAUTHORIZED, "unauthorized\n").into_response();
         }
-        axum::Json(hive.digest().await).into_response()
+        axum::Json(constellation.digest().await).into_response()
     }
 
     // Serve a shared file-store blob (raw bytes) by hash, or 204 if we don't have it.
     async fn blob(
-        State(hive): State<Arc<hive::Hive>>,
+        State(constellation): State<Arc<constellation::Constellation>>,
         headers: HeaderMap,
-        axum::Json(req): axum::Json<hive::BlobReq>,
+        axum::Json(req): axum::Json<constellation::BlobReq>,
     ) -> axum::response::Response {
-        if !hive.token_ok(bearer_token(&headers)) {
+        if !constellation.token_ok(bearer_token(&headers)) {
             return (StatusCode::UNAUTHORIZED, "unauthorized\n").into_response();
         }
-        match hive.blob_lookup(&req.key).await {
+        match constellation.blob_lookup(&req.key).await {
             Some(bytes) => {
-                hive.record_served(&req.key, bytes.len());
+                constellation.record_served(&req.key, bytes.len());
                 bytes.into_response()
             }
             None => StatusCode::NO_CONTENT.into_response(),
@@ -493,41 +493,43 @@ fn hive_routes(hive: Arc<hive::Hive>) -> axum::Router {
     // Report a blob's content hash (no bytes) so peers can corroborate it before
     // trusting any bytes — the anti-tamper handshake for shared blobs.
     async fn blobinfo(
-        State(hive): State<Arc<hive::Hive>>,
+        State(constellation): State<Arc<constellation::Constellation>>,
         headers: HeaderMap,
-        axum::Json(req): axum::Json<hive::BlobReq>,
+        axum::Json(req): axum::Json<constellation::BlobReq>,
     ) -> axum::response::Response {
-        if !hive.token_ok(bearer_token(&headers)) {
+        if !constellation.token_ok(bearer_token(&headers)) {
             return (StatusCode::UNAUTHORIZED, "unauthorized\n").into_response();
         }
-        match hive.blob_content_hash(&req.key).await {
+        match constellation.blob_content_hash(&req.key).await {
             Some(info) => axum::Json(info).into_response(),
             None => StatusCode::NO_CONTENT.into_response(),
         }
     }
 
     async fn query(
-        State(hive): State<Arc<hive::Hive>>,
+        State(constellation): State<Arc<constellation::Constellation>>,
         headers: HeaderMap,
-        axum::Json(req): axum::Json<hive::QueryReq>,
+        axum::Json(req): axum::Json<constellation::QueryReq>,
     ) -> axum::response::Response {
-        if !hive.token_ok(bearer_token(&headers)) {
+        if !constellation.token_ok(bearer_token(&headers)) {
             return (StatusCode::UNAUTHORIZED, "unauthorized\n").into_response();
         }
         // Serve from our cache, or relay one+ hops toward a holder (bounded).
-        let hits = hive.answer_query(&req.key, req.ttl, &req.seen).await;
+        let hits = constellation
+            .answer_query(&req.key, req.ttl, &req.seen)
+            .await;
         if hits.is_empty() {
             return StatusCode::NO_CONTENT.into_response();
         }
-        axum::Json(hive::QueryResp { hits }).into_response()
+        axum::Json(constellation::QueryResp { hits }).into_response()
     }
 
     axum::Router::new()
-        .route("/hive/digest", get(digest))
-        .route("/hive/query", post(query))
-        .route("/hive/blob", post(blob))
-        .route("/hive/blobinfo", post(blobinfo))
-        .with_state(hive)
+        .route("/constellation/digest", get(digest))
+        .route("/constellation/query", post(query))
+        .route("/constellation/blob", post(blob))
+        .route("/constellation/blobinfo", post(blobinfo))
+        .with_state(constellation)
 }
 
 #[tokio::main]
@@ -540,11 +542,11 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let mut cfg = Config::load();
-    // Default the hivemind node id to a stable, machine-derived id (mixed with the
+    // Default the constellation node id to a stable, machine-derived id (mixed with the
     // bind port) when not set explicitly — so peers identify each other by a
     // consistent, machine-unique id across restarts rather than a random value.
     if cfg.network.enabled && cfg.network.node_id.trim().is_empty() {
-        cfg.network.node_id = hive::default_node_id(&cfg.bind);
+        cfg.network.node_id = constellation::default_node_id(&cfg.bind);
     }
     providers::configure_code_sites(cfg.code.sites.clone());
     browser::configure(browser::BrowserOptions {
@@ -554,7 +556,7 @@ async fn main() -> anyhow::Result<()> {
         render_concurrency: cfg.google.render_concurrency,
     });
     // Optional on-disk file store for fetched bytes (the store_* tools). Built
-    // before the hive so the hive can also share the store's bytes over the mesh.
+    // before the constellation so the constellation can also share the store's bytes over the mesh.
     let store = if cfg.store.enabled {
         match store::FileStore::open(&cfg.store.dir, cfg.store.max_bytes, cfg.store.ttl_secs).await
         {
@@ -571,29 +573,33 @@ async fn main() -> anyhow::Result<()> {
         None
     };
 
-    // The result cache is shared with the hivemind (which reads/serves from it),
+    // The result cache is shared with the constellation (which reads/serves from it),
     // so enabling the network implies an active cache even if [cache] is off.
     let cache = if cfg.cache.enabled || cfg.network.enabled {
         Some(build_cache(&cfg.cache, "lodestone:search:").await)
     } else {
         None
     };
-    // The retrieval-output cache (page/PDF/doc text). Built before the hive so the
-    // hive can also advertise + serve it as blobs (all behind the digest Bloom).
+    // The retrieval-output cache (page/PDF/doc text). Built before the constellation so the
+    // constellation can also advertise + serve it as blobs (all behind the digest Bloom).
     let retrieval_cache = if cfg.cache.enabled {
         Some(build_cache(&cfg.cache, "lodestone:ret:").await)
     } else {
         None
     };
-    let hive = cfg.network.enabled.then(|| {
-        hive::Hive::new(
+    let constellation = cfg.network.enabled.then(|| {
+        constellation::Constellation::new(
             &cfg.network,
             cache.clone().expect("cache exists when network enabled"),
             store.clone(),
             retrieval_cache.clone(),
         )
     });
-    let registry = Arc::new(Registry::from_config(&cfg, cache.clone(), hive.clone()));
+    let registry = Arc::new(Registry::from_config(
+        &cfg,
+        cache.clone(),
+        constellation.clone(),
+    ));
     tracing::info!("\n{}", registry.describe());
 
     // Gate the local-system tool families by their config: when a family is off,
@@ -644,20 +650,20 @@ async fn main() -> anyhow::Result<()> {
         .route("/health", axum::routing::get(|| async { "ok" }))
         .merge(mcp);
 
-    // Hivemind: mount peer endpoints and start discovery/sync (opt-in).
-    if let Some(h) = &hive {
+    // Constellation: mount peer endpoints and start discovery/sync (opt-in).
+    if let Some(h) = &constellation {
         let bind_port = cfg
             .bind
             .rsplit(':')
             .next()
             .and_then(|p| p.parse::<u16>().ok())
             .unwrap_or(0);
-        app = app.merge(hive_routes(h.clone()));
+        app = app.merge(constellation_routes(h.clone()));
         h.clone().start(bind_port);
         tracing::info!(
             peers = cfg.network.peers.len(),
             mdns = cfg.network.mdns,
-            "hivemind enabled"
+            "constellation enabled"
         );
     }
 

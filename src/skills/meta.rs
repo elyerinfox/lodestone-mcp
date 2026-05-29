@@ -1,5 +1,5 @@
 //! Introspection skills — `list_providers` (active sources + strategy/ranking),
-//! `hive_status` (the peer-to-peer hivemind graph), and `hive_peers` (per-node hop
+//! `constellation_status` (the peer-to-peer constellation graph), and `constellation_peers` (per-node hop
 //! distances). All read server state.
 
 use std::sync::Arc;
@@ -31,28 +31,28 @@ impl Skill for ListProviders {
 pub struct HiveStatus;
 impl Skill for HiveStatus {
     fn name(&self) -> &'static str {
-        "hive_status"
+        "constellation_status"
     }
     fn description(&self) -> &'static str {
-        "Show the peer-to-peer hivemind graph: this node's id and its known peers with reputation, \
-        reachability, and the mesh edges they advertise. Reports that the hivemind is disabled when \
+        "Show the peer-to-peer constellation graph: this node's id and its known peers with reputation, \
+        reachability, and the mesh edges they advertise. Reports that the constellation is disabled when \
         [network].enabled is false."
     }
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<NoArgs>()
     }
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
-        Box::pin(async move { Ok(text_result(ctx.server.registry.hive_report())) })
+        Box::pin(async move { Ok(text_result(ctx.server.registry.constellation_report())) })
     }
 }
 
 pub struct HivePeers;
 impl Skill for HivePeers {
     fn name(&self) -> &'static str {
-        "hive_peers"
+        "constellation_peers"
     }
     fn description(&self) -> &'static str {
-        "List the hivemind nodes in reach and how many hops away each is (direct peers = 1 hop; \
+        "List the constellation nodes in reach and how many hops away each is (direct peers = 1 hop; \
         nodes only reachable via a peer's advertised list are 2+). Shows each direct peer's stable \
         machine id, reputation, and reachability. Disabled-notice when [network].enabled is false."
     }
@@ -60,17 +60,21 @@ impl Skill for HivePeers {
         schema_for::<NoArgs>()
     }
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
-        Box::pin(async move { Ok(text_result(ctx.server.registry.hive_peers_report())) })
+        Box::pin(async move {
+            Ok(text_result(
+                ctx.server.registry.constellation_peers_report(),
+            ))
+        })
     }
 }
 
 pub struct HiveSeeds;
 impl Skill for HiveSeeds {
     fn name(&self) -> &'static str {
-        "hive_seeds"
+        "constellation_seeds"
     }
     fn description(&self) -> &'static str {
-        "Show per-blob seed accounting for the hivemind (BitTorrent-style): for each shared file/\
+        "Show per-blob seed accounting for the constellation (BitTorrent-style): for each shared file/\
         page hash, how much this node has served to peers vs. fetched from them, and the served/\
         fetched ratio. Disabled-notice when [network].enabled is false."
     }
@@ -78,7 +82,11 @@ impl Skill for HiveSeeds {
         schema_for::<NoArgs>()
     }
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
-        Box::pin(async move { Ok(text_result(ctx.server.registry.hive_seeds_report())) })
+        Box::pin(async move {
+            Ok(text_result(
+                ctx.server.registry.constellation_seeds_report(),
+            ))
+        })
     }
 }
 

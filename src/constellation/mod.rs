@@ -1,4 +1,4 @@
-//! The hivemind — an opt-in peer-to-peer layer that lets instances consult each
+//! The constellation — an opt-in peer-to-peer layer that lets instances consult each
 //! other's caches before scraping the open web. The network is a *helper*, never
 //! a dependency: with zero peers everything still works locally.
 //!
@@ -10,7 +10,7 @@
 //! and responses carry only cached search results (public web data), never
 //! secrets.
 //!
-//! **File sharing** (`/hive/blob`): when the on-disk file store is enabled, the
+//! **File sharing** (`/constellation/blob`): when the on-disk file store is enabled, the
 //! digest's Bloom also advertises the store's entry hashes, and a peer can pull a
 //! cached file's raw bytes by hash. This lets a PDF/file one node downloaded
 //! (arXiv, IETF, …) be served from the mesh instead of every node re-hitting the
@@ -74,13 +74,13 @@ pub(crate) struct QueryResp {
 }
 
 /// A request for a shared blob, addressed by its hash (never the raw key/URL —
-/// only hashes cross the wire). Used by both `/hive/blob` and `/hive/blobinfo`.
+/// only hashes cross the wire). Used by both `/constellation/blob` and `/constellation/blobinfo`.
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct BlobReq {
     pub key: String,
 }
 
-/// `/hive/blobinfo` response: the **content hash** of a held blob (cheap — no
+/// `/constellation/blobinfo` response: the **content hash** of a held blob (cheap — no
 /// bytes), so a consumer can corroborate it across peers before trusting any bytes.
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct BlobInfo {
@@ -142,7 +142,7 @@ impl Peer {
     }
 }
 
-pub(crate) struct Hive {
+pub(crate) struct Constellation {
     cfg: NetworkConfig,
     node_id: String,
     http: Client,
@@ -161,8 +161,8 @@ pub(crate) struct Hive {
     loaded_reps: HashMap<String, f64>,
 }
 
-impl Hive {
-    /// Build the hive from config, the shared result cache, and (optionally) the
+impl Constellation {
+    /// Build the constellation from config, the shared result cache, and (optionally) the
     /// file store whose bytes it will also share. Seeds the static peer list; mDNS
     /// (if enabled) adds more at runtime.
     pub(crate) fn new(
@@ -177,7 +177,7 @@ impl Hive {
             cfg.node_id.trim().to_string()
         };
         let http = Client::builder()
-            .user_agent("lodestone-hive")
+            .user_agent("lodestone-constellation")
             .timeout(Duration::from_millis(cfg.request_timeout_ms.max(100)))
             .build()
             .unwrap_or_else(|_| Client::new());
@@ -248,7 +248,7 @@ impl Hive {
         }
     }
 
-    /// Serve a shared blob by hash for the `/hive/blob` endpoint: a file-store entry
+    /// Serve a shared blob by hash for the `/constellation/blob` endpoint: a file-store entry
     /// (raw bytes), else a retrieval-cache entry (text as bytes). Both are keyed by
     /// the same hash space advertised in the digest Bloom.
     pub(crate) async fn blob_lookup(&self, key_hash: &str) -> Option<Vec<u8>> {
@@ -265,7 +265,7 @@ impl Hive {
         None
     }
 
-    /// The content hash + size of a held blob (for `/hive/blobinfo`), so peers can
+    /// The content hash + size of a held blob (for `/constellation/blobinfo`), so peers can
     /// corroborate *what* we'd serve before any bytes move.
     pub(crate) async fn blob_content_hash(&self, key_hash: &str) -> Option<BlobInfo> {
         let bytes = self.blob_lookup(key_hash).await?;
@@ -302,7 +302,7 @@ impl Hive {
 
     /// Pull a shared blob by hash, **anti-tamper**: corroborate first, verify last.
     ///   1. Ask Bloom-matching peers (rep-sorted) for the blob's *content hash*
-    ///      (`/hive/blobinfo`, no bytes).
+    ///      (`/constellation/blobinfo`, no bytes).
     ///   2. Trust only a content hash that `>= min_agreement` distinct peers agree
     ///      on — so a lone or malicious peer can't dictate the content. (With the
     ///      default `min_agreement = 2`, a single holder isn't trusted; raise
@@ -381,7 +381,7 @@ impl Hive {
     }
 
     /// A report of per-blob seed ratios (served vs. fetched bytes), newest-served
-    /// first. Surfaced by the `hive_seeds` tool — BitTorrent-style: how much this
+    /// first. Surfaced by the `constellation_seeds` tool — BitTorrent-style: how much this
     /// node has given back to the mesh per file.
     pub(crate) fn seed_report(&self) -> String {
         let seeds = self.seeds.lock().unwrap();
@@ -450,7 +450,7 @@ impl Hive {
         self.peers.lock().unwrap().len()
     }
 
-    /// Answer an incoming `/hive/query`: serve from our own cache, else (while
+    /// Answer an incoming `/constellation/query`: serve from our own cache, else (while
     /// `ttl > 0` and we haven't been visited) relay to our bloom-matching peers
     /// one hop closer. The `seen` node-id set breaks loops.
     pub(crate) async fn answer_query(
@@ -629,7 +629,7 @@ impl Hive {
             .into_iter()
             .take(limit)
             .map(|mut a| {
-                a.result.meta = Some(format!("hive: {} peers", a.peers));
+                a.result.meta = Some(format!("constellation: {} peers", a.peers));
                 a.result
             })
             .collect()
@@ -733,10 +733,10 @@ impl Hive {
         match serde_json::to_string(&map) {
             Ok(json) => {
                 if let Err(e) = std::fs::write(&self.cfg.state_file, json) {
-                    tracing::warn!(error = %e, path = %self.cfg.state_file, "hive: failed to persist reputations");
+                    tracing::warn!(error = %e, path = %self.cfg.state_file, "constellation: failed to persist reputations");
                 }
             }
-            Err(e) => tracing::warn!(error = %e, "hive: failed to serialize reputations"),
+            Err(e) => tracing::warn!(error = %e, "constellation: failed to serialize reputations"),
         }
     }
 
@@ -745,7 +745,7 @@ impl Hive {
     pub(crate) fn graph_report(&self) -> String {
         let peers = self.peers.lock().unwrap();
         let mut out = format!(
-            "Hivemind node {} — {} known peer(s):\n",
+            "Constellation node {} — {} known peer(s):\n",
             self.node_id,
             peers.len()
         );
@@ -782,7 +782,7 @@ impl Hive {
     pub(crate) fn peers_report(&self) -> String {
         let peers = self.peers.lock().unwrap();
         if peers.is_empty() {
-            return format!("Hivemind node {} — no known peers.\n", self.node_id);
+            return format!("Constellation node {} — no known peers.\n", self.node_id);
         }
         // BFS over the URL graph: self → direct peers (hop 1) → their `known` (hop 2+).
         let mut dist: HashMap<String, u32> = HashMap::new();
@@ -806,7 +806,7 @@ impl Hive {
         let mut nodes: Vec<(String, u32)> = dist.into_iter().collect();
         nodes.sort_by(|a, b| a.1.cmp(&b.1).then(a.0.cmp(&b.0)));
         let mut out = format!(
-            "Hivemind node {} — {} node(s) in reach:\n",
+            "Constellation node {} — {} node(s) in reach:\n",
             self.node_id,
             nodes.len()
         );
@@ -856,11 +856,13 @@ async fn query_peer(
     ttl: u32,
     seen: &[String],
 ) -> anyhow::Result<Vec<SearchResult>> {
-    let mut req = http.post(format!("{base}/hive/query")).json(&QueryReq {
-        key: key.to_string(),
-        ttl,
-        seen: seen.to_vec(),
-    });
+    let mut req = http
+        .post(format!("{base}/constellation/query"))
+        .json(&QueryReq {
+            key: key.to_string(),
+            ttl,
+            seen: seen.to_vec(),
+        });
     if !token.is_empty() {
         req = req.bearer_auth(token);
     }
@@ -875,9 +877,11 @@ async fn query_peer(
 
 /// Fetch a shared blob's raw bytes from one peer, or `None` if it doesn't have it.
 async fn blob_peer(http: &Client, base: &str, token: &str, key: &str) -> Option<Vec<u8>> {
-    let mut req = http.post(format!("{base}/hive/blob")).json(&BlobReq {
-        key: key.to_string(),
-    });
+    let mut req = http
+        .post(format!("{base}/constellation/blob"))
+        .json(&BlobReq {
+            key: key.to_string(),
+        });
     if !token.is_empty() {
         req = req.bearer_auth(token);
     }
@@ -890,9 +894,11 @@ async fn blob_peer(http: &Client, base: &str, token: &str, key: &str) -> Option<
 
 /// Ask one peer for a blob's content hash (cheap, no bytes), or `None`.
 async fn blobinfo_peer(http: &Client, base: &str, token: &str, key: &str) -> Option<BlobInfo> {
-    let mut req = http.post(format!("{base}/hive/blobinfo")).json(&BlobReq {
-        key: key.to_string(),
-    });
+    let mut req = http
+        .post(format!("{base}/constellation/blobinfo"))
+        .json(&BlobReq {
+            key: key.to_string(),
+        });
     if !token.is_empty() {
         req = req.bearer_auth(token);
     }
@@ -904,7 +910,7 @@ async fn blobinfo_peer(http: &Client, base: &str, token: &str, key: &str) -> Opt
 }
 
 async fn fetch_digest(http: &Client, base: &str, token: &str) -> anyhow::Result<Digest> {
-    let mut req = http.get(format!("{base}/hive/digest"));
+    let mut req = http.get(format!("{base}/constellation/digest"));
     if !token.is_empty() {
         req = req.bearer_auth(token);
     }
@@ -971,13 +977,13 @@ fn random_id() -> String {
 mod tests {
     use super::*;
 
-    fn hive_with(min_agreement: usize) -> Arc<Hive> {
+    fn constellation_with(min_agreement: usize) -> Arc<Constellation> {
         let cfg = NetworkConfig {
             enabled: true,
             min_agreement,
             ..NetworkConfig::default()
         };
-        Hive::new(&cfg, Arc::new(TtlCache::new(60, 64)), None, None)
+        Constellation::new(&cfg, Arc::new(TtlCache::new(60, 64)), None, None)
     }
 
     fn hit(url: &str) -> SearchResult {
@@ -998,12 +1004,12 @@ mod tests {
 
     #[test]
     fn consensus_requires_corroboration() {
-        let hive = hive_with(2);
+        let constellation = constellation_with(2);
         let hits = vec![
             peer(0.8, &["https://a.com", "https://b.com"]),
             peer(0.7, &["https://a.com", "https://c.com"]),
         ];
-        let out = hive.consensus(&hits, 10);
+        let out = constellation.consensus(&hits, 10);
         // Only a.com is corroborated by 2 peers; b/c each have a single peer.
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].url, "https://a.com");
@@ -1011,39 +1017,40 @@ mod tests {
 
     #[test]
     fn lone_peer_cannot_inject_results() {
-        let hive = hive_with(2);
+        let constellation = constellation_with(2);
         // A single (possibly malicious) peer returns junk — nothing is trusted.
         let hits = vec![peer(
             0.9,
             &["https://evil.example/1", "https://evil.example/2"],
         )];
-        assert!(hive.consensus(&hits, 10).is_empty());
+        assert!(constellation.consensus(&hits, 10).is_empty());
     }
 
     #[test]
     fn min_agreement_one_trusts_any_peer() {
-        let hive = hive_with(1);
+        let constellation = constellation_with(1);
         let hits = vec![peer(0.5, &["https://solo.example"])];
-        let out = hive.consensus(&hits, 10);
+        let out = constellation.consensus(&hits, 10);
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].url, "https://solo.example");
     }
 
     #[test]
     fn add_peer_dedupes_and_caps() {
-        let hive = hive_with(2);
-        hive.add_peer("http://a.example:8000");
-        hive.add_peer("http://a.example:8000/"); // same after normalization
-        assert_eq!(hive.peer_count(), 1);
+        let constellation = constellation_with(2);
+        constellation.add_peer("http://a.example:8000");
+        constellation.add_peer("http://a.example:8000/"); // same after normalization
+        assert_eq!(constellation.peer_count(), 1);
         for i in 0..(MAX_GOSSIP_PEERS + 20) {
-            hive.add_peer(&format!("http://peer{i}.example:8000"));
+            constellation.add_peer(&format!("http://peer{i}.example:8000"));
         }
-        assert!(hive.peer_count() <= MAX_GOSSIP_PEERS);
+        assert!(constellation.peer_count() <= MAX_GOSSIP_PEERS);
     }
 
     #[test]
     fn reputation_persistence_round_trip() {
-        let path = std::env::temp_dir().join(format!("lode-hive-{}.json", std::process::id()));
+        let path =
+            std::env::temp_dir().join(format!("lode-constellation-{}.json", std::process::id()));
         let path_str = path.to_string_lossy().to_string();
         let cfg = NetworkConfig {
             enabled: true,
@@ -1051,8 +1058,8 @@ mod tests {
             state_file: path_str.clone(),
             ..NetworkConfig::default()
         };
-        let hive = Hive::new(&cfg, Arc::new(TtlCache::new(60, 64)), None, None);
-        hive.persist_reputations();
+        let constellation = Constellation::new(&cfg, Arc::new(TtlCache::new(60, 64)), None, None);
+        constellation.persist_reputations();
         let loaded = load_reputations(&path_str);
         assert_eq!(loaded.get("http://a.example:8000").copied(), Some(0.5));
         let _ = std::fs::remove_file(&path);
@@ -1060,19 +1067,20 @@ mod tests {
 
     #[tokio::test]
     async fn answer_query_serves_local_and_guards_loops() {
-        let hive = hive_with(2);
+        let constellation = constellation_with(2);
         let key = "abc123";
         let hits = vec![hit("https://x.example")];
-        hive.cache
+        constellation
+            .cache
             .put(key.to_string(), serde_json::to_string(&hits).unwrap());
 
         // ttl 0, not yet visited → served from our cache.
-        assert_eq!(hive.answer_query(key, 0, &[]).await.len(), 1);
+        assert_eq!(constellation.answer_query(key, 0, &[]).await.len(), 1);
 
         // Our own node id already in `seen` → loop guard returns nothing, even
         // though the entry is cached.
-        let me = hive.node_id().to_string();
-        assert!(hive.answer_query(key, 1, &[me]).await.is_empty());
+        let me = constellation.node_id().to_string();
+        assert!(constellation.answer_query(key, 1, &[me]).await.is_empty());
     }
 
     #[test]
@@ -1090,11 +1098,11 @@ mod tests {
 
     #[test]
     fn records_seed_accounting() {
-        let hive = hive_with(2);
-        hive.record_fetched("k", 1000);
-        hive.record_served("k", 1000);
-        hive.record_served("k", 1000);
-        let s = hive.seed_for("k").unwrap();
+        let constellation = constellation_with(2);
+        constellation.record_fetched("k", 1000);
+        constellation.record_served("k", 1000);
+        constellation.record_served("k", 1000);
+        let s = constellation.seed_for("k").unwrap();
         assert_eq!((s.served, s.fetched), (2, 1));
         assert_eq!(s.ratio(), Some(2.0)); // gave back 2× what we took
     }

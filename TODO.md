@@ -142,7 +142,7 @@ likely involved). Checked items are done; unchecked are open.
   are MCP logging/notifications to the client (if the host supports them; **LM Studio
   may not** — needs verification) or a model-polled results buffer (works on any
   client, the safe default). Keep a bounded in-memory job table with TTL'd results;
-  the hivemind already runs a background loop to model the lifecycle on. Off by
+  the constellation already runs a background loop to model the lifecycle on. Off by
   default (`[tasks]`); ensure cancellation + resource caps so runaway fan-out can't
   exhaust the host.
 
@@ -274,10 +274,10 @@ likely involved). Checked items are done; unchecked are open.
   - **Done (4) Config:** `[store]` (`enabled`/`dir`/`ttl_secs`/`max_bytes` +
     `LODESTONE_STORE_*`); `[cache]` already had retention knobs (+ the Redis backend).
     Documented in `config/15-store.toml`.
-  - **Done (5) Hivemind sharing of the file store:** the digest Bloom now advertises
-    file-store entry hashes alongside search-cache keys, and a new `/hive/blob`
+  - **Done (5) Constellation sharing of the file store:** the digest Bloom now advertises
+    file-store entry hashes alongside search-cache keys, and a new `/constellation/blob`
     endpoint serves a cached file's raw bytes by hash. `read_pdf` and `store_fetch`
-    go through `Lodestone::fetch_bytes_shared` (local store → a hive peer that has it
+    go through `Lodestone::fetch_bytes_shared` (local store → a constellation peer that has it
     → the source, caching the result), so a PDF/file one node fetched (arXiv, IETF, …)
     is served from the mesh instead of every node re-hitting the rate-limited source.
     Only hashes cross the wire; blob serving honors `[network].token`; non-hex keys
@@ -323,21 +323,30 @@ likely involved). Checked items are done; unchecked are open.
 
 ## Distributed / federation
 
-- [x] **Peer-to-peer "hivemind" of instances with shared query knowledge.** Done
-  (v1): `src/hive/` — opt-in `[network]` (off by default). Discovery via a static
+- [ ] **Galaxy: link multiple constellations.** A *constellation* is one directly-
+  discovered mesh (static peers + LAN mDNS). A *galaxy* is the next layer up — a
+  linking/broker server that pairs multiple constellations across external networks,
+  so a query unanswered within your own constellation can reach a federated one
+  without every node exposing itself to the public internet. The galaxy brokers
+  introductions and relays digests/consults between constellations under their own
+  consensus + token rules; each constellation stays independently useful and opt-in.
+  Design notes in `docs/constellation.md` ("Galaxy (planned)"). Not yet started.
+
+- [x] **Peer-to-peer "constellation" of instances with shared query knowledge.** Done
+  (v1): `src/constellation/` — opt-in `[network]` (off by default). Discovery via a static
   peer list **and** mDNS LAN (`_lodestone._tcp.local.`, runtime-disableable).
   Peers advertise a **Bloom filter** of cached query-key *hashes* (`GET
-  /hive/digest`); `consult` asks matching peers (`POST /hive/query`, bounded +
+  /constellation/digest`); `consult` asks matching peers (`POST /constellation/query`, bounded +
   capped per peer) and **consensus** trusts a result only when `>= min_agreement`
   peers corroborate it (reputation-weighted, single-peer influence capped) —
   otherwise it falls back to a local search and learns from the peers. Only hashes
-  cross the wire; responses carry only cached results (never secrets); `/hive`
+  cross the wire; responses carry only cached results (never secrets); `/constellation`
   endpoints honor an optional `[network].token`. No relaying (no amplification).
-  See `docs/hivemind.md` and `config/06-network.toml`.
+  See `docs/constellation.md` and `config/06-network.toml`.
   - **Also done:** gossip peer-exchange (digests carry known peers; mesh grows
     from a seed; dead peers pruned), **bounded relay** (`relay_hops`, ttl + seen
     loop-guard, each top-level peer still one consensus vote), reputation
-    **persistence** (`state_file`), and a **`hive_status`** tool exposing the mesh
+    **persistence** (`state_file`), and a **`constellation_status`** tool exposing the mesh
     graph (peers, reputation, reachability, edges).
   - **Done since:** a Redis-backed *shared* cache (multiple nodes behind one store)
     now exists via `[cache].backend = "redis"` (see the cache item above).

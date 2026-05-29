@@ -35,18 +35,24 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Fuzzy / concept query matching** (`[search].fuzzy_match`, off by default):
   searches are optionally also keyed by an order-independent, stemmed concept
   signature, so a reworded-but-equivalent query reuses a cached — or, over the
-  hivemind, a peer's (consensus-gated) — result on an exact-key miss.
+  constellation, a peer's (consensus-gated) — result on an exact-key miss.
 
 ### Changed
 
+- **Renamed the "hivemind" to the "constellation"** throughout (module
+  `src/constellation`, the `constellation_status`/`constellation_peers`/
+  `constellation_seeds` tools, the `/constellation/*` peer endpoints, and all docs).
+  Behavior is unchanged; `[network]` config keys keep their names. A future
+  cross-network linking layer that pairs multiple constellations is termed a
+  **galaxy** (planned — see `docs/constellation.md`).
 - **Per-provider search deadline** (`[search].provider_timeout_secs`, default 10):
   an unresponsive provider is dropped instead of stalling the whole search — the
   other engines still return in aggregate, and the chain moves on in fallback.
 - **Query keys are canonicalized** (case/punctuation/stop-words/whitespace folded,
-  word order preserved), so trivially-reworded queries share a cache/hive key and
+  word order preserved), so trivially-reworded queries share a cache/constellation key and
   hit each other's results.
 - **Docs:** `docs/tools.md` regrouped strictly by purpose (finance/markets split out
-  from space/astronomy); README gains a hivemind "be a good neighbor" section.
+  from space/astronomy); README gains a constellation "be a good neighbor" section.
 
 ## [0.1.0] - unreleased
 
@@ -129,20 +135,20 @@ required), served over Streamable HTTP at `/mcp`.
   TTL + byte-budget retention; plus `cache_status` (always on) reporting the in-memory
   search/retrieval caches and the store. Every networked lookup now caches
   (arxiv/hf/kernel added).
-- **Hivemind file & retrieval sharing**: the digest advertises file-store entry
-  hashes *and* retrieval-cache keys; `/hive/blob` serves a cached file/page's bytes
-  by hash. `read_pdf` and `store_fetch` resolve URLs as local store → a hive peer →
+- **Constellation file & retrieval sharing**: the digest advertises file-store entry
+  hashes *and* retrieval-cache keys; `/constellation/blob` serves a cached file/page's bytes
+  by hash. `read_pdf` and `store_fetch` resolve URLs as local store → a constellation peer →
   the source, so a PDF/file one node fetched (arXiv, IETF, …) is served from the mesh
   instead of every node re-hitting the rate-limited source. Only hashes cross the
   wire; token-gated.
   - **Anti-tampering**: a blob is trusted only when `>= [network].min_agreement` peers
-    **corroborate** its content hash (`/hive/blobinfo`), and the fetched bytes are
+    **corroborate** its content hash (`/constellation/blobinfo`), and the fetched bytes are
     **verified** against that hash before use (else fall back to source).
   - **Seed accounting**: per-blob served-vs-fetched byte ratio (BitTorrent-style),
-    shown by the `hive_seeds` tool and in `store_list`.
-- **Hivemind introspection + identity**: nodes now have a stable, machine-derived id
-  (`machine-uid` + bind port); new `hive_peers` (per-node hop distance + machine id)
-  and `hive_seeds` (seed ratios) tools join `hive_status`.
+    shown by the `constellation_seeds` tool and in `store_list`.
+- **Constellation introspection + identity**: nodes now have a stable, machine-derived id
+  (`machine-uid` + bind port); new `constellation_peers` (per-node hop distance + machine id)
+  and `constellation_seeds` (seed ratios) tools join `constellation_status`.
 - **Redis cache backend** (`[cache].backend = "redis"`): a shared store multiple
   instances point at, behind the same get/put contract (falls back to in-memory on
   connect failure).
@@ -228,13 +234,13 @@ required), served over Streamable HTTP at `/mcp`.
   keyed by the normalized query, plus retrieval-tool output (`fetch_page`,
   `render_page`, `fetch_repo_file`, `wayback_fetch`, `qa_stackoverflow_answers`)
   in a separate store keyed by the request. Only non-empty results are cached.
-- **Hivemind** (`[network]`, opt-in/off by default): peer-to-peer consult of
+- **Constellation** (`[network]`, opt-in/off by default): peer-to-peer consult of
   other instances' caches before scraping, with static + mDNS discovery plus
   **gossip** (mesh grows from a seed), **bounded relay** across the graph
   (`relay_hops`), Bloom-filter digests, a hash-only wire protocol, and
   consensus/reputation anti-poisoning with optional reputation **persistence**
-  (`/hive/digest`, `/hive/query`). The `hive_status` tool shows the mesh graph.
-  See `docs/hivemind.md`.
+  (`/constellation/digest`, `/constellation/query`). The `constellation_status` tool shows the mesh graph.
+  See `docs/constellation.md`.
 - **Configurable HTTP timeout** with a single short-backoff retry on the
   engine/forge paths.
 - **Optional bearer-token auth** on `/mcp` (`auth_token` / `LODESTONE_AUTH_TOKEN`,

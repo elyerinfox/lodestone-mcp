@@ -3,7 +3,7 @@
 //!
 //! Each entry is two files under the store directory: `<hash>.data` (the bytes) and
 //! `<hash>.key` (the original key, e.g. the URL, so listings are human-readable),
-//! where `<hash>` is [`crate::hive::hash_key`] of the key. Retention is enforced on
+//! where `<hash>` is [`crate::constellation::hash_key`] of the key. Retention is enforced on
 //! write: entries older than the TTL are dropped, then the oldest are evicted until
 //! the total is under the byte budget. Off by default — enabled via `[store]`.
 
@@ -56,11 +56,12 @@ impl FileStore {
 
     fn data_path(&self, key: &str) -> PathBuf {
         self.dir
-            .join(format!("{}.data", crate::hive::hash_key(key)))
+            .join(format!("{}.data", crate::constellation::hash_key(key)))
     }
 
     fn key_path(&self, key: &str) -> PathBuf {
-        self.dir.join(format!("{}.key", crate::hive::hash_key(key)))
+        self.dir
+            .join(format!("{}.key", crate::constellation::hash_key(key)))
     }
 
     fn expired(&self, modified: SystemTime) -> bool {
@@ -87,7 +88,7 @@ impl FileStore {
     }
 
     /// Read a fresh entry by its already-hashed key (the filename stem). Used by the
-    /// hivemind, which addresses entries by hash over the wire (never the raw key).
+    /// constellation, which addresses entries by hash over the wire (never the raw key).
     pub async fn get_by_hash(&self, hash: &str) -> Option<Vec<u8>> {
         // Guard against path tricks: a hash is hex only.
         if hash.is_empty() || !hash.bytes().all(|b| b.is_ascii_hexdigit()) {
@@ -104,7 +105,7 @@ impl FileStore {
     }
 
     /// Hashes (filename stems) of the fresh entries — what this node can serve to
-    /// peers. Fed into the hivemind digest's Bloom filter.
+    /// peers. Fed into the constellation digest's Bloom filter.
     pub async fn hashes(&self) -> Vec<String> {
         let mut out = Vec::new();
         let Ok(mut rd) = tokio::fs::read_dir(&self.dir).await else {
@@ -257,8 +258,8 @@ mod tests {
 
         // Local read by raw key.
         assert_eq!(store.get(url).await.as_deref(), Some(&b"PDFDATA"[..]));
-        // Hive reads by hash (the filename stem) — must resolve to the same bytes.
-        let h = crate::hive::hash_key(url);
+        // Constellation reads by hash (the filename stem) — must resolve to the same bytes.
+        let h = crate::constellation::hash_key(url);
         assert_eq!(
             store.get_by_hash(&h).await.as_deref(),
             Some(&b"PDFDATA"[..])

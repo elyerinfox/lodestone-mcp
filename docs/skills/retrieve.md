@@ -23,13 +23,13 @@ Retrieval tools fetch one already-identified resource — typically a hit from a
 ## Configuration & gating
 [`config/00-server.toml`](../../config/00-server.toml) `[retrieval]` sets `default_chars` (returned when a call omits `max_chars`; env `LODESTONE_RETRIEVAL_DEFAULT_CHARS`) and `max_chars` (the hard cap any call is clamped to; env `LODESTONE_RETRIEVAL_MAX_CHARS`). When text is cut off it ends with a `[... truncated ...]` marker — call again with a larger `max_chars`. Each tool is gateable via `[tools]`. `render_page` and `webpage_to_pdf` require a local Chrome/Chromium (see [`crate::browser`](../../src/browser.rs)).
 
-For `read_pdf` with a URL, bytes are fetched via the shared file store / hivemind path (`fetch_bytes_shared`): the local file store is checked first, then a hive peer, then the source. A PDF a peer has already cached (arXiv, IETF, …) serves the mesh, so every node need not re-hit a rate-limited source. See [hivemind.md](../hivemind.md) and the file store ([`config/15-store.toml`](../../config/15-store.toml)).
+For `read_pdf` with a URL, bytes are fetched via the shared file store / constellation path (`fetch_bytes_shared`): the local file store is checked first, then a constellation peer, then the source. A PDF a peer has already cached (arXiv, IETF, …) serves the mesh, so every node need not re-hit a rate-limited source. See [constellation.md](../constellation.md) and the file store ([`config/15-store.toml`](../../config/15-store.toml)).
 
 ## Example uses
 - **Read a search result** — `web_search` or `docs_search`, then `fetch_page` on the chosen URL; if it comes back empty (SPA), retry with `render_page`.
 - **Read source for a code hit** — `code_search`, then `fetch_repo_file` on the result URL, optionally with `start_line`/`end_line` to view just the relevant span.
-- **Read a paper** — `arxiv_search`/`arxiv_get` for the PDF URL, then `read_pdf` (shared via the store/hivemind so peers reuse the bytes).
+- **Read a paper** — `arxiv_search`/`arxiv_get` for the PDF URL, then `read_pdf` (shared via the store/constellation so peers reuse the bytes).
 - **Snapshot a page for the record** — `webpage_to_pdf` to render and save a PDF, then `read_pdf` on that path to extract its text.
 
 ## See also
-[tools.md](../tools.md), [search.md](search.md), [archive.md](archive.md), [hivemind.md](../hivemind.md)
+[tools.md](../tools.md), [search.md](search.md), [archive.md](archive.md), [constellation.md](../constellation.md)

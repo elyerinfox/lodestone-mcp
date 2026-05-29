@@ -1,5 +1,5 @@
 # =============================================================================
-# config/06-network.toml — hivemind (peer-to-peer shared query knowledge)
+# config/06-network.toml — constellation (peer-to-peer shared query knowledge)
 # =============================================================================
 #
 # OPT-IN and OFF by default. When enabled, instances consult each other's caches
@@ -13,8 +13,8 @@
 # `min_agreement` peers corroborate it, each peer's influence is capped, and peers
 # are weighted by a reputation earned by agreeing with consensus/local truth.
 #
-# Enabling the network implies the result cache is active (the hive serves from
-# it), even if [cache].enabled is false. See docs/hivemind.md for the full design
+# Enabling the network implies the result cache is active (the constellation serves from
+# it), even if [cache].enabled is false. See docs/constellation.md for the full design
 # and a two-node test.
 # -----------------------------------------------------------------------------
 
@@ -29,10 +29,10 @@ peers = []
 # Auto-discover peers on the LAN via mDNS (_lodestone._tcp.local.). Only runs when
 # enabled=true; set false to disable. Env: LODESTONE_NETWORK_MDNS
 # (Peers also GOSSIP their known peers in each digest, so the mesh grows from a
-#  seed; unreachable peers are pruned. Inspect the graph with the hive_status tool.)
+#  seed; unreachable peers are pruned. Inspect the graph with the constellation_status tool.)
 mdns = true
 
-# Optional shared secret for the /hive endpoints (separate from the public
+# Optional shared secret for the /constellation endpoints (separate from the public
 # auth_token). When set, peers must present `Authorization: Bearer <token>` and
 # outbound peer requests include it. Env: LODESTONE_NETWORK_TOKEN
 token = ""
@@ -66,5 +66,5 @@ node_id = ""
 
 # Optional path to persist peer reputations across restarts (JSON map of
 # url -> reputation). Empty = no persistence. Env: LODESTONE_NETWORK_STATE_FILE
-#   state_file = "lodestone-hive-state.json"
+#   state_file = "lodestone-constellation-state.json"
 state_file = ""

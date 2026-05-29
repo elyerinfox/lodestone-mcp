@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::cache::TtlCache;
 use crate::config::Config;
-use crate::hive::{hash_key, Hive, PeerHit};
+use crate::constellation::{hash_key, Constellation, PeerHit};
 use crate::providers;
 
 /// What category of search a provider serves.
@@ -182,7 +182,7 @@ pub struct Registry {
     plan_qa: KindPlan,
     plan_docs: KindPlan,
     cache: Option<Arc<TtlCache>>,
-    hive: Option<Arc<Hive>>,
+    constellation: Option<Arc<Constellation>>,
     /// Max providers queried concurrently in aggregate mode (0 = unlimited). Bounds
     /// the burst of outbound requests so a wide `docs` fan-out doesn't trip engine
     /// rate limits.
@@ -206,12 +206,12 @@ pub struct Registry {
 impl Registry {
     /// Build the registry from configuration. Unknown provider ids are skipped
     /// with a warning so a typo never takes the whole server down. The result
-    /// cache and (optional) hivemind are built by the caller and shared in, since
-    /// the hive reads/writes the same cache.
+    /// cache and (optional) constellation are built by the caller and shared in, since
+    /// the constellation reads/writes the same cache.
     pub fn from_config(
         cfg: &Config,
         cache: Option<Arc<TtlCache>>,
-        hive: Option<Arc<Hive>>,
+        constellation: Option<Arc<Constellation>>,
     ) -> Self {
         let global_strategy = Strategy::parse(&cfg.search.strategy);
         let global_ranking = Ranking::parse(&cfg.search.ranking);
@@ -238,7 +238,7 @@ impl Registry {
             plan_qa: plan(&cfg.search.qa),
             plan_docs: plan(&cfg.search.docs),
             cache,
-            hive,
+            constellation,
             max_concurrency: cfg.search.max_concurrency,
             provider_timeout: cfg.search.provider_timeout_secs,
             breakers: (cfg.search.breaker_threshold > 0).then(|| {
@@ -258,43 +258,43 @@ impl Registry {
         self.cache.as_ref().map(|c| c.keys().len())
     }
 
-    /// The hivemind handle, if the network is enabled — lets skills consult peers
+    /// The constellation handle, if the network is enabled — lets skills consult peers
     /// for shared file blobs (e.g. cached PDFs).
-    pub(crate) fn hive(&self) -> Option<Arc<Hive>> {
-        self.hive.clone()
+    pub(crate) fn constellation(&self) -> Option<Arc<Constellation>> {
+        self.constellation.clone()
     }
 
-    /// Human-readable hivemind graph, or a disabled notice. Surfaced by the
-    /// `hive_status` tool.
-    pub fn hive_report(&self) -> String {
-        match &self.hive {
+    /// Human-readable constellation graph, or a disabled notice. Surfaced by the
+    /// `constellation_status` tool.
+    pub fn constellation_report(&self) -> String {
+        match &self.constellation {
             Some(h) => h.graph_report(),
-            None => "Hivemind is disabled ([network].enabled = false).".to_string(),
+            None => "Constellation is disabled ([network].enabled = false).".to_string(),
         }
     }
 
     /// Per-node hop distances over the mesh, or a disabled notice. Surfaced by the
-    /// `hive_peers` tool.
-    pub fn hive_peers_report(&self) -> String {
-        match &self.hive {
+    /// `constellation_peers` tool.
+    pub fn constellation_peers_report(&self) -> String {
+        match &self.constellation {
             Some(h) => h.peers_report(),
-            None => "Hivemind is disabled ([network].enabled = false).".to_string(),
+            None => "Constellation is disabled ([network].enabled = false).".to_string(),
         }
     }
 
     /// Per-blob seed ratios (served vs. fetched), or a disabled notice. Surfaced by
-    /// the `hive_seeds` tool.
-    pub fn hive_seeds_report(&self) -> String {
-        match &self.hive {
+    /// the `constellation_seeds` tool.
+    pub fn constellation_seeds_report(&self) -> String {
+        match &self.constellation {
             Some(h) => h.seed_report(),
-            None => "Hivemind is disabled ([network].enabled = false).".to_string(),
+            None => "Constellation is disabled ([network].enabled = false).".to_string(),
         }
     }
 
-    /// Seed ratio (served/fetched bytes) for one blob key-hash, if the hive tracks
+    /// Seed ratio (served/fetched bytes) for one blob key-hash, if the constellation tracks
     /// it. Used to annotate file-store listings.
     pub(crate) fn blob_seed_ratio(&self, key_hash: &str) -> Option<(u64, u64, Option<f64>)> {
-        let s = self.hive.as_ref()?.seed_for(key_hash)?;
+        let s = self.constellation.as_ref()?.seed_for(key_hash)?;
         Some((s.served, s.fetched, s.ratio()))
     }
 
@@ -410,17 +410,29 @@ impl Registry {
             None
         };
 
-        // Try the exact key first (cache → hive consensus), then the concept key.
+        // Try the exact key first (cache → constellation consensus), then the concept key.
         let mut peers: Vec<PeerHit> = Vec::new();
         if let Some(found) = self
-            .lookup_key(&exact_key, query.limit, "cache", "hive", &mut peers)
+            .lookup_key(
+                &exact_key,
+                query.limit,
+                "cache",
+                "constellation",
+                &mut peers,
+            )
             .await
         {
             return found;
         }
         if let Some(ck) = &concept_key {
             if let Some(found) = self
-                .lookup_key(ck, query.limit, "cache (fuzzy)", "hive (fuzzy)", &mut peers)
+                .lookup_key(
+                    ck,
+                    query.limit,
+                    "cache (fuzzy)",
+                    "constellation (fuzzy)",
+                    &mut peers,
+                )
                 .await
             {
                 return found;
@@ -434,15 +446,15 @@ impl Registry {
         if let Some(ck) = &concept_key {
             self.cache_put(ck, &results);
         }
-        if let Some(hive) = &self.hive {
+        if let Some(constellation) = &self.constellation {
             if !peers.is_empty() {
-                hive.update_reputations(&peers, &results);
+                constellation.update_reputations(&peers, &results);
             }
         }
         (results, label)
     }
 
-    /// Look one key up: local cache first, then (if the hive is on) a peer consult
+    /// Look one key up: local cache first, then (if the constellation is on) a peer consult
     /// gated by consensus. Returns the hits + a source label on a hit, or `None`.
     /// Peer responses that didn't reach consensus are appended to `peer_acc` so the
     /// caller can still reward/penalize peers against the eventual local result.
@@ -457,11 +469,11 @@ impl Registry {
         if let Some(hits) = self.cache_get(key) {
             return Some((hits, label_cache.to_string()));
         }
-        if let Some(hive) = &self.hive {
-            let peer_hits = hive.consult(key).await;
-            let trusted = hive.consensus(&peer_hits, limit);
+        if let Some(constellation) = &self.constellation {
+            let peer_hits = constellation.consult(key).await;
+            let trusted = constellation.consensus(&peer_hits, limit);
             if !trusted.is_empty() {
-                hive.update_reputations(&peer_hits, &trusted);
+                constellation.update_reputations(&peer_hits, &trusted);
                 self.cache_put(key, &trusted);
                 return Some((trusted, label_hive.to_string()));
             }

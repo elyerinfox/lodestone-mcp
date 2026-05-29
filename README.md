@@ -81,7 +81,7 @@ concrete examples, by field:
 
 - **Research & academia.** "Find the *Attention Is All You Need* paper and summarize
   its method" → `arxiv_search` → `read_pdf` on the free PDF (shared across your
-  hivemind so you don't re-download). Look up an **RFC** (`rfc_get`) or a **NIST/IEEE
+  constellation so you don't re-download). Look up an **RFC** (`rfc_get`) or a **NIST/IEEE
   standard** (`standards_search`), read a **Wikipedia** article, or pull a
   reproducibility dataset/model card from **Hugging Face** (`hf_model`).
 - **Astronomy & aerospace.** "When is the ISS next over Berlin?" → `sat_tle "ISS"` →
@@ -102,7 +102,7 @@ concrete examples, by field:
 - **Finance & data.** `currency_convert` (live ECB rates), `compound_interest` /
   `loan_payment`, `stock_quote`, and JSON/YAML/`regex` wrangling for ad-hoc data.
 - **Self-hosted fleets.** Run several instances with the opt-in
-  [hivemind](docs/hivemind.md): a result or PDF one node fetched is served to the
+  [constellation](docs/constellation.md): a result or PDF one node fetched is served to the
   others (content-verified, hash-only on the wire) — dodging the rate limits of
   arXiv, IETF, search engines, and friends.
 
@@ -127,7 +127,7 @@ The full, exhaustive lists: **[skills](docs/skills.md)** · **[tools](docs/tools
   (SGP4) tracking.
 - **Devices (off by default):** raw serial I/O and OS printing.
 - **Resilience & ops:** composite ranking, in-memory/Redis cache + file store,
-  optional bearer auth, and an opt-in peer-to-peer [hivemind](docs/hivemind.md).
+  optional bearer auth, and an opt-in peer-to-peer [constellation](docs/constellation.md).
 
 ## Quick start
 
@@ -173,12 +173,12 @@ strategies, caching, forges/doc-sites: **[docs/configuration.md](docs/configurat
 | [configuration.md](docs/configuration.md) | Full config schema, env vars, auth, strategies, caching. |
 | [ranking.md](docs/ranking.md) | The composite ranker: signals, formulas, tuning. |
 | [containers.md](docs/containers.md) | Docker Hub / OCI / Artifact Hub lookups. |
-| [hivemind.md](docs/hivemind.md) | The opt-in peer-to-peer layer (results + blob sharing). |
+| [constellation.md](docs/constellation.md) | The opt-in peer-to-peer layer (results + blob sharing). |
 | [golden-rules.md](docs/golden-rules.md) | The project's invariants. |
 | [comparison.md](docs/comparison.md) | How Lodestone compares; limitations. |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Architecture and how to add a skill/provider. |
 
-## Hivemind — share the load, be a good neighbor
+## Constellation — share the load, be a good neighbor
 
 Lodestone reaches the open web by scraping search engines and fetching from
 rate-limited sources (arXiv, IETF, registries, …). Those limits are almost always
@@ -188,7 +188,7 @@ you make spends a budget your neighbors also draw on. Hammer DuckDuckGo from a
 shared egress and *everyone* behind that address starts seeing tarpits and 403s,
 not just you. The cost of one greedy node is paid by the whole network.
 
-The opt-in [**hivemind**](docs/hivemind.md) turns that dynamic around. When you
+The opt-in [**constellation**](docs/constellation.md) turns that dynamic around. When you
 enable it, your instance first asks its peers whether one of them has *already*
 fetched a query or file before it goes to the open web:
 
@@ -203,14 +203,14 @@ fetched a query or file before it goes to the open web:
 - **Privacy-preserving by design.** Only *hashes* of query keys cross the wire
   (never raw query text), responses carry only already-public web results/bytes
   (never secrets), peer data is trusted only by content-verified consensus, and the
-  `/hive` endpoints can require a shared `[network].token`. It stays strictly
+  `/constellation` endpoints can require a shared `[network].token`. It stays strictly
   opt-in and is never a dependency — local search works with zero peers.
 
 If you run more than one instance, or share a network with others who do, please
 consider turning it on for your peers' sake: set `[network].enabled = true` (LAN
 peers are found automatically over mDNS; add `[network].peers` for off-LAN nodes).
 See [`config/06-network.toml`](config/06-network.toml) and
-[docs/hivemind.md](docs/hivemind.md).
+[docs/constellation.md](docs/constellation.md).
 
 ## Golden rules
 

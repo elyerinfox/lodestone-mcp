@@ -1,6 +1,6 @@
-# Hivemind — peer-to-peer shared query knowledge
+# Constellation — peer-to-peer shared query knowledge
 
-The hivemind is an **opt-in** layer that lets lodestone instances consult each
+The constellation is an **opt-in** layer that lets lodestone instances consult each
 other's caches before scraping the open web. A query already answered by a peer
 can be served from the network, spreading load and softening per-IP rate limits.
 
@@ -50,18 +50,18 @@ extension; see [TODO.md](../TODO.md).)
    node id in a TXT record so a node skips itself). On top of that, each digest
    **gossips** the peers a node knows, so the mesh grows from a seed; peers that
    fail repeatedly are pruned.
-2. **Digests.** Every `sync_secs`, each node fetches peers' `GET /hive/digest` —
+2. **Digests.** Every `sync_secs`, each node fetches peers' `GET /constellation/digest` —
    a Bloom filter of the query-key hashes they currently have cached, plus their
    known peers (for gossip) — which also builds the **graph** of who-knows-whom.
 3. **Consult-then-fetch.** On a search, after a local cache miss, the node asks
-   the peers whose Bloom filter *might* contain the key (`POST /hive/query` with
+   the peers whose Bloom filter *might* contain the key (`POST /constellation/query` with
    the hash). If consensus is reached (`>= min_agreement` corroborating peers), it
-   returns that merged result labelled `hive` and **skips re-scraping**. Otherwise
+   returns that merged result labelled `constellation` and **skips re-scraping**. Otherwise
    it runs a normal local search, caches it, and updates peer reputations by how
    well their hits matched the local truth.
 4. **Relay (a hop or two).** When a node can't reach a holder directly, it asks
    reachable intermediaries to forward the query along the graph for up to
-   `relay_hops` hops (clamped to 2). Each `/hive/query` carries a `ttl` and a
+   `relay_hops` hops (clamped to 2). Each `/constellation/query` carries a `ttl` and a
    `seen` node-id set: a peer serves from its own cache, else (while `ttl > 0` and
    not already visited) forwards to its bloom-matching peers one hop closer.
    Loops are broken by `seen`; fan-out is bounded by `max_peers` and the timeout.
@@ -74,9 +74,9 @@ extension; see [TODO.md](../TODO.md).)
 
 ## Inspecting the mesh
 
-The **`hive_status`** tool (skill) returns this node's id and every known peer's
+The **`constellation_status`** tool (skill) returns this node's id and every known peer's
 reputation, reachability, miss count, and the graph edges it advertised. It
-reports that the hivemind is disabled when `[network].enabled` is false.
+reports that the constellation is disabled when `[network].enabled` is false.
 
 The result cache (`[cache]`) is the shared substrate: a node serves peers from the
 same cache it fills with its own searches. Enabling the network therefore implies
@@ -90,10 +90,10 @@ Mounted only when `[network].enabled`. All require `Authorization: Bearer
 
 | Method | Path | Body | Response |
 | --- | --- | --- | --- |
-| `GET` | `/hive/digest` | — | `{ node_id, generation, count, bloom: { m, k, bits }, peers: [...] }` |
-| `POST` | `/hive/query` | `{ "key": "<hash>", "ttl"?: n, "seen"?: [ids] }` | `{ "hits": [...] }` or `204` |
-| `POST` | `/hive/blob` | `{ "key": "<hash>" }` | raw bytes (`application/octet-stream`) or `204` |
-| `POST` | `/hive/blobinfo` | `{ "key": "<hash>" }` | `{ "hash": "<content-hash>", "size": n }` or `204` |
+| `GET` | `/constellation/digest` | — | `{ node_id, generation, count, bloom: { m, k, bits }, peers: [...] }` |
+| `POST` | `/constellation/query` | `{ "key": "<hash>", "ttl"?: n, "seen"?: [ids] }` | `{ "hits": [...] }` or `204` |
+| `POST` | `/constellation/blob` | `{ "key": "<hash>" }` | raw bytes (`application/octet-stream`) or `204` |
+| `POST` | `/constellation/blobinfo` | `{ "key": "<hash>" }` | `{ "hash": "<content-hash>", "size": n }` or `204` |
 
 `ttl`/`seen` are optional (default 0 / empty) — a plain `{ "key": … }` works and
 just disables relay for that request.
@@ -102,8 +102,8 @@ just disables relay for that request.
 
 When the on-disk file store (`[store]`) is enabled, the digest's Bloom filter also
 advertises the **file-store entry hashes**, and peers can pull a cached file's raw
-bytes via `POST /hive/blob` (addressed by `hash_key(url)` — the raw URL never crosses
-the wire). `read_pdf` and `store_fetch` resolve a URL as **local store → a hive peer
+bytes via `POST /constellation/blob` (addressed by `hash_key(url)` — the raw URL never crosses
+the wire). `read_pdf` and `store_fetch` resolve a URL as **local store → a constellation peer
 that has it → the source** (caching the result), so a PDF/file one node fetched
 (arXiv, IETF, …) is served from the mesh instead of every node re-hitting the
 rate-limited source. The retrieval *text* cache is shared the same way (also behind
@@ -115,7 +115,7 @@ A peer could serve corrupted or malicious bytes, so blobs are **corroborated, th
 verified** before they're trusted:
 
 1. The consumer asks Bloom-matching peers for the blob's **content hash** only
-   (`POST /hive/blobinfo`, no bytes).
+   (`POST /constellation/blobinfo`, no bytes).
 2. It trusts a content hash only when **`>= [network].min_agreement` distinct peers
    agree** on it (reputation breaks ties) — the same anti-poisoning gate as search
    results, so a lone or malicious peer can't dictate content. With the default
@@ -132,14 +132,14 @@ hashes), so every honest node computes the same value for identical bytes.
 
 Each node tracks, per blob hash, how many bytes it has **served** to peers vs.
 **fetched** from them (`served_bytes / fetched_bytes` = a BitTorrent-style *seed
-ratio*). Surfaced by the `hive_seeds` tool and shown per file in `store_list`.
+ratio*). Surfaced by the `constellation_seeds` tool and shown per file in `store_list`.
 
 ### Node identity
 
 Each node has a stable id derived from the **OS machine id** (`machine-uid`; falls
 back to hostname, else random) mixed with the bind port — so two instances on one
 host stay distinct, yet each is stable across restarts. Peers record each other's id
-from their digests; `hive_status`/`hive_peers` show it. Override with
+from their digests; `constellation_status`/`constellation_peers` show it. Override with
 `[network].node_id`.
 
 ## Configuration
@@ -166,11 +166,22 @@ cargo run
 
 Run a `web_search` on **A** (fills A's cache). Within `sync_secs`, B pulls A's
 digest. Run the *same* `web_search` on **B**: it returns a result whose `meta`
-reads `hive: N peers` — served from A without B scraping. `list_providers` and the
+reads `constellation: N peers` — served from A without B scraping. `list_providers` and the
 logs show the activity.
 
 On a real LAN, leave `mdns = true` and omit `peers`; nodes find each other
 automatically.
+
+## Galaxy (planned)
+
+A **constellation** is a single mesh of instances that discover each other directly
+(static peers + LAN mDNS) and share within that trust domain. A **galaxy** is the
+next layer up: a linking server that pairs *multiple constellations* across external
+networks, so a query unanswered within your own constellation can reach a federated
+one without every node exposing itself directly to the public internet. The galaxy
+brokers introductions and relays digests/consults between constellations under their
+own consensus and token rules; each constellation stays independently useful and
+opt-in. Not yet implemented — see [TODO.md](../TODO.md).
 
 ## Deferred
 

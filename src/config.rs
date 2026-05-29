@@ -108,8 +108,8 @@ pub struct Tools {
     /// json_to_yaml, regex_search, regex_replace, math_eval, math_solve,
     /// geo_distance, geo_azimuth, wave_frequency, compound_interest, loan_payment,
     /// currency_convert, convert_units, nasa_apod, nasa_neo, nasa_mars_photos,
-    /// stock_quote, sat_tle, sat_position, sat_observe, list_providers, hive_status,
-    /// hive_peers, hive_seeds. Serial (gated by [serial], off): serial_ports,
+    /// stock_quote, sat_tle, sat_position, sat_observe, list_providers, constellation_status,
+    /// constellation_peers, constellation_seeds. Serial (gated by [serial], off): serial_ports,
     /// serial_send, serial_read. Printer (gated by [printer], off): printer_list,
     /// printer_print. Local Docker
     /// daemon (gated by [docker]): docker_ps, docker_images, docker_inspect,
@@ -170,7 +170,7 @@ pub struct Search {
     /// token set) so a differently-worded but equivalent query reuses a cached/peer
     /// result on an exact-key miss. Off by default: a bag-of-words signature is
     /// order-insensitive, so direction-sensitive phrasings (e.g. "json to yaml" vs
-    /// "yaml to json") can collide. The hive path stays consensus-gated.
+    /// "yaml to json") can collide. The constellation path stays consensus-gated.
     pub fuzzy_match: bool,
     /// Optional per-kind overrides of `strategy`/`ranking`. Empty fields inherit
     /// the global values above, so e.g. web/code can `aggregate` while qa stays
@@ -225,18 +225,18 @@ impl Default for Google {
     }
 }
 
-/// Opt-in peer-to-peer "hivemind" settings. Disabled by default; when off, the
+/// Opt-in peer-to-peer "constellation" settings. Disabled by default; when off, the
 /// server behaves exactly as a standalone instance (no endpoints, no peers).
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct Network {
-    /// Master switch for the hivemind.
+    /// Master switch for the constellation.
     pub enabled: bool,
     /// Static peer base URLs, e.g. ["http://10.0.0.2:8000"].
     pub peers: Vec<String>,
     /// Auto-discover peers on the LAN via mDNS (only runs when `enabled`).
     pub mdns: bool,
-    /// Optional shared secret required on `/hive/*` (separate from `auth_token`).
+    /// Optional shared secret required on `/constellation/*` (separate from `auth_token`).
     pub token: String,
     /// Port advertised to peers / via mDNS. 0 = derive from `bind`.
     pub advertise_port: u16,

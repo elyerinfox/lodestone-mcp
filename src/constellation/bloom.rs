@@ -1,6 +1,6 @@
 //! A small Bloom filter and a stable content hash, both built on FNV-1a so their
 //! output is identical across processes and versions (unlike std's
-//! `DefaultHasher`, whose SipHash keys are randomized per process). The hivemind
+//! `DefaultHasher`, whose SipHash keys are randomized per process). The constellation
 //! uses these to advertise *which* query keys a node has cached — as a compact
 //! filter of hashes — without revealing the queries themselves.
 

@@ -389,7 +389,7 @@ impl Skill for ReadPdf {
                 return Ok(text_result(cached));
             }
             let bytes: Vec<u8> = if src.starts_with("http://") || src.starts_with("https://") {
-                // Shared fetch: local file store → a hive peer → the source. Lets a
+                // Shared fetch: local file store → a constellation peer → the source. Lets a
                 // PDF cached by one node (arXiv, IETF, …) serve the mesh instead of
                 // every node re-hitting the rate-limited source.
                 server.fetch_bytes_shared(&src).await.map_err(internal)?

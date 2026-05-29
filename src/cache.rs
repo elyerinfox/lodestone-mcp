@@ -77,7 +77,7 @@ impl TtlCache {
         }
     }
 
-    /// Snapshot of the currently-live (unexpired) keys. Used by the hivemind to
+    /// Snapshot of the currently-live (unexpired) keys. Used by the constellation to
     /// build a digest of what this node can serve.
     pub fn keys(&self) -> Vec<String> {
         match &self.backend {

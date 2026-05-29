@@ -55,8 +55,8 @@ impl Skill for StoreFetch {
     }
     fn description(&self) -> &'static str {
         "Cache a URL's bytes in the on-disk file store, returning the local path and size. Dodges \
-        the source when possible: a local copy → a hive peer that has it → finally the source. \
-        Useful for rate-limited downloads (e.g. arXiv/IETF PDFs) shared across a hivemind. Use \
+        the source when possible: a local copy → a constellation peer that has it → finally the source. \
+        Useful for rate-limited downloads (e.g. arXiv/IETF PDFs) shared across a constellation. Use \
         store_get to read it back."
     }
     fn schema(&self) -> Arc<JsonObject> {
@@ -67,7 +67,7 @@ impl Skill for StoreFetch {
             let (server, args) = ctx.parse::<FetchArgs>()?;
             let store = store_of(server)?;
             let url = args.url.trim();
-            // Shared fetch: local store → hive peer → source (caches the result).
+            // Shared fetch: local store → constellation peer → source (caches the result).
             let bytes = server.fetch_bytes_shared(url).await.map_err(internal)?;
             let path = store.path_for(url);
             Ok(text_result(format!(
@@ -143,10 +143,10 @@ impl Skill for StoreList {
                     .elapsed()
                     .map(|d| format_age(d.as_secs()))
                     .unwrap_or_else(|_| "?".into());
-                // Seed ratio (served vs. fetched over the hivemind), if tracked.
+                // Seed ratio (served vs. fetched over the constellation), if tracked.
                 let seed = server
                     .registry
-                    .blob_seed_ratio(&crate::hive::hash_key(&e.key))
+                    .blob_seed_ratio(&crate::constellation::hash_key(&e.key))
                     .map(|(served, fetched, ratio)| {
                         let r = ratio
                             .map(|r| format!("{r:.2}"))
