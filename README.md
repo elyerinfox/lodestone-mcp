@@ -20,11 +20,27 @@ SDK; compiles to a single binary.
 > unless you supply it**; none is ever required, and credentials are never logged or
 > committed.
 
-> Started as "search the web and retrieve code & docs" and grew into a general
-> **local-LLM toolkit**: web/code/docs/Q&A search; page/PDF/file/archive retrieval;
-> GitHub & container/cloud-native lookups; local Docker/Kubernetes/filesystem/shell/
-> git/database control; host & GPU info; math/geo/finance/units/date/translation/
-> data utilities; NASA, stock, and satellite tools; and an opt-in peer-to-peer cache.
+## Why "lodestone"?
+
+It started as a small "search the web, retrieve code & docs" helper and kept
+growing — into web/code/docs/Q&A search, page/PDF/file/archive retrieval, GitHub &
+container lookups, local Docker/Kubernetes/filesystem/shell/git/database control,
+host & GPU info, math/geo/finance/units/date/translation utilities, NASA/markets/
+satellite data, and an opt-in peer-to-peer cache. That sprawl is the point.
+
+This project was born out of frustration: getting a local model to actually *do*
+things meant gluing together a dozen single-purpose tools, each with its own
+ecosystem, install dance, auth, and quirks, just to assemble a workable toolkit.
+The need it answers is for one **monolithic** solution — broad enough to cover the
+surface area, yet **intelligent enough not to become a burden** itself. Keyless by
+default, gated, and safe-by-construction, so adopting it costs a config line, not a
+maintenance project.
+
+The name fits. A **lodestone** is a naturally magnetized piece of magnetite — the
+original compass, the very stone early navigators used to find north. That is what
+this aims to be for a model: a single point that **draws scattered capabilities
+together** and **orients** the model toward the right tool for the task at hand.
+One stone, many bearings.
 
 ## What it is
 
@@ -225,3 +241,16 @@ targets when in doubt. You are responsible for everything the model does through
 
 Planned work and known gaps: [TODO.md](TODO.md). Licensed **MIT** (see
 [LICENSE](LICENSE)).
+
+## Supporting the project
+
+Lodestone is free, open-source, and keyless by design — there is nothing to buy and
+no account to create. It is developed and maintained in spare time.
+
+If lodestone has helped you finally get genuine, practical use out of running local
+LLMs, please consider chipping in a few dollars toward its continued development and
+upkeep via [GitHub Sponsors](https://github.com/sponsors/elyerinfox). Contributions
+are entirely voluntary and never gate any feature — every capability remains
+available to everyone, sponsor or not. Non-financial support is just as valued:
+starring the repo, filing thoughtful issues, and contributing fixes or new
+skills/providers all help the project thrive.
