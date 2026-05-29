@@ -271,16 +271,25 @@ PDFs, rendered pages) for reuse, with TTL + size retention.
 | `regex_search` | `pattern`, `text`, `all?`, `ignore_case?` | Find regex matches and their capture groups (Rust `regex` syntax). |
 | `regex_replace` | `pattern`, `text`, `replacement`, `all?`, `ignore_case?` | Substitute regex matches (`$1`/`${name}` refs). |
 
-## Math, science & units (local, no network)
+## Math & science (local, by field)
+
+Each field has a named-formula registry: call `<field>_formula` with `name` + an
+`args` `{var: value}` map (SI units, angles in degrees), and `<field>_formula_list`
+to discover ids/equations/signatures.
 
 | Tool | Arguments | Purpose |
 | --- | --- | --- |
-| `math_eval` | `expression` | Evaluate an arithmetic/scientific expression (sqrt, sin, pi, `^`, …). |
-| `math_solve` | `equation` | Solve a linear/quadratic equation in `x` (e.g. `x^2 - 5x + 6 = 0`). |
+| `arithmetic_eval` | `expression` | Evaluate a free-form expression (sqrt, sin, pi, `^`, …). |
+| `algebra_solve` | `equation` | Solve a linear/quadratic equation in `x` (e.g. `x^2 - 5x + 6 = 0`). |
+| `algebra_formula` / `algebra_formula_list` | `name`, `args` / `filter?` | Combinatorics + algebra (nPr, nCr, factorial, discriminant). |
+| `geometry_formula` / `geometry_formula_list` | `name`, `args` / `filter?` | Areas, volumes, Pythagoras, Heron, law of cosines, distances. |
 | `geo_distance` | `lat1`, `lon1`, `lat2`, `lon2` | Great-circle distance between two coordinates (km + mi). |
 | `geo_azimuth` | `lat1`, `lon1`, `lat2`, `lon2` | Initial bearing/azimuth (+ back azimuth, compass) between two coordinates. |
+| `trig_formula` / `trig_formula_list` | `name`, `args` / `filter?` | sin/cos/tan + inverses (degrees), deg↔rad, law of sines/cosines, arc/sector. |
+| `physics_formula` / `physics_formula_list` | `name`, `args` / `filter?` | ~70 physics formulas (mechanics, gravitation, EM, thermo, waves/optics, relativity, atomic/nuclear, fluids). |
+| `physical_constant` | `name?` | SI physical constants (c, G, h, k_B, R, …). |
 | `wave_frequency` | `frequency_hz?`, `wavelength_m?`, `speed_m_s?` | Convert frequency ↔ wavelength ↔ period (v = f·λ). |
-| `forecast` | `values`, `horizon`, `season_length?` | Forecast a numeric series (Holt / Holt-Winters exponential smoothing) with an approximate interval. |
+| `forecast` | `values`, `horizon`, `season_length?` | Forecast a numeric series (Holt / Holt-Winters) with an approximate interval. |
 | `convert_units` | `value`, `from`, `to` | Convert between units (length/mass/volume/area/speed/time/data/temperature). |
 
 ## Finance & markets

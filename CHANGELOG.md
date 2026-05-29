@@ -8,6 +8,14 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Scientific formula library, organized by field.** A shared formula-registry
+  engine (`src/skills/formula.rs`) backs per-field named-formula tools: **physics**
+  (`physics_formula`/`physics_formula_list` — ~70 formulas across mechanics,
+  gravitation, EM, thermodynamics, waves/optics, relativity, atomic/nuclear, fluids —
+  plus `physical_constant`), **geometry** (`geometry_formula`), **trigonometry**
+  (`trig_formula`), and **algebra/combinatorics** (`algebra_formula`). Call
+  `<field>_formula` with a `{var: value}` map (SI units, angles in degrees) and
+  `<field>_formula_list` to discover ids.
 - **Background-tasks skill** (`task_run`/`task_list`/`task_status`/`task_result`/
   `task_cancel`, off by default `[tasks]`): run long work (currently a search) off the
   request path and poll for results — model-polled, so it works on any client
@@ -68,6 +76,10 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Split the `math` module by field** (breaking tool renames): `math_eval` →
+  `arithmetic_eval` (new `arithmetic` module), `math_solve` → `algebra_solve` (new
+  `algebra` module). `geo_distance`/`geo_azimuth` moved to `geometry` and
+  `wave_frequency` to `physics` (tool names unchanged). The old `math` module is gone.
 - **Multi-route egress for blocked providers** (`[search].proxy`,
   `[search].render_fallback`, both off by default): when a provider returns nothing
   or fails, it's retried over independent routes — direct → proxy (a different egress

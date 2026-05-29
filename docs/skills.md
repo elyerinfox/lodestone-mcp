@@ -91,9 +91,21 @@ behind the search tools see [providers.md](providers.md).
 | [translate](skills/translate.md) | `translate`, `detect_language` | Google Translate (keyless). |
 | [data](skills/data.md) | `json_query`, `json_format`, `yaml_to_json`, `json_to_yaml` | Parse/convert JSON & YAML. |
 | [regex](skills/regex.md) | `regex_search`, `regex_replace` | Match/substitute with Rust regex. |
-| [math](skills/math.md) | `math_eval`, `math_solve`, `geo_distance`, `geo_azimuth`, `wave_frequency` | Arithmetic/algebra, geo distance/bearing, wave conversions. |
 | [forecast](skills/forecast.md) | `forecast` | Time-series forecasting (Holt / Holt-Winters), local. |
 | [units](skills/units.md) | `convert_units` | Unit conversion across many dimensions. |
+
+## Math & science (local, by field)
+
+Named-formula registries (compute by id from a `{var: value}` map; discover with the
+matching `*_formula_list`) plus the expression evaluator and equation solver.
+
+| Skill | Tools | What |
+| --- | --- | --- |
+| [arithmetic](skills/arithmetic.md) | `arithmetic_eval` | Evaluate free-form expressions (sqrt, sin, pi, `^`, …). |
+| [algebra](skills/algebra.md) | `algebra_solve`, `algebra_formula`, `algebra_formula_list` | Solve linear/quadratic equations; combinatorics (nPr, nCr, factorial, discriminant). |
+| [geometry](skills/geometry.md) | `geo_distance`, `geo_azimuth`, `geometry_formula`, `geometry_formula_list` | Great-circle distance/bearing; areas, volumes, Pythagoras, Heron, law of cosines. |
+| [trigonometry](skills/trigonometry.md) | `trig_formula`, `trig_formula_list` | sin/cos/tan + inverses (degrees), deg↔rad, law of sines/cosines, arc/sector. |
+| [physics](skills/physics.md) | `physics_formula`, `physics_formula_list`, `physical_constant`, `wave_frequency` | ~70 physics formulas (mechanics→fluids) + SI constants + wave f/λ/T. |
 
 ## Finance & markets (keyless)
 

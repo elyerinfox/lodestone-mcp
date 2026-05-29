@@ -89,7 +89,9 @@ tree below is scoped by domain → sub-field → the concrete capability and too
   → `pubmed_search` → `ncbi_search db=clinvar`.
 - **Physics, math & CS** — find a preprint with `arxiv_search` and read the free PDF
   with `read_pdf` (shared across your [constellation](docs/constellation.md), so you
-  don't re-download); evaluate/solve expressions (`math_eval` / `math_solve`); pull a
+  don't re-download); evaluate/solve expressions (`arithmetic_eval` / `algebra_solve`)
+and plug into ~85 named formulas across fields (`physics_formula`, `geometry_formula`,
+`trig_formula`, …, plus `physical_constant`); pull a
   model/dataset card from **Hugging Face** (`hf_model` / `hf_search`).
 - **Engineering & standards** — look up an **IETF RFC** (`rfc_get` / `rfc_search`)
   or an **IEEE / SAE / NIST / ISO** standard (`standards_search`, with DOI links and

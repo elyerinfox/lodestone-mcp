@@ -11,7 +11,9 @@
 //! See [golden rule 7](../../docs/golden-rules.md) and the terminology note in
 //! [CONTRIBUTING.md](../../CONTRIBUTING.md).
 
+pub mod algebra;
 pub mod archive;
+pub mod arithmetic;
 pub mod artifacthub;
 pub mod arxiv;
 pub mod data;
@@ -22,18 +24,20 @@ pub mod ffmpeg;
 pub mod filesystem;
 pub mod finance;
 pub mod forecast;
+pub mod formula;
+pub mod geometry;
 pub mod git;
 pub mod github;
 pub mod guard;
 pub mod huggingface;
 pub mod kernel;
 pub mod kubernetes;
-pub mod math;
 pub mod meta;
 pub mod nasa;
 pub mod news;
 pub mod oci;
 pub mod openaccess;
+pub mod physics;
 pub mod printer;
 pub mod pubmed;
 pub mod regex;
@@ -51,6 +55,7 @@ pub mod store;
 pub mod sysinfo;
 pub mod tasks;
 pub mod translate;
+pub mod trigonometry;
 pub mod units;
 pub mod wikipedia;
 pub mod yahoo;
@@ -153,7 +158,11 @@ fn all_skills() -> Vec<Box<dyn Skill>> {
     skills.extend(translate::skills());
     skills.extend(data::skills());
     skills.extend(regex::skills());
-    skills.extend(math::skills());
+    skills.extend(arithmetic::skills());
+    skills.extend(algebra::skills());
+    skills.extend(geometry::skills());
+    skills.extend(trigonometry::skills());
+    skills.extend(physics::skills());
     skills.extend(finance::skills());
     skills.extend(forecast::skills());
     skills.extend(units::skills());
