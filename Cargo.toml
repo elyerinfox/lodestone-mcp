@@ -66,8 +66,10 @@ nvml-wrapper = "0.10"
 machine-uid = "0.5"
 # Satellite trajectory: SGP4 orbital propagation from TLE element sets.
 sgp4 = "2"
-# Raw serial-device I/O for the serial skill (off by default).
-serialport = "4"
+# Raw serial-device I/O for the serial skill (off by default). default-features
+# off drops the Linux `libudev` system dependency (which CI/musl lack); port
+# enumeration falls back to a sysfs/dev scan there.
+serialport = { version = "4", default-features = false }
 # Database client skills: PostgreSQL + MySQL via sqlx (Redis reuses the `redis`
 # crate above). Only used when a [databases.*] instance is configured.
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "mysql", "chrono"] }
