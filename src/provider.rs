@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::cache::TtlCache;
 use crate::config::Config;
-use crate::hive::{hash_key, Hive};
+use crate::hive::{hash_key, Hive, PeerHit};
 use crate::providers;
 
 /// What category of search a provider serves.
@@ -194,6 +194,9 @@ pub struct Registry {
     /// Per-provider circuit breaker (None when disabled): trips a source that keeps
     /// failing so it's skipped fast instead of re-waiting the deadline every call.
     breakers: Option<Arc<Breakers>>,
+    /// Also key searches by a normalized concept signature so reworded-but-equivalent
+    /// queries reuse a cached/peer result on an exact-key miss (off by default).
+    fuzzy_match: bool,
     /// Per-engine quality weights for the composite ranker (default 1.0).
     weights: HashMap<String, f64>,
     /// Extra trusted domains given an authority boost (composite ranker).
@@ -244,6 +247,7 @@ impl Registry {
                     cfg.search.breaker_cooldown_secs,
                 ))
             }),
+            fuzzy_match: cfg.search.fuzzy_match,
             weights: cfg.search.engine_weights.clone(),
             trusted: cfg.search.trusted_domains.clone(),
         }
@@ -387,39 +391,83 @@ impl Registry {
         query: &SearchQuery,
     ) -> (Vec<SearchResult>, String) {
         let plan = self.plan(kind);
-        // Hash the logical key so cache entries and peer lookups share a stable,
-        // privacy-preserving id (raw query text never crosses the wire).
-        let key = hash_key(&format!(
-            "search|{}|{}|{}|{}",
+        let envelope = format!(
+            "{}|{}|{}",
             kind.as_str(),
             plan.strategy.as_str(),
             plan.ranking.as_str(),
-            query_key(query),
-        ));
-        if let Some(hits) = self.cache_get(&key) {
-            return (hits, "cache".to_string());
+        );
+        // Hash the logical key so cache entries and peer lookups share a stable,
+        // privacy-preserving id (raw query text never crosses the wire). The text is
+        // canonicalized (case/punctuation/stop-words/whitespace folded, order kept)
+        // so trivially-reworded queries land on the same key.
+        let exact_key = hash_key(&format!("search|{}|{}", envelope, query_key(query)));
+        // Optional fuzzy/concept key: an order-independent, stemmed token set so a
+        // differently-worded but equivalent query reuses a prior result on a miss.
+        let concept_key = if self.fuzzy_match {
+            concept_query_key(query).map(|sig| hash_key(&format!("concept|{}|{}", envelope, sig)))
+        } else {
+            None
+        };
+
+        // Try the exact key first (cache → hive consensus), then the concept key.
+        let mut peers: Vec<PeerHit> = Vec::new();
+        if let Some(found) = self
+            .lookup_key(&exact_key, query.limit, "cache", "hive", &mut peers)
+            .await
+        {
+            return found;
         }
-        // Consult-then-fetch: if peers corroborate a result (consensus + capped
-        // single-peer influence), trust it and skip re-scraping; otherwise run a
-        // normal local search and learn from any peer hits.
+        if let Some(ck) = &concept_key {
+            if let Some(found) = self
+                .lookup_key(ck, query.limit, "cache (fuzzy)", "hive (fuzzy)", &mut peers)
+                .await
+            {
+                return found;
+            }
+        }
+
+        // Miss everywhere → run locally, cache under both keys (so this node can
+        // serve exact and concept matches), and learn from any peer hits.
+        let (results, label) = self.run_strategy(kind, http, query).await;
+        self.cache_put(&exact_key, &results);
+        if let Some(ck) = &concept_key {
+            self.cache_put(ck, &results);
+        }
         if let Some(hive) = &self.hive {
-            let peer_hits = hive.consult(&key).await;
-            let trusted = hive.consensus(&peer_hits, query.limit);
+            if !peers.is_empty() {
+                hive.update_reputations(&peers, &results);
+            }
+        }
+        (results, label)
+    }
+
+    /// Look one key up: local cache first, then (if the hive is on) a peer consult
+    /// gated by consensus. Returns the hits + a source label on a hit, or `None`.
+    /// Peer responses that didn't reach consensus are appended to `peer_acc` so the
+    /// caller can still reward/penalize peers against the eventual local result.
+    async fn lookup_key(
+        &self,
+        key: &str,
+        limit: usize,
+        label_cache: &str,
+        label_hive: &str,
+        peer_acc: &mut Vec<PeerHit>,
+    ) -> Option<(Vec<SearchResult>, String)> {
+        if let Some(hits) = self.cache_get(key) {
+            return Some((hits, label_cache.to_string()));
+        }
+        if let Some(hive) = &self.hive {
+            let peer_hits = hive.consult(key).await;
+            let trusted = hive.consensus(&peer_hits, limit);
             if !trusted.is_empty() {
                 hive.update_reputations(&peer_hits, &trusted);
-                self.cache_put(&key, &trusted);
-                return (trusted, "hive".to_string());
+                self.cache_put(key, &trusted);
+                return Some((trusted, label_hive.to_string()));
             }
-            let (results, label) = self.run_strategy(kind, http, query).await;
-            self.cache_put(&key, &results);
-            if !peer_hits.is_empty() {
-                hive.update_reputations(&peer_hits, &results);
-            }
-            return (results, label);
+            peer_acc.extend(peer_hits);
         }
-        let (results, label) = self.run_strategy(kind, http, query).await;
-        self.cache_put(&key, &results);
-        (results, label)
+        None
     }
 
     async fn run_strategy(
@@ -700,7 +748,8 @@ impl Breakers {
 }
 
 /// Stable cache-key fragment covering everything about a query that can change
-/// its results (text, limit, language/site selectors, and the render flag).
+/// its results (text, limit, language/site selectors, and the render flag). The
+/// text is canonicalized so trivially-reworded queries share a key.
 fn query_key(q: &SearchQuery) -> String {
     format!(
         "{}|{}|{}|{}|{}",
@@ -708,8 +757,95 @@ fn query_key(q: &SearchQuery) -> String {
         q.limit,
         q.language.as_deref().unwrap_or(""),
         q.site.as_deref().unwrap_or(""),
-        q.text,
+        canonical_query(&q.text),
     )
+}
+
+/// Like [`query_key`] but with the text reduced to an order-independent **concept
+/// signature** (stemmed token set), for the optional fuzzy-match key. Returns `None`
+/// when the query has no content words to key on (so we never build a useless key).
+fn concept_query_key(q: &SearchQuery) -> Option<String> {
+    let toks = concept_tokens(&q.text);
+    if toks.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "{}|{}|{}|{}|{}",
+        q.render,
+        q.limit,
+        q.language.as_deref().unwrap_or(""),
+        q.site.as_deref().unwrap_or(""),
+        toks.join(" "),
+    ))
+}
+
+/// Common, low-signal words dropped from cache keys so phrasing differences don't
+/// fragment otherwise-identical queries. Deliberately small and query-oriented.
+const STOPWORDS: &[&str] = &[
+    "a", "an", "the", "of", "in", "on", "for", "and", "or", "is", "are", "be", "how", "do", "does",
+    "did", "i", "my", "me", "with", "what", "whats", "when", "where", "why", "which", "can",
+    "could", "should", "would", "please", "get", "got", "using", "use", "via", "about", "any",
+    "some", "this", "that", "it",
+];
+
+fn is_stopword(t: &str) -> bool {
+    STOPWORDS.contains(&t)
+}
+
+/// Lowercase a token and strip surrounding punctuation (keeps token-internal chars
+/// like `c++` or `node.js` intact — only the ends are trimmed).
+fn clean_token(raw: &str) -> String {
+    raw.to_ascii_lowercase()
+        .trim_matches(|c: char| ".,!?;:\"'`()[]{}".contains(c))
+        .to_string()
+}
+
+/// Order-preserving canonical form of a query: lowercased, de-punctuated, with
+/// stop-words and excess whitespace removed. Word order is **kept**, so
+/// direction-sensitive phrasings stay distinct (e.g. "json to yaml" ≠ "yaml to
+/// json"). Falls back to a whitespace-normalized lowercasing if every token was a
+/// stop-word, so the key is never empty.
+fn canonical_query(text: &str) -> String {
+    let toks: Vec<String> = text
+        .split_whitespace()
+        .map(clean_token)
+        .filter(|t| !t.is_empty() && !is_stopword(t))
+        .collect();
+    if toks.is_empty() {
+        return text
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .to_ascii_lowercase();
+    }
+    toks.join(" ")
+}
+
+/// Very light suffix stemmer (no dependency): folds common inflections so e.g.
+/// "parsing"/"parsed"/"parses" collapse toward "parse". Conservative — only strips
+/// when a reasonable stem remains.
+fn stem(t: &str) -> String {
+    for suf in ["ing", "ed", "s"] {
+        if t.len() > suf.len() + 2 && t.ends_with(suf) {
+            return t[..t.len() - suf.len()].to_string();
+        }
+    }
+    t.to_string()
+}
+
+/// The order-independent concept token set of a query: cleaned, stop-worded,
+/// stemmed, sorted, de-duplicated. Two differently-ordered or differently-inflected
+/// phrasings of the same content words produce the same set.
+fn concept_tokens(text: &str) -> Vec<String> {
+    let mut toks: Vec<String> = text
+        .split_whitespace()
+        .map(clean_token)
+        .filter(|t| !t.is_empty() && !is_stopword(t))
+        .map(|t| stem(&t))
+        .collect();
+    toks.sort();
+    toks.dedup();
+    toks
 }
 
 fn build(kind: ProviderKind, ids: &[String], cfg: &Config) -> Vec<Arc<dyn SearchProvider>> {
@@ -1182,5 +1318,53 @@ mod tests {
         b.record_failure("ddg");
         // Cooldown of 0 means open_until is already <= now → treated as elapsed.
         assert!(!b.is_open("ddg"));
+    }
+
+    #[test]
+    fn canonical_query_folds_rewording_but_keeps_order() {
+        // Case, punctuation, stop-words, and whitespace all fold to one form…
+        assert_eq!(
+            canonical_query("How do I parse JSON in Rust?"),
+            canonical_query("parse json   rust")
+        );
+        assert_eq!(canonical_query("Parse JSON in Rust"), "parse json rust");
+        // …but word order is preserved, so direction-sensitive queries stay distinct.
+        assert_ne!(
+            canonical_query("convert json to yaml"),
+            canonical_query("convert yaml to json")
+        );
+        // All-stopword input still yields a stable, non-empty key.
+        assert_eq!(canonical_query("how do I"), "how do i");
+    }
+
+    #[test]
+    fn concept_tokens_are_order_and_inflection_independent() {
+        // Word order doesn't matter — same content words → same concept set.
+        assert_eq!(
+            concept_tokens("parsing JSON files"),
+            concept_tokens("files parsing json")
+        );
+        // The light stemmer folds same-root inflections (-ing / -ed / -s).
+        assert_eq!(concept_tokens("parsed"), concept_tokens("parsing"));
+        assert_eq!(concept_tokens("files"), concept_tokens("file"));
+        // Sorted + de-duped.
+        assert_eq!(concept_tokens("rust rust json"), vec!["json", "rust"]);
+    }
+
+    #[test]
+    fn concept_query_key_none_when_no_content_words() {
+        let q = SearchQuery {
+            text: "how do I".to_string(),
+            language: None,
+            site: None,
+            limit: 5,
+            render: false,
+        };
+        assert!(concept_query_key(&q).is_none());
+        let q2 = SearchQuery {
+            text: "parse json".to_string(),
+            ..q
+        };
+        assert!(concept_query_key(&q2).is_some());
     }
 }

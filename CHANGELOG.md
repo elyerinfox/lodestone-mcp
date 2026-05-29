@@ -16,12 +16,19 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Search circuit breaker** (`[search].breaker_threshold` / `breaker_cooldown_secs`):
   after N consecutive provider failures the source is skipped for a cooldown so it
   fails fast instead of re-waiting the deadline each call.
+- **Fuzzy / concept query matching** (`[search].fuzzy_match`, off by default):
+  searches are optionally also keyed by an order-independent, stemmed concept
+  signature, so a reworded-but-equivalent query reuses a cached — or, over the
+  hivemind, a peer's (consensus-gated) — result on an exact-key miss.
 
 ### Changed
 
 - **Per-provider search deadline** (`[search].provider_timeout_secs`, default 10):
   an unresponsive provider is dropped instead of stalling the whole search — the
   other engines still return in aggregate, and the chain moves on in fallback.
+- **Query keys are canonicalized** (case/punctuation/stop-words/whitespace folded,
+  word order preserved), so trivially-reworded queries share a cache/hive key and
+  hit each other's results.
 - **Docs:** `docs/tools.md` regrouped strictly by purpose (finance/markets split out
   from space/astronomy); README gains a hivemind "be a good neighbor" section.
 

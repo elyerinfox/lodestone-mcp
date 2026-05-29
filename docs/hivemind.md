@@ -24,6 +24,25 @@ works exactly as a standalone server. It is **off by default** (`[network].enabl
   and latency a query can incur. A peer is never asked to relay — it answers only
   for its own cache (no query amplification).
 
+## Matching reworded queries
+
+Peers match by the **hash** of a query key, so two nodes only share a result when
+they compute the *same* key. To stop trivial wording differences from fragmenting
+that, the key's text is **canonicalized** before hashing: lowercased, de-punctuated,
+stop-words and excess whitespace removed — but **word order is preserved**, so
+direction-sensitive phrasings stay distinct (`json to yaml` ≠ `yaml to json`). So
+"How do I parse JSON in Rust?" and "parse json rust" already hit the same entry.
+
+For genuinely different phrasings of the same need, enable `[search].fuzzy_match`.
+Each search is then *also* keyed by an order-independent **concept signature** (a
+stemmed, de-duplicated token set), and that concept hash is advertised in the digest
+Bloom like any other key — so a peer that cached an equivalent query is found on an
+exact-key miss, through the same consult + consensus path (no protocol change, still
+hash-only on the wire). It's off by default because a bag-of-words signature is
+order-insensitive and can collide on direction-sensitive queries. (A SimHash-based
+*near*-duplicate match — catching one-token-different queries — is a deferred
+extension; see [TODO.md](../TODO.md).)
+
 ## How it works
 
 1. **Discovery & gossip.** Static `[network].peers` plus, when `[network].mdns`

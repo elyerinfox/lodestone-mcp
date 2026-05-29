@@ -163,6 +163,13 @@ pub struct Search {
     /// How long (seconds) a tripped provider stays skipped before a single probe is
     /// allowed through again. Only meaningful when `breaker_threshold > 0`.
     pub breaker_cooldown_secs: u64,
+    /// Fuzzy/concept matching: also key each search by a normalized **concept
+    /// signature** (lowercased, de-punctuated, stop-worded, stemmed, order-independent
+    /// token set) so a differently-worded but equivalent query reuses a cached/peer
+    /// result on an exact-key miss. Off by default: a bag-of-words signature is
+    /// order-insensitive, so direction-sensitive phrasings (e.g. "json to yaml" vs
+    /// "yaml to json") can collide. The hive path stays consensus-gated.
+    pub fuzzy_match: bool,
     /// Optional per-kind overrides of `strategy`/`ranking`. Empty fields inherit
     /// the global values above, so e.g. web/code can `aggregate` while qa stays
     /// `fallback`.
@@ -694,6 +701,7 @@ impl Default for Search {
             provider_timeout_secs: 10,
             breaker_threshold: 5,
             breaker_cooldown_secs: 60,
+            fuzzy_match: false,
             web: KindSearch::default(),
             code: KindSearch::default(),
             qa: KindSearch::default(),
@@ -829,6 +837,9 @@ impl Config {
             if let Ok(n) = n.trim().parse::<u64>() {
                 self.search.breaker_cooldown_secs = n;
             }
+        }
+        if let Ok(v) = std::env::var("LODESTONE_SEARCH_FUZZY_MATCH") {
+            self.search.fuzzy_match = is_truthy(&v);
         }
         if let Some(sites) = env_list("LODESTONE_CODE_SITES") {
             self.code.sites = sites;

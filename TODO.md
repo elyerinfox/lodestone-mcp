@@ -337,6 +337,24 @@ likely involved). Checked items are done; unchecked are open.
   - **Done since:** a Redis-backed *shared* cache (multiple nodes behind one store)
     now exists via `[cache].backend = "redis"` (see the cache item above).
 
+- [~] **Match reworded/equivalent queries across the mesh.** Peers match by key
+  hash, so equivalent queries only share results if they compute the same key.
+  - **Done (canonicalization):** the key's text is now lowercased, de-punctuated,
+    stop-worded, and whitespace-folded **before hashing** (word order preserved, so
+    direction-sensitive phrasings stay distinct). Trivial rewordings now hit the
+    same entry locally and across the mesh (`canonical_query` in `src/provider.rs`).
+  - **Done (optional concept key):** `[search].fuzzy_match` (off by default) also
+    keys each search by an order-independent **stemmed concept token set**; that
+    concept hash rides the existing Bloom/consult/consensus path (no protocol change,
+    still hash-only), so a differently-worded equivalent query reuses a peer's result
+    on an exact-key miss. Off by default because a bag-of-words signature is
+    order-insensitive and can collide on direction-sensitive queries.
+  - **Deferred (SimHash near-match):** to catch *one-token-different* phrasings (not
+    just identical concept sets), advertise a 64-bit SimHash fingerprint per entry in
+    the digest and select candidates by Hamming distance below a threshold, then
+    consult those candidate hashes (still consensus-gated). Bigger digest + protocol
+    change — left for a focused follow-up.
+
 ## Docs & release
 
 - [~] **CHANGELOG.md and a tagged release.**

@@ -64,6 +64,17 @@ provider_timeout_secs = 10
 breaker_threshold = 5
 breaker_cooldown_secs = 60
 
+# Fuzzy / concept matching. The cache key already folds trivial rewordings of a
+# query (case, punctuation, stop-words, whitespace — word ORDER is kept, so
+# "json to yaml" stays distinct from "yaml to json"). With this ON, each search is
+# ALSO keyed by an order-independent "concept signature" (stemmed token set), so a
+# differently-worded but equivalent query can reuse a cached — or, over the
+# hivemind, a peer's — result when the exact key misses. Trade-off: a bag-of-words
+# signature is order-insensitive, so direction-sensitive phrasings can collide;
+# hence off by default. (The hive path stays consensus-gated regardless.)
+# Env: LODESTONE_SEARCH_FUZZY_MATCH
+fuzzy_match = false
+
 # Optional PER-KIND overrides of strategy/ranking. Empty/unset fields inherit the
 # global values above. Lets you e.g. aggregate web+code for coverage while keeping
 # qa on fallback (so the StackExchange API isn't always hit). Uncomment to use:
