@@ -28,13 +28,18 @@ pub mod kernel;
 pub mod kubernetes;
 pub mod math;
 pub mod meta;
+pub mod nasa;
 pub mod oci;
+pub mod printer;
 pub mod regex;
 pub mod retrieve;
 pub mod rfc;
+pub mod satellite;
 pub mod search;
+pub mod serial;
 pub mod shell;
 pub mod standards;
+pub mod stocks;
 pub mod store;
 pub mod sysinfo;
 pub mod translate;
@@ -136,6 +141,11 @@ fn all_skills() -> Vec<Box<dyn Skill>> {
     skills.extend(math::skills());
     skills.extend(finance::skills());
     skills.extend(units::skills());
+    skills.extend(nasa::skills());
+    skills.extend(stocks::skills());
+    skills.extend(satellite::skills());
+    skills.extend(serial::skills());
+    skills.extend(printer::skills());
     skills.extend(meta::skills());
     skills
 }
@@ -170,5 +180,10 @@ pub fn disabled_by_config(cfg: &crate::config::Config) -> Vec<String> {
     hide_if_off(!cfg.databases.is_empty(), databases::TOOL_NAMES);
     // File-store tools are gated by [store] (cache_status stays always-on).
     hide_if_off(cfg.store.enabled, store::TOOL_NAMES);
+    // Serial / printer hardware skills — off by default.
+    hide_if_off(cfg.serial.enabled, serial::TOOL_NAMES);
+    hide_if_off(cfg.printer.enabled, printer::TOOL_NAMES);
+    // Stock quotes — on by default, but gateable.
+    hide_if_off(cfg.stocks.enabled, stocks::TOOL_NAMES);
     out
 }

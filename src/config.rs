@@ -38,6 +38,10 @@ pub struct Config {
     pub shell: Shell,
     pub git: Git,
     pub sysinfo: Sysinfo,
+    pub serial: Serial,
+    pub printer: Printer,
+    pub nasa: Nasa,
+    pub stocks: Stocks,
     /// User-defined self-hosted forges, keyed by provider id. Each entry becomes
     /// a keyless code provider (and a `code_<id>` tool) once its id is listed in
     /// `[providers].code`. Example: `[forges.myhost] kind = "gitea", domain =
@@ -101,8 +105,11 @@ pub struct Tools {
     /// wikipedia_summary, kernel_releases, json_query, json_format, yaml_to_json,
     /// json_to_yaml, regex_search, regex_replace, math_eval, math_solve,
     /// geo_distance, geo_azimuth, wave_frequency, compound_interest, loan_payment,
-    /// currency_convert, convert_units, list_providers, hive_status, hive_peers,
-    /// hive_seeds. Local Docker
+    /// currency_convert, convert_units, nasa_apod, nasa_neo, nasa_mars_photos,
+    /// stock_quote, sat_tle, sat_position, sat_observe, list_providers, hive_status,
+    /// hive_peers, hive_seeds. Serial (gated by [serial], off): serial_ports,
+    /// serial_send, serial_read. Printer (gated by [printer], off): printer_list,
+    /// printer_print. Local Docker
     /// daemon (gated by [docker]): docker_ps, docker_images, docker_inspect,
     /// docker_logs, docker_info, docker_pull, docker_run, docker_start,
     /// docker_build, docker_stop, docker_remove, docker_exec, docker_rmi.
@@ -407,6 +414,64 @@ impl Default for Sysinfo {
     }
 }
 
+/// Serial-port skill (`src/skills/serial.rs`) — read/write raw serial devices.
+/// **Off by default** (hardware access); writes go through the confirmation guard.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct Serial {
+    /// Expose the `serial_*` tools. OFF by default — explicit grant.
+    pub enabled: bool,
+    /// Default baud rate when a call omits it.
+    pub baud: u32,
+    /// Default per-operation timeout in milliseconds.
+    pub timeout_ms: u64,
+}
+
+impl Default for Serial {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            baud: 9600,
+            timeout_ms: 1000,
+        }
+    }
+}
+
+/// Printer skill (`src/skills/printer.rs`) — list printers and print text via the
+/// OS print system (CUPS `lp` / Windows spooler). **Off by default**; printing goes
+/// through the confirmation guard.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct Printer {
+    /// Expose the `printer_*` tools. OFF by default — explicit grant.
+    pub enabled: bool,
+}
+
+/// NASA open-data skills (`src/skills/nasa.rs`). Keyless-friendly: uses `DEMO_KEY`
+/// when no key is set (low rate limit). A free key from api.nasa.gov raises the
+/// limit — optional, never required, never logged/committed.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct Nasa {
+    /// Optional api.nasa.gov key. Empty = `DEMO_KEY`. Prefer `LODESTONE_NASA_KEY`.
+    pub key: String,
+}
+
+/// Stock-quote skill (`src/skills/stocks.rs`) — delayed quotes via the keyless
+/// Stooq CSV endpoint. On by default; no key.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct Stocks {
+    /// Expose the `stock_quote` tool.
+    pub enabled: bool,
+}
+
+impl Default for Stocks {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct Cache {
@@ -586,6 +651,10 @@ impl Default for Config {
             shell: Shell::default(),
             git: Git::default(),
             sysinfo: Sysinfo::default(),
+            serial: Serial::default(),
+            printer: Printer::default(),
+            nasa: Nasa::default(),
+            stocks: Stocks::default(),
             forges: HashMap::new(),
             docsites: HashMap::new(),
             databases: HashMap::new(),
@@ -881,6 +950,25 @@ impl Config {
         }
         if let Ok(v) = std::env::var("LODESTONE_SYSINFO_ENABLED") {
             self.sysinfo.enabled = is_truthy(&v);
+        }
+        if let Ok(v) = std::env::var("LODESTONE_SERIAL_ENABLED") {
+            self.serial.enabled = is_truthy(&v);
+        }
+        if let Ok(n) = std::env::var("LODESTONE_SERIAL_BAUD") {
+            if let Ok(n) = n.trim().parse::<u32>() {
+                self.serial.baud = n;
+            }
+        }
+        if let Ok(v) = std::env::var("LODESTONE_PRINTER_ENABLED") {
+            self.printer.enabled = is_truthy(&v);
+        }
+        if let Ok(v) =
+            std::env::var("LODESTONE_NASA_KEY").or_else(|_| std::env::var("NASA_API_KEY"))
+        {
+            self.nasa.key = v;
+        }
+        if let Ok(v) = std::env::var("LODESTONE_STOCKS_ENABLED") {
+            self.stocks.enabled = is_truthy(&v);
         }
         // Accept the conventional GITHUB_TOKEN as well as our namespaced var.
         if let Ok(token) =

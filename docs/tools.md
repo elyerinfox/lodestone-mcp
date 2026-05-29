@@ -169,6 +169,19 @@ no NVIDIA GPU / NVML library is present. See
 | `system_disks` | — | Mounted disks: filesystem, total/used/free space. |
 | `system_gpu` | — | NVIDIA GPU name, memory, utilization, temperature (via NVML). |
 
+## Devices (off by default)
+
+Direct hardware access — both **off by default**; writes go through the confirmation
+guard. See [`config/16-devices.toml`](../config/16-devices.toml).
+
+| Tool | Arguments | Access | Purpose |
+| --- | --- | --- | --- |
+| `serial_ports` | — | read | List serial ports (name + USB/Bluetooth/PCI type). |
+| `serial_send` | `port`, `data`, `baud?`, `confirm?`, `trust?` | **side-effecting** | Write bytes to a serial port (confirm first). |
+| `serial_read` | `port`, `baud?`, `timeout_ms?`, `max_bytes?` | read | Read from a serial port for a timeout (text + hex). |
+| `printer_list` | — | read | List printers (CUPS / Windows spooler). |
+| `printer_print` | `text`, `printer?`, `confirm?`, `trust?` | **side-effecting** | Print text (confirm first). |
+
 ## Databases
 
 Query configured PostgreSQL / MySQL / Redis instances. **Off by default** — the
@@ -234,6 +247,21 @@ PDFs, rendered pages) for reuse, with TTL + size retention.
 | `loan_payment` | `principal`, `annual_rate_percent`, `months` | Amortized monthly payment, total paid, total interest. |
 | `currency_convert` | `amount`, `from`, `to` | Convert currencies via keyless ECB reference rates (Frankfurter); cached. |
 | `convert_units` | `value`, `from`, `to` | Convert between units (length/mass/volume/area/speed/time/data/temperature). |
+
+## Space, markets & science (keyless)
+
+| Tool | Arguments | Purpose |
+| --- | --- | --- |
+| `nasa_apod` | `date?` | NASA Astronomy Picture of the Day (title, image/video URL, explanation). |
+| `nasa_neo` | `date?` | Near-Earth objects for a day (diameter, hazardous flag, miss distance, velocity). |
+| `nasa_mars_photos` | `rover?`, `sol?`, `earth_date?`, `max_results?` | Mars rover photo URLs (camera + date). |
+| `stock_quote` | `symbol` | Delayed stock/index/FX quote via keyless Stooq (OHLC + volume). |
+| `sat_tle` | `query` | Fetch a satellite's current TLE from CelesTrak (by NORAD id or name). |
+| `sat_position` | `tle_line1`, `tle_line2`, `at?` | SGP4 sub-point: latitude, longitude, altitude, speed. |
+| `sat_observe` | `tle_line1`, `tle_line2`, `observer_lat`, `observer_lon`, `observer_alt_km?`, `at?` | Azimuth/elevation/range from an observer. |
+
+NASA works keyless via `DEMO_KEY`; set `[nasa].key` (`LODESTONE_NASA_KEY`) to raise
+the rate limit. Stock data is delayed/reference, not a trading feed.
 
 ## Meta
 

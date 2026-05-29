@@ -1,0 +1,23 @@
+# =============================================================================
+# config/16-devices.toml — serial & printer skills (hardware; off by default)
+# =============================================================================
+#
+# Direct hardware access, so both are OFF by default. Writes (serial_send,
+# printer_print) go through the confirmation guard (first call returns a token;
+# call again with confirm=<token>, or confirm + trust=true).
+#
+# Serial tools: serial_ports (list), serial_send, serial_read.
+# Printer tools: printer_list, printer_print (CUPS `lp` on Unix, Windows spooler).
+# -----------------------------------------------------------------------------
+
+[serial]
+# Expose the serial_* tools. Env: LODESTONE_SERIAL_ENABLED
+enabled = false
+# Default baud rate when a call omits it. Env: LODESTONE_SERIAL_BAUD
+baud = 9600
+# Default per-operation timeout (ms).
+timeout_ms = 1000
+
+[printer]
+# Expose the printer_* tools. Env: LODESTONE_PRINTER_ENABLED
+enabled = false

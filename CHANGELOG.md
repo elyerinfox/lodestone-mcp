@@ -65,6 +65,15 @@ required), served over Streamable HTTP at `/mcp`.
   always exposed and gated at *call time* (rather than hidden); each family's
   `allow_destructive` pre-authorizes the action and skips the prompt. Tokens are
   single-use and expire after 5 minutes.
+- **Space, markets & science skills** (keyless): `nasa_apod` / `nasa_neo` /
+  `nasa_mars_photos` (api.nasa.gov, `DEMO_KEY` by default, optional `[nasa].key`);
+  `stock_quote` (delayed quotes via Stooq CSV); `sat_tle` / `sat_position` /
+  `sat_observe` (SGP4 orbital propagation — fetch a TLE from CelesTrak, then compute
+  the ground sub-point or observer azimuth/elevation/range).
+- **Device skills** (`[serial]`, `[printer]`, **off by default**): `serial_ports` /
+  `serial_send` / `serial_read` (raw serial I/O via `serialport`) and `printer_list` /
+  `printer_print` (CUPS `lp` / Windows spooler). Writes go through the confirmation
+  guard; clear safeguards when the device/print system is absent.
 - **System-information skills** (`[sysinfo]`, read-only, on by default): `system_info`
   (host/OS/kernel/uptime, CPU model+cores+usage, memory/swap), `system_disks`, and
   `system_gpu` (NVIDIA via NVML — clear message when the driver/library is absent).

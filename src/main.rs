@@ -54,6 +54,10 @@ pub(crate) struct Lodestone {
     pub(crate) se_allowed: Arc<[String]>,
     /// Optional GitHub token (raises the API rate limit for `github_releases`).
     pub(crate) github_token: Arc<str>,
+    /// Optional NASA api.nasa.gov key (empty → `DEMO_KEY`) for the `nasa_*` tools.
+    pub(crate) nasa_key: Arc<str>,
+    /// Serial-port policy (baud/timeout) for the `serial_*` tools.
+    pub(crate) serial: Arc<config::Serial>,
     /// Caches retrieval-tool output (page text, files, answers) keyed by request.
     /// Separate from the search/hive cache so it never enters peer digests.
     pub(crate) retrieval_cache: Option<Arc<cache::TtlCache>>,
@@ -92,6 +96,8 @@ impl Lodestone {
         se_key: String,
         se_allowed: Vec<String>,
         github_token: String,
+        nasa_key: String,
+        serial: config::Serial,
         timeout_secs: u64,
         retrieval_cache: Option<Arc<cache::TtlCache>>,
         default_chars: usize,
@@ -119,6 +125,8 @@ impl Lodestone {
             se_key: se_key.into(),
             se_allowed: se_allowed.into(),
             github_token: github_token.into(),
+            nasa_key: nasa_key.into(),
+            serial: Arc::new(serial),
             retrieval_cache,
             default_chars: default_chars.max(1),
             max_chars: max_chars.max(1),
@@ -298,6 +306,13 @@ impl ServerHandler for Lodestone {
                 coordinates. wave_frequency: frequency ↔ wavelength ↔ period.\n\
                 - compound_interest / loan_payment: financial math. currency_convert: keyless \
                 currency conversion (ECB reference rates).\n\
+                - nasa_apod / nasa_neo / nasa_mars_photos: NASA open data (keyless via DEMO_KEY). \
+                stock_quote: delayed stock/FX quote (keyless Stooq).\n\
+                - sat_tle / sat_position / sat_observe: fetch a TLE and propagate a satellite orbit \
+                (SGP4) to a ground sub-point or observer look-angles.\n\
+                - serial_ports / serial_send / serial_read: raw serial-device I/O (gated by \
+                [serial], off by default). printer_list / printer_print: OS printing (gated by \
+                [printer], off by default).\n\
                 - convert_units: convert between units (length/mass/volume/area/speed/time/data/temperature).\n\
                 - list_providers: show which sources are active.\n\
                 - hive_status / hive_peers / hive_seeds: inspect the peer-to-peer hivemind — mesh \
@@ -593,6 +608,8 @@ async fn main() -> anyhow::Result<()> {
         cfg.stackexchange.key.clone(),
         cfg.stackexchange.allowed_sites.clone(),
         cfg.github.token.clone(),
+        cfg.nasa.key.clone(),
+        cfg.serial.clone(),
         cfg.search.timeout_secs,
         retrieval_cache,
         cfg.retrieval.default_chars,

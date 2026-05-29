@@ -1,0 +1,239 @@
+//! Serial-device skill — list ports and read/write raw serial I/O. **Off by
+//! default** (direct hardware access); gated by `[serial].enabled`. Writes are
+//! side-effecting, so `serial_send` goes through the confirmation [`guard`](crate::skills::guard)
+//! (first call returns a token; call again with `confirm=<token>`).
+//!
+//! Blocking serial I/O runs on a blocking thread. Per-call `baud`/`timeout_ms`
+//! override the `[serial]` defaults.
+
+use std::sync::Arc;
+use std::time::Duration;
+
+use anyhow::{anyhow, Result};
+use futures::future::BoxFuture;
+use rmcp::model::{CallToolResult, JsonObject};
+use rmcp::ErrorData as McpError;
+use serde::Deserialize;
+
+use crate::skills::guard::Decision;
+use crate::skills::{schema_for, NoArgs, Skill, SkillCtx};
+use crate::util::truncate_chars;
+use crate::{internal, text_result};
+
+/// Tool names (gated by `[serial].enabled` in `disabled_by_config`).
+pub const TOOL_NAMES: &[&str] = &["serial_ports", "serial_send", "serial_read"];
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct SendArgs {
+    /// Port to open, e.g. `COM3` (Windows) or `/dev/ttyUSB0` (Linux).
+    port: String,
+    /// Data to write. Sent as UTF-8 bytes (append `\n` yourself if the device needs it).
+    data: String,
+    /// Baud rate. Omit for the `[serial].baud` default.
+    #[serde(default)]
+    baud: Option<u32>,
+    /// One-time token from a prior call's confirmation prompt. Omit on the first call.
+    #[serde(default)]
+    confirm: Option<String>,
+    /// With `confirm`, stop asking for serial_send for the rest of the session.
+    #[serde(default)]
+    trust: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct ReadArgs {
+    /// Port to open, e.g. `COM3` or `/dev/ttyUSB0`.
+    port: String,
+    /// Baud rate. Omit for the `[serial].baud` default.
+    #[serde(default)]
+    baud: Option<u32>,
+    /// How long to read before returning, in milliseconds. Omit for `[serial].timeout_ms`.
+    #[serde(default)]
+    timeout_ms: Option<u64>,
+    /// Max bytes to read. Default 4096, capped 65536.
+    #[serde(default)]
+    max_bytes: Option<u32>,
+}
+
+pub struct SerialPorts;
+impl Skill for SerialPorts {
+    fn name(&self) -> &'static str {
+        "serial_ports"
+    }
+    fn description(&self) -> &'static str {
+        "List the serial ports available on this machine (name + type, e.g. USB VID/PID). Read-only."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<NoArgs>()
+    }
+    fn call<'a>(&self, _ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let out = tokio::task::spawn_blocking(list_ports)
+                .await
+                .map_err(|e| internal(anyhow!("serial task failed: {e}")))?
+                .map_err(internal)?;
+            Ok(text_result(out))
+        })
+    }
+}
+
+pub struct SerialSend;
+impl Skill for SerialSend {
+    fn name(&self) -> &'static str {
+        "serial_send"
+    }
+    fn description(&self) -> &'static str {
+        "Write data to a serial port (off by default; [serial]). Side-effecting — the first call \
+        returns a confirmation token and does nothing; call again with confirm=<token> to send (or \
+        confirm + trust=true). Returns the number of bytes written."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<SendArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (server, args) = ctx.parse::<SendArgs>()?;
+            let summary = format!("write {} byte(s) to {}", args.data.len(), args.port);
+            if let Decision::Challenge(msg) = server.guard.check(
+                "serial_send",
+                "serial_send",
+                false, // no pre-authorize flag for serial; always confirm or trust
+                &summary,
+                args.confirm.as_deref(),
+                args.trust.unwrap_or(false),
+            ) {
+                return Ok(text_result(msg));
+            }
+            let baud = args.baud.unwrap_or(server.serial.baud);
+            let timeout = Duration::from_millis(server.serial.timeout_ms.max(1));
+            let port = args.port.clone();
+            let data = args.data.into_bytes();
+            let n = tokio::task::spawn_blocking(move || send(&port, baud, timeout, &data))
+                .await
+                .map_err(|e| internal(anyhow!("serial task failed: {e}")))?
+                .map_err(internal)?;
+            Ok(text_result(format!("Wrote {n} byte(s) to {}", args.port)))
+        })
+    }
+}
+
+pub struct SerialRead;
+impl Skill for SerialRead {
+    fn name(&self) -> &'static str {
+        "serial_read"
+    }
+    fn description(&self) -> &'static str {
+        "Read from a serial port for up to timeout_ms (or until max_bytes), returning the bytes as \
+        text plus a hex dump. Off by default ([serial])."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<ReadArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (server, args) = ctx.parse::<ReadArgs>()?;
+            let baud = args.baud.unwrap_or(server.serial.baud);
+            let timeout =
+                Duration::from_millis(args.timeout_ms.unwrap_or(server.serial.timeout_ms).max(1));
+            let max = crate::clamp(args.max_bytes, 4096, 65536);
+            let port = args.port.clone();
+            let bytes = tokio::task::spawn_blocking(move || read(&port, baud, timeout, max))
+                .await
+                .map_err(|e| internal(anyhow!("serial task failed: {e}")))?
+                .map_err(internal)?;
+            if bytes.is_empty() {
+                return Ok(text_result(format!(
+                    "Read 0 bytes from {} (timeout).",
+                    args.port
+                )));
+            }
+            let text = String::from_utf8_lossy(&bytes);
+            let hex: String = bytes.iter().map(|b| format!("{b:02x} ")).collect();
+            let out = format!(
+                "Read {} byte(s) from {}:\n--- text ---\n{}\n--- hex ---\n{}",
+                bytes.len(),
+                args.port,
+                truncate_chars(&text, server.max_chars / 2),
+                truncate_chars(hex.trim(), server.max_chars / 2),
+            );
+            Ok(text_result(out))
+        })
+    }
+}
+
+// --- blocking serial primitives (run on spawn_blocking) ---------------------
+
+fn list_ports() -> Result<String> {
+    let ports = serialport::available_ports()
+        .map_err(|e| anyhow!("could not enumerate serial ports: {e}"))?;
+    if ports.is_empty() {
+        return Ok("No serial ports found.".into());
+    }
+    let mut out = format!("Serial ports ({}):\n", ports.len());
+    for p in &ports {
+        let kind = match &p.port_type {
+            serialport::SerialPortType::UsbPort(u) => format!(
+                "USB {:04x}:{:04x}{}",
+                u.vid,
+                u.pid,
+                u.product
+                    .as_deref()
+                    .map(|s| format!(" ({s})"))
+                    .unwrap_or_default()
+            ),
+            serialport::SerialPortType::BluetoothPort => "Bluetooth".into(),
+            serialport::SerialPortType::PciPort => "PCI".into(),
+            serialport::SerialPortType::Unknown => "unknown".into(),
+        };
+        out.push_str(&format!("  {}  [{kind}]\n", p.port_name));
+    }
+    Ok(out)
+}
+
+fn open(port: &str, baud: u32, timeout: Duration) -> Result<Box<dyn serialport::SerialPort>> {
+    serialport::new(port, baud)
+        .timeout(timeout)
+        .open()
+        .map_err(|e| anyhow!("could not open '{port}' at {baud} baud: {e}"))
+}
+
+fn send(port: &str, baud: u32, timeout: Duration, data: &[u8]) -> Result<usize> {
+    use std::io::Write;
+    let mut p = open(port, baud, timeout)?;
+    p.write_all(data)
+        .map_err(|e| anyhow!("write to '{port}' failed: {e}"))?;
+    p.flush().ok();
+    Ok(data.len())
+}
+
+fn read(port: &str, baud: u32, timeout: Duration, max: usize) -> Result<Vec<u8>> {
+    use std::io::Read;
+    let mut p = open(port, baud, timeout)?;
+    let mut out = Vec::new();
+    let mut buf = [0u8; 1024];
+    // Read until the timeout elapses on an empty read, or max bytes reached.
+    loop {
+        match p.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => {
+                out.extend_from_slice(&buf[..n]);
+                if out.len() >= max {
+                    out.truncate(max);
+                    break;
+                }
+            }
+            Err(ref e) if e.kind() == std::io::ErrorKind::TimedOut => break,
+            Err(e) => return Err(anyhow!("read from '{port}' failed: {e}")),
+        }
+    }
+    Ok(out)
+}
+
+/// The skills this module contributes (gating happens in `disabled_by_config`).
+pub fn skills() -> Vec<Box<dyn Skill>> {
+    vec![
+        Box::new(SerialPorts),
+        Box::new(SerialSend),
+        Box::new(SerialRead),
+    ]
+}

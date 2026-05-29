@@ -104,40 +104,54 @@ likely involved). Checked items are done; unchecked are open.
   (read-only, on by default); blocking work runs on `spawn_blocking`. Docs + config
   (`config/13-sysinfo.toml`) added.
 
-- [ ] **Serial device skill.** Read/write raw serial ports (microcontrollers,
-  instruments) without a shell. `serialport` crate; `[serial]` config (off by default
-  — hardware access). Tools: `serial_ports` (list), `serial_send`/`serial_read`
-  (configurable baud/timeout); writes are side-effecting → confirmation `guard`
-  (golden rule 8). Clear error when no port / port busy.
+- [ ] **FFmpeg conversion skill.** There's an `ffmpeg` *docs* provider (`docs_ffmpeg`)
+  but no conversion tool. Add `ffmpeg_convert` (input path, output path, optional
+  args/codec/format) that shells out to the local `ffmpeg` binary — off by default
+  (`[ffmpeg]`), paths confined to `[filesystem].roots`, output writes go through the
+  confirmation guard, and a clear "ffmpeg not on PATH" safeguard. Maybe `ffmpeg_probe`
+  (ffprobe metadata, read-only).
 
-- [ ] **Printer skill.** Submit a document/text to a system printer. Platform printing
-  (Windows spooler / CUPS). `[printer]` config, off by default. `printer_list` (read)
-  + `printer_print` (side-effecting → guard). Backends differ per OS — scope one path
-  first, degrade gracefully.
+- [ ] **Time-series forecasting skill.** Forecast a numeric series (trend/seasonality).
+  Prophet/SARIMAX are Python/statsmodels-heavy; in pure Rust the `augurs` crate (MSTL/
+  ETS/AR) or a hand-rolled Holt-Winters + simple ARIMA is the practical path. Tool:
+  `forecast` (values + horizon → point forecast + interval). Pure compute, local.
+  Pulling real Prophet/SARIMAX would mean an embedded Python or a sidecar — out of
+  scope for the single-binary model; document the chosen approximation.
 
-- [ ] **Stock market quote skill (NYSE/NASDAQ).** Look up a ticker's quote /
-  historical close. Neither exchange offers a free public API directly; options:
-  **Stooq** CSV (`stooq.com/q/l/?s=aapl.us&f=...`, keyless — fits the ethos) for
-  delayed quotes/history, or a keyed provider (Alpha Vantage / Finnhub) behind an
-  optional `[stocks].key` (never required). Tools: `stock_quote` (last/open/high/low/
-  volume) and maybe `stock_history`. Delayed/reference data, not a trading feed —
-  document that clearly.
+- [ ] **News feed skill.** Subscribe-style RSS/Atom news by topic/source (generalizes
+  the existing Medium RSS provider). Tool: `news_feed` (url or known source + topic →
+  recent headlines/links/dates). Keyless RSS/Atom parse (`roxmltree`), cached.
 
-- [ ] **NASA API skills.** NASA exposes a unified, keyless-friendly API at
-  `api.nasa.gov` (a free key, or `DEMO_KEY` at low limits — optional `[nasa].key`,
-  never required, matching the keyless ethos). Candidate tools: `nasa_apod`
-  (Astronomy Picture of the Day), `nasa_neo` (Near-Earth objects / close approaches),
-  `nasa_mars_photos` (rover imagery), `nasa_donki` (space-weather events), and the
-  Exoplanet Archive. ESA has **no** single unified public API — its data lives in
-  specialized services (Copernicus/Sentinel via the Copernicus Data Space, the Gaia
-  archive, Heasarc), several needing registration — so an "ESA skill" would be
-  per-service, not one provider. Start with NASA APOD/NeoWs/Mars (clean keyed JSON).
+- [ ] **Spreadsheet skill.** Read/edit tabular data. CSV is built-in (Rust `csv`);
+  XLSX via `calamine` (read) + `rust_xlsxwriter` (write). Tools: `sheet_read`
+  (range/sheet → rows), `sheet_query` (filter/select), `sheet_write` (cells/append).
+  File writes are confined like the filesystem skill (`[filesystem].roots`) and go
+  through the confirmation guard; off by default or behind `[filesystem]`.
 
-- [ ] **Satellite trajectory skill.** Propagate a TLE to position / look-angles —
-  pure computation, no hardware. `sgp4` crate over a Two-Line Element set + a time
-  (+ optional observer lat/lon). Tools: `sat_position` (sub-point lat/lon/alt) and
-  `sat_look` (azimuth/elevation/range from an observer; reuses the geo/azimuth
-  helpers). TLEs from a keyless source (CelesTrak) via a small fetch, cached.
+- [x] **Serial device skill.** Done: `src/skills/serial.rs` — `serial_ports`,
+  `serial_send` (guarded write), `serial_read` (timed read → text + hex) via the
+  `serialport` crate. Off by default (`[serial]`); blocking I/O on `spawn_blocking`.
+
+- [x] **Printer skill.** Done: `src/skills/printer.rs` — `printer_list` +
+  `printer_print` (guarded), shelling to CUPS `lp`/`lpstat` (Unix) or PowerShell
+  `Get-Printer`/`Out-Printer` (Windows). Off by default (`[printer]`); "no print
+  system" safeguard.
+
+- [x] **Stock market quote skill (NYSE/NASDAQ).** Done: `src/skills/stocks.rs` —
+  `stock_quote` via the keyless Stooq CSV endpoint (delayed OHLC + volume; US tickers
+  auto-suffixed `.us`, indices/forex pass through). Cached; documented as delayed
+  reference data. (A keyed provider for richer/history data remains a future option.)
+
+- [x] **NASA API skills.** Done: `src/skills/nasa.rs` — `nasa_apod`, `nasa_neo`,
+  `nasa_mars_photos` against api.nasa.gov (keyless via `DEMO_KEY`; optional
+  `[nasa].key`/`LODESTONE_NASA_KEY` raises the limit). Cached. (DONKI/Exoplanet and an
+  ESA per-service skill remain future options — ESA has no single unified API.)
+
+- [x] **Satellite trajectory skill.** Done: `src/skills/satellite.rs` — `sat_tle`
+  (fetch a TLE from CelesTrak by NORAD id/name), `sat_position` (SGP4 → ground
+  sub-point lat/lon/alt + speed), `sat_observe` (azimuth/elevation/range from an
+  observer). TEME→ECEF via GMST, WGS-84 geodetic, topocentric SEZ look-angles;
+  unit-tested (geodetic round-trip, GMST vs J2000, ISS LEO sanity).
 
 - [x] **Wave/frequency calculation.** Done (math helper): `wave_frequency` converts
   between frequency, wavelength, and period via v = f·λ (speed defaults to c; set

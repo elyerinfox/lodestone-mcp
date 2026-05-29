@@ -1,0 +1,21 @@
+# =============================================================================
+# config/17-data-apis.toml — NASA, stock quotes, satellites (keyless data)
+# =============================================================================
+#
+# Keyless, on-by-default data tools (no hardware):
+#   NASA    — nasa_apod, nasa_neo, nasa_mars_photos (api.nasa.gov; DEMO_KEY by
+#             default, a free key raises the rate limit)
+#   Stocks  — stock_quote (delayed quotes via the keyless Stooq CSV endpoint)
+#   Satellites — sat_tle / sat_position / sat_observe (SGP4 over TLEs; sat_tle
+#                fetches from CelesTrak). No config; always available.
+# -----------------------------------------------------------------------------
+
+[nasa]
+# Optional api.nasa.gov key (empty = DEMO_KEY, low rate limit). A URL/key is a
+# credential — prefer the env var and don't commit a real one.
+# Env: LODESTONE_NASA_KEY (also accepts NASA_API_KEY)
+key = ""
+
+[stocks]
+# Expose the stock_quote tool. Env: LODESTONE_STOCKS_ENABLED
+enabled = true

@@ -64,6 +64,10 @@ sysinfo = "0.32"
 nvml-wrapper = "0.10"
 # Stable per-machine id for the hivemind node identity (OS machine GUID).
 machine-uid = "0.5"
+# Satellite trajectory: SGP4 orbital propagation from TLE element sets.
+sgp4 = "2"
+# Raw serial-device I/O for the serial skill (off by default).
+serialport = "4"
 # Database client skills: PostgreSQL + MySQL via sqlx (Redis reuses the `redis`
 # crate above). Only used when a [databases.*] instance is configured.
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "mysql", "chrono"] }
