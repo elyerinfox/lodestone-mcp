@@ -21,8 +21,32 @@ works exactly as a standalone server. It is **off by default** (`[network].enabl
   reputation score (EMA toward how well they agree with consensus / local truth,
   decayed toward neutral when unreachable). No single peer can carry a result.
 - **Bounded.** `max_peers`, `request_timeout_ms`, and capped lists bound the work
-  and latency a query can incur. A peer is never asked to relay — it answers only
-  for its own cache (no query amplification).
+  and latency any one query can incur.
+
+## Avoiding request storms
+
+A consult can fan out and (with `relay_hops > 0`) be forwarded a hop or two toward a
+holder, and the galaxy links many constellations into a larger mesh — so the system
+is designed so the *same* query is never screamed around repeatedly:
+
+- **Hop ceiling.** Relay TTL is clamped to `relay_hops` (max **2**). A forwarded
+  query can only travel a couple of hops before it stops, so depth is hard-bounded.
+- **Path loop-guard.** Every relayed query carries a `seen` set of node ids; a node
+  that finds itself already in `seen` returns nothing. Node ids are machine-derived
+  and globally unique, so this breaks loops *within and across* constellations alike.
+- **Cross-path dedup.** `seen` only covers one path, so the same key could still
+  arrive via several paths. Each node therefore **relays a given key at most once per
+  short window** — duplicates answer from local cache only and are *not* re-fanned.
+  This collapses the multiplicative fan-out that would otherwise cause a storm.
+- **Targeted fan-out.** Relays go only to **Bloom-matching** peers (likely holders),
+  not to everyone, and are capped by `max_peers`.
+- **One vote per peer.** However a top-level peer answered (directly or via relay),
+  it counts as exactly one consensus vote — relaying can't fabricate corroboration.
+- **The galaxy never proxies.** The broker only hands back endpoints; it never
+  forwards a query, so it adds no amplification path. Cross-constellation consults are
+  ordinary direct calls, subject to all of the above.
+- **Cache short-circuit.** A node that already has the answer cached returns it
+  immediately and relays nothing.
 
 ## Matching reworded queries
 

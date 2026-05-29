@@ -26,7 +26,7 @@ pub(crate) use bloom::{hash_bytes, hash_key};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -157,6 +157,10 @@ pub(crate) struct Constellation {
     peers: Mutex<HashMap<String, Peer>>,
     /// Per-blob seed accounting (served vs. fetched), keyed by blob hash.
     seeds: Mutex<HashMap<String, BlobStat>>,
+    /// Anti-storm: key-hash → when we last *relayed* it. The same query arriving via
+    /// multiple paths (a dense or galaxy-linked mesh) is re-fanned only once per
+    /// short window; duplicates fall back to a local-only answer.
+    recent_relays: Mutex<HashMap<String, Instant>>,
     /// Reputations loaded from `state_file` at startup; seeds peers as they appear.
     loaded_reps: HashMap<String, f64>,
 }
@@ -199,6 +203,7 @@ impl Constellation {
             retrieval,
             peers: Mutex::new(peers),
             seeds: Mutex::new(HashMap::new()),
+            recent_relays: Mutex::new(HashMap::new()),
             loaded_reps,
         })
     }
@@ -472,9 +477,30 @@ impl Constellation {
         if !local.is_empty() || ttl == 0 {
             return local;
         }
+        // Storm guard: the `seen` set only covers nodes on *this* path, so the same
+        // query reaching us via several paths would otherwise be re-fanned each time.
+        // Relay a given key at most once per short window; duplicates answer locally
+        // (here, empty) instead of amplifying. Direct cache hits above are unaffected.
+        if !self.should_relay(key) {
+            return local;
+        }
         let mut seen2 = seen.to_vec();
         seen2.push(self.node_id.clone());
         self.forward(key, ttl - 1, &seen2).await
+    }
+
+    /// True at most once per `key` within a short window (then false until it
+    /// expires). Gates only the amplifying *relay* fan-out — see [`answer_query`].
+    fn should_relay(&self, key: &str) -> bool {
+        const WINDOW: Duration = Duration::from_secs(10);
+        let now = Instant::now();
+        let mut recent = self.recent_relays.lock().unwrap();
+        recent.retain(|_, t| now.duration_since(*t) < WINDOW);
+        if recent.contains_key(key) {
+            return false;
+        }
+        recent.insert(key.to_string(), now);
+        true
     }
 
     /// Query our bloom-matching peers (one hop) and merge their hits. Used by the
@@ -1087,6 +1113,17 @@ mod tests {
         // though the entry is cached.
         let me = constellation.node_id().to_string();
         assert!(constellation.answer_query(key, 1, &[me]).await.is_empty());
+    }
+
+    #[test]
+    fn relay_guard_fires_once_per_window() {
+        let constellation = constellation_with(2);
+        // First relay of a key is allowed; an immediate duplicate is suppressed.
+        assert!(constellation.should_relay("k1"));
+        assert!(!constellation.should_relay("k1"));
+        // A different key is independent.
+        assert!(constellation.should_relay("k2"));
+        assert!(!constellation.should_relay("k2"));
     }
 
     #[test]
