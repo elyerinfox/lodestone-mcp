@@ -215,15 +215,26 @@ endpoints (under each constellation's own token + consensus rules). So at least 
 host must be publicly reachable — usually the broker, plus each constellation's
 ingress node(s) (a forwarded/open port).
 
-Two opt-in roles (independent):
+Two sides (independent):
 
-- **Serve a broker** (`[galaxy].serve = true`, on `[galaxy].bind`): runs the public
-  directory. Endpoints: `POST /galaxy/register` (also `…/heartbeat`) and
-  `GET /galaxy/directory?id=<self>`; both honor an optional `[galaxy].token`. Entries
-  expire after `ttl_secs` without a heartbeat.
-- **Participate** (`[galaxy].servers = [...]`, requires the constellation enabled):
-  every `heartbeat_secs`, register this constellation (its `id` + `ingress` URLs) with
-  each broker and pull the directory, adding other constellations' endpoints as peers.
+- **The broker is a separate binary**, `lodestone-galaxy` — *not* part of the main
+  `lodestone-mcp` server (the MCP server + its constellation are the main app). Run it
+  on a publicly-reachable host; configure it by env:
+
+  ```sh
+  LODESTONE_GALAXY_BIND=0.0.0.0:8077 \
+  LODESTONE_GALAXY_TOKEN=optional-shared-secret \
+  LODESTONE_GALAXY_TTL_SECS=90 \
+    lodestone-galaxy            # or: lodestone-galaxy 0.0.0.0:8077
+  ```
+
+  Endpoints: `POST /galaxy/register` (also `…/heartbeat`) and
+  `GET /galaxy/directory?id=<self>`; both honor the token. Entries expire after the
+  TTL without a heartbeat. It only stores/returns endpoints — never proxies traffic.
+- **Participate** (`[galaxy].servers = [...]` in the main app, with the constellation
+  enabled): every `heartbeat_secs`, register this constellation (its `id` + `ingress`
+  URLs) with each broker and pull the directory, adding other constellations'
+  endpoints as peers.
 
 **Distribution.** A constellation may advertise **several `ingress` endpoints** — all
 are added as peers, spreading inbound load across member nodes. Egress is distributed
@@ -232,6 +243,10 @@ too: every member node runs its own galaxy client and registers independently.
 **Join order.** A node **joins its own constellation first** — the galaxy client
 waits out a warm-up (`join_warmup_secs`, returning sooner once a local peer appears)
 so local discovery settles before it asks a broker about *other* constellations.
+
+> **Expose only the constellation, not the MCP server.** Set `[network].bind` to a
+> separate port so `/constellation/*` listens apart from `/mcp`; forward *that* port
+> as your `ingress` and keep the MCP endpoint private. (See the constellation config.)
 
 A node can be a pure broker (set `serve = true`, leave the constellation off), a pure
 participant, or both.

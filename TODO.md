@@ -327,12 +327,14 @@ likely involved). Checked items are done; unchecked are open.
 - [x] **Galaxy: link multiple constellations.** Done: `src/galaxy/` — a rendezvous
   **broker** (NOT a proxy) that keeps a directory of `{ constellation → public ingress
   endpoint(s) }`; constellations register + pull the directory and then talk directly
-  over `/constellation/*`. Opt-in + off by default (`[galaxy]`): `serve` runs the
-  public broker (`POST /galaxy/register`|`heartbeat`, `GET /galaxy/directory`, token +
-  TTL eviction); `servers`/`ingress` make this constellation participate. Multiple
-  ingress endpoints → distributed inbound; per-node clients → distributed egress. A
-  node joins its own constellation first (`join_warmup_secs`, returns early once a
-  local peer appears) before reaching out. Docs: `docs/constellation.md` (Galaxy).
+  over `/constellation/*`. The broker is a **separate binary** (`lodestone-galaxy`,
+  `src/bin/lodestone-galaxy.rs` + the self-contained `src/galaxy/broker.rs`), configured
+  by env (`LODESTONE_GALAXY_BIND`/`TOKEN`/`TTL_SECS`) — the main `lodestone-mcp` app is
+  just MCP + constellation + the **participation** client (`src/galaxy/client.rs`,
+  `[galaxy].servers`/`ingress`). Multiple ingress endpoints → distributed inbound;
+  per-node clients → distributed egress. A node joins its own constellation first
+  (`join_warmup_secs`, returns early once a local peer appears) before reaching out.
+  Docs: `docs/constellation.md` (Galaxy).
   - **Deferred:** broker persistence/HA (the directory is in-memory; run multiple
     brokers and list them all in `servers` for redundancy), and authenticated
     constellation-to-constellation trust beyond the shared `[network].token`.

@@ -668,32 +668,11 @@ async fn main() -> anyhow::Result<()> {
         );
     }
 
-    // Galaxy broker: a publicly-reachable directory that links constellations. It is
-    // NOT a proxy — it only stores/returns endpoints. Runs on its own listener and is
-    // independent of this node participating in (or even having) a constellation.
-    if cfg.galaxy.serve {
-        let broker = galaxy::GalaxyBroker::new(&cfg.galaxy.token, cfg.galaxy.ttl_secs);
-        let gbind = cfg.galaxy.bind.clone();
-        let router = galaxy::galaxy_routes(broker);
-        tokio::spawn(async move {
-            match tokio::net::TcpListener::bind(&gbind).await {
-                Ok(l) => {
-                    tracing::info!("galaxy broker listening on http://{gbind}/galaxy");
-                    if let Err(e) = axum::serve(l, router).await {
-                        tracing::error!(error = %e, "galaxy broker stopped");
-                    }
-                }
-                Err(e) => {
-                    tracing::error!(error = %e, bind = %gbind, "galaxy broker bind failed")
-                }
-            }
-        });
-    }
-
-    // Galaxy participation: register this constellation with the configured brokers
-    // and pull their directories, adding other constellations' ingress endpoints as
-    // peers (so consults reach them directly). A node joins its own constellation
-    // first (warm-up) before reaching out.
+    // Galaxy participation (the broker itself is a SEPARATE binary, `lodestone-galaxy`):
+    // register this constellation with the configured brokers and pull their
+    // directories, adding other constellations' ingress endpoints as peers (so
+    // consults reach them directly). A node joins its own constellation first
+    // (warm-up) before reaching out.
     if let Some(h) = &constellation {
         if !cfg.galaxy.servers.is_empty() {
             let id = if cfg.galaxy.id.trim().is_empty() {
@@ -706,7 +685,7 @@ async fn main() -> anyhow::Result<()> {
                 .timeout(std::time::Duration::from_secs(10))
                 .build()
                 .unwrap_or_else(|_| reqwest::Client::new());
-            galaxy::GalaxyClient {
+            galaxy::client::GalaxyClient {
                 http: ghttp,
                 servers: cfg.galaxy.servers.clone(),
                 id,

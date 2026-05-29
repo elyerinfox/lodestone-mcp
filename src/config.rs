@@ -283,20 +283,16 @@ impl Default for Network {
     }
 }
 
-/// The galaxy (`src/galaxy/`) — a rendezvous **broker** that links constellations
-/// across networks. It only keeps a directory of `{ constellation → public
-/// endpoint(s) }`; it never proxies digests/queries/blobs (constellations talk
-/// directly once introduced). Two opt-in roles: `serve` (run a broker) and joining
-/// brokers via `servers` (a participating constellation). Both off by default.
+/// Galaxy **participation** settings for the main app. The galaxy *broker* is a
+/// separate program (`lodestone-galaxy`) configured by its own env; this struct only
+/// covers this constellation joining one or more brokers. The broker keeps a
+/// directory of `{ constellation → public endpoint(s) }` and never proxies traffic —
+/// constellations talk directly once introduced. Off by default (`servers` empty).
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct Galaxy {
-    /// Run a galaxy broker (the publicly-reachable directory host).
-    pub serve: bool,
-    /// host:port the broker binds to when `serve = true`.
-    pub bind: String,
-    /// Broker base URLs this constellation registers with / queries (the
-    /// participating side). Empty = don't join any galaxy.
+    /// Broker base URLs this constellation registers with / queries. Empty = don't
+    /// join any galaxy.
     pub servers: Vec<String>,
     /// This constellation's id in the galaxy directory. Empty = derive from the
     /// constellation node id.
@@ -305,29 +301,24 @@ pub struct Galaxy {
     /// constellations should peer with (e.g. ["http://1.2.3.4:8001"]). List several
     /// to distribute inbound load across multiple member nodes.
     pub ingress: Vec<String>,
-    /// Optional shared secret for the broker's `/galaxy/*` endpoints.
+    /// Optional shared secret for the broker's `/galaxy/*` endpoints (must match the
+    /// broker's `LODESTONE_GALAXY_TOKEN`).
     pub token: String,
     /// How often (seconds) to register + pull the directory.
     pub heartbeat_secs: u64,
-    /// Broker: evict a constellation from the directory after this many seconds
-    /// without a heartbeat.
-    pub ttl_secs: u64,
-    /// Participating side: how long to let *local* constellation discovery settle
-    /// before contacting a broker (a node joins its own constellation first).
+    /// How long to let *local* constellation discovery settle before contacting a
+    /// broker (a node joins its own constellation first).
     pub join_warmup_secs: u64,
 }
 
 impl Default for Galaxy {
     fn default() -> Self {
         Self {
-            serve: false,
-            bind: "0.0.0.0:8077".to_string(),
             servers: Vec::new(),
             id: String::new(),
             ingress: Vec::new(),
             token: String::new(),
             heartbeat_secs: 30,
-            ttl_secs: 90,
             join_warmup_secs: 20,
         }
     }
@@ -1020,12 +1011,6 @@ impl Config {
         }
         if let Ok(path) = std::env::var("LODESTONE_NETWORK_STATE_FILE") {
             self.network.state_file = path;
-        }
-        if let Ok(v) = std::env::var("LODESTONE_GALAXY_SERVE") {
-            self.galaxy.serve = is_truthy(&v);
-        }
-        if let Ok(v) = std::env::var("LODESTONE_GALAXY_BIND") {
-            self.galaxy.bind = v;
         }
         if let Some(servers) = env_list("LODESTONE_GALAXY_SERVERS") {
             self.galaxy.servers = servers;
