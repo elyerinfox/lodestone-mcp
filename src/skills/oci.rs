@@ -565,7 +565,7 @@ impl Skill for DockerSearch {
             let (server, args) = ctx.parse::<DockerSearchArgs>()?;
             let limit = clamp(args.max_results, 10, 25);
             let key = format!("docker_search|{limit}|{}", args.query);
-            if let Some(cached) = server.retrieval_get(&key) {
+            if let Some(cached) = server.retrieval_get(&key).await {
                 return Ok(text_result(cached));
             }
             let v = hub_search(&server.http, &args.query, limit)
@@ -601,7 +601,7 @@ impl Skill for DockerImage {
                 ))
             })?;
             let key = format!("docker_image|{ns}/{repo}");
-            if let Some(cached) = server.retrieval_get(&key) {
+            if let Some(cached) = server.retrieval_get(&key).await {
                 return Ok(text_result(cached));
             }
             let v = hub_repo(&server.http, &ns, &repo).await.map_err(internal)?;
@@ -637,7 +637,7 @@ impl Skill for DockerTags {
                 ))
             })?;
             let key = format!("docker_tags|{limit}|{ns}/{repo}");
-            if let Some(cached) = server.retrieval_get(&key) {
+            if let Some(cached) = server.retrieval_get(&key).await {
                 return Ok(text_result(cached));
             }
             let v = hub_tags(&server.http, &ns, &repo, limit)
@@ -669,7 +669,7 @@ impl Skill for OciTags {
             let limit = clamp(args.max_results, 30, 200);
             let r = parse_ref(&args.reference).map_err(|e| invalid(e.to_string()))?;
             let key = format!("oci_tags|{limit}|{}/{}", r.registry_host, r.repository);
-            if let Some(cached) = server.retrieval_get(&key) {
+            if let Some(cached) = server.retrieval_get(&key).await {
                 return Ok(text_result(cached));
             }
             let (name, tags) = list_tags(&server.http, &r, limit).await.map_err(internal)?;
@@ -709,7 +709,7 @@ impl Skill for OciManifest {
             let (server, args) = ctx.parse::<OciManifestArgs>()?;
             let r = parse_ref(&args.reference).map_err(|e| invalid(e.to_string()))?;
             let key = format!("oci_manifest|{}", r.display());
-            if let Some(cached) = server.retrieval_get(&key) {
+            if let Some(cached) = server.retrieval_get(&key).await {
                 return Ok(text_result(cached));
             }
             let m = manifest(&server.http, &r).await.map_err(internal)?;

@@ -61,11 +61,24 @@ Full detail: [containers.md](containers.md).
 | `oci_manifest` | `reference` | Inspect a manifest: multi-arch platforms, or layers/size/config. |
 | `artifacthub_search` | `query`, `kind?`, `max_results?` | Artifact Hub: Helm charts, Operators, krew, policies, Tekton. |
 
+## Confirming destructive actions
+
+Destructive tools (`docker_stop`/`docker_remove`/`docker_exec`/`docker_rmi`,
+`k8s_delete`, `fs_delete`/`fs_move`, destructive `git_run` subcommands, and database
+writes via `db_query`/`redis_command`) are **always exposed**, but the first call
+performs nothing: it returns a one-time `confirm` token describing exactly what will
+happen. Call the tool again with `confirm=<token>` to actually run it, or
+`confirm=<token>, trust=true` to also stop being asked for that action for the rest
+of the session. This works on **any** MCP client (no elicitation support required).
+Setting the family's `allow_destructive` pre-authorizes the action and skips the
+prompt entirely. (Tokens expire after 5 minutes and are single-use.)
+
 ## Local Docker daemon
 
-A local-system capability (direct Engine API, no CLI), gated by `[docker]` —
-on by default; destructive tools hidden unless `allow_destructive` is set. Full
-detail: [containers.md](containers.md#local-docker-daemon-write-access).
+A local-system capability (direct Engine API, no CLI), gated by `[docker]` — on by
+default. Destructive tools confirm at call time (see above); `allow_destructive`
+pre-authorizes them. Full detail:
+[containers.md](containers.md#local-docker-daemon-write-access).
 
 | Tool | Arguments | Access | Purpose |
 | --- | --- | --- | --- |
@@ -77,14 +90,18 @@ detail: [containers.md](containers.md#local-docker-daemon-write-access).
 | `docker_pull` | `image` | write | Pull an image. |
 | `docker_run` | `image`, `name?`, `command?` | write | Create + start a container. |
 | `docker_start` | `container` | write | Start a stopped container. |
-| `docker_stop` | `container` | destructive | Stop a container (opt-in). |
-| `docker_remove` | `container`, `force?` | destructive | Remove a container (opt-in). |
+| `docker_build` | `context`, `tag`, `dockerfile?` | write | Build an image from a context dir. |
+| `docker_stop` | `container`, `confirm?`, `trust?` | destructive | Stop a container (confirm first). |
+| `docker_remove` | `container`, `force?`, `confirm?`, `trust?` | destructive | Remove a container (confirm first). |
+| `docker_exec` | `container`, `command`, `confirm?`, `trust?` | destructive | Run a command in a container (confirm first). |
+| `docker_rmi` | `image`, `force?`, `confirm?`, `trust?` | destructive | Remove an image (confirm first). |
 
 ## Kubernetes cluster
 
 Cluster control via the API (kube-rs, reads kubeconfig; no `kubectl`), gated by
-`[kubernetes]` — on by default; `k8s_delete` hidden unless `allow_destructive`.
-Full detail: [containers.md](containers.md#kubernetes-cluster).
+`[kubernetes]` — on by default; `k8s_delete` confirms at call time (see above),
+`allow_destructive` pre-authorizes it. Full detail:
+[containers.md](containers.md#kubernetes-cluster).
 
 | Tool | Arguments | Access | Purpose |
 | --- | --- | --- | --- |
@@ -94,12 +111,13 @@ Full detail: [containers.md](containers.md#kubernetes-cluster).
 | `k8s_logs` | `pod`, `namespace?`, `container?`, `tail?` | read | A pod's logs. |
 | `k8s_apply` | `manifest` | write | Apply a kubefile (multi-doc YAML). |
 | `k8s_scale` | `kind`, `name`, `replicas`, `namespace?` | write | Scale a workload. |
-| `k8s_delete` | `kind`, `name`, `namespace?` | destructive | Delete a resource (opt-in). |
+| `k8s_delete` | `kind`, `name`, `namespace?`, `confirm?`, `trust?` | destructive | Delete a resource (confirm first). |
 
 ## Local filesystem
 
 Read/edit files on the machine. **Off by default** — gated by `[filesystem]`
-(`enabled`, then `allow_destructive` for delete/move). Every path is confined to
+(`enabled`). Destructive ops (delete/move) confirm at call time (see above);
+`allow_destructive` pre-authorizes them. Every path is confined to
 `[filesystem].roots` (default: the working directory); `..` and symlink escapes are
 rejected. See [`config/10-filesystem.toml`](../config/10-filesystem.toml).
 
@@ -112,8 +130,8 @@ rejected. See [`config/10-filesystem.toml`](../config/10-filesystem.toml).
 | `fs_write` | `path`, `content` | write | Create/overwrite a file. |
 | `fs_edit` | `path`, `old_string`, `new_string`, `replace_all?` | write | Replace text in a file. |
 | `fs_mkdir` | `path` | write | Create a directory (with parents). |
-| `fs_delete` | `path`, `recursive?` | **destructive** | Delete a file/directory. |
-| `fs_move` | `source`, `dest` | **destructive** | Move/rename a path. |
+| `fs_delete` | `path`, `recursive?`, `confirm?`, `trust?` | **destructive** | Delete a file/directory (confirm first). |
+| `fs_move` | `source`, `dest`, `confirm?`, `trust?` | **destructive** | Move/rename a path (confirm first). |
 
 ## Shell (arbitrary code execution)
 
@@ -130,12 +148,57 @@ runs anything via the system shell. Each run has a timeout + working dir. See
 ## Git
 
 `git_run` runs the local `git` binary (no shell) in a repository. On by default
-(`[git]`); destructive subcommands (push/reset/clean/rebase/…) require
-`[git].allow_destructive`. See [`config/12-git.toml`](../config/12-git.toml).
+(`[git]`); destructive subcommands (push/reset/clean/rebase/…) confirm at call time
+(see above — `confirm`/`trust` args), and `[git].allow_destructive` pre-authorizes
+them. See [`config/12-git.toml`](../config/12-git.toml).
 
 | Tool | Arguments | Purpose |
 | --- | --- | --- |
-| `git_run` | `args`, `repo?` | Run `git <args>` (without the leading `git`); returns exit code + output. |
+| `git_run` | `args`, `repo?`, `confirm?`, `trust?` | Run `git <args>` (without the leading `git`); returns exit code + output. |
+
+## System information
+
+Read-only host facts, gated by `[sysinfo]` (on by default; cross-platform — Linux
+`/proc`/`/sys`, Windows OS APIs). GPU stats use NVML and return a clear message when
+no NVIDIA GPU / NVML library is present. See
+[`config/13-sysinfo.toml`](../config/13-sysinfo.toml).
+
+| Tool | Arguments | Purpose |
+| --- | --- | --- |
+| `system_info` | — | Host name, OS/kernel, uptime, CPU (model/cores/usage), memory/swap. |
+| `system_disks` | — | Mounted disks: filesystem, total/used/free space. |
+| `system_gpu` | — | NVIDIA GPU name, memory, utilization, temperature (via NVML). |
+
+## Databases
+
+Query configured PostgreSQL / MySQL / Redis instances. **Off by default** — the
+tools appear only when at least one `[databases.<id>]` is configured (a URL is a
+credential-bearing opt-in). Reads run immediately; writes/DDL (SQL) and write/admin
+commands (Redis) confirm at call time (see above), and a per-instance
+`allow_destructive` pre-authorizes them. See
+[`config/14-databases.toml`](../config/14-databases.toml).
+
+| Tool | Arguments | Access | Purpose |
+| --- | --- | --- | --- |
+| `db_list` | — | read | List configured databases (id + kind; never URLs). |
+| `db_query` | `database`, `sql`, `confirm?`, `trust?` | read / **destructive** | Run SQL on a postgres/mysql instance (writes confirm first). |
+| `redis_command` | `database`, `command`, `confirm?`, `trust?` | read / **destructive** | Run a Redis command (writes confirm first). |
+
+## Caching & file store
+
+Most search/retrieval/lookup results are cached automatically (in-memory; optionally
+Redis — see [`config/05-cache.toml`](../config/05-cache.toml)). An optional on-disk
+**file store** (`[store]`, off by default — see
+[`config/15-store.toml`](../config/15-store.toml)) caches fetched *bytes* (repo files,
+PDFs, rendered pages) for reuse, with TTL + size retention.
+
+| Tool | Arguments | Purpose |
+| --- | --- | --- |
+| `cache_status` | — | Report the in-memory search/retrieval caches and the file store (counts + size). Always available. |
+| `store_fetch` | `url` | Download a URL and cache its bytes in the store (gated by `[store]`). |
+| `store_get` | `key`, `max_chars?` | Read a stored entry's content as text. |
+| `store_list` | — | List store entries (key, size, age). |
+| `store_purge` | `key?` | Remove one entry, or purge the whole store. |
 
 ## Date & time
 
@@ -164,6 +227,12 @@ runs anything via the system shell. Each run has a timeout + working dir. See
 | `regex_replace` | `pattern`, `text`, `replacement`, `all?`, `ignore_case?` | Substitute regex matches (`$1`/`${name}` refs). |
 | `math_eval` | `expression` | Evaluate an arithmetic/scientific expression (sqrt, sin, pi, `^`, …). |
 | `math_solve` | `equation` | Solve a linear/quadratic equation in `x` (e.g. `x^2 - 5x + 6 = 0`). |
+| `geo_distance` | `lat1`, `lon1`, `lat2`, `lon2` | Great-circle distance between two coordinates (km + mi). |
+| `geo_azimuth` | `lat1`, `lon1`, `lat2`, `lon2` | Initial bearing/azimuth (+ back azimuth, compass) between two coordinates. |
+| `wave_frequency` | `frequency_hz?`, `wavelength_m?`, `speed_m_s?` | Convert frequency ↔ wavelength ↔ period (v = f·λ). |
+| `compound_interest` | `principal`, `annual_rate_percent`, `years`, `compounds_per_year?` | Compound-interest future value + interest earned. |
+| `loan_payment` | `principal`, `annual_rate_percent`, `months` | Amortized monthly payment, total paid, total interest. |
+| `currency_convert` | `amount`, `from`, `to` | Convert currencies via keyless ECB reference rates (Frankfurter); cached. |
 | `convert_units` | `value`, `from`, `to` | Convert between units (length/mass/volume/area/speed/time/data/temperature). |
 
 ## Meta
@@ -171,7 +240,9 @@ runs anything via the system shell. Each run has a timeout + working dir. See
 | Tool | Arguments | Purpose |
 | --- | --- | --- |
 | `list_providers` | — | Show the active providers, strategy, and ranking. |
-| `hive_status` | — | Show the peer-to-peer hivemind graph (peers, reputation, edges); says disabled when off. |
+| `hive_status` | — | Show the peer-to-peer hivemind graph (peers, machine ids, reputation, edges); says disabled when off. |
+| `hive_peers` | — | List hivemind nodes and how many **hops** away each is (direct = 1), with machine id/reputation. |
+| `hive_seeds` | — | Per-blob **seed ratio** (bytes served to peers vs. fetched from them), BitTorrent-style. |
 
 ## Per-provider
 
@@ -181,8 +252,10 @@ One direct tool per *configured* provider, named `<kind>_<id>` (e.g. `web_mojeek
 the chain/strategy. Generated from your config and gateable via `[tools]`.
 
 StackOverflow adds one bespoke provider skill: `qa_stackoverflow_answers`
-(`question`, `site?`, `max_answers?`) — read a question's body + top answers (with
-code).
+(`question`, `site?`, `max_answers?`, `render?`) — read a question's body + top
+answers (with code). Uses the keyless API by default; `render=true` scrapes the
+stackoverflow.com page via the headless browser instead (saves API quota;
+`stackoverflow` site only).
 
 ---
 

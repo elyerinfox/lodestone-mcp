@@ -22,6 +22,7 @@ use rmcp::ErrorData as McpError;
 use serde::Deserialize;
 use serde_json::Value;
 
+use crate::skills::guard::Decision;
 use crate::skills::{schema_for, NoArgs, Skill, SkillCtx};
 use crate::{clamp, internal, text_result};
 
@@ -399,6 +400,12 @@ struct K8sDeleteArgs {
     /// Namespace (for namespaced kinds). Omit to use the configured/default namespace.
     #[serde(default)]
     namespace: Option<String>,
+    /// One-time token from a prior call's confirmation prompt. Omit on the first call.
+    #[serde(default)]
+    confirm: Option<String>,
+    /// With `confirm`, also stop asking for this tool for the rest of the session.
+    #[serde(default)]
+    trust: Option<bool>,
 }
 
 pub struct K8sContexts;
@@ -576,8 +583,9 @@ impl Skill for K8sDelete {
         "k8s_delete"
     }
     fn description(&self) -> &'static str {
-        "Delete a Kubernetes resource by kind + name. Destructive — only available when \
-        [kubernetes].allow_destructive is set. Reads your kubeconfig; no kubectl."
+        "Delete a Kubernetes resource by kind + name. Destructive: the first call returns a \
+        confirmation token and does nothing — call again with confirm=<token> to proceed (or \
+        confirm + trust=true to allow for the session). Reads your kubeconfig; no kubectl."
     }
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<K8sDeleteArgs>()
@@ -585,6 +593,17 @@ impl Skill for K8sDelete {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (server, args) = ctx.parse::<K8sDeleteArgs>()?;
+            let summary = format!("delete {}/{}", args.kind, args.name);
+            if let Decision::Challenge(msg) = server.guard.check(
+                "k8s_delete",
+                "k8s_delete",
+                server.k8s.allow_destructive,
+                &summary,
+                args.confirm.as_deref(),
+                args.trust.unwrap_or(false),
+            ) {
+                return Ok(text_result(msg));
+            }
             let out = delete(
                 &server.k8s_opts(),
                 &args.kind,
@@ -598,8 +617,10 @@ impl Skill for K8sDelete {
     }
 }
 
-/// All Kubernetes tool names, and the destructive subset — the gating data for
-/// this family (consumed by `skills::disabled_by_config`).
+/// All Kubernetes tool names — the gating data for this family (consumed by
+/// `skills::disabled_by_config` to hide the family when `[kubernetes].enabled` is
+/// off). Destructive `k8s_delete` stays exposed and is gated at call time by the
+/// confirmation [`crate::skills::guard`].
 pub const TOOL_NAMES: &[&str] = &[
     "k8s_contexts",
     "k8s_get",
@@ -609,7 +630,6 @@ pub const TOOL_NAMES: &[&str] = &[
     "k8s_scale",
     "k8s_delete",
 ];
-pub const DESTRUCTIVE_NAMES: &[&str] = &["k8s_delete"];
 
 /// The skills this module contributes (gating happens in `disabled_by_config`).
 pub fn skills() -> Vec<Box<dyn Skill>> {

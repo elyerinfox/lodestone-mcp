@@ -26,8 +26,15 @@ fn fnv1a(data: &[u8], offset: u64) -> u64 {
 /// passes). Deterministic across machines, so peers compute the same key for the
 /// same query — this is what crosses the wire instead of the raw query text.
 pub(crate) fn hash_key(s: &str) -> String {
-    let h1 = fnv1a(s.as_bytes(), FNV_OFFSET);
-    let h2 = fnv1a(s.as_bytes(), FNV_OFFSET ^ SEED2);
+    hash_bytes(s.as_bytes())
+}
+
+/// Stable 128-bit content hash of raw bytes (same scheme as [`hash_key`]). Used to
+/// verify a shared blob's integrity: peers independently hash their copy, and a
+/// consumer checks the bytes it received hash to the value its peers corroborated.
+pub(crate) fn hash_bytes(data: &[u8]) -> String {
+    let h1 = fnv1a(data, FNV_OFFSET);
+    let h2 = fnv1a(data, FNV_OFFSET ^ SEED2);
     format!("{h1:016x}{h2:016x}")
 }
 

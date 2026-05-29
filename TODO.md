@@ -78,8 +78,70 @@ likely involved). Checked items are done; unchecked are open.
     release *mutation* (would reimplement Helm — out of scope for direct-API; Helm
     docs + Artifact Hub search already cover discovery).
 
-- [ ] **Docker daemon — more actions.** `docker_build` (tar a context), `docker_exec`,
-  and image removal, as further gated tools.
+- [x] **Docker daemon — more actions.** Done: `docker_build` (tars a local context
+  directory and streams the daemon build log), `docker_exec` (run a command in a
+  running container), and `docker_rmi` (image removal). `docker_exec`/`docker_rmi`
+  are destructive → routed through the confirmation guard (golden rule 8);
+  `docker_build` is write-class. Added `tar`/`bytes` deps; docs + Tools list updated.
+
+- [x] **Database client skills (Redis, MySQL, PostgreSQL).** Done:
+  `src/skills/databases.rs` with `db_list`, `db_query` (PostgreSQL/MySQL via `sqlx`),
+  and `redis_command` (via the `redis` crate). Connections from `[databases.<id>]`
+  (kind + URL + per-instance `allow_destructive`); URLs are treated as secrets (never
+  listed/logged). **Off by default** — the tools appear only when ≥1 instance is
+  configured. Reads run freely; non-SELECT SQL and non-read Redis commands are
+  destructive → routed through the confirmation `guard` (golden rule 8), pre-authorized
+  by `allow_destructive`. Connect failures surface a clear, contextual error. Rows
+  rendered with safe per-column type probing (capped at 200 rows). Docs +
+  `config/14-databases.toml` added.
+
+- [x] **System information skill.** Done: `src/skills/sysinfo.rs` exposes `system_info`
+  (host/OS/kernel/uptime, CPU model+cores+usage, memory/swap), `system_disks`
+  (mount/fs/total/used/free), and `system_gpu` (NVIDIA via NVML: name/memory/
+  utilization/temperature). Cross-platform via the `sysinfo` crate (Linux /proc+/sys,
+  Windows OS APIs); GPU uses `nvml-wrapper` loaded at runtime — absent driver/library
+  yields a clear message (dependency safeguard), not a failure. Gated by `[sysinfo]`
+  (read-only, on by default); blocking work runs on `spawn_blocking`. Docs + config
+  (`config/13-sysinfo.toml`) added.
+
+- [ ] **Serial device skill.** Read/write raw serial ports (microcontrollers,
+  instruments) without a shell. `serialport` crate; `[serial]` config (off by default
+  — hardware access). Tools: `serial_ports` (list), `serial_send`/`serial_read`
+  (configurable baud/timeout); writes are side-effecting → confirmation `guard`
+  (golden rule 8). Clear error when no port / port busy.
+
+- [ ] **Printer skill.** Submit a document/text to a system printer. Platform printing
+  (Windows spooler / CUPS). `[printer]` config, off by default. `printer_list` (read)
+  + `printer_print` (side-effecting → guard). Backends differ per OS — scope one path
+  first, degrade gracefully.
+
+- [ ] **Stock market quote skill (NYSE/NASDAQ).** Look up a ticker's quote /
+  historical close. Neither exchange offers a free public API directly; options:
+  **Stooq** CSV (`stooq.com/q/l/?s=aapl.us&f=...`, keyless — fits the ethos) for
+  delayed quotes/history, or a keyed provider (Alpha Vantage / Finnhub) behind an
+  optional `[stocks].key` (never required). Tools: `stock_quote` (last/open/high/low/
+  volume) and maybe `stock_history`. Delayed/reference data, not a trading feed —
+  document that clearly.
+
+- [ ] **NASA API skills.** NASA exposes a unified, keyless-friendly API at
+  `api.nasa.gov` (a free key, or `DEMO_KEY` at low limits — optional `[nasa].key`,
+  never required, matching the keyless ethos). Candidate tools: `nasa_apod`
+  (Astronomy Picture of the Day), `nasa_neo` (Near-Earth objects / close approaches),
+  `nasa_mars_photos` (rover imagery), `nasa_donki` (space-weather events), and the
+  Exoplanet Archive. ESA has **no** single unified public API — its data lives in
+  specialized services (Copernicus/Sentinel via the Copernicus Data Space, the Gaia
+  archive, Heasarc), several needing registration — so an "ESA skill" would be
+  per-service, not one provider. Start with NASA APOD/NeoWs/Mars (clean keyed JSON).
+
+- [ ] **Satellite trajectory skill.** Propagate a TLE to position / look-angles —
+  pure computation, no hardware. `sgp4` crate over a Two-Line Element set + a time
+  (+ optional observer lat/lon). Tools: `sat_position` (sub-point lat/lon/alt) and
+  `sat_look` (azimuth/elevation/range from an observer; reuses the geo/azimuth
+  helpers). TLEs from a keyless source (CelesTrak) via a small fetch, cached.
+
+- [x] **Wave/frequency calculation.** Done (math helper): `wave_frequency` converts
+  between frequency, wavelength, and period via v = f·λ (speed defaults to c; set
+  ~343 for sound in air). SI-scaled output.
 
 - [x] **SearXNG provider.** Done: `src/providers/bespoke/searxng.rs` hits
   `{url}/search?format=json` for web+code (code is `site:`-scoped to
@@ -101,12 +163,11 @@ likely involved). Checked items are done; unchecked are open.
   (`/src/branch|commit|tag/` → `/raw/…`) URLs (and the GitHub `owner/repo/path`
   shorthand); the tool is now `fetch_repo_file`.
 
-- [ ] **StackExchange answers via render.**
-  - **Why:** `qa_stackoverflow_answers` always uses the API (quota); for parity
-    with `qa_search`, allow `render=true` to scrape the question page.
-  - **How:** Add a `render` arg to the tool and a scrape path in
-    `src/providers/stackexchange.rs` / `src/retrieve.rs` reusing the shared
-    renderer.
+- [x] **StackExchange answers via render.** Done: `qa_stackoverflow_answers` gained a
+  `render` flag — when set (and the site is `stackoverflow`), it scrapes the question
+  page via the shared headless browser instead of the API, parsing the question body
+  + top answers (score/accepted/code) from `.s-prose`/`.answer[data-score]`. Falls
+  back to the API for other sites; cache key includes the render mode. Parser unit-tested.
 
 - [x] **PDF parsing (local) + page→PDF.** Done: `fetch_readable` detects PDFs
   (content-type / `.pdf` / `%PDF` magic) and extracts the text layer locally with
@@ -128,27 +189,61 @@ likely involved). Checked items are done; unchecked are open.
   - **Also done:** retrieval-tool output (`fetch_page`, `render_page`,
     `fetch_repo_file`, `wayback_fetch`, `qa_stackoverflow_answers`) is cached in a
     separate store keyed by the request (not shared into peer digests).
-  - **Remaining:** an optional **Redis** backend (`[cache] backend = "redis",
-    url = "redis://…"`) implementing the same get/put contract so multiple
-    instances share results.
+  - **Done (Redis backend):** `[cache].backend = "redis"` + `redis_url`
+    (`LODESTONE_CACHE_BACKEND`/`LODESTONE_CACHE_REDIS_URL`) selects a shared Redis
+    store implementing the same `get`/`put`/`keys` contract (search + retrieval
+    caches namespaced by key prefix), so multiple instances share results. The sync
+    cache API bridges Redis's async client via `block_in_place`; on connect failure
+    it falls back to the in-memory backend.
 
-- [ ] **Headless-browser page pool.**
-  - **Why:** The shared `ChromiumRenderer` serializes all renders behind one
-    mutex; concurrent render-heavy use is bottlenecked.
-  - **How:** Maintain a small pool of pages/contexts in `src/browser.rs`,
-    bounded by config.
+- [x] **Cache audit + file store + cache-management skills.**
+  - **Done (1) Audit:** every networked lookup now caches. `arxiv_search`/`arxiv_get`,
+    `hf_search`/`hf_model`, and `kernel_releases` were missing caching and now route
+    through the retrieval cache; search/docs/rfc/standards/wikipedia/oci/dockerhub/
+    artifacthub/github/translate and the retrieval tools already did. Deliberately
+    *not* cached: system-specific/sensitive families (docker/k8s/fs/shell/git/
+    sysinfo/databases) and purely-local tools (datetime/data/regex/math/units).
+  - **Done (2) File store:** `src/store.rs` — a key-addressed on-disk byte store
+    (`<hash>.data` + `<hash>.key` sidecar) with TTL + byte-budget retention enforced
+    on write. Off by default.
+  - **Done (3) Cache-management skills:** `store_fetch` / `store_get` / `store_list` /
+    `store_purge` (gated by `[store]`), plus `cache_status` (always on) reporting the
+    in-memory search + retrieval caches and the file store.
+  - **Done (4) Config:** `[store]` (`enabled`/`dir`/`ttl_secs`/`max_bytes` +
+    `LODESTONE_STORE_*`); `[cache]` already had retention knobs (+ the Redis backend).
+    Documented in `config/15-store.toml`.
+  - **Done (5) Hivemind sharing of the file store:** the digest Bloom now advertises
+    file-store entry hashes alongside search-cache keys, and a new `/hive/blob`
+    endpoint serves a cached file's raw bytes by hash. `read_pdf` and `store_fetch`
+    go through `Lodestone::fetch_bytes_shared` (local store → a hive peer that has it
+    → the source, caching the result), so a PDF/file one node fetched (arXiv, IETF, …)
+    is served from the mesh instead of every node re-hitting the rate-limited source.
+    Only hashes cross the wire; blob serving honors `[network].token`; non-hex keys
+    are rejected (no path traversal); no relay/consensus for blobs (the consumer
+    re-fetches from the source if a peer's bytes are unusable). The retrieval text
+    cache is intentionally *not* shared yet — file bytes were the rate-limit win.
 
-- [ ] **Aggregate request economy.**
-  - **Why:** In `aggregate` mode each forge provider issues its own DuckDuckGo
-    query, multiplying requests and tripping rate limits.
-  - **How:** Cap concurrency, and/or coalesce site-scoped queries across forges
-    into one engine call then split by domain.
+- [x] **Headless-browser page pool.** Done: `ChromiumRenderer` no longer serializes
+  renders behind a single mutex — the browser lives behind an `RwLock` (read to use,
+  write only to launch/relaunch) and renders run as **concurrent pages** on it,
+  bounded by a `Semaphore` sized by `[google].render_concurrency` (default 4,
+  `LODESTONE_RENDER_CONCURRENCY`). Relaunch-on-crash is single-flighted via
+  `Arc::ptr_eq` so concurrent renders that hit a dead browser trigger one relaunch.
 
-- [ ] **DuckDuckGo endpoint rotation/backoff.**
-  - **Why:** DuckDuckGo blocks aggressively by IP; a single endpoint with no
-    backoff yields empty results under load.
-  - **How:** Rotate `lite`/`html` endpoints and apply backoff in
-    `src/providers/duckduckgo.rs`.
+- [x] **Aggregate request economy.** Done: `[search].max_concurrency` (default 8,
+  `LODESTONE_SEARCH_MAX_CONCURRENCY`, 0 = unlimited) bounds how many providers run
+  at once in aggregate mode via a `tokio::Semaphore` in `search_aggregate` — so a
+  wide `docs` fan-out (each doc site hitting DuckDuckGo) queues instead of bursting
+  past engine rate limits. (Query coalescing across forges was considered but not
+  needed once concurrency is bounded; left as a possible future optimization.)
+
+- [x] **DuckDuckGo endpoint rotation/backoff.** Done: `EngineSpec` gained an
+  `alts` list of interchangeable endpoints; the DuckDuckGo spec declares the
+  `lite.duckduckgo.com/lite/` primary plus the `html.duckduckgo.com/html/` mirror
+  (with a custom parser that decodes the `/l/?uddg=` redirect links). `search_raw`
+  rotates the starting endpoint (round-robin, to spread IP load) and falls through
+  to the next on error/empty with a growing backoff, keeping a single in-place retry
+  per endpoint. Mojeek/Google declare `alts: &[]` (unchanged behavior).
 
 ---
 
@@ -182,7 +277,8 @@ likely involved). Checked items are done; unchecked are open.
     loop-guard, each top-level peer still one consensus vote), reputation
     **persistence** (`state_file`), and a **`hive_status`** tool exposing the mesh
     graph (peers, reputation, reachability, edges).
-  - **Deferred:** a Redis-backed *shared* cache (multiple nodes behind one store).
+  - **Done since:** a Redis-backed *shared* cache (multiple nodes behind one store)
+    now exists via `[cache].backend = "redis"` (see the cache item above).
 
 ## Docs & release
 

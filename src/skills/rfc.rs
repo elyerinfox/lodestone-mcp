@@ -93,7 +93,7 @@ impl Skill for RfcGet {
                 .ok_or_else(|| invalid(format!("not an RFC number: '{}'", args.document)))?;
             let max = server.clamp_chars(args.max_chars);
             let key = format!("rfc|{max}|{n}");
-            if let Some(cached) = server.retrieval_get(&key) {
+            if let Some(cached) = server.retrieval_get(&key).await {
                 return Ok(text_result(cached));
             }
             let text = fetch_rfc_text(&server.http, n).await.map_err(internal)?;

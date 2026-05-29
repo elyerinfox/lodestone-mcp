@@ -12,6 +12,7 @@ pub(super) static SPEC: EngineSpec = EngineSpec {
         link: "a.title",
         snippet: "p.s",
     },
+    alts: &[],
     code_scope: CodeScope::Keyword,
     extra_params: &[],
 };

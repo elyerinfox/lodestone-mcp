@@ -118,7 +118,7 @@ impl Skill for WaybackFetch {
                 args.timestamp.as_deref().unwrap_or(""),
                 args.url
             );
-            if let Some(cached) = server.retrieval_get(&key) {
+            if let Some(cached) = server.retrieval_get(&key).await {
                 return Ok(text_result(cached));
             }
             let (snapshot, text) =

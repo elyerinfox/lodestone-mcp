@@ -15,6 +15,7 @@ mod hive;
 mod provider;
 mod providers;
 mod skills;
+mod store;
 mod util;
 
 use std::sync::Arc;
@@ -59,6 +60,8 @@ pub(crate) struct Lodestone {
     /// Default / hard-cap characters for the retrieval tools (`[retrieval]`).
     pub(crate) default_chars: usize,
     pub(crate) max_chars: usize,
+    /// Docker policy (destructive gating) for the `docker_*` tools.
+    pub(crate) docker: Arc<config::Docker>,
     /// Kubernetes connection settings (kubeconfig path/context/namespace) for the
     /// `k8s_*` tools.
     pub(crate) k8s: Arc<config::Kubernetes>,
@@ -68,6 +71,13 @@ pub(crate) struct Lodestone {
     pub(crate) shell: Arc<config::Shell>,
     /// Git CLI policy (repo, destructive gating) for `git_run`.
     pub(crate) git: Arc<config::Git>,
+    /// Configured database connections (id → kind/url) for the database skills.
+    pub(crate) databases: Arc<std::collections::HashMap<String, config::DatabaseInstance>>,
+    /// Optional on-disk file store for fetched bytes (the `store_*` tools).
+    pub(crate) store: Option<Arc<store::FileStore>>,
+    /// Per-session confirmation state for destructive actions (the client-agnostic
+    /// alternative to MCP elicitation). Shared across cloned handles.
+    pub(crate) guard: skills::guard::Guard,
     // The filtered tool router; `#[tool_handler(router = self.tool_router)]`
     // uses it for both tool listing and dispatch.
     tool_router: ToolRouter<Lodestone>,
@@ -86,10 +96,13 @@ impl Lodestone {
         retrieval_cache: Option<Arc<cache::TtlCache>>,
         default_chars: usize,
         max_chars: usize,
+        docker: config::Docker,
         k8s: config::Kubernetes,
         fs: config::Filesystem,
         shell: config::Shell,
         git: config::Git,
+        databases: std::collections::HashMap<String, config::DatabaseInstance>,
+        store: Option<Arc<store::FileStore>>,
         tools_enabled: &[String],
         tools_disabled: &[String],
     ) -> Self {
@@ -109,10 +122,14 @@ impl Lodestone {
             retrieval_cache,
             default_chars: default_chars.max(1),
             max_chars: max_chars.max(1),
+            docker: Arc::new(docker),
             k8s: Arc::new(k8s),
             fs: Arc::new(fs),
             shell: Arc::new(shell),
             git: Arc::new(git),
+            databases: Arc::new(databases),
+            store,
+            guard: skills::guard::Guard::default(),
             tool_router,
         }
     }
@@ -140,20 +157,75 @@ impl Lodestone {
         self.se_allowed.is_empty() || self.se_allowed.iter().any(|s| s == site)
     }
 
-    /// Look up cached retrieval output for `key`, if caching is enabled.
-    pub(crate) fn retrieval_get(&self, key: &str) -> Option<String> {
-        self.retrieval_cache.as_ref()?.get(key)
+    /// Look up cached retrieval output for `key`: the local retrieval cache first,
+    /// then (Bloom-gated, so a true miss costs nothing) a hive peer that has it —
+    /// letting one node's fetched/parsed text serve the mesh. Entries are keyed by
+    /// hash, matching what the hive advertises and serves.
+    pub(crate) async fn retrieval_get(&self, key: &str) -> Option<String> {
+        let hash = crate::hive::hash_key(key);
+        if let Some(c) = &self.retrieval_cache {
+            if let Some(v) = c.get(&hash) {
+                return Some(v);
+            }
+        }
+        if let Some(hive) = self.registry.hive() {
+            if let Some(bytes) = hive.consult_blob_hash(&hash).await {
+                let text = String::from_utf8_lossy(&bytes).into_owned();
+                if !text.is_empty() {
+                    if let Some(c) = &self.retrieval_cache {
+                        c.put(hash, text.clone());
+                    }
+                    return Some(text);
+                }
+            }
+        }
+        None
     }
 
     /// Cache non-empty retrieval output for `key` (failures/empties are skipped so
-    /// they can be retried).
+    /// they can be retried). Keyed by hash so the hivemind can advertise/serve it.
     pub(crate) fn retrieval_put(&self, key: String, value: &str) {
         if value.is_empty() {
             return;
         }
         if let Some(c) = &self.retrieval_cache {
-            c.put(key, value.to_string());
+            c.put(crate::hive::hash_key(&key), value.to_string());
         }
+    }
+
+    /// Fetch a URL's bytes, dodging the source when possible: the local file store
+    /// first, then a hive peer that already has it (so a cached PDF/file from arXiv,
+    /// IETF, … isn't re-downloaded from the rate-limited source), then finally the
+    /// source — caching the result in the store so this node and the mesh can serve
+    /// it next time. With no `[store]`/`[network]` configured this is just a plain
+    /// download.
+    pub(crate) async fn fetch_bytes_shared(&self, url: &str) -> anyhow::Result<Vec<u8>> {
+        if let Some(store) = &self.store {
+            if let Some(bytes) = store.get(url).await {
+                return Ok(bytes);
+            }
+        }
+        if let Some(hive) = self.registry.hive() {
+            if let Some(bytes) = hive.consult_blob(url).await {
+                if let Some(store) = &self.store {
+                    let _ = store.put(url, &bytes).await;
+                }
+                return Ok(bytes);
+            }
+        }
+        let bytes = self
+            .http
+            .get(url)
+            .send()
+            .await?
+            .error_for_status()?
+            .bytes()
+            .await?
+            .to_vec();
+        if let Some(store) = &self.store {
+            let _ = store.put(url, &bytes).await;
+        }
+        Ok(bytes)
     }
 }
 
@@ -197,26 +269,39 @@ impl ServerHandler for Lodestone {
                 - oci_tags / oci_manifest: list tags / inspect a manifest on any OCI registry (Docker Hub, GHCR, Quay, …).\n\
                 - artifacthub_search: search Artifact Hub (Helm charts, Operators, krew, policies, …).\n\
                 - docker_ps / docker_images / docker_logs / docker_inspect / docker_info / docker_pull / \
-                docker_run / docker_start (+ docker_stop / docker_remove when allowed): control the LOCAL \
-                Docker daemon (gated by [docker]).\n\
-                - k8s_contexts / k8s_get / k8s_describe / k8s_logs / k8s_apply / k8s_scale \
-                (+ k8s_delete when allowed): interact with a Kubernetes cluster via your kubeconfig \
-                (gated by [kubernetes]).\n\
-                - fs_read / fs_list / fs_stat / fs_find / fs_write / fs_edit / fs_mkdir \
-                (+ fs_delete / fs_move when allowed): read & edit local files within \
-                [filesystem].roots (OFF by default — must be explicitly granted).\n\
+                docker_run / docker_start / docker_build / docker_stop / docker_remove / docker_exec / \
+                docker_rmi: control the LOCAL Docker daemon (gated by [docker]). Destructive actions \
+                (stop/remove/exec/rmi) return a confirmation token first — call again with \
+                confirm=<token> to proceed.\n\
+                - k8s_contexts / k8s_get / k8s_describe / k8s_logs / k8s_apply / k8s_scale / k8s_delete: \
+                interact with a Kubernetes cluster via your kubeconfig (gated by [kubernetes]). \
+                k8s_delete confirms first (token, then confirm=<token>).\n\
+                - fs_read / fs_list / fs_stat / fs_find / fs_write / fs_edit / fs_mkdir / fs_delete / \
+                fs_move: read & edit local files within [filesystem].roots (OFF by default — must be \
+                explicitly granted). Destructive actions (delete/move) confirm first.\n\
                 - shell_run: run a shell command (arbitrary code execution; OFF by default; gated by \
                 [shell] — allowlist or unrestricted).\n\
                 - git_run: run a git command in a repo (local `git` binary; destructive subcommands \
-                need [git].allow_destructive).\n\
+                confirm first — token, then confirm=<token>).\n\
+                - system_info / system_disks / system_gpu: read-only host facts (OS/CPU/memory, \
+                disks, NVIDIA GPU via NVML); gated by [sysinfo].\n\
+                - db_list / db_query / redis_command: query configured PostgreSQL/MySQL/Redis \
+                databases ([databases]; off until one is configured). Writes confirm first.\n\
+                - cache_status: report the search/retrieval caches + file store. store_fetch / \
+                store_get / store_list / store_purge: cache fetched files on disk ([store]).\n\
                 - json_query / json_format / yaml_to_json / json_to_yaml: parse, search, and \
                 convert JSON/YAML (local).\n\
                 - regex_search / regex_replace: match and substitute with regular expressions (local).\n\
                 - math_eval / math_solve: evaluate a math expression, or solve a linear/quadratic \
                 equation in x (local).\n\
+                - geo_distance / geo_azimuth: great-circle distance and bearing between two lat/lon \
+                coordinates. wave_frequency: frequency ↔ wavelength ↔ period.\n\
+                - compound_interest / loan_payment: financial math. currency_convert: keyless \
+                currency conversion (ECB reference rates).\n\
                 - convert_units: convert between units (length/mass/volume/area/speed/time/data/temperature).\n\
                 - list_providers: show which sources are active.\n\
-                - hive_status: show the peer-to-peer hivemind graph (if enabled).\n\
+                - hive_status / hive_peers / hive_seeds: inspect the peer-to-peer hivemind — mesh \
+                graph, per-node hop distance, and per-blob seed ratios (if enabled).\n\
                 Each configured provider also has a direct tool named <kind>_<id> \
                 (e.g. web_mojeek, code_github, qa_stackoverflow) to target one source. \
                 StackOverflow adds qa_stackoverflow_answers to read a question's top answers (with code).\n\n\
@@ -283,6 +368,31 @@ fn build_tool_router(
     router
 }
 
+/// Build a result cache from `[cache]`: the shared Redis store when
+/// `backend = "redis"` (falling back to in-memory on connect failure), else the
+/// in-memory backend. `prefix` namespaces keys so the search and retrieval caches
+/// can share one Redis DB without colliding.
+async fn build_cache(cfg: &config::Cache, prefix: &str) -> Arc<cache::TtlCache> {
+    let ttl = cfg.ttl_secs.max(1);
+    if cfg.backend.trim().eq_ignore_ascii_case("redis") {
+        if cfg.redis_url.trim().is_empty() {
+            tracing::warn!("[cache].backend = redis but redis_url is empty; using in-memory cache");
+        } else {
+            match cache::TtlCache::connect_redis(cfg.redis_url.trim(), ttl, prefix).await {
+                Ok(c) => {
+                    tracing::info!(prefix, "cache backend: redis");
+                    return Arc::new(c);
+                }
+                Err(e) => tracing::warn!(
+                    error = %e,
+                    "redis cache unavailable; falling back to in-memory cache"
+                ),
+            }
+        }
+    }
+    Arc::new(cache::TtlCache::new(ttl, cfg.max_entries))
+}
+
 pub(crate) fn clamp(value: Option<u32>, default: u32, max: u32) -> usize {
     value.unwrap_or(default).clamp(1, max) as usize
 }
@@ -344,7 +454,41 @@ fn hive_routes(hive: Arc<hive::Hive>) -> axum::Router {
         if !hive.token_ok(bearer_token(&headers)) {
             return (StatusCode::UNAUTHORIZED, "unauthorized\n").into_response();
         }
-        axum::Json(hive.digest()).into_response()
+        axum::Json(hive.digest().await).into_response()
+    }
+
+    // Serve a shared file-store blob (raw bytes) by hash, or 204 if we don't have it.
+    async fn blob(
+        State(hive): State<Arc<hive::Hive>>,
+        headers: HeaderMap,
+        axum::Json(req): axum::Json<hive::BlobReq>,
+    ) -> axum::response::Response {
+        if !hive.token_ok(bearer_token(&headers)) {
+            return (StatusCode::UNAUTHORIZED, "unauthorized\n").into_response();
+        }
+        match hive.blob_lookup(&req.key).await {
+            Some(bytes) => {
+                hive.record_served(&req.key, bytes.len());
+                bytes.into_response()
+            }
+            None => StatusCode::NO_CONTENT.into_response(),
+        }
+    }
+
+    // Report a blob's content hash (no bytes) so peers can corroborate it before
+    // trusting any bytes — the anti-tamper handshake for shared blobs.
+    async fn blobinfo(
+        State(hive): State<Arc<hive::Hive>>,
+        headers: HeaderMap,
+        axum::Json(req): axum::Json<hive::BlobReq>,
+    ) -> axum::response::Response {
+        if !hive.token_ok(bearer_token(&headers)) {
+            return (StatusCode::UNAUTHORIZED, "unauthorized\n").into_response();
+        }
+        match hive.blob_content_hash(&req.key).await {
+            Some(info) => axum::Json(info).into_response(),
+            None => StatusCode::NO_CONTENT.into_response(),
+        }
     }
 
     async fn query(
@@ -366,6 +510,8 @@ fn hive_routes(hive: Arc<hive::Hive>) -> axum::Router {
     axum::Router::new()
         .route("/hive/digest", get(digest))
         .route("/hive/query", post(query))
+        .route("/hive/blob", post(blob))
+        .route("/hive/blobinfo", post(blobinfo))
         .with_state(hive)
 }
 
@@ -378,38 +524,62 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
 
-    let cfg = Config::load();
+    let mut cfg = Config::load();
+    // Default the hivemind node id to a stable, machine-derived id (mixed with the
+    // bind port) when not set explicitly — so peers identify each other by a
+    // consistent, machine-unique id across restarts rather than a random value.
+    if cfg.network.enabled && cfg.network.node_id.trim().is_empty() {
+        cfg.network.node_id = hive::default_node_id(&cfg.bind);
+    }
     providers::configure_code_sites(cfg.code.sites.clone());
     browser::configure(browser::BrowserOptions {
         chrome_path: cfg.google.chrome_path.clone(),
         no_sandbox: cfg.google.no_sandbox,
         args: cfg.google.args.clone(),
+        render_concurrency: cfg.google.render_concurrency,
     });
+    // Optional on-disk file store for fetched bytes (the store_* tools). Built
+    // before the hive so the hive can also share the store's bytes over the mesh.
+    let store = if cfg.store.enabled {
+        match store::FileStore::open(&cfg.store.dir, cfg.store.max_bytes, cfg.store.ttl_secs).await
+        {
+            Ok(s) => {
+                tracing::info!(dir = %s.dir().display(), "file store enabled");
+                Some(Arc::new(s))
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "could not open file store; store_* tools disabled");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     // The result cache is shared with the hivemind (which reads/serves from it),
     // so enabling the network implies an active cache even if [cache] is off.
-    let cache = (cfg.cache.enabled || cfg.network.enabled).then(|| {
-        Arc::new(cache::TtlCache::new(
-            cfg.cache.ttl_secs.max(1),
-            cfg.cache.max_entries,
-        ))
-    });
+    let cache = if cfg.cache.enabled || cfg.network.enabled {
+        Some(build_cache(&cfg.cache, "lodestone:search:").await)
+    } else {
+        None
+    };
+    // The retrieval-output cache (page/PDF/doc text). Built before the hive so the
+    // hive can also advertise + serve it as blobs (all behind the digest Bloom).
+    let retrieval_cache = if cfg.cache.enabled {
+        Some(build_cache(&cfg.cache, "lodestone:ret:").await)
+    } else {
+        None
+    };
     let hive = cfg.network.enabled.then(|| {
         hive::Hive::new(
             &cfg.network,
             cache.clone().expect("cache exists when network enabled"),
+            store.clone(),
+            retrieval_cache.clone(),
         )
     });
     let registry = Arc::new(Registry::from_config(&cfg, cache.clone(), hive.clone()));
     tracing::info!("\n{}", registry.describe());
-
-    // A separate cache for retrieval-tool output (page text, files, answers), so
-    // those entries never enter the search/hive digest.
-    let retrieval_cache = cfg.cache.enabled.then(|| {
-        Arc::new(cache::TtlCache::new(
-            cfg.cache.ttl_secs.max(1),
-            cfg.cache.max_entries,
-        ))
-    });
 
     // Gate the local-system tool families by their config: when a family is off,
     // hide all its tools; when on but destructive actions aren't allowed, hide
@@ -427,10 +597,13 @@ async fn main() -> anyhow::Result<()> {
         retrieval_cache,
         cfg.retrieval.default_chars,
         cfg.retrieval.max_chars,
+        cfg.docker.clone(),
         cfg.kubernetes.clone(),
         cfg.filesystem.clone(),
         cfg.shell.clone(),
         cfg.git.clone(),
+        cfg.databases.clone(),
+        store,
         &cfg.tools.enabled,
         &tools_disabled,
     );

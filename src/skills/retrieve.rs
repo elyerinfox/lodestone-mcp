@@ -266,7 +266,7 @@ impl Skill for FetchPage {
             let (server, args) = ctx.parse::<FetchPageArgs>()?;
             let max = server.clamp_chars(args.max_chars);
             let key = format!("page|{max}|{}", args.url);
-            if let Some(cached) = server.retrieval_get(&key) {
+            if let Some(cached) = server.retrieval_get(&key).await {
                 return Ok(text_result(cached));
             }
             let text = fetch_readable(&server.http, &args.url, max)
@@ -301,7 +301,7 @@ impl Skill for RenderPage {
             let (server, args) = ctx.parse::<RenderPageArgs>()?;
             let max = server.clamp_chars(args.max_chars);
             let key = format!("render|{max}|{}", args.url);
-            if let Some(cached) = server.retrieval_get(&key) {
+            if let Some(cached) = server.retrieval_get(&key).await {
                 return Ok(text_result(cached));
             }
             let html = browser::shared_global()
@@ -385,22 +385,14 @@ impl Skill for ReadPdf {
             let max = server.clamp_chars(args.max_chars);
             let src = args.source.trim().to_string();
             let key = format!("readpdf|{max}|{src}");
-            if let Some(cached) = server.retrieval_get(&key) {
+            if let Some(cached) = server.retrieval_get(&key).await {
                 return Ok(text_result(cached));
             }
             let bytes: Vec<u8> = if src.starts_with("http://") || src.starts_with("https://") {
-                server
-                    .http
-                    .get(&src)
-                    .send()
-                    .await
-                    .map_err(|e| internal(e.into()))?
-                    .error_for_status()
-                    .map_err(|e| internal(e.into()))?
-                    .bytes()
-                    .await
-                    .map_err(|e| internal(e.into()))?
-                    .to_vec()
+                // Shared fetch: local file store → a hive peer → the source. Lets a
+                // PDF cached by one node (arXiv, IETF, …) serve the mesh instead of
+                // every node re-hitting the rate-limited source.
+                server.fetch_bytes_shared(&src).await.map_err(internal)?
             } else {
                 std::fs::read(&src)
                     .map_err(|e| invalid(format!("could not read file '{src}': {e}")))?
@@ -435,7 +427,7 @@ impl Skill for FetchRepoFile {
                 args.start_line.unwrap_or(0),
                 args.end_line.unwrap_or(0)
             );
-            if let Some(cached) = server.retrieval_get(&key) {
+            if let Some(cached) = server.retrieval_get(&key).await {
                 return Ok(text_result(cached));
             }
             let target = resolve_raw_file(&args.target).map_err(invalid)?;

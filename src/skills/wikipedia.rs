@@ -167,7 +167,7 @@ impl Skill for WikipediaSummary {
             let max = server.clamp_chars(args.max_chars);
             let title = args.title.trim();
             let key = format!("wiki|{lang}|{full}|{max}|{title}");
-            if let Some(cached) = server.retrieval_get(&key) {
+            if let Some(cached) = server.retrieval_get(&key).await {
                 return Ok(text_result(cached));
             }
 

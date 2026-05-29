@@ -56,6 +56,53 @@ required), served over Streamable HTTP at `/mcp`.
   type, year, DOI, and a doi.org link (metadata; IEEE/SAE are paywalled, NIST is
   free). Plus `ieee`/`sae`/`nist` doc-site providers (`docs_ieee`/`docs_sae`/
   `docs_nist`) for the publishers' own pages.
+- **Destructive-action confirmation** (client-agnostic, no MCP elicitation needed):
+  `docker_stop`/`docker_remove`, `k8s_delete`, `fs_delete`/`fs_move`, and destructive
+  `git_run` subcommands no longer act on the first call — they return a one-time
+  `confirm` token describing the action and do nothing. Call again with
+  `confirm=<token>` to perform it, or `confirm=<token>, trust=true` to also stop
+  being asked for that action for the rest of the session. Destructive tools are now
+  always exposed and gated at *call time* (rather than hidden); each family's
+  `allow_destructive` pre-authorizes the action and skips the prompt. Tokens are
+  single-use and expire after 5 minutes.
+- **System-information skills** (`[sysinfo]`, read-only, on by default): `system_info`
+  (host/OS/kernel/uptime, CPU model+cores+usage, memory/swap), `system_disks`, and
+  `system_gpu` (NVIDIA via NVML — clear message when the driver/library is absent).
+  Cross-platform via `sysinfo` (Linux `/proc`+`/sys`, Windows OS APIs).
+- **Database client skills** (`[databases.<id>]`, off until one is configured):
+  `db_list`, `db_query` (PostgreSQL/MySQL via `sqlx`), and `redis_command`. Reads run
+  freely; writes/DDL and write/admin Redis commands are destructive (confirmation
+  guard; per-instance `allow_destructive` pre-authorizes). URLs are treated as secrets.
+- **On-disk file store + cache management** (`[store]`, off by default): `store_fetch`
+  (download + cache a URL's bytes), `store_get`, `store_list`, `store_purge`, with
+  TTL + byte-budget retention; plus `cache_status` (always on) reporting the in-memory
+  search/retrieval caches and the store. Every networked lookup now caches
+  (arxiv/hf/kernel added).
+- **Hivemind file & retrieval sharing**: the digest advertises file-store entry
+  hashes *and* retrieval-cache keys; `/hive/blob` serves a cached file/page's bytes
+  by hash. `read_pdf` and `store_fetch` resolve URLs as local store → a hive peer →
+  the source, so a PDF/file one node fetched (arXiv, IETF, …) is served from the mesh
+  instead of every node re-hitting the rate-limited source. Only hashes cross the
+  wire; token-gated.
+  - **Anti-tampering**: a blob is trusted only when `>= [network].min_agreement` peers
+    **corroborate** its content hash (`/hive/blobinfo`), and the fetched bytes are
+    **verified** against that hash before use (else fall back to source).
+  - **Seed accounting**: per-blob served-vs-fetched byte ratio (BitTorrent-style),
+    shown by the `hive_seeds` tool and in `store_list`.
+- **Hivemind introspection + identity**: nodes now have a stable, machine-derived id
+  (`machine-uid` + bind port); new `hive_peers` (per-node hop distance + machine id)
+  and `hive_seeds` (seed ratios) tools join `hive_status`.
+- **Redis cache backend** (`[cache].backend = "redis"`): a shared store multiple
+  instances point at, behind the same get/put contract (falls back to in-memory on
+  connect failure).
+- **More Docker daemon actions**: `docker_build` (tar a context), `docker_exec`, and
+  `docker_rmi` (exec/rmi are destructive → confirmation guard).
+- **StackExchange answers via render**: `qa_stackoverflow_answers` gained a `render`
+  flag to scrape the question page (saves API quota; stackoverflow.com only).
+- **Engine resilience & economy**: DuckDuckGo rotates between its `lite`/`html`
+  endpoints with backoff; aggregate search is bounded by `[search].max_concurrency`
+  (default 8); the headless browser renders concurrent pages bounded by
+  `[google].render_concurrency` instead of serializing on one mutex.
 - **Dependency safeguards:** skills that need an external binary/runtime now fail
   with a clear, actionable message when it's missing — `git_run`/`shell_run` report
   "not found on PATH (is it installed?)", and the headless-browser paths

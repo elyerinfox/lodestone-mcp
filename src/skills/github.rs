@@ -226,7 +226,7 @@ impl Skill for GithubReleases {
             let max = clamp(args.max_results, 5, 30);
             let prereleases = args.include_prereleases.unwrap_or(false);
             let key = format!("ghrel|{repo}|{max}|{prereleases}");
-            if let Some(cached) = server.retrieval_get(&key) {
+            if let Some(cached) = server.retrieval_get(&key).await {
                 return Ok(text_result(cached));
             }
             let per = if prereleases { max } else { (max * 3).min(100) }.to_string();
@@ -308,7 +308,7 @@ impl Skill for GithubUser {
             let user = github_user_login(&args.user)
                 .ok_or_else(|| invalid(format!("not a GitHub username: '{}'", args.user)))?;
             let key = format!("ghuser|{user}");
-            if let Some(cached) = server.retrieval_get(&key) {
+            if let Some(cached) = server.retrieval_get(&key).await {
                 return Ok(text_result(cached));
             }
             let v = github_api(
@@ -345,7 +345,7 @@ impl Skill for GithubRepo {
             let repo = github_owner_repo(&args.repo)
                 .ok_or_else(|| invalid(format!("not a GitHub owner/repo: '{}'", args.repo)))?;
             let key = format!("ghrepo|{repo}");
-            if let Some(cached) = server.retrieval_get(&key) {
+            if let Some(cached) = server.retrieval_get(&key).await {
                 return Ok(text_result(cached));
             }
             let v = github_api(

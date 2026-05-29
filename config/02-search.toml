@@ -40,6 +40,12 @@ trusted_domains = []
 # Env: LODESTONE_SEARCH_TIMEOUT_SECS
 timeout_secs = 25
 
+# In "aggregate" mode, how many providers may be queried AT ONCE (the rest queue
+# for a slot). Bounds the outbound-request burst so a wide `docs` fan-out (each
+# doc site hits DuckDuckGo) doesn't trip engine rate limits. 0 = unlimited.
+# Env: LODESTONE_SEARCH_MAX_CONCURRENCY
+max_concurrency = 8
+
 # Optional PER-KIND overrides of strategy/ranking. Empty/unset fields inherit the
 # global values above. Lets you e.g. aggregate web+code for coverage while keeping
 # qa on fallback (so the StackExchange API isn't always hit). Uncomment to use:

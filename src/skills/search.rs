@@ -85,6 +85,80 @@ async fn se_answers(
     Ok((question, answers))
 }
 
+/// Render a StackOverflow question page and format its question + top answers as
+/// text, mirroring the API path's output. Returns the page URL used.
+async fn scrape_answers(url: &str, max: usize) -> Result<String> {
+    use crate::browser::PageRenderer;
+    let html = crate::browser::shared_global().render(url).await?;
+    if html.to_ascii_lowercase().contains("captcha") {
+        return Err(anyhow::anyhow!("StackOverflow served a CAPTCHA page"));
+    }
+    parse_answers_page(&html, url, max)
+        .ok_or_else(|| anyhow::anyhow!("could not parse the question page"))
+}
+
+/// Parse a StackOverflow question page into the same text shape as the API path.
+fn parse_answers_page(html: &str, url: &str, max: usize) -> Option<String> {
+    use scraper::{CaseSensitivity, Html, Selector};
+
+    let doc = Html::parse_document(html);
+    let title_sel = Selector::parse("#question-header h1, .question-hyperlink").unwrap();
+    let q_body_sel = Selector::parse("#question .s-prose").unwrap();
+    let answer_sel = Selector::parse(".answer").unwrap();
+    let body_sel = Selector::parse(".s-prose").unwrap();
+
+    let title = doc
+        .select(&title_sel)
+        .next()
+        .map(|e| util::collapse_ws(&e.text().collect::<String>()))
+        .unwrap_or_default();
+    let q_body = doc
+        .select(&q_body_sel)
+        .next()
+        .map(|e| util::html_to_text(&e.inner_html()))
+        .unwrap_or_default();
+    if title.is_empty() && q_body.is_empty() {
+        return None;
+    }
+
+    let mut out = format!("QUESTION: {title}\n{url}\n\n{}\n\n", q_body.trim());
+
+    let mut answers: Vec<(i64, bool, String)> = Vec::new();
+    for ans in doc.select(&answer_sel) {
+        let el = ans.value();
+        let score = el
+            .attr("data-score")
+            .and_then(|s| s.trim().parse::<i64>().ok())
+            .unwrap_or(0);
+        let accepted = el.has_class("accepted-answer", CaseSensitivity::AsciiCaseInsensitive);
+        let body = ans
+            .select(&body_sel)
+            .next()
+            .map(|e| util::html_to_text(&e.inner_html()))
+            .unwrap_or_default();
+        answers.push((score, accepted, body));
+        if answers.len() >= max {
+            break;
+        }
+    }
+
+    if answers.is_empty() {
+        out.push_str("(no answers)");
+    } else {
+        out.push_str(&format!("===== {} ANSWER(S) =====\n", answers.len()));
+        for (i, (score, accepted, body)) in answers.iter().enumerate() {
+            out.push_str(&format!(
+                "\n----- Answer {} (score {score}{}) -----\n",
+                i + 1,
+                if *accepted { ", accepted ✓" } else { "" }
+            ));
+            out.push_str(body.trim());
+            out.push('\n');
+        }
+    }
+    Some(out)
+}
+
 // ---------------------------------------------------------------------------
 // Argument schemas
 // ---------------------------------------------------------------------------
@@ -159,6 +233,11 @@ struct StackAnswersArgs {
     /// Maximum number of answers to return (sorted by votes). Default 3, cap 10.
     #[serde(default)]
     max_answers: Option<u32>,
+    /// Scrape the question page via the headless browser instead of the API
+    /// (saves API quota). Only applies to the `stackoverflow` site; other sites
+    /// fall back to the API. Needs a local Chrome/Chromium at runtime.
+    #[serde(default)]
+    render: Option<bool>,
 }
 
 /// Arguments for the granular, one-tool-per-provider skills.
@@ -433,8 +512,9 @@ impl Skill for QaStackoverflowAnswers {
     }
     fn description(&self) -> &'static str {
         "Read a StackOverflow/StackExchange question body and its top answers (by votes), including \
-        any code blocks. Accepts a question URL or numeric id. Provider-specific to the \
-        StackExchange network."
+        any code blocks. Accepts a question URL or numeric id. Uses the keyless API by default; set \
+        render=true to scrape the stackoverflow.com page instead (saves API quota). Provider-specific \
+        to the StackExchange network."
     }
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<StackAnswersArgs>()
@@ -459,9 +539,24 @@ impl Skill for QaStackoverflowAnswers {
                 ))
             })?;
 
-            let key = format!("se_answers|{site}|{max}|{qid}");
-            if let Some(cached) = server.retrieval_get(&key) {
+            // Render scraping (no API quota) applies only to stackoverflow.com;
+            // other sites always use the API.
+            let render = args.render.unwrap_or(false) && site == "stackoverflow";
+            let key = format!("se_answers|{site}|{max}|{qid}|{render}");
+            if let Some(cached) = server.retrieval_get(&key).await {
                 return Ok(text_result(cached));
+            }
+
+            if render {
+                let page_url = if args.question.trim().starts_with("http") {
+                    args.question.trim().to_string()
+                } else {
+                    format!("https://stackoverflow.com/questions/{qid}")
+                };
+                let out = scrape_answers(&page_url, max).await.map_err(internal)?;
+                let out = util::truncate_chars(&out, server.max_chars);
+                server.retrieval_put(key, &out);
+                return Ok(text_result(out));
             }
 
             let (q, a) = se_answers(&server.http, &qid, &site, max, &server.se_key)
@@ -581,4 +676,47 @@ fn provider_call<'a>(
         };
         Ok(text_result(text))
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{extract_question_id, parse_answers_page};
+
+    #[test]
+    fn question_id_from_url_or_bare() {
+        assert_eq!(extract_question_id("12345").as_deref(), Some("12345"));
+        assert_eq!(
+            extract_question_id("https://stackoverflow.com/questions/231767/what-does-yield-do")
+                .as_deref(),
+            Some("231767")
+        );
+        assert_eq!(extract_question_id("not a question"), None);
+    }
+
+    #[test]
+    fn scrape_parser_pulls_question_and_answers() {
+        // Minimal shape of a StackOverflow question page.
+        let html = r##"<html><body>
+            <div id="question-header"><h1><a class="question-hyperlink">How to X?</a></h1></div>
+            <div id="question" class="question" data-score="7">
+              <div class="post-layout"><div class="s-prose"><p>The question body.</p></div></div>
+            </div>
+            <div id="answers">
+              <div class="answer accepted-answer" data-score="42">
+                <div class="s-prose"><p>The accepted answer.</p><pre><code>let x = 1;</code></pre></div>
+              </div>
+              <div class="answer" data-score="5">
+                <div class="s-prose"><p>Another answer.</p></div>
+              </div>
+            </div>
+        </body></html>"##;
+        let out = parse_answers_page(html, "https://stackoverflow.com/questions/1", 10).unwrap();
+        assert!(out.contains("QUESTION: How to X?"), "{out}");
+        assert!(out.contains("The question body."), "{out}");
+        assert!(out.contains("2 ANSWER(S)"), "{out}");
+        assert!(out.contains("score 42, accepted ✓"), "{out}");
+        assert!(out.contains("The accepted answer."), "{out}");
+        assert!(out.contains("let x = 1;"), "{out}");
+        assert!(out.contains("score 5)"), "{out}");
+    }
 }

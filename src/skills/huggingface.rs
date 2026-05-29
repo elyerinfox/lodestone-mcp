@@ -78,6 +78,10 @@ impl Skill for HfSearch {
                 Some("dataset") | Some("datasets")
             );
             let endpoint = if dataset { "datasets" } else { "models" };
+            let cache_key = format!("hf_search|{endpoint}|{limit}|{}", args.query.trim());
+            if let Some(cached) = server.retrieval_get(&cache_key).await {
+                return Ok(text_result(cached));
+            }
             let url = format!(
                 "https://huggingface.co/api/{endpoint}?search={}&limit={limit}&sort=downloads&direction=-1",
                 urlencoding(&args.query)
@@ -108,6 +112,7 @@ impl Skill for HfSearch {
                 }
                 out.push('\n');
             }
+            server.retrieval_put(cache_key, &out);
             Ok(text_result(out))
         })
     }
@@ -129,6 +134,10 @@ impl Skill for HfModel {
         Box::pin(async move {
             let (server, args) = ctx.parse::<HfModelArgs>()?;
             let id = args.model.trim().trim_start_matches('/');
+            let cache_key = format!("hf_model|{id}");
+            if let Some(cached) = server.retrieval_get(&cache_key).await {
+                return Ok(text_result(cached));
+            }
             let url = format!("https://huggingface.co/api/models/{id}");
             let v = api_get(&server.http, &url).await.map_err(internal)?;
             let model_id = v.get("id").and_then(|x| x.as_str()).unwrap_or(id);
@@ -171,6 +180,7 @@ impl Skill for HfModel {
             if !topic_tags.is_empty() {
                 out.push_str(&format!("  tags: {}\n", topic_tags.join(", ")));
             }
+            server.retrieval_put(cache_key, &out);
             Ok(text_result(out))
         })
     }

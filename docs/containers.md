@@ -49,9 +49,10 @@ A **local-system** capability, separate from the keyless web tools above:
 lodestone talks to your Docker daemon directly via the Engine API over the platform
 socket (Windows named pipe / unix socket; honors `DOCKER_HOST`) — no `docker` CLI.
 Code: [`src/skills/docker.rs`](../src/skills/docker.rs). Gated by `[docker]` (see
-[`config/08-docker.toml`](../config/08-docker.toml)); `enabled` on by default,
-destructive actions hidden unless `allow_destructive` is set. Each action is its own
-gated tool.
+[`config/08-docker.toml`](../config/08-docker.toml)); `enabled` on by default.
+Destructive actions are always exposed but require a per-call confirmation token
+(`confirm`/`trust` args — see [tools.md](tools.md#confirming-destructive-actions));
+`allow_destructive` pre-authorizes them. Each action is its own tool.
 
 | Tool | Arguments | Access | Purpose |
 | --- | --- | --- | --- |
@@ -63,8 +64,11 @@ gated tool.
 | `docker_pull` | `image` | write | Pull an image onto the daemon. |
 | `docker_run` | `image`, `name?`, `command?` | write | Create + start a container. |
 | `docker_start` | `container` | write | Start a stopped container. |
-| `docker_stop` | `container` | **destructive** | Stop a running container. |
-| `docker_remove` | `container`, `force?` | **destructive** | Remove a container. |
+| `docker_build` | `context`, `tag`, `dockerfile?` | write | Build an image from a context directory. |
+| `docker_stop` | `container`, `confirm?`, `trust?` | **destructive** | Stop a running container (confirm first). |
+| `docker_remove` | `container`, `force?`, `confirm?`, `trust?` | **destructive** | Remove a container (confirm first). |
+| `docker_exec` | `container`, `command`, `confirm?`, `trust?` | **destructive** | Run a command inside a container (confirm first). |
+| `docker_rmi` | `image`, `force?`, `confirm?`, `trust?` | **destructive** | Remove an image (confirm first). |
 
 > `docker_*` (daemon) is distinct from `docker_search`/`docker_image`/`docker_tags`
 > (keyless Docker Hub lookups, above), which are unaffected by `[docker]`.
@@ -76,8 +80,10 @@ directly via [kube-rs](https://kube.rs), reading your kubeconfig (default locati
 `$KUBECONFIG`, or a configured path/context) or in-cluster credentials — no
 `kubectl`. Code: [`src/skills/kubernetes.rs`](../src/skills/kubernetes.rs). Gated by `[kubernetes]` (see
 [`config/09-kubernetes.toml`](../config/09-kubernetes.toml)); `enabled` on by
-default, `k8s_delete` hidden unless `allow_destructive` is set. `kind` accepts
-kubectl-style names (`pods`, `deploy`, `svc`, `nodes`, …) resolved via API discovery.
+default. `k8s_delete` is always exposed but requires a per-call confirmation token
+(`confirm`/`trust` — see [tools.md](tools.md#confirming-destructive-actions));
+`allow_destructive` pre-authorizes it. `kind` accepts kubectl-style names (`pods`,
+`deploy`, `svc`, `nodes`, …) resolved via API discovery.
 
 | Tool | Arguments | Access | Purpose |
 | --- | --- | --- | --- |
@@ -87,7 +93,7 @@ kubectl-style names (`pods`, `deploy`, `svc`, `nodes`, …) resolved via API dis
 | `k8s_logs` | `pod`, `namespace?`, `container?`, `tail?` | read | A pod's logs. |
 | `k8s_apply` | `manifest` | write | Server-side apply a kubefile (multi-doc YAML). |
 | `k8s_scale` | `kind`, `name`, `replicas`, `namespace?` | write | Scale a workload. |
-| `k8s_delete` | `kind`, `name`, `namespace?` | **destructive** | Delete a resource. |
+| `k8s_delete` | `kind`, `name`, `namespace?`, `confirm?`, `trust?` | **destructive** | Delete a resource (confirm first). |
 
 > Helm release *mutation* (install/upgrade/uninstall) would mean reimplementing
 > Helm, so it's out of scope for the direct-API approach; `docs_helm` and

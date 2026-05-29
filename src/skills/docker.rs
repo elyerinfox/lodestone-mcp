@@ -18,7 +18,10 @@ use bollard::container::{
     Config, CreateContainerOptions, ListContainersOptions, LogsOptions, RemoveContainerOptions,
     StopContainerOptions,
 };
-use bollard::image::{CreateImageOptions, ListImagesOptions};
+use bollard::exec::{CreateExecOptions, StartExecResults};
+use bollard::image::{
+    BuildImageOptions, CreateImageOptions, ListImagesOptions, RemoveImageOptions,
+};
 use bollard::Docker;
 use futures::future::BoxFuture;
 use futures::StreamExt;
@@ -27,6 +30,7 @@ use rmcp::ErrorData as McpError;
 use serde::Deserialize;
 use serde_json::Value;
 
+use crate::skills::guard::Decision;
 use crate::skills::{schema_for, NoArgs, Skill, SkillCtx};
 use crate::util::human_size;
 use crate::{clamp, internal, text_result};
@@ -269,6 +273,107 @@ pub async fn remove(name: &str, force: bool) -> Result<String> {
     Ok(format!("Removed {name}"))
 }
 
+/// Run a command inside a running container and return its combined output.
+pub async fn exec(name: &str, cmd: &[String]) -> Result<String> {
+    let docker = connect()?;
+    let exec = docker
+        .create_exec(
+            name,
+            CreateExecOptions {
+                cmd: Some(cmd.to_vec()),
+                attach_stdout: Some(true),
+                attach_stderr: Some(true),
+                ..Default::default()
+            },
+        )
+        .await
+        .with_context(|| format!("creating exec in '{name}'"))?;
+    match docker
+        .start_exec(&exec.id, None)
+        .await
+        .with_context(|| format!("starting exec in '{name}'"))?
+    {
+        StartExecResults::Attached { mut output, .. } => {
+            let mut body = String::new();
+            while let Some(item) = output.next().await {
+                match item {
+                    Ok(msg) => body.push_str(&msg.to_string()),
+                    Err(e) => return Err(anyhow!("reading exec output: {e}")),
+                }
+            }
+            if body.trim().is_empty() {
+                body = "(no output)".into();
+            }
+            Ok(format!("$ {} (in {name})\n{body}", cmd.join(" ")))
+        }
+        StartExecResults::Detached => Ok(format!("Started detached exec in {name}")),
+    }
+}
+
+/// Remove an image (optionally forcing removal even if containers reference it).
+pub async fn rmi(name: &str, force: bool) -> Result<String> {
+    let docker = connect()?;
+    let deleted = docker
+        .remove_image(
+            name,
+            Some(RemoveImageOptions {
+                force,
+                ..Default::default()
+            }),
+            None,
+        )
+        .await
+        .with_context(|| format!("removing image '{name}'"))?;
+    let mut out = format!("Removed image {name}:");
+    for item in &deleted {
+        let v = val(item);
+        if let Some(d) = v.get("Deleted").and_then(|x| x.as_str()) {
+            out.push_str(&format!("\n  deleted {}", short_id(d)));
+        } else if let Some(u) = v.get("Untagged").and_then(|x| x.as_str()) {
+            out.push_str(&format!("\n  untagged {u}"));
+        }
+    }
+    Ok(out)
+}
+
+/// Build an image from a local context directory (taring it for the daemon).
+pub async fn build(context: &str, dockerfile: &str, tag: &str) -> Result<String> {
+    // Tar the context off the async runtime (it reads the directory tree).
+    let context = context.to_string();
+    let tar_bytes = tokio::task::spawn_blocking(move || -> Result<Vec<u8>> {
+        let mut ar = tar::Builder::new(Vec::new());
+        ar.append_dir_all(".", &context)
+            .with_context(|| format!("reading build context '{context}'"))?;
+        ar.into_inner().context("finalizing build context tar")
+    })
+    .await
+    .context("build-context task failed")??;
+
+    let docker = connect()?;
+    let opts = BuildImageOptions {
+        dockerfile: dockerfile.to_string(),
+        t: tag.to_string(),
+        rm: true,
+        ..Default::default()
+    };
+    let mut stream = docker.build_image(opts, None, Some(bytes::Bytes::from(tar_bytes)));
+    let mut log = String::new();
+    while let Some(item) = stream.next().await {
+        match item {
+            Ok(info) => {
+                if let Some(s) = info.stream {
+                    log.push_str(&s);
+                }
+                if let Some(err) = info.error {
+                    return Err(anyhow!("build failed: {err}\n{log}"));
+                }
+            }
+            Err(e) => return Err(anyhow!("building '{tag}': {e}")),
+        }
+    }
+    Ok(format!("Built {tag}:\n{}", log.trim_end()))
+}
+
 // ---------------------------------------------------------------------------
 // Skills
 // ---------------------------------------------------------------------------
@@ -314,12 +419,71 @@ struct DockerRunArgs {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct DockerStopArgs {
+    /// A container name or id.
+    container: String,
+    /// One-time token from a prior call's confirmation prompt. Omit on the first call.
+    #[serde(default)]
+    confirm: Option<String>,
+    /// With `confirm`, also stop asking for this tool for the rest of the session.
+    #[serde(default)]
+    trust: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct DockerRemoveArgs {
     /// A container name or id.
     container: String,
     /// Force-remove a running container (default false).
     #[serde(default)]
     force: Option<bool>,
+    /// One-time token from a prior call's confirmation prompt. Omit on the first call.
+    #[serde(default)]
+    confirm: Option<String>,
+    /// With `confirm`, also stop asking for this tool for the rest of the session.
+    #[serde(default)]
+    trust: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct DockerExecArgs {
+    /// A running container's name or id.
+    container: String,
+    /// Command to run inside the container, e.g. `ls -la /app` (parsed like a shell
+    /// line, but executed directly in the container — no host shell).
+    command: String,
+    /// One-time token from a prior call's confirmation prompt. Omit on the first call.
+    #[serde(default)]
+    confirm: Option<String>,
+    /// With `confirm`, also stop asking for this tool for the rest of the session.
+    #[serde(default)]
+    trust: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct DockerRmiArgs {
+    /// Image name or id to remove, e.g. `nginx:alpine` or a short id.
+    image: String,
+    /// Force removal even if the image is tagged multiple times or in use.
+    #[serde(default)]
+    force: Option<bool>,
+    /// One-time token from a prior call's confirmation prompt. Omit on the first call.
+    #[serde(default)]
+    confirm: Option<String>,
+    /// With `confirm`, also stop asking for this tool for the rest of the session.
+    #[serde(default)]
+    trust: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct DockerBuildArgs {
+    /// Path to the build context directory (sent to the daemon as a tar).
+    context: String,
+    /// Image tag to apply, e.g. `myapp:latest`.
+    tag: String,
+    /// Dockerfile path relative to the context. Defaults to `Dockerfile`.
+    #[serde(default)]
+    dockerfile: Option<String>,
 }
 
 pub struct DockerPs;
@@ -495,15 +659,27 @@ impl Skill for DockerStop {
         "docker_stop"
     }
     fn description(&self) -> &'static str {
-        "Stop a running container on the LOCAL Docker daemon. Destructive — only available when \
-        [docker].allow_destructive is set. Accepts a container name or id."
+        "Stop a running container on the LOCAL Docker daemon. Destructive: the first call returns a \
+        confirmation token and does nothing — call again with confirm=<token> to proceed (or \
+        confirm + trust=true to allow for the session). Accepts a container name or id."
     }
     fn schema(&self) -> Arc<JsonObject> {
-        schema_for::<DockerNameArgs>()
+        schema_for::<DockerStopArgs>()
     }
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
-            let (_server, args) = ctx.parse::<DockerNameArgs>()?;
+            let (server, args) = ctx.parse::<DockerStopArgs>()?;
+            let summary = format!("stop container {}", args.container);
+            if let Decision::Challenge(msg) = server.guard.check(
+                "docker_stop",
+                "docker_stop",
+                server.docker.allow_destructive,
+                &summary,
+                args.confirm.as_deref(),
+                args.trust.unwrap_or(false),
+            ) {
+                return Ok(text_result(msg));
+            }
             Ok(text_result(stop(&args.container).await.map_err(internal)?))
         })
     }
@@ -516,25 +692,149 @@ impl Skill for DockerRemove {
     }
     fn description(&self) -> &'static str {
         "Remove a container from the LOCAL Docker daemon (optionally force a running one). \
-        Destructive — only available when [docker].allow_destructive is set."
+        Destructive: the first call returns a confirmation token and does nothing — call again with \
+        confirm=<token> to proceed (or confirm + trust=true to allow for the session)."
     }
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<DockerRemoveArgs>()
     }
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
-            let (_server, args) = ctx.parse::<DockerRemoveArgs>()?;
-            let out = remove(&args.container, args.force.unwrap_or(false))
-                .await
-                .map_err(internal)?;
+            let (server, args) = ctx.parse::<DockerRemoveArgs>()?;
+            let force = args.force.unwrap_or(false);
+            let summary = format!(
+                "remove container {}{}",
+                args.container,
+                if force { " (force)" } else { "" }
+            );
+            if let Decision::Challenge(msg) = server.guard.check(
+                "docker_remove",
+                "docker_remove",
+                server.docker.allow_destructive,
+                &summary,
+                args.confirm.as_deref(),
+                args.trust.unwrap_or(false),
+            ) {
+                return Ok(text_result(msg));
+            }
+            let out = remove(&args.container, force).await.map_err(internal)?;
             Ok(text_result(out))
         })
     }
 }
 
-/// All docker daemon tool names, and the destructive subset — the gating data for
-/// this family (consumed by `skills::disabled_by_config`). Kept here, with the
-/// skills, so `main.rs` hardcodes nothing.
+pub struct DockerExec;
+impl Skill for DockerExec {
+    fn name(&self) -> &'static str {
+        "docker_exec"
+    }
+    fn description(&self) -> &'static str {
+        "Run a command inside a running LOCAL container (like `docker exec`). Powerful — the first \
+        call returns a confirmation token and does nothing; call again with confirm=<token> to \
+        proceed (or confirm + trust=true to allow for the session). Returns combined stdout/stderr."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<DockerExecArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (server, args) = ctx.parse::<DockerExecArgs>()?;
+            let cmd = shell_words::split(args.command.trim())
+                .map_err(|e| crate::invalid(format!("could not parse command: {e}")))?;
+            if cmd.is_empty() {
+                return Err(crate::invalid("empty command"));
+            }
+            let summary = format!("exec `{}` in {}", args.command.trim(), args.container);
+            if let Decision::Challenge(msg) = server.guard.check(
+                "docker_exec",
+                "docker_exec",
+                server.docker.allow_destructive,
+                &summary,
+                args.confirm.as_deref(),
+                args.trust.unwrap_or(false),
+            ) {
+                return Ok(text_result(msg));
+            }
+            let out = exec(&args.container, &cmd).await.map_err(internal)?;
+            Ok(text_result(crate::util::truncate_chars(
+                &out,
+                server.max_chars,
+            )))
+        })
+    }
+}
+
+pub struct DockerRmi;
+impl Skill for DockerRmi {
+    fn name(&self) -> &'static str {
+        "docker_rmi"
+    }
+    fn description(&self) -> &'static str {
+        "Remove an image from the LOCAL Docker daemon. Destructive: the first call returns a \
+        confirmation token and does nothing — call again with confirm=<token> to proceed (or \
+        confirm + trust=true to allow for the session). Pass force=true to remove a tagged/in-use image."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<DockerRmiArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (server, args) = ctx.parse::<DockerRmiArgs>()?;
+            let force = args.force.unwrap_or(false);
+            let summary = format!(
+                "remove image {}{}",
+                args.image,
+                if force { " (force)" } else { "" }
+            );
+            if let Decision::Challenge(msg) = server.guard.check(
+                "docker_rmi",
+                "docker_rmi",
+                server.docker.allow_destructive,
+                &summary,
+                args.confirm.as_deref(),
+                args.trust.unwrap_or(false),
+            ) {
+                return Ok(text_result(msg));
+            }
+            let out = rmi(&args.image, force).await.map_err(internal)?;
+            Ok(text_result(out))
+        })
+    }
+}
+
+pub struct DockerBuild;
+impl Skill for DockerBuild {
+    fn name(&self) -> &'static str {
+        "docker_build"
+    }
+    fn description(&self) -> &'static str {
+        "Build an image on the LOCAL Docker daemon from a context directory (tarred and sent to the \
+        daemon). Provide the context path and an image tag; the Dockerfile defaults to `Dockerfile` \
+        in the context. Returns the build log."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<DockerBuildArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (server, args) = ctx.parse::<DockerBuildArgs>()?;
+            let dockerfile = args.dockerfile.as_deref().unwrap_or("Dockerfile");
+            let out = build(&args.context, dockerfile, &args.tag)
+                .await
+                .map_err(internal)?;
+            Ok(text_result(crate::util::truncate_chars(
+                &out,
+                server.max_chars,
+            )))
+        })
+    }
+}
+
+/// All docker daemon tool names — the gating data for this family (consumed by
+/// `skills::disabled_by_config` to hide the family when `[docker].enabled` is off).
+/// The destructive actions (`docker_stop`, `docker_remove`) stay exposed and are
+/// gated at call time by the confirmation [`crate::skills::guard`]. Kept here, with
+/// the skills, so `main.rs` hardcodes nothing.
 pub const TOOL_NAMES: &[&str] = &[
     "docker_ps",
     "docker_images",
@@ -546,8 +846,10 @@ pub const TOOL_NAMES: &[&str] = &[
     "docker_start",
     "docker_stop",
     "docker_remove",
+    "docker_exec",
+    "docker_rmi",
+    "docker_build",
 ];
-pub const DESTRUCTIVE_NAMES: &[&str] = &["docker_stop", "docker_remove"];
 
 /// The skills this module contributes (gating happens in `disabled_by_config`).
 pub fn skills() -> Vec<Box<dyn Skill>> {
@@ -562,5 +864,8 @@ pub fn skills() -> Vec<Box<dyn Skill>> {
         Box::new(DockerStart),
         Box::new(DockerStop),
         Box::new(DockerRemove),
+        Box::new(DockerExec),
+        Box::new(DockerRmi),
+        Box::new(DockerBuild),
     ]
 }

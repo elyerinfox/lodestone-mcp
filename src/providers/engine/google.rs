@@ -16,6 +16,7 @@ pub(super) static SPEC: EngineSpec = EngineSpec {
     url: "https://www.google.com/search",
     method: Method::Browser,
     extract: Extract::Custom(parse),
+    alts: &[],
     code_scope: CodeScope::SiteOperator,
     extra_params: &[("hl", "en"), ("gl", "us"), ("num", "20")],
 };

@@ -19,12 +19,15 @@ use rmcp::ErrorData as McpError;
 use serde::Deserialize;
 
 use crate::config::Filesystem;
+use crate::skills::guard::Decision;
 use crate::skills::{schema_for, Skill, SkillCtx};
 use crate::util::truncate_chars;
 use crate::{internal, invalid, text_result};
 
-/// All filesystem tool names, and the destructive subset — the gating data for
-/// this family (consumed by `skills::disabled_by_config`).
+/// All filesystem tool names — the gating data for this family (consumed by
+/// `skills::disabled_by_config` to hide the family when `[filesystem].enabled` is
+/// off). Destructive `fs_delete`/`fs_move` stay exposed and are gated at call time
+/// by the confirmation [`crate::skills::guard`].
 pub const TOOL_NAMES: &[&str] = &[
     "fs_read",
     "fs_list",
@@ -36,7 +39,6 @@ pub const TOOL_NAMES: &[&str] = &[
     "fs_delete",
     "fs_move",
 ];
-pub const DESTRUCTIVE_NAMES: &[&str] = &["fs_delete", "fs_move"];
 
 /// Canonicalized allowed roots (configured, or the CWD when none set).
 fn roots(fs: &Filesystem) -> Result<Vec<PathBuf>, String> {
@@ -202,6 +204,12 @@ struct DeleteArgs {
     /// Recursively delete a non-empty directory (default false).
     #[serde(default)]
     recursive: Option<bool>,
+    /// One-time token from a prior call's confirmation prompt. Omit on the first call.
+    #[serde(default)]
+    confirm: Option<String>,
+    /// With `confirm`, also stop asking for this tool for the rest of the session.
+    #[serde(default)]
+    trust: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -210,6 +218,12 @@ struct MoveArgs {
     source: String,
     /// Destination path (inside a root). Overwrites if it exists.
     dest: String,
+    /// One-time token from a prior call's confirmation prompt. Omit on the first call.
+    #[serde(default)]
+    confirm: Option<String>,
+    /// With `confirm`, also stop asking for this tool for the rest of the session.
+    #[serde(default)]
+    trust: Option<bool>,
 }
 
 // --- skills -----------------------------------------------------------------
@@ -510,8 +524,9 @@ impl Skill for FsDelete {
         "fs_delete"
     }
     fn description(&self) -> &'static str {
-        "Delete a file or directory, confined to the roots. Destructive — only available when \
-        [filesystem].allow_destructive is set. Pass recursive=true for a non-empty directory."
+        "Delete a file or directory, confined to the roots. Destructive: the first call returns a \
+        confirmation token and does nothing — call again with confirm=<token> to proceed (or \
+        confirm + trust=true to allow for the session). Pass recursive=true for a non-empty directory."
     }
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<DeleteArgs>()
@@ -520,6 +535,17 @@ impl Skill for FsDelete {
         Box::pin(async move {
             let (server, args) = ctx.parse::<DeleteArgs>()?;
             let path = resolve(&server.fs, &args.path)?;
+            let summary = format!("delete {}", path.display());
+            if let Decision::Challenge(msg) = server.guard.check(
+                "fs_delete",
+                "fs_delete",
+                server.fs.allow_destructive,
+                &summary,
+                args.confirm.as_deref(),
+                args.trust.unwrap_or(false),
+            ) {
+                return Ok(text_result(msg));
+            }
             let md = tokio::fs::metadata(&path)
                 .await
                 .map_err(|e| invalid(format!("could not stat '{}': {e}", path.display())))?;
@@ -551,8 +577,9 @@ impl Skill for FsMove {
         "fs_move"
     }
     fn description(&self) -> &'static str {
-        "Move/rename a path. Both source and destination must be inside the roots. Destructive — \
-        only available when [filesystem].allow_destructive is set."
+        "Move/rename a path. Both source and destination must be inside the roots. Destructive: the \
+        first call returns a confirmation token and does nothing — call again with confirm=<token> \
+        to proceed (or confirm + trust=true to allow for the session)."
     }
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<MoveArgs>()
@@ -562,6 +589,17 @@ impl Skill for FsMove {
             let (server, args) = ctx.parse::<MoveArgs>()?;
             let source = resolve(&server.fs, &args.source)?;
             let dest = resolve(&server.fs, &args.dest)?;
+            let summary = format!("move {} -> {}", source.display(), dest.display());
+            if let Decision::Challenge(msg) = server.guard.check(
+                "fs_move",
+                "fs_move",
+                server.fs.allow_destructive,
+                &summary,
+                args.confirm.as_deref(),
+                args.trust.unwrap_or(false),
+            ) {
+                return Ok(text_result(msg));
+            }
             tokio::fs::rename(&source, &dest)
                 .await
                 .map_err(|e| invalid(format!("could not move '{}': {e}", source.display())))?;

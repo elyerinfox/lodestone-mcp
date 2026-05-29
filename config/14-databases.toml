@@ -1,0 +1,31 @@
+# =============================================================================
+# config/14-databases.toml — database client skills (off by default)
+# =============================================================================
+#
+# Define database connections to enable the database tools. The family is OFF
+# until at least one connection is configured (a URL is a deliberate opt-in).
+# Tools: db_list, db_query (postgres/mysql), redis_command (redis).
+#
+# Reads run immediately; writes/DDL (SQL) and write/admin commands (Redis) are
+# DESTRUCTIVE — the first call returns a confirmation token and does nothing, then
+# you call again with confirm=<token> (or confirm + trust=true). Set
+# allow_destructive = true on an instance to pre-authorize (skip the prompt).
+#
+# A connection URL is a CREDENTIAL — keep real URLs in the gitignored
+# lodestone.toml (or env-substituted config), never commit them. Example:
+#
+#   [databases.app]
+#   kind = "postgres"                       # postgres | mysql | redis
+#   url  = "postgres://user:pass@localhost/app"
+#   allow_destructive = false
+#
+#   [databases.cache]
+#   kind = "redis"
+#   url  = "redis://127.0.0.1:6379"
+#
+#   [databases.reporting]
+#   kind = "mysql"
+#   url  = "mysql://user:pass@db.internal:3306/reporting"
+# -----------------------------------------------------------------------------
+
+# (no connections configured by default — the database tools stay hidden)

@@ -204,7 +204,7 @@ impl Skill for ArtifactHubSearch {
                 .map(str::trim)
                 .filter(|s| !s.is_empty());
             let key = format!("artifacthub|{limit}|{}|{}", kind.unwrap_or(""), args.query);
-            if let Some(cached) = server.retrieval_get(&key) {
+            if let Some(cached) = server.retrieval_get(&key).await {
                 return Ok(text_result(cached));
             }
             let v = search(&server.http, &args.query, kind, limit)

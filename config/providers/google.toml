@@ -27,3 +27,8 @@ no_sandbox = false
 
 # Extra Chrome flags. Env: LODESTONE_CHROME_ARGS (comma-separated)
 args = []
+
+# Max pages (tabs) rendered concurrently on the shared headless browser. Renders
+# beyond this queue for a slot; higher = more throughput under render-heavy load
+# at the cost of memory/CPU. Env: LODESTONE_RENDER_CONCURRENCY
+render_concurrency = 4

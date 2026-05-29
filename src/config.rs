@@ -30,12 +30,14 @@ pub struct Config {
     pub google_cse: GoogleCse,
     pub retrieval: Retrieval,
     pub cache: Cache,
+    pub store: Store,
     pub network: Network,
     pub docker: Docker,
     pub kubernetes: Kubernetes,
     pub filesystem: Filesystem,
     pub shell: Shell,
     pub git: Git,
+    pub sysinfo: Sysinfo,
     /// User-defined self-hosted forges, keyed by provider id. Each entry becomes
     /// a keyless code provider (and a `code_<id>` tool) once its id is listed in
     /// `[providers].code`. Example: `[forges.myhost] kind = "gitea", domain =
@@ -45,6 +47,25 @@ pub struct Config {
     /// a keyless `docs` provider (and a `docs_<id>` tool) once its id is listed in
     /// `[providers].docs`. Example: `[docsites.mydocs] domain = "docs.example.com"`.
     pub docsites: HashMap<String, DocSiteInstance>,
+    /// User-defined database connections, keyed by id. Each entry enables the
+    /// database tools (`db_query` / `redis_command`) against it. **Off by default**:
+    /// the tools appear only when at least one is configured. Example:
+    /// `[databases.app] kind = "postgres", url = "postgres://…"`.
+    pub databases: HashMap<String, DatabaseInstance>,
+}
+
+/// A user-configured database connection for the database skills.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct DatabaseInstance {
+    /// Engine: "postgres", "mysql", or "redis".
+    pub kind: String,
+    /// Connection URL, e.g. "postgres://user:pass@host/db", "mysql://…",
+    /// "redis://host:6379". A URL is a credential — never logged or committed.
+    pub url: String,
+    /// Pre-authorize writes/DDL (SQL) and write/admin commands (Redis), skipping the
+    /// per-call confirmation prompt. Off by default.
+    pub allow_destructive: bool,
 }
 
 /// A user-configured self-hosted code forge (GitLab or Gitea/Codeberg layout).
@@ -79,16 +100,22 @@ pub struct Tools {
     /// arxiv_search, arxiv_get, hf_search, hf_model, wikipedia_search,
     /// wikipedia_summary, kernel_releases, json_query, json_format, yaml_to_json,
     /// json_to_yaml, regex_search, regex_replace, math_eval, math_solve,
-    /// convert_units, list_providers, hive_status. Local Docker
+    /// geo_distance, geo_azimuth, wave_frequency, compound_interest, loan_payment,
+    /// currency_convert, convert_units, list_providers, hive_status, hive_peers,
+    /// hive_seeds. Local Docker
     /// daemon (gated by [docker]): docker_ps, docker_images, docker_inspect,
     /// docker_logs, docker_info, docker_pull, docker_run, docker_start,
-    /// docker_stop, docker_remove. Kubernetes (gated by [kubernetes]):
+    /// docker_build, docker_stop, docker_remove, docker_exec, docker_rmi.
+    /// Kubernetes (gated by [kubernetes]):
     /// k8s_contexts, k8s_get, k8s_describe, k8s_logs, k8s_apply, k8s_scale,
     /// k8s_delete. Filesystem (gated by [filesystem], off by default): fs_read,
     /// fs_list, fs_stat, fs_find, fs_write, fs_edit, fs_mkdir, fs_delete, fs_move.
     /// Shell (gated by [shell], off by default): shell_run. Git (gated by [git]):
-    /// git_run. Plus per-provider <kind>_<id> tools (e.g. docs_cratesio, docs_react,
-    /// docs_kubernetes).
+    /// git_run. System info (gated by [sysinfo]): system_info, system_disks,
+    /// system_gpu. Databases (gated by [databases], off until one is configured):
+    /// db_list, db_query, redis_command. Caching: cache_status (always on), plus
+    /// store_fetch, store_get, store_list, store_purge (gated by [store]). Plus
+    /// per-provider <kind>_<id> tools (e.g. docs_cratesio, docs_react, docs_kubernetes).
     pub enabled: Vec<String>,
     /// Denylist applied after `enabled`; these tools are never exposed.
     pub disabled: Vec<String>,
@@ -113,6 +140,10 @@ pub struct Search {
     /// Per-request HTTP timeout in seconds, shared by every scraping/API call.
     /// A slow source can't dominate latency past this.
     pub timeout_secs: u64,
+    /// In "aggregate" mode, the maximum number of providers queried concurrently
+    /// (the rest queue for a slot). Bounds the outbound-request burst so a wide
+    /// `docs` fan-out doesn't trip engine rate limits. 0 = unlimited.
+    pub max_concurrency: usize,
     /// Optional per-kind overrides of `strategy`/`ranking`. Empty fields inherit
     /// the global values above, so e.g. web/code can `aggregate` while qa stays
     /// `fallback`.
@@ -139,7 +170,7 @@ pub struct CodeSearch {
     pub sites: Vec<String>,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(default)]
 pub struct Google {
     /// Path to a Chrome/Chromium executable for headless rendering. Empty =
@@ -150,6 +181,20 @@ pub struct Google {
     pub no_sandbox: bool,
     /// Extra command-line flags to pass to Chrome.
     pub args: Vec<String>,
+    /// Max pages rendered concurrently on the shared headless browser (renders
+    /// beyond this queue for a slot). Bounds memory/CPU under render-heavy load.
+    pub render_concurrency: usize,
+}
+
+impl Default for Google {
+    fn default() -> Self {
+        Self {
+            chrome_path: String::new(),
+            no_sandbox: false,
+            args: Vec::new(),
+            render_concurrency: 4,
+        }
+    }
 }
 
 /// Opt-in peer-to-peer "hivemind" settings. Disabled by default; when off, the
@@ -208,16 +253,18 @@ impl Default for Network {
     }
 }
 
-/// Local Docker daemon control (`src/docker.rs`). A local-system capability,
-/// separate from the keyless web tools. On by default; mutating-but-safe actions
-/// (pull/run/start) are included, while destructive ones (stop/remove) are hidden
-/// unless `allow_destructive` is set.
+/// Local Docker daemon control (`src/skills/docker.rs`). A local-system capability,
+/// separate from the keyless web tools. On by default. Destructive actions
+/// (`docker_stop`, `docker_remove`) are always exposed but require a per-call
+/// confirmation step (see `skills::guard`); `allow_destructive` pre-authorizes them
+/// (skips the prompt).
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct Docker {
     /// Expose the Docker daemon tools at all.
     pub enabled: bool,
-    /// Also expose the destructive Docker tools (`docker_stop`, `docker_remove`).
+    /// Pre-authorize the destructive Docker tools (`docker_stop`, `docker_remove`),
+    /// skipping the per-call confirmation prompt. Off by default.
     pub allow_destructive: bool,
 }
 
@@ -230,15 +277,17 @@ impl Default for Docker {
     }
 }
 
-/// Kubernetes cluster interaction (`src/k8s.rs`) via the API server (reads your
-/// kubeconfig; no `kubectl`). On by default; safe writes (apply/scale) are
-/// included, while destructive `k8s_delete` is hidden unless `allow_destructive`.
+/// Kubernetes cluster interaction (`src/skills/kubernetes.rs`) via the API server
+/// (reads your kubeconfig; no `kubectl`). On by default; safe writes (apply/scale)
+/// are included. Destructive `k8s_delete` is always exposed but requires a per-call
+/// confirmation step (see `skills::guard`); `allow_destructive` pre-authorizes it.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct Kubernetes {
     /// Expose the Kubernetes tools at all.
     pub enabled: bool,
-    /// Also expose the destructive Kubernetes tools (`k8s_delete`).
+    /// Pre-authorize the destructive Kubernetes tool (`k8s_delete`), skipping the
+    /// per-call confirmation prompt. Off by default.
     pub allow_destructive: bool,
     /// Path to a kubeconfig file. Empty = default (`$KUBECONFIG` / `~/.kube/config`)
     /// or in-cluster credentials.
@@ -263,14 +312,16 @@ impl Default for Kubernetes {
 
 /// Local filesystem read/edit (`src/skills/filesystem.rs`). A powerful, dangerous
 /// capability — **off by default**; the user must explicitly grant it. All paths
-/// are confined to `roots` (default: the working directory), and destructive ops
-/// (`fs_delete`, `fs_move`) are hidden unless `allow_destructive` is also set.
+/// are confined to `roots` (default: the working directory). Destructive ops
+/// (`fs_delete`, `fs_move`) require a per-call confirmation step (see
+/// `skills::guard`); `allow_destructive` pre-authorizes them (skips the prompt).
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
 pub struct Filesystem {
     /// Expose the filesystem tools at all. OFF by default — set to true to grant.
     pub enabled: bool,
-    /// Also expose the destructive tools (`fs_delete`, `fs_move`).
+    /// Pre-authorize the destructive tools (`fs_delete`, `fs_move`), skipping the
+    /// per-call confirmation prompt. Off by default.
     pub allow_destructive: bool,
     /// Allowed base directories; every path must resolve inside one of these
     /// (symlinks resolved). Empty = the server's current working directory only.
@@ -312,15 +363,17 @@ impl Default for Shell {
 }
 
 /// Git CLI skill (`src/skills/git.rs`) — runs the local `git` binary (must be on
-/// PATH). On by default; destructive subcommands (push/reset/clean/rebase/…) are
-/// blocked unless `allow_destructive`.
+/// PATH). On by default; destructive subcommands (push/reset/clean/rebase/…)
+/// require a per-call confirmation step (see `skills::guard`); `allow_destructive`
+/// pre-authorizes them (skips the prompt).
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct Git {
     /// Expose the `git_run` tool.
     pub enabled: bool,
-    /// Allow destructive subcommands (push, reset, clean, rebase, filter-branch,
-    /// gc, prune, reflog). Off by default.
+    /// Pre-authorize destructive subcommands (push, reset, clean, rebase,
+    /// filter-branch, gc, prune, reflog), skipping the per-call confirmation prompt.
+    /// Off by default.
     pub allow_destructive: bool,
     /// Default repository working directory. Empty = the server's working directory.
     pub repo: String,
@@ -339,16 +392,39 @@ impl Default for Git {
     }
 }
 
-#[derive(Debug, Deserialize)]
+/// System-information skills (`src/skills/sysinfo.rs`) — read-only host/CPU/memory/
+/// disk/GPU facts. On by default (read-only); set `enabled = false` to hide them.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct Sysinfo {
+    /// Expose the `system_*` tools.
+    pub enabled: bool,
+}
+
+impl Default for Sysinfo {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct Cache {
-    /// Cache search results in memory so repeated identical queries don't re-hit
-    /// rate-limited engines or burn API quota. Cleared on restart.
+    /// Cache search/retrieval results so repeated identical queries don't re-hit
+    /// rate-limited engines or burn API quota.
     pub enabled: bool,
-    /// Lifetime of each cached result list, in seconds.
+    /// Lifetime of each cached entry, in seconds.
     pub ttl_secs: u64,
-    /// Maximum number of cached entries (memory bound).
+    /// Maximum number of cached entries (in-memory backend bound).
     pub max_entries: usize,
+    /// Cache backend: "memory" (default, process-local, cleared on restart) or
+    /// "redis" (a shared store multiple instances point at). On redis-connect
+    /// failure the server falls back to the in-memory backend.
+    pub backend: String,
+    /// Redis connection URL when `backend = "redis"`, e.g.
+    /// "redis://127.0.0.1:6379". A URL is a credential — prefer the env var
+    /// `LODESTONE_CACHE_REDIS_URL`; never logged or committed.
+    pub redis_url: String,
 }
 
 impl Default for Cache {
@@ -357,6 +433,34 @@ impl Default for Cache {
             enabled: true,
             ttl_secs: 300,
             max_entries: 512,
+            backend: "memory".to_string(),
+            redis_url: String::new(),
+        }
+    }
+}
+
+/// On-disk file store (`src/store.rs`) for fetched bytes (repo files, PDFs, rendered
+/// pages). **Off by default** — it writes to disk. The `store_*` tools manage it.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct Store {
+    /// Enable the on-disk file store and its `store_*` tools.
+    pub enabled: bool,
+    /// Directory for stored files. Empty = `./.lodestone-store`.
+    pub dir: String,
+    /// Entry lifetime in seconds (0 = no expiry).
+    pub ttl_secs: u64,
+    /// Total byte budget; the oldest entries are evicted past it (0 = unbounded).
+    pub max_bytes: u64,
+}
+
+impl Default for Store {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            dir: String::new(),
+            ttl_secs: 86_400,
+            max_bytes: 512 * 1024 * 1024,
         }
     }
 }
@@ -474,14 +578,17 @@ impl Default for Config {
             google_cse: GoogleCse::default(),
             retrieval: Retrieval::default(),
             cache: Cache::default(),
+            store: Store::default(),
             network: Network::default(),
             docker: Docker::default(),
             kubernetes: Kubernetes::default(),
             filesystem: Filesystem::default(),
             shell: Shell::default(),
             git: Git::default(),
+            sysinfo: Sysinfo::default(),
             forges: HashMap::new(),
             docsites: HashMap::new(),
+            databases: HashMap::new(),
         }
     }
 }
@@ -502,6 +609,7 @@ impl Default for Search {
             engine_weights: std::collections::HashMap::new(),
             trusted_domains: Vec::new(),
             timeout_secs: 25,
+            max_concurrency: 8,
             web: KindSearch::default(),
             code: KindSearch::default(),
             qa: KindSearch::default(),
@@ -618,6 +726,11 @@ impl Config {
                 self.search.timeout_secs = n;
             }
         }
+        if let Ok(n) = std::env::var("LODESTONE_SEARCH_MAX_CONCURRENCY") {
+            if let Ok(n) = n.trim().parse::<usize>() {
+                self.search.max_concurrency = n;
+            }
+        }
         if let Some(sites) = env_list("LODESTONE_CODE_SITES") {
             self.code.sites = sites;
         }
@@ -629,6 +742,11 @@ impl Config {
         }
         if let Some(args) = env_list("LODESTONE_CHROME_ARGS") {
             self.google.args = args;
+        }
+        if let Ok(n) = std::env::var("LODESTONE_RENDER_CONCURRENCY") {
+            if let Ok(n) = n.trim().parse::<usize>() {
+                self.google.render_concurrency = n;
+            }
         }
         if let Ok(url) = std::env::var("LODESTONE_SEARXNG_URL") {
             self.searxng.url = url;
@@ -663,6 +781,28 @@ impl Config {
         if let Ok(n) = std::env::var("LODESTONE_CACHE_MAX_ENTRIES") {
             if let Ok(n) = n.trim().parse::<usize>() {
                 self.cache.max_entries = n;
+            }
+        }
+        if let Ok(v) = std::env::var("LODESTONE_CACHE_BACKEND") {
+            self.cache.backend = v;
+        }
+        if let Ok(v) = std::env::var("LODESTONE_CACHE_REDIS_URL") {
+            self.cache.redis_url = v;
+        }
+        if let Ok(v) = std::env::var("LODESTONE_STORE_ENABLED") {
+            self.store.enabled = is_truthy(&v);
+        }
+        if let Ok(v) = std::env::var("LODESTONE_STORE_DIR") {
+            self.store.dir = v;
+        }
+        if let Ok(n) = std::env::var("LODESTONE_STORE_TTL_SECS") {
+            if let Ok(n) = n.trim().parse::<u64>() {
+                self.store.ttl_secs = n;
+            }
+        }
+        if let Ok(n) = std::env::var("LODESTONE_STORE_MAX_BYTES") {
+            if let Ok(n) = n.trim().parse::<u64>() {
+                self.store.max_bytes = n;
             }
         }
         if let Ok(v) = std::env::var("LODESTONE_NETWORK_ENABLED") {
@@ -738,6 +878,9 @@ impl Config {
         }
         if let Ok(v) = std::env::var("LODESTONE_GIT_REPO") {
             self.git.repo = v;
+        }
+        if let Ok(v) = std::env::var("LODESTONE_SYSINFO_ENABLED") {
+            self.sysinfo.enabled = is_truthy(&v);
         }
         // Accept the conventional GITHUB_TOKEN as well as our namespaced var.
         if let Ok(token) =

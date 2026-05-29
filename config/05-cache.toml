@@ -6,10 +6,13 @@
 # per-provider) keyed by the normalized query, so repeated identical searches
 # don't re-hit rate-limited engines or burn StackExchange/GitHub quota. Retrieval
 # tools (fetch_page, render_page, fetch_repo_file, wayback_fetch,
-# qa_stackoverflow_answers) are cached too, in a separate in-memory store keyed by
-# the request (so it never enters peer digests). Both use the settings below.
-# In-memory only — cleared on restart, holds no secrets, and only successful
-# (non-empty) results are stored.
+# qa_stackoverflow_answers) are cached too, in a separate store keyed by the
+# request (so it never enters peer digests). Both use the settings below. Holds no
+# secrets, and only successful (non-empty) results are stored.
+#
+# Two backends: "memory" (default, process-local, cleared on restart) and "redis"
+# (a shared store several instances can point at, so a result cached by one is
+# served by all). On redis-connect failure the server falls back to memory.
 # -----------------------------------------------------------------------------
 
 [cache]
@@ -17,5 +20,12 @@
 enabled = true
 # How long a cached result list stays fresh, in seconds. Env: LODESTONE_CACHE_TTL_SECS
 ttl_secs = 300
-# Maximum number of cached entries (memory bound). Env: LODESTONE_CACHE_MAX_ENTRIES
+# Maximum number of cached entries (in-memory backend bound). Env: LODESTONE_CACHE_MAX_ENTRIES
 max_entries = 512
+
+# Backend: "memory" (default) or "redis". Env: LODESTONE_CACHE_BACKEND
+backend = "memory"
+# Redis URL when backend = "redis", e.g. "redis://127.0.0.1:6379". A URL can carry
+# credentials — prefer the env var and never commit a real one.
+# Env: LODESTONE_CACHE_REDIS_URL
+redis_url = ""

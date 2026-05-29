@@ -52,3 +52,21 @@ truth — the README and CONTRIBUTING link here rather than restating them.
    the `src/` root. Data-source `SearchProvider`s remain under
    [`src/providers/`](../src/providers/); skills may build on them. The paradigm is
    uniform: adding a capability means adding a skill module, not editing `main.rs`.
+
+8. **Destructive actions never fire unguarded.** Any tool that deletes, removes,
+   overwrites, or otherwise makes a hard-to-reverse change must do **exactly one** of
+   the following before it acts — never just run:
+   1. **Prompt the user** for confirmation (e.g. MCP elicitation where the client
+      supports it), or
+   2. **Be disabled** — gated off by config so it isn't exposed at all (golden rule
+      5; e.g. `[filesystem].enabled` off by default), or
+   3. **Go through a guard challenge** — route through the confirmation
+      [`guard`](../src/skills/guard.rs): the first call performs nothing and returns a
+      one-time `confirm` token; a second call with that token executes (and
+      `trust=true` whitelists the action for the session).
+
+   The guard (option 3) is the default and is client-agnostic by design — it must
+   **not** depend on MCP elicitation, since some clients (e.g. LM Studio) don't
+   support it. A family's `allow_destructive` flag pre-authorizes the action (skips
+   the prompt) but is never required for the tool to exist. Destructive tools are
+   exposed and gated at *call time*, not silently hidden.

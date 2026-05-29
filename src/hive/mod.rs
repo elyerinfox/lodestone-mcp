@@ -9,13 +9,21 @@
 //! / local truth. Only hashes of query keys cross the wire — never raw queries —
 //! and responses carry only cached search results (public web data), never
 //! secrets.
+//!
+//! **File sharing** (`/hive/blob`): when the on-disk file store is enabled, the
+//! digest's Bloom also advertises the store's entry hashes, and a peer can pull a
+//! cached file's raw bytes by hash. This lets a PDF/file one node downloaded
+//! (arXiv, IETF, …) be served from the mesh instead of every node re-hitting the
+//! rate-limited source. Blobs are addressed by hash (the raw URL never crosses the
+//! wire), served only if the `[network].token` matches, and carry no consensus — a
+//! consumer that gets unusable bytes simply re-fetches from the authoritative source.
 
 mod bloom;
 mod mdns;
 
-pub(crate) use bloom::hash_key;
+pub(crate) use bloom::{hash_bytes, hash_key};
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -65,6 +73,38 @@ pub(crate) struct QueryResp {
     pub hits: Vec<SearchResult>,
 }
 
+/// A request for a shared blob, addressed by its hash (never the raw key/URL —
+/// only hashes cross the wire). Used by both `/hive/blob` and `/hive/blobinfo`.
+#[derive(Debug, Serialize, Deserialize)]
+pub(crate) struct BlobReq {
+    pub key: String,
+}
+
+/// `/hive/blobinfo` response: the **content hash** of a held blob (cheap — no
+/// bytes), so a consumer can corroborate it across peers before trusting any bytes.
+#[derive(Debug, Serialize, Deserialize)]
+pub(crate) struct BlobInfo {
+    pub hash: String,
+    pub size: u64,
+}
+
+/// Per-blob seed accounting (BitTorrent-style): how much we've served to peers vs.
+/// fetched from them. `ratio = served_bytes / fetched_bytes`.
+#[derive(Debug, Default, Clone)]
+pub(crate) struct BlobStat {
+    pub served: u64,
+    pub fetched: u64,
+    pub served_bytes: u64,
+    pub fetched_bytes: u64,
+}
+
+impl BlobStat {
+    /// served/fetched bytes ratio; `None` until we've fetched it at least once.
+    pub fn ratio(&self) -> Option<f64> {
+        (self.fetched_bytes > 0).then(|| self.served_bytes as f64 / self.fetched_bytes as f64)
+    }
+}
+
 /// One peer's response to a consult.
 pub(crate) struct PeerHit {
     pub url: String,
@@ -74,6 +114,9 @@ pub(crate) struct PeerHit {
 
 struct Peer {
     url: String,
+    /// The peer's self-reported stable node id (machine-derived), once we've seen
+    /// its digest. Used as a human-readable, machine-unique identity in reports.
+    node_id: Option<String>,
     bloom: Option<BloomFilter>,
     reputation: f64,
     misses: u32,
@@ -85,6 +128,7 @@ impl Peer {
     fn with_reputation(url: String, reputation: f64) -> Self {
         Self {
             url,
+            node_id: None,
             bloom: None,
             reputation,
             misses: 0,
@@ -103,15 +147,30 @@ pub(crate) struct Hive {
     node_id: String,
     http: Client,
     cache: Arc<TtlCache>,
+    /// Optional on-disk file store, shared over the mesh as raw bytes so a PDF/file
+    /// one node fetched (arXiv, IETF, …) can be served to peers instead of every
+    /// node re-hitting the rate-limited source.
+    store: Option<Arc<crate::store::FileStore>>,
+    /// Optional retrieval-output cache (page/PDF/doc text), also shared as blobs so
+    /// work one node did isn't repeated by every node. All behind the digest Bloom.
+    retrieval: Option<Arc<TtlCache>>,
     peers: Mutex<HashMap<String, Peer>>,
+    /// Per-blob seed accounting (served vs. fetched), keyed by blob hash.
+    seeds: Mutex<HashMap<String, BlobStat>>,
     /// Reputations loaded from `state_file` at startup; seeds peers as they appear.
     loaded_reps: HashMap<String, f64>,
 }
 
 impl Hive {
-    /// Build the hive from config and the shared result cache. Seeds the static
-    /// peer list; mDNS (if enabled) adds more at runtime.
-    pub(crate) fn new(cfg: &NetworkConfig, cache: Arc<TtlCache>) -> Arc<Self> {
+    /// Build the hive from config, the shared result cache, and (optionally) the
+    /// file store whose bytes it will also share. Seeds the static peer list; mDNS
+    /// (if enabled) adds more at runtime.
+    pub(crate) fn new(
+        cfg: &NetworkConfig,
+        cache: Arc<TtlCache>,
+        store: Option<Arc<crate::store::FileStore>>,
+        retrieval: Option<Arc<TtlCache>>,
+    ) -> Arc<Self> {
         let node_id = if cfg.node_id.trim().is_empty() {
             random_id()
         } else {
@@ -136,7 +195,10 @@ impl Hive {
             node_id,
             http,
             cache,
+            store,
+            retrieval,
             peers: Mutex::new(peers),
+            seeds: Mutex::new(HashMap::new()),
             loaded_reps,
         })
     }
@@ -162,10 +224,17 @@ impl Hive {
         presented.is_some_and(|t| ct_eq(t.as_bytes(), self.cfg.token.as_bytes()))
     }
 
-    /// Build this node's digest from the live cache keys, plus a bounded sample of
-    /// known peers so neighbors can discover the wider mesh (gossip).
-    pub(crate) fn digest(&self) -> Digest {
-        let keys = self.cache.keys();
+    /// Build this node's digest: a Bloom filter over everything it can serve — the
+    /// live search-cache keys **and** the file-store entry hashes — plus a bounded
+    /// sample of known peers so neighbors can discover the wider mesh (gossip).
+    pub(crate) async fn digest(&self) -> Digest {
+        let mut keys = self.cache.keys();
+        if let Some(store) = &self.store {
+            keys.extend(store.hashes().await);
+        }
+        if let Some(ret) = &self.retrieval {
+            keys.extend(ret.keys());
+        }
         let peers: Vec<String> = {
             let table = self.peers.lock().unwrap();
             table.keys().take(MAX_GOSSIP_PEERS).cloned().collect()
@@ -177,6 +246,178 @@ impl Hive {
             bloom: BloomFilter::from_keys(&keys),
             peers,
         }
+    }
+
+    /// Serve a shared blob by hash for the `/hive/blob` endpoint: a file-store entry
+    /// (raw bytes), else a retrieval-cache entry (text as bytes). Both are keyed by
+    /// the same hash space advertised in the digest Bloom.
+    pub(crate) async fn blob_lookup(&self, key_hash: &str) -> Option<Vec<u8>> {
+        if let Some(store) = &self.store {
+            if let Some(bytes) = store.get_by_hash(key_hash).await {
+                return Some(bytes);
+            }
+        }
+        if let Some(ret) = &self.retrieval {
+            if let Some(text) = ret.get(key_hash) {
+                return Some(text.into_bytes());
+            }
+        }
+        None
+    }
+
+    /// The content hash + size of a held blob (for `/hive/blobinfo`), so peers can
+    /// corroborate *what* we'd serve before any bytes move.
+    pub(crate) async fn blob_content_hash(&self, key_hash: &str) -> Option<BlobInfo> {
+        let bytes = self.blob_lookup(key_hash).await?;
+        Some(BlobInfo {
+            hash: hash_bytes(&bytes),
+            size: bytes.len() as u64,
+        })
+    }
+
+    /// Record that we served `len` bytes of `key` to a peer (seed accounting).
+    pub(crate) fn record_served(&self, key: &str, len: usize) {
+        let mut m = self.seeds.lock().unwrap();
+        let e = m.entry(key.to_string()).or_default();
+        e.served += 1;
+        e.served_bytes += len as u64;
+    }
+
+    fn record_fetched(&self, key: &str, len: usize) {
+        let mut m = self.seeds.lock().unwrap();
+        let e = m.entry(key.to_string()).or_default();
+        e.fetched += 1;
+        e.fetched_bytes += len as u64;
+    }
+
+    /// Seed accounting for one blob hash (served vs. fetched), if tracked.
+    pub(crate) fn seed_for(&self, key_hash: &str) -> Option<BlobStat> {
+        self.seeds.lock().unwrap().get(key_hash).cloned()
+    }
+
+    /// `consult_blob`, given a URL (hashed internally).
+    pub(crate) async fn consult_blob(&self, url: &str) -> Option<Vec<u8>> {
+        self.consult_blob_hash(&hash_key(url)).await
+    }
+
+    /// Pull a shared blob by hash, **anti-tamper**: corroborate first, verify last.
+    ///   1. Ask Bloom-matching peers (rep-sorted) for the blob's *content hash*
+    ///      (`/hive/blobinfo`, no bytes).
+    ///   2. Trust only a content hash that `>= min_agreement` distinct peers agree
+    ///      on — so a lone or malicious peer can't dictate the content. (With the
+    ///      default `min_agreement = 2`, a single holder isn't trusted; raise
+    ///      availability by lowering it to 1.)
+    ///   3. Fetch the bytes from an agreeing peer and verify they hash to the agreed
+    ///      value before accepting; otherwise the caller falls back to the source.
+    pub(crate) async fn consult_blob_hash(&self, key: &str) -> Option<Vec<u8>> {
+        let key = key.to_string();
+        let mut targets: Vec<(String, f64)> = {
+            let peers = self.peers.lock().unwrap();
+            peers
+                .values()
+                .filter(|p| p.bloom.as_ref().is_some_and(|b| b.maybe_contains(&key)))
+                .map(|p| (p.url.clone(), p.reputation))
+                .collect()
+        };
+        if targets.is_empty() {
+            return None;
+        }
+        targets.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        targets.truncate(self.cfg.max_peers.max(1));
+
+        // 1. Gather each candidate's claimed content hash (cheap).
+        let infos: Vec<(String, f64, String)> =
+            futures::future::join_all(targets.iter().map(|(url, rep)| {
+                let http = self.http.clone();
+                let token = self.cfg.token.clone();
+                let key = key.clone();
+                let url = url.clone();
+                let rep = *rep;
+                async move {
+                    blobinfo_peer(&http, &url, &token, &key)
+                        .await
+                        .map(|info| (url, rep, info.hash))
+                }
+            }))
+            .await
+            .into_iter()
+            .flatten()
+            .collect();
+        if infos.is_empty() {
+            return None;
+        }
+
+        // 2. Corroborate: a content hash must be agreed by >= min_agreement distinct
+        //    peers (reputation breaks ties). A lone/disagreeing peer can't win.
+        let min_agree = self.cfg.min_agreement.max(1);
+        let mut tally: HashMap<String, (usize, f64)> = HashMap::new();
+        for (_, rep, h) in &infos {
+            let e = tally.entry(h.clone()).or_insert((0, 0.0));
+            e.0 += 1;
+            e.1 += *rep;
+        }
+        let agreed = tally
+            .into_iter()
+            .filter(|(_, (n, _))| *n >= min_agree)
+            .max_by(|a, b| {
+                a.1 .0.cmp(&b.1 .0).then(
+                    a.1 .1
+                        .partial_cmp(&b.1 .1)
+                        .unwrap_or(std::cmp::Ordering::Equal),
+                )
+            })
+            .map(|(h, _)| h)?;
+
+        // 3. Fetch from an agreeing peer and verify the bytes hash to `agreed`.
+        for (url, _, _) in infos.iter().filter(|(_, _, h)| *h == agreed) {
+            if let Some(bytes) = blob_peer(&self.http, url, &self.cfg.token, &key).await {
+                if !bytes.is_empty() && hash_bytes(&bytes) == agreed {
+                    self.record_fetched(&key, bytes.len());
+                    return Some(bytes);
+                }
+            }
+        }
+        None
+    }
+
+    /// A report of per-blob seed ratios (served vs. fetched bytes), newest-served
+    /// first. Surfaced by the `hive_seeds` tool — BitTorrent-style: how much this
+    /// node has given back to the mesh per file.
+    pub(crate) fn seed_report(&self) -> String {
+        let seeds = self.seeds.lock().unwrap();
+        if seeds.is_empty() {
+            return "No blobs served or fetched yet.".to_string();
+        }
+        let mut entries: Vec<(&String, &BlobStat)> = seeds.iter().collect();
+        entries.sort_by(|a, b| b.1.served_bytes.cmp(&a.1.served_bytes));
+        let (mut ts, mut tf) = (0u64, 0u64);
+        let mut out = format!("Blob seed accounting ({} tracked):\n", entries.len());
+        for (hash, s) in &entries {
+            ts += s.served_bytes;
+            tf += s.fetched_bytes;
+            let ratio = s
+                .ratio()
+                .map(|r| format!("{r:.2}"))
+                .unwrap_or_else(|| "∞".to_string());
+            out.push_str(&format!(
+                "\n  {hash}\n    served {}× ({}), fetched {}× ({}), ratio {ratio}",
+                s.served,
+                crate::util::human_size(s.served_bytes),
+                s.fetched,
+                crate::util::human_size(s.fetched_bytes),
+            ));
+        }
+        let overall = if tf > 0 {
+            format!("{:.2}", ts as f64 / tf as f64)
+        } else {
+            "∞".to_string()
+        };
+        out.push_str(&format!(
+            "\n\nTotal: served {}, fetched {}, overall ratio {overall}",
+            crate::util::human_size(ts),
+            crate::util::human_size(tf),
+        ));
+        out
     }
 
     /// Answer a peer's query: our cached hits for `key_hash`, if any.
@@ -439,6 +680,7 @@ impl Hive {
                         p.bloom = Some(d.bloom);
                         p.misses = 0;
                         p.known = d.peers;
+                        p.node_id = Some(d.node_id);
                     }
                 }
                 Ok(_) => {
@@ -516,8 +758,9 @@ impl Hive {
                 "unreachable"
             };
             out.push_str(&format!(
-                "  {} [{status}] reputation {:.2}{}\n",
+                "  {} [{status}] id {} reputation {:.2}{}\n",
                 p.url,
+                p.node_id.as_deref().unwrap_or("?"),
                 p.reputation,
                 if p.misses > 0 {
                     format!(" misses {}", p.misses)
@@ -527,6 +770,61 @@ impl Hive {
             ));
             if !p.known.is_empty() {
                 out.push_str(&format!("      ↳ knows: {}\n", p.known.join(", ")));
+            }
+        }
+        out
+    }
+
+    /// A report of each reachable node and **how many hops away** it is over the
+    /// gossip graph (direct peers = 1 hop; nodes only reachable through a neighbor's
+    /// advertised peer list are 2+). Direct peers also show their machine id,
+    /// reputation, and reachability.
+    pub(crate) fn peers_report(&self) -> String {
+        let peers = self.peers.lock().unwrap();
+        if peers.is_empty() {
+            return format!("Hivemind node {} — no known peers.\n", self.node_id);
+        }
+        // BFS over the URL graph: self → direct peers (hop 1) → their `known` (hop 2+).
+        let mut dist: HashMap<String, u32> = HashMap::new();
+        let mut queue: VecDeque<String> = VecDeque::new();
+        for url in peers.keys() {
+            dist.insert(url.clone(), 1);
+            queue.push_back(url.clone());
+        }
+        while let Some(u) = queue.pop_front() {
+            let d = dist[&u];
+            if let Some(p) = peers.get(&u) {
+                for n in &p.known {
+                    let n = normalize_base(n);
+                    if !n.is_empty() && !dist.contains_key(&n) {
+                        dist.insert(n.clone(), d + 1);
+                        queue.push_back(n);
+                    }
+                }
+            }
+        }
+        let mut nodes: Vec<(String, u32)> = dist.into_iter().collect();
+        nodes.sort_by(|a, b| a.1.cmp(&b.1).then(a.0.cmp(&b.0)));
+        let mut out = format!(
+            "Hivemind node {} — {} node(s) in reach:\n",
+            self.node_id,
+            nodes.len()
+        );
+        for (url, hops) in nodes {
+            let hop_label = if hops == 1 { "hop" } else { "hops" };
+            match peers.get(&url) {
+                Some(p) => out.push_str(&format!(
+                    "  {url}  ({hops} {hop_label}) id {} reputation {:.2} [{}]\n",
+                    p.node_id.as_deref().unwrap_or("?"),
+                    p.reputation,
+                    if p.reachable() {
+                        "reachable"
+                    } else {
+                        "unreachable"
+                    },
+                )),
+                // A node only seen via a peer's advertised list (not a direct peer).
+                None => out.push_str(&format!("  {url}  ({hops} {hop_label}) via gossip\n")),
             }
         }
         out
@@ -575,6 +873,36 @@ async fn query_peer(
     Ok(body.hits)
 }
 
+/// Fetch a shared blob's raw bytes from one peer, or `None` if it doesn't have it.
+async fn blob_peer(http: &Client, base: &str, token: &str, key: &str) -> Option<Vec<u8>> {
+    let mut req = http.post(format!("{base}/hive/blob")).json(&BlobReq {
+        key: key.to_string(),
+    });
+    if !token.is_empty() {
+        req = req.bearer_auth(token);
+    }
+    let resp = req.send().await.ok()?;
+    if !resp.status().is_success() || resp.status() == reqwest::StatusCode::NO_CONTENT {
+        return None;
+    }
+    resp.bytes().await.ok().map(|b| b.to_vec())
+}
+
+/// Ask one peer for a blob's content hash (cheap, no bytes), or `None`.
+async fn blobinfo_peer(http: &Client, base: &str, token: &str, key: &str) -> Option<BlobInfo> {
+    let mut req = http.post(format!("{base}/hive/blobinfo")).json(&BlobReq {
+        key: key.to_string(),
+    });
+    if !token.is_empty() {
+        req = req.bearer_auth(token);
+    }
+    let resp = req.send().await.ok()?;
+    if !resp.status().is_success() || resp.status() == reqwest::StatusCode::NO_CONTENT {
+        return None;
+    }
+    resp.json().await.ok()
+}
+
 async fn fetch_digest(http: &Client, base: &str, token: &str) -> anyhow::Result<Digest> {
     let mut req = http.get(format!("{base}/hive/digest"));
     if !token.is_empty() {
@@ -614,6 +942,20 @@ fn now_secs() -> u64 {
         .unwrap_or(0)
 }
 
+/// A **stable**, machine-derived default node id: the OS machine GUID (else the
+/// hostname, else a random fallback), mixed with the bind port so two instances on
+/// one host stay distinct yet each is stable across restarts. Hashed + truncated.
+/// Used when `[network].node_id` isn't set explicitly.
+pub(crate) fn default_node_id(bind: &str) -> String {
+    let machine = machine_uid::get()
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .or_else(::sysinfo::System::host_name)
+        .unwrap_or_else(random_id);
+    let port = bind.rsplit(':').next().unwrap_or("");
+    hash_key(&format!("{machine}:{port}"))[..16].to_string()
+}
+
 /// A best-effort unique node id derived from process start time + pid (not
 /// security-sensitive — used to skip ourselves during discovery).
 fn random_id() -> String {
@@ -635,7 +977,7 @@ mod tests {
             min_agreement,
             ..NetworkConfig::default()
         };
-        Hive::new(&cfg, Arc::new(TtlCache::new(60, 64)))
+        Hive::new(&cfg, Arc::new(TtlCache::new(60, 64)), None, None)
     }
 
     fn hit(url: &str) -> SearchResult {
@@ -709,7 +1051,7 @@ mod tests {
             state_file: path_str.clone(),
             ..NetworkConfig::default()
         };
-        let hive = Hive::new(&cfg, Arc::new(TtlCache::new(60, 64)));
+        let hive = Hive::new(&cfg, Arc::new(TtlCache::new(60, 64)), None, None);
         hive.persist_reputations();
         let loaded = load_reputations(&path_str);
         assert_eq!(loaded.get("http://a.example:8000").copied(), Some(0.5));
@@ -731,5 +1073,29 @@ mod tests {
         // though the entry is cached.
         let me = hive.node_id().to_string();
         assert!(hive.answer_query(key, 1, &[me]).await.is_empty());
+    }
+
+    #[test]
+    fn blob_stat_ratio_and_content_hash() {
+        let mut s = BlobStat::default();
+        assert!(s.ratio().is_none()); // nothing fetched yet
+        s.fetched_bytes = 100;
+        s.served_bytes = 250;
+        assert_eq!(s.ratio(), Some(2.5)); // served 2.5× what we fetched
+
+        // Content hash is deterministic and payload-sensitive (tamper detection).
+        assert_eq!(hash_bytes(b"hello"), hash_bytes(b"hello"));
+        assert_ne!(hash_bytes(b"hello"), hash_bytes(b"hellp"));
+    }
+
+    #[test]
+    fn records_seed_accounting() {
+        let hive = hive_with(2);
+        hive.record_fetched("k", 1000);
+        hive.record_served("k", 1000);
+        hive.record_served("k", 1000);
+        let s = hive.seed_for("k").unwrap();
+        assert_eq!((s.served, s.fetched), (2, 1));
+        assert_eq!(s.ratio(), Some(2.0)); // gave back 2× what we took
     }
 }

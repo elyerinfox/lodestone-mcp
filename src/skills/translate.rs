@@ -116,7 +116,7 @@ impl Skill for Translate {
             }
             let from = args.from.as_deref().map(str::trim).unwrap_or("auto");
             let key = format!("translate|{from}|{to}|{}", args.text);
-            if let Some(cached) = server.retrieval_get(&key) {
+            if let Some(cached) = server.retrieval_get(&key).await {
                 return Ok(text_result(cached));
             }
             let t = translate(&server.http, &args.text, to, from)
@@ -151,7 +151,7 @@ impl Skill for DetectLanguage {
         Box::pin(async move {
             let (server, args) = ctx.parse::<DetectLanguageArgs>()?;
             let key = format!("detect|{}", args.text);
-            if let Some(cached) = server.retrieval_get(&key) {
+            if let Some(cached) = server.retrieval_get(&key).await {
                 return Ok(text_result(cached));
             }
             let t = translate(&server.http, &args.text, "en", "auto")

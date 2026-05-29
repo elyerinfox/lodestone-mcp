@@ -109,7 +109,7 @@ impl Skill for StandardsSearch {
                 publisher.unwrap_or(""),
                 args.query
             );
-            if let Some(cached) = server.retrieval_get(&key) {
+            if let Some(cached) = server.retrieval_get(&key).await {
                 return Ok(text_result(cached));
             }
 

@@ -187,14 +187,234 @@ fn solve(equation: &str) -> Result<String, String> {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Geo: great-circle distance and azimuth (bearing) between two coordinates.
+// ---------------------------------------------------------------------------
+
+/// Mean Earth radius (WGS-84 mean), in kilometres.
+const EARTH_RADIUS_KM: f64 = 6371.0088;
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct GeoArgs {
+    /// Latitude of the first point, decimal degrees (−90..90).
+    lat1: f64,
+    /// Longitude of the first point, decimal degrees (−180..180).
+    lon1: f64,
+    /// Latitude of the second point, decimal degrees (−90..90).
+    lat2: f64,
+    /// Longitude of the second point, decimal degrees (−180..180).
+    lon2: f64,
+}
+
+fn valid_coord(lat: f64, lon: f64) -> bool {
+    (-90.0..=90.0).contains(&lat) && (-180.0..=180.0).contains(&lon) && lat.is_finite()
+}
+
+/// Great-circle distance (haversine) in kilometres.
+fn haversine_km(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
+    let (p1, p2) = (lat1.to_radians(), lat2.to_radians());
+    let dphi = (lat2 - lat1).to_radians();
+    let dlam = (lon2 - lon1).to_radians();
+    let a = (dphi / 2.0).sin().powi(2) + p1.cos() * p2.cos() * (dlam / 2.0).sin().powi(2);
+    2.0 * EARTH_RADIUS_KM * a.sqrt().asin()
+}
+
+/// Initial bearing (forward azimuth) from point 1 to point 2, degrees 0..360.
+fn azimuth_deg(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
+    let (p1, p2) = (lat1.to_radians(), lat2.to_radians());
+    let dlam = (lon2 - lon1).to_radians();
+    let y = dlam.sin() * p2.cos();
+    let x = p1.cos() * p2.sin() - p1.sin() * p2.cos() * dlam.cos();
+    (y.atan2(x).to_degrees() + 360.0) % 360.0
+}
+
+/// 16-point compass label for a bearing.
+fn compass(deg: f64) -> &'static str {
+    const PTS: [&str; 16] = [
+        "N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW",
+        "NW", "NNW",
+    ];
+    PTS[((deg / 22.5).round() as usize) % 16]
+}
+
+pub struct GeoDistance;
+impl Skill for GeoDistance {
+    fn name(&self) -> &'static str {
+        "geo_distance"
+    }
+    fn description(&self) -> &'static str {
+        "Great-circle (haversine) distance between two lat/lon coordinates, in km and miles. Local, \
+        no network. Coordinates are decimal degrees."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<GeoArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (_server, a) = ctx.parse::<GeoArgs>()?;
+            if !valid_coord(a.lat1, a.lon1) || !valid_coord(a.lat2, a.lon2) {
+                return Err(invalid(
+                    "coordinates out of range (lat −90..90, lon −180..180)",
+                ));
+            }
+            let km = haversine_km(a.lat1, a.lon1, a.lat2, a.lon2);
+            Ok(text_result(format!(
+                "({}, {}) → ({}, {})\n  distance: {} km ({} mi)",
+                a.lat1,
+                a.lon1,
+                a.lat2,
+                a.lon2,
+                fmt_num((km * 1e3).round() / 1e3),
+                fmt_num((km * 0.621371 * 1e3).round() / 1e3),
+            )))
+        })
+    }
+}
+
+pub struct GeoAzimuth;
+impl Skill for GeoAzimuth {
+    fn name(&self) -> &'static str {
+        "geo_azimuth"
+    }
+    fn description(&self) -> &'static str {
+        "Initial bearing (forward azimuth) from the first lat/lon to the second, in degrees \
+        (0=N, 90=E) with a compass label. Also reports the back azimuth. Local, no network."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<GeoArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (_server, a) = ctx.parse::<GeoArgs>()?;
+            if !valid_coord(a.lat1, a.lon1) || !valid_coord(a.lat2, a.lon2) {
+                return Err(invalid(
+                    "coordinates out of range (lat −90..90, lon −180..180)",
+                ));
+            }
+            let fwd = azimuth_deg(a.lat1, a.lon1, a.lat2, a.lon2);
+            let back = azimuth_deg(a.lat2, a.lon2, a.lat1, a.lon1);
+            Ok(text_result(format!(
+                "({}, {}) → ({}, {})\n  azimuth: {}° ({})\n  back azimuth: {}° ({})",
+                a.lat1,
+                a.lon1,
+                a.lat2,
+                a.lon2,
+                fmt_num((fwd * 100.0).round() / 100.0),
+                compass(fwd),
+                fmt_num((back * 100.0).round() / 100.0),
+                compass(back),
+            )))
+        })
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Wave: frequency ↔ wavelength ↔ period (v = f·λ).
+// ---------------------------------------------------------------------------
+
+/// Speed of light in vacuum, m/s (default wave speed).
+const SPEED_OF_LIGHT: f64 = 299_792_458.0;
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct WaveArgs {
+    /// Frequency in hertz. Give exactly one of `frequency_hz` or `wavelength_m`.
+    #[serde(default)]
+    frequency_hz: Option<f64>,
+    /// Wavelength in metres. Give exactly one of `frequency_hz` or `wavelength_m`.
+    #[serde(default)]
+    wavelength_m: Option<f64>,
+    /// Wave speed in m/s. Omit for the speed of light (use ~343 for sound in air).
+    #[serde(default)]
+    speed_m_s: Option<f64>,
+}
+
+/// SI-scale a value with a unit (e.g. 1.2e6 Hz → "1.2 MHz").
+fn si(value: f64, unit: &str) -> String {
+    let abs = value.abs();
+    let (scaled, prefix) = if abs >= 1e9 {
+        (value / 1e9, "G")
+    } else if abs >= 1e6 {
+        (value / 1e6, "M")
+    } else if abs >= 1e3 {
+        (value / 1e3, "k")
+    } else if abs >= 1.0 || abs == 0.0 {
+        (value, "")
+    } else if abs >= 1e-3 {
+        (value * 1e3, "m")
+    } else if abs >= 1e-6 {
+        (value * 1e6, "µ")
+    } else {
+        (value * 1e9, "n")
+    };
+    format!("{} {prefix}{unit}", fmt_num((scaled * 1e6).round() / 1e6))
+}
+
+pub struct WaveFrequency;
+impl Skill for WaveFrequency {
+    fn name(&self) -> &'static str {
+        "wave_frequency"
+    }
+    fn description(&self) -> &'static str {
+        "Convert between a wave's frequency, wavelength, and period using v = f·λ (local, no \
+        network). Give exactly one of frequency_hz or wavelength_m; speed_m_s defaults to the speed \
+        of light (set ~343 for sound in air). Returns frequency, wavelength, and period."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<WaveArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (_server, a) = ctx.parse::<WaveArgs>()?;
+            let v = a.speed_m_s.unwrap_or(SPEED_OF_LIGHT);
+            if v <= 0.0 {
+                return Err(invalid("speed_m_s must be positive"));
+            }
+            let (freq, wavelength) = match (a.frequency_hz, a.wavelength_m) {
+                (Some(f), None) if f > 0.0 => (f, v / f),
+                (None, Some(w)) if w > 0.0 => (v / w, w),
+                (Some(_), Some(_)) => {
+                    return Err(invalid("give only one of frequency_hz / wavelength_m"))
+                }
+                _ => return Err(invalid("give a positive frequency_hz or wavelength_m")),
+            };
+            let period = 1.0 / freq;
+            Ok(text_result(format!(
+                "wave (speed {} m/s):\n  frequency:  {}\n  wavelength: {}\n  period:     {}",
+                fmt_num(v),
+                si(freq, "Hz"),
+                si(wavelength, "m"),
+                si(period, "s"),
+            )))
+        })
+    }
+}
+
 /// The skills this module contributes.
 pub fn skills() -> Vec<Box<dyn Skill>> {
-    vec![Box::new(MathEval), Box::new(MathSolve)]
+    vec![
+        Box::new(MathEval),
+        Box::new(MathSolve),
+        Box::new(GeoDistance),
+        Box::new(GeoAzimuth),
+        Box::new(WaveFrequency),
+    ]
 }
 
 #[cfg(test)]
 mod tests {
-    use super::solve;
+    use super::{azimuth_deg, compass, haversine_km, solve};
+
+    #[test]
+    fn geo_distance_and_azimuth() {
+        // London → Paris: great-circle ≈ 343 km, initial bearing ≈ 148°.
+        let km = haversine_km(51.5074, -0.1278, 48.8566, 2.3522);
+        assert!((km - 343.0).abs() < 6.0, "distance was {km}");
+        let az = azimuth_deg(51.5074, -0.1278, 48.8566, 2.3522);
+        assert!((az - 148.0).abs() < 6.0, "azimuth was {az}");
+        assert_eq!(compass(0.0), "N");
+        assert_eq!(compass(90.0), "E");
+        assert_eq!(compass(180.0), "S");
+    }
 
     #[test]
     fn solves_linear() {

@@ -58,7 +58,9 @@ min_agreement = 2
 # can't fabricate corroboration.
 relay_hops = 1
 
-# Stable node id. Empty = a random id generated per process.
+# Stable node id. Empty = derived from the OS machine id (machine-uid; falls back
+# to hostname, else random) mixed with the bind port — stable across restarts and
+# distinct per instance on one host. Set explicitly to override.
 # Env: LODESTONE_NETWORK_NODE_ID
 node_id = ""
 

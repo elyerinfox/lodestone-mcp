@@ -6,3 +6,7 @@
 # Personal overrides, layered on top of the committed config/ baseline. May hold
 # machine-specific paths or tokens, so it's not committed.
 /lodestone.toml
+
+# On-disk file store ([store]) and any test store dirs — runtime data, not source.
+/.lodestone-store/
+/.store-test/

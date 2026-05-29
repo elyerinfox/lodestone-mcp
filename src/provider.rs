@@ -182,6 +182,10 @@ pub struct Registry {
     plan_docs: KindPlan,
     cache: Option<Arc<TtlCache>>,
     hive: Option<Arc<Hive>>,
+    /// Max providers queried concurrently in aggregate mode (0 = unlimited). Bounds
+    /// the burst of outbound requests so a wide `docs` fan-out doesn't trip engine
+    /// rate limits.
+    max_concurrency: usize,
     /// Per-engine quality weights for the composite ranker (default 1.0).
     weights: HashMap<String, f64>,
     /// Extra trusted domains given an authority boost (composite ranker).
@@ -224,9 +228,21 @@ impl Registry {
             plan_docs: plan(&cfg.search.docs),
             cache,
             hive,
+            max_concurrency: cfg.search.max_concurrency,
             weights: cfg.search.engine_weights.clone(),
             trusted: cfg.search.trusted_domains.clone(),
         }
+    }
+
+    /// Number of live entries in the shared search cache, if caching is on.
+    pub fn cache_len(&self) -> Option<usize> {
+        self.cache.as_ref().map(|c| c.keys().len())
+    }
+
+    /// The hivemind handle, if the network is enabled — lets skills consult peers
+    /// for shared file blobs (e.g. cached PDFs).
+    pub(crate) fn hive(&self) -> Option<Arc<Hive>> {
+        self.hive.clone()
     }
 
     /// Human-readable hivemind graph, or a disabled notice. Surfaced by the
@@ -236,6 +252,31 @@ impl Registry {
             Some(h) => h.graph_report(),
             None => "Hivemind is disabled ([network].enabled = false).".to_string(),
         }
+    }
+
+    /// Per-node hop distances over the mesh, or a disabled notice. Surfaced by the
+    /// `hive_peers` tool.
+    pub fn hive_peers_report(&self) -> String {
+        match &self.hive {
+            Some(h) => h.peers_report(),
+            None => "Hivemind is disabled ([network].enabled = false).".to_string(),
+        }
+    }
+
+    /// Per-blob seed ratios (served vs. fetched), or a disabled notice. Surfaced by
+    /// the `hive_seeds` tool.
+    pub fn hive_seeds_report(&self) -> String {
+        match &self.hive {
+            Some(h) => h.seed_report(),
+            None => "Hivemind is disabled ([network].enabled = false).".to_string(),
+        }
+    }
+
+    /// Seed ratio (served/fetched bytes) for one blob key-hash, if the hive tracks
+    /// it. Used to annotate file-store listings.
+    pub(crate) fn blob_seed_ratio(&self, key_hash: &str) -> Option<(u64, u64, Option<f64>)> {
+        let s = self.hive.as_ref()?.seed_for(key_hash)?;
+        Some((s.served, s.fetched, s.ratio()))
     }
 
     fn chain(&self, kind: ProviderKind) -> &[Arc<dyn SearchProvider>] {
@@ -406,7 +447,12 @@ impl Registry {
     ) -> (Vec<SearchResult>, String) {
         // Source every provider in parallel: each runs on its own task so both
         // network I/O and (CPU-bound) HTML parsing overlap across the runtime's
-        // worker threads, rather than being polled on a single task.
+        // worker threads, rather than being polled on a single task. A semaphore
+        // caps how many run *at once* so a wide fan-out (e.g. ~20 doc sites, each
+        // hitting DuckDuckGo) doesn't burst past engine rate limits; tasks beyond
+        // the cap queue for a permit. `max_concurrency == 0` means unlimited.
+        let sem = (self.max_concurrency > 0)
+            .then(|| Arc::new(tokio::sync::Semaphore::new(self.max_concurrency)));
         let handles: Vec<_> = self
             .chain(kind)
             .iter()
@@ -414,7 +460,13 @@ impl Registry {
                 let provider = Arc::clone(provider);
                 let http = http.clone();
                 let query = query.clone();
+                let sem = sem.clone();
                 tokio::spawn(async move {
+                    // Hold a permit (if a cap is set) for the provider's whole call.
+                    let _permit = match sem {
+                        Some(s) => s.acquire_owned().await.ok(),
+                        None => None,
+                    };
                     let id = provider.id();
                     match provider.search(&http, &query).await {
                         Ok(results) => (id, results),

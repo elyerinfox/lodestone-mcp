@@ -1,0 +1,24 @@
+# =============================================================================
+# config/15-store.toml — on-disk file store (off by default)
+# =============================================================================
+#
+# A key-addressed store for fetched bytes (repo files, PDFs, rendered pages) so
+# they can be reused without re-downloading. OFF by default — it writes to disk.
+# When enabled, these tools manage it: store_fetch (download + cache a URL),
+# store_get, store_list, store_purge. The cache_status tool (always available)
+# reports the in-memory caches plus this store.
+#
+# Retention is enforced on write: entries older than ttl_secs are dropped, then the
+# oldest are evicted until the total is under max_bytes.
+# -----------------------------------------------------------------------------
+
+[store]
+# Enable the file store and its store_* tools. Env: LODESTONE_STORE_ENABLED
+enabled = false
+# Directory for stored files. Empty = ./.lodestone-store. Env: LODESTONE_STORE_DIR
+dir = ""
+# Entry lifetime in seconds (0 = no expiry). Env: LODESTONE_STORE_TTL_SECS
+ttl_secs = 86400
+# Total byte budget; oldest entries evicted past it (0 = unbounded).
+# Env: LODESTONE_STORE_MAX_BYTES
+max_bytes = 536870912

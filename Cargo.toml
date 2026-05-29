@@ -52,3 +52,18 @@ meval = "0.2"
 roxmltree = "0.20"
 # POSIX-style command tokenizer for the shell skill's allowlist (exec without a shell).
 shell-words = "1"
+# Build a tar of a Docker build context (docker_build); bytes for the build body.
+tar = "0.4"
+bytes = "1"
+# Optional shared cache backend: a Redis store multiple instances can share.
+# Only used when [cache].backend = "redis"; the default is the in-memory cache.
+redis = { version = "0.27", default-features = false, features = ["tokio-comp", "connection-manager"] }
+# System-information skill: cross-platform host/CPU/memory/disk (Linux /proc, Windows
+# via the OS APIs). GPU stats via NVML (loaded at runtime; absent = graceful error).
+sysinfo = "0.32"
+nvml-wrapper = "0.10"
+# Stable per-machine id for the hivemind node identity (OS machine GUID).
+machine-uid = "0.5"
+# Database client skills: PostgreSQL + MySQL via sqlx (Redis reuses the `redis`
+# crate above). Only used when a [databases.*] instance is configured.
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "mysql", "chrono"] }

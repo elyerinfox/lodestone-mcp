@@ -15,11 +15,14 @@ pub mod archive;
 pub mod artifacthub;
 pub mod arxiv;
 pub mod data;
+pub mod databases;
 pub mod datetime;
 pub mod docker;
 pub mod filesystem;
+pub mod finance;
 pub mod git;
 pub mod github;
+pub mod guard;
 pub mod huggingface;
 pub mod kernel;
 pub mod kubernetes;
@@ -32,6 +35,8 @@ pub mod rfc;
 pub mod search;
 pub mod shell;
 pub mod standards;
+pub mod store;
+pub mod sysinfo;
 pub mod translate;
 pub mod units;
 pub mod wikipedia;
@@ -121,11 +126,15 @@ fn all_skills() -> Vec<Box<dyn Skill>> {
     skills.extend(filesystem::skills());
     skills.extend(shell::skills());
     skills.extend(git::skills());
+    skills.extend(sysinfo::skills());
+    skills.extend(databases::skills());
+    skills.extend(store::skills());
     skills.extend(datetime::skills());
     skills.extend(translate::skills());
     skills.extend(data::skills());
     skills.extend(regex::skills());
     skills.extend(math::skills());
+    skills.extend(finance::skills());
     skills.extend(units::skills());
     skills.extend(meta::skills());
     skills
@@ -139,49 +148,27 @@ pub fn all_routes(registry: &crate::provider::Registry) -> Vec<ToolRoute<Lodesto
     routes
 }
 
-/// Tool names the current config gates off — each gated family declares its own
-/// tool/destructive names (`docker::TOOL_NAMES`, …), so `main.rs` hardcodes none.
+/// Tool names the current config gates off. A local-system family is hidden in
+/// full only when it's *disabled*; its destructive actions stay exposed and are
+/// gated at **call time** by the confirmation [`guard`] (so any client gets the
+/// "confirm / trust / cancel" prompt, with `allow_destructive` as pre-authorization).
+/// Each family declares its own `TOOL_NAMES`, so `main.rs` hardcodes none.
 pub fn disabled_by_config(cfg: &crate::config::Config) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
-    let mut gate = |enabled: bool, allow_destructive: bool, all: &[&str], destructive: &[&str]| {
+    let mut hide_if_off = |enabled: bool, all: &[&str]| {
         if !enabled {
             out.extend(all.iter().map(|s| s.to_string()));
-        } else if !allow_destructive {
-            out.extend(destructive.iter().map(|s| s.to_string()));
         }
     };
-    gate(
-        cfg.docker.enabled,
-        cfg.docker.allow_destructive,
-        docker::TOOL_NAMES,
-        docker::DESTRUCTIVE_NAMES,
-    );
-    gate(
-        cfg.kubernetes.enabled,
-        cfg.kubernetes.allow_destructive,
-        kubernetes::TOOL_NAMES,
-        kubernetes::DESTRUCTIVE_NAMES,
-    );
-    gate(
-        cfg.filesystem.enabled,
-        cfg.filesystem.allow_destructive,
-        filesystem::TOOL_NAMES,
-        filesystem::DESTRUCTIVE_NAMES,
-    );
-    // Shell is gated solely by `enabled` (no destructive subset; allowlist policy
-    // is enforced at call time).
-    gate(
-        cfg.shell.enabled,
-        true,
-        shell::TOOL_NAMES,
-        shell::DESTRUCTIVE_NAMES,
-    );
-    // Git: gated by `enabled`; destructive subcommands are checked at call time.
-    gate(
-        cfg.git.enabled,
-        true,
-        git::TOOL_NAMES,
-        git::DESTRUCTIVE_NAMES,
-    );
+    hide_if_off(cfg.docker.enabled, docker::TOOL_NAMES);
+    hide_if_off(cfg.kubernetes.enabled, kubernetes::TOOL_NAMES);
+    hide_if_off(cfg.filesystem.enabled, filesystem::TOOL_NAMES);
+    hide_if_off(cfg.shell.enabled, shell::TOOL_NAMES);
+    hide_if_off(cfg.git.enabled, git::TOOL_NAMES);
+    hide_if_off(cfg.sysinfo.enabled, sysinfo::TOOL_NAMES);
+    // Database tools appear only when at least one [databases.<id>] is configured.
+    hide_if_off(!cfg.databases.is_empty(), databases::TOOL_NAMES);
+    // File-store tools are gated by [store] (cache_status stays always-on).
+    hide_if_off(cfg.store.enabled, store::TOOL_NAMES);
     out
 }

@@ -15,14 +15,15 @@ use rmcp::ErrorData as McpError;
 use serde::Deserialize;
 use tokio::process::Command;
 
+use crate::skills::guard::Decision;
 use crate::skills::{schema_for, Skill, SkillCtx};
 use crate::util::truncate_chars;
 use crate::{internal, invalid, text_result};
 
 /// Gating data: the whole tool is gated by `[git].enabled`. Destructive
-/// *subcommands* are checked at call time (not a separate tool), so no entries here.
+/// *subcommands* are confirmed at call time via the [`crate::skills::guard`]
+/// (`[git].allow_destructive` pre-authorizes them).
 pub const TOOL_NAMES: &[&str] = &["git_run"];
-pub const DESTRUCTIVE_NAMES: &[&str] = &[];
 
 /// Subcommands blocked unless `[git].allow_destructive` is set.
 const DESTRUCTIVE_SUBCMDS: &[&str] = &[
@@ -45,6 +46,13 @@ struct GitRunArgs {
     /// Repository working directory. Omit to use `[git].repo` or the server's CWD.
     #[serde(default)]
     repo: Option<String>,
+    /// One-time token from a prior call's confirmation prompt (only needed for a
+    /// destructive subcommand). Omit on the first call.
+    #[serde(default)]
+    confirm: Option<String>,
+    /// With `confirm`, also stop asking for this git subcommand for the rest of the session.
+    #[serde(default)]
+    trust: Option<bool>,
 }
 
 pub struct GitRun;
@@ -55,8 +63,9 @@ impl Skill for GitRun {
     fn description(&self) -> &'static str {
         "Run a git command in a repository (runs the local `git` binary; no shell). Pass the args \
         without the leading `git`, e.g. `status -sb`, `log --oneline -10`, `diff`, `commit -m \
-        \"msg\"`. Destructive subcommands (push/reset/clean/rebase/…) need [git].allow_destructive. \
-        Returns exit code + stdout/stderr."
+        \"msg\"`. Destructive subcommands (push/reset/clean/rebase/…) return a confirmation token on \
+        the first call and do nothing — call again with confirm=<token> to proceed (or confirm + \
+        trust=true to allow that subcommand for the session). Returns exit code + stdout/stderr."
     }
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<GitRunArgs>()
@@ -76,10 +85,18 @@ impl Skill for GitRun {
                 .find(|t| !t.starts_with('-'))
                 .map(|s| s.as_str())
                 .unwrap_or("");
-            if DESTRUCTIVE_SUBCMDS.contains(&subcmd) && !cfg.allow_destructive {
-                return Err(invalid(format!(
-                    "git '{subcmd}' is destructive; set [git].allow_destructive to allow it"
-                )));
+            if DESTRUCTIVE_SUBCMDS.contains(&subcmd) {
+                let summary = format!("git {}", args.args.trim());
+                if let Decision::Challenge(msg) = server.guard.check(
+                    &format!("git:{subcmd}"),
+                    "git_run",
+                    cfg.allow_destructive,
+                    &summary,
+                    args.confirm.as_deref(),
+                    args.trust.unwrap_or(false),
+                ) {
+                    return Ok(text_result(msg));
+                }
             }
 
             let workdir = args

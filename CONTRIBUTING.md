@@ -34,8 +34,14 @@ src/
                  A skill owns its domain logic + arg structs + formatters:
                  search, retrieve, archive, rfc, standards, arxiv, huggingface,
                  wikipedia, kernel, github, oci (Docker Hub + OCI), artifacthub,
-                 docker (daemon), kubernetes, filesystem, shell, git, datetime,
-                 translate, data (JSON/YAML), regex, math, units, meta.
+                 docker (daemon), kubernetes, filesystem, shell, git, sysinfo
+                 (host/CPU/memory/disk/GPU), databases (postgres/mysql/redis),
+                 store (file store + cache_status), datetime, translate, data
+                 (JSON/YAML), regex, math (+ geo/wave), finance (interest/loan/
+                 currency), units, meta. Plus guard: the shared
+                 confirmation gate for destructive actions (confirm-token flow;
+                 client-agnostic, no elicitation needed). The on-disk file store
+                 itself lives in src/store.rs.
   provider.rs    The core interface: SearchProvider trait, ProviderKind,
                  Strategy, SearchQuery, SearchResult, and the Registry that
                  combines providers (fallback chain or aggregate meta-search).

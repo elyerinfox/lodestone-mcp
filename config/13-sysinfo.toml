@@ -1,0 +1,14 @@
+# =============================================================================
+# config/13-sysinfo.toml — system-information skills (read-only)
+# =============================================================================
+#
+# Read-only host facts: OS/kernel/uptime, CPU (model, cores, usage), memory/swap,
+# mounted disks, and NVIDIA GPU stats (via NVML, when present). Cross-platform
+# (Linux /proc + /sys, Windows OS APIs). No writes, so on by default.
+#
+# Tools: system_info, system_disks, system_gpu.
+# -----------------------------------------------------------------------------
+
+[sysinfo]
+# Expose the system_* tools. Env: LODESTONE_SYSINFO_ENABLED
+enabled = true

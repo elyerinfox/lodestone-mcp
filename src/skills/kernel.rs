@@ -41,7 +41,11 @@ impl Skill for KernelReleases {
     }
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
-            let v = releases(&ctx.server.http).await.map_err(internal)?;
+            let server = ctx.server;
+            if let Some(cached) = server.retrieval_get("kernel_releases").await {
+                return Ok(text_result(cached));
+            }
+            let v = releases(&server.http).await.map_err(internal)?;
             let empty = Vec::new();
             let list = v
                 .get("releases")
@@ -71,6 +75,7 @@ impl Skill for KernelReleases {
             if let Some(latest) = v.pointer("/latest_stable/version").and_then(|x| x.as_str()) {
                 out.push_str(&format!("\n\nlatest stable: {latest}"));
             }
+            server.retrieval_put("kernel_releases".to_string(), &out);
             Ok(text_result(out))
         })
     }

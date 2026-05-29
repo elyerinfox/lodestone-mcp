@@ -65,7 +65,7 @@ an active cache even if `[cache].enabled` is false.
 
 ## Endpoints
 
-Mounted only when `[network].enabled`. Both require `Authorization: Bearer
+Mounted only when `[network].enabled`. All require `Authorization: Bearer
 <[network].token>` when that token is set (a trust domain separate from the public
 `auth_token`); `/health` and `/mcp` are unaffected.
 
@@ -73,9 +73,55 @@ Mounted only when `[network].enabled`. Both require `Authorization: Bearer
 | --- | --- | --- | --- |
 | `GET` | `/hive/digest` | — | `{ node_id, generation, count, bloom: { m, k, bits }, peers: [...] }` |
 | `POST` | `/hive/query` | `{ "key": "<hash>", "ttl"?: n, "seen"?: [ids] }` | `{ "hits": [...] }` or `204` |
+| `POST` | `/hive/blob` | `{ "key": "<hash>" }` | raw bytes (`application/octet-stream`) or `204` |
+| `POST` | `/hive/blobinfo` | `{ "key": "<hash>" }` | `{ "hash": "<content-hash>", "size": n }` or `204` |
 
 `ttl`/`seen` are optional (default 0 / empty) — a plain `{ "key": … }` works and
 just disables relay for that request.
+
+## File sharing (blobs)
+
+When the on-disk file store (`[store]`) is enabled, the digest's Bloom filter also
+advertises the **file-store entry hashes**, and peers can pull a cached file's raw
+bytes via `POST /hive/blob` (addressed by `hash_key(url)` — the raw URL never crosses
+the wire). `read_pdf` and `store_fetch` resolve a URL as **local store → a hive peer
+that has it → the source** (caching the result), so a PDF/file one node fetched
+(arXiv, IETF, …) is served from the mesh instead of every node re-hitting the
+rate-limited source. The retrieval *text* cache is shared the same way (also behind
+the Bloom), so parsed page/RFC/doc text one node produced isn't recomputed by every node.
+
+### Anti-tampering
+
+A peer could serve corrupted or malicious bytes, so blobs are **corroborated, then
+verified** before they're trusted:
+
+1. The consumer asks Bloom-matching peers for the blob's **content hash** only
+   (`POST /hive/blobinfo`, no bytes).
+2. It trusts a content hash only when **`>= [network].min_agreement` distinct peers
+   agree** on it (reputation breaks ties) — the same anti-poisoning gate as search
+   results, so a lone or malicious peer can't dictate content. With the default
+   `min_agreement = 2`, a single holder is *not* trusted (the consumer falls back to
+   the source); lower it to `1` to favor availability over corroboration.
+3. It fetches the bytes from an agreeing peer and checks they hash to the agreed
+   value (`hash_bytes`) before accepting; on any mismatch it re-fetches from the
+   authoritative source.
+
+The content hash is a deterministic 128-bit FNV digest (same family as the key
+hashes), so every honest node computes the same value for identical bytes.
+
+### Seed accounting
+
+Each node tracks, per blob hash, how many bytes it has **served** to peers vs.
+**fetched** from them (`served_bytes / fetched_bytes` = a BitTorrent-style *seed
+ratio*). Surfaced by the `hive_seeds` tool and shown per file in `store_list`.
+
+### Node identity
+
+Each node has a stable id derived from the **OS machine id** (`machine-uid`; falls
+back to hostname, else random) mixed with the bind port — so two instances on one
+host stay distinct, yet each is stable across restarts. Peers record each other's id
+from their digests; `hive_status`/`hive_peers` show it. Override with
+`[network].node_id`.
 
 ## Configuration
 

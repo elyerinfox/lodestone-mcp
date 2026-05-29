@@ -139,6 +139,10 @@ impl Skill for ArxivSearch {
         Box::pin(async move {
             let (server, args) = ctx.parse::<ArxivSearchArgs>()?;
             let limit = clamp(args.max_results, 8, 25);
+            let cache_key = format!("arxiv_search|{limit}|{}", args.query.trim());
+            if let Some(cached) = server.retrieval_get(&cache_key).await {
+                return Ok(text_result(cached));
+            }
             let max = limit.to_string();
             let search = format!("all:{}", args.query);
             let entries = fetch(
@@ -177,6 +181,7 @@ impl Skill for ArxivSearch {
                     truncate_chars(&e.summary, 280)
                 ));
             }
+            server.retrieval_put(cache_key, &out);
             Ok(text_result(out))
         })
     }
@@ -201,6 +206,10 @@ impl Skill for ArxivGet {
             if id.is_empty() {
                 return Err(invalid(format!("not an arXiv id: '{}'", args.id)));
             }
+            let cache_key = format!("arxiv_get|{id}");
+            if let Some(cached) = server.retrieval_get(&cache_key).await {
+                return Ok(text_result(cached));
+            }
             let entries = fetch(
                 &server.http,
                 &[("id_list", id.as_str()), ("max_results", "1")],
@@ -224,6 +233,7 @@ impl Skill for ArxivGet {
                 "  PDF (read_pdf for full text): {}\n\n{}",
                 e.pdf_url, e.summary
             ));
+            server.retrieval_put(cache_key, &out);
             Ok(text_result(out))
         })
     }
