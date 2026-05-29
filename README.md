@@ -139,39 +139,26 @@ and plug into ~85 named formulas across fields (`physics_formula`, `geometry_for
 - **Data & files** — JSON/YAML/`regex` wrangling, CSV/XLSX read-query-write
   (`sheet_*`), media probe/convert (`ffmpeg_*`), PDFs (`read_pdf` / `webpage_to_pdf`).
 
-### Operating a fleet
-
-- **Constellation** — run several instances with the opt-in
-  [constellation](docs/constellation.md): a result or PDF one node fetched is served to
-  the others (content-verified, hash-only on the wire) — dodging the rate limits of
-  arXiv, IETF, search engines, and friends.
-- **Galaxy** — optionally link constellations across networks through a broker
-  directory (no proxying); see [docs/constellation.md → Galaxy](docs/constellation.md#galaxy--linking-constellations).
-- **Background work** — fan out long searches with `task_run` and collect them later
-  via `task_result` (off by default, `[tasks]`).
-
 The full, exhaustive lists: **[skills](docs/skills.md)** · **[tools](docs/tools.md)**
 · **[providers](docs/providers.md)**.
 
-## Features
+## Operating it
 
-- **Search:** web, source code (multi-forge), documentation & package registries,
-  framework/tooling docs, and Q&A (StackExchange).
-- **Retrieve:** readable page text (HTTP or headless render), repo files, PDFs (read
-  + generate), and Wayback snapshots — with an on-disk file store + cache.
-- **Knowledge (keyless):** GitHub metadata, RFCs, standards (IEEE/SAE/NIST/ISO),
-  arXiv, Hugging Face, Wikipedia, kernel.org.
-- **Containers & cloud-native (keyless):** Docker Hub / OCI registry / Artifact Hub
-  lookups. See [docs/containers.md](docs/containers.md).
-- **Local system:** Docker daemon, Kubernetes, filesystem, shell, git, host/GPU
-  info, and Postgres/MySQL/Redis clients — gated, with destructive actions guarded.
-- **Compute & utilities:** date/time + timezones, translation, JSON/YAML/regex,
-  math/algebra, geo distance/bearing, wave/frequency, finance, currency, units.
-- **Space, markets & science (keyless):** NASA open data, stock/FX quotes, satellite
-  (SGP4) tracking.
-- **Devices (off by default):** raw serial I/O and OS printing.
-- **Resilience & ops:** composite ranking, in-memory/Redis cache + file store,
-  optional bearer auth, and an opt-in peer-to-peer [constellation](docs/constellation.md).
+Beyond what the model *does*, a few things govern how lodestone *runs* (all opt-in /
+defaulted sensibly):
+
+- **Safety & gating** — every tool is independently gateable (`[tools]`); dangerous
+  local-system families are off by default; destructive actions never fire unguarded
+  (a confirm-token handshake). Optional bearer auth on `/mcp`.
+- **Resilience** — composite re-ranking, per-provider timeout + circuit breaker, and
+  multi-route egress (proxy / headless browser) so one blocked source can't stall a
+  search.
+- **Caching** — search and retrieval results cache in-memory (optionally Redis), plus
+  an on-disk file store for fetched bytes.
+- **Scale out** — run several instances as a [constellation](docs/constellation.md)
+  that serves each other's cached results/PDFs (hash-only on the wire), optionally
+  linked across networks by a [galaxy](docs/constellation.md#galaxy--linking-constellations)
+  broker. Long work can run in the background (`task_run` → `task_result`).
 
 ## Quick start
 
