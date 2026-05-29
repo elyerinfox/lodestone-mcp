@@ -38,6 +38,9 @@ Fetch one known thing.
 | `pubmed_summary` | `pmid`, `max_chars?` | A PubMed paper's citation, DOI, link, and abstract text. |
 | `ncbi_search` | `db`, `query`, `max_results?` | Search ANY NCBI database (pmc, gene, protein, nucleotide, snp, clinvar, taxonomy, books, mesh, …) via E-utilities; UIDs + key fields + ncbi.nlm.nih.gov link. |
 | `ncbi_summary` | `db`, `id` | One NCBI record's summary fields + link. |
+| `unpaywall_lookup` | `doi` | Best LEGAL open-access PDF + all OA locations for a DOI (Unpaywall; needs `LODESTONE_CONTACT_EMAIL`). |
+| `openalex_search` | `query`, `max_results?` | Search OpenAlex works: authors/year/venue/DOI + OA PDF link. |
+| `openalex_work` | `id` | One OpenAlex work by DOI or id, with OA status + PDF. |
 | `hf_search` | `query`, `kind?`, `max_results?` | Search the Hugging Face Hub — models (default) or datasets. |
 | `hf_model` | `model` | A Hugging Face model's metadata (downloads, likes, task, license, tags). |
 | `wikipedia_search` | `query`, `lang?`, `max_results?` | Search Wikipedia (MediaWiki API); titles + snippets + URLs. |

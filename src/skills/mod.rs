@@ -33,6 +33,7 @@ pub mod meta;
 pub mod nasa;
 pub mod news;
 pub mod oci;
+pub mod openaccess;
 pub mod printer;
 pub mod pubmed;
 pub mod regex;
@@ -132,6 +133,7 @@ fn all_skills() -> Vec<Box<dyn Skill>> {
     skills.extend(wikipedia::skills());
     skills.extend(news::skills());
     skills.extend(pubmed::skills());
+    skills.extend(openaccess::skills());
     skills.extend(kernel::skills());
     skills.extend(github::skills());
     skills.extend(oci::skills());

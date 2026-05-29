@@ -12,6 +12,11 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `task_cancel`, off by default `[tasks]`): run long work (currently a search) off the
   request path and poll for results — model-polled, so it works on any client
   including LM Studio. Bounded job table with eviction; cancellable.
+- **Open-access skills** (`unpaywall_lookup`, `openalex_search`, `openalex_work`):
+  find *legal* full-text copies of papers — Unpaywall (best OA copy by DOI) and
+  OpenAlex (search/fetch works with OA PDF links) — to feed `read_pdf`. Keyless;
+  Unpaywall needs a contact email (`LODESTONE_CONTACT_EMAIL`). Surfaces only
+  legitimately open-access copies (no paywall circumvention).
 - **PubMed + NCBI skills** (`pubmed_search`, `pubmed_summary`, `ncbi_search`,
   `ncbi_summary`): query NCBI via E-utilities (esearch/esummary/efetch) — the single
   API behind ncbi.nlm.nih.gov. PubMed tools cover the biomedical literature
