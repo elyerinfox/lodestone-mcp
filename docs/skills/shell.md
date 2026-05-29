@@ -18,24 +18,31 @@ inert literals — and an **unrestricted** mode (`allow_unrestricted = true`) wh
 whole command line runs through the system shell (`sh -c` / `cmd /C`): full power,
 full risk. Every run has a timeout (the process is killed) and a working directory.
 
+**Confirmation.** A shell command is arbitrary code, so **every** `shell_run` goes
+through the confirmation guard (golden rule 8): the first call returns a one-time
+token and runs nothing; call again with `confirm=<token>` to execute, or `confirm`
++ `trust=true` to stop prompting for **that exact command** for the session.
+`[shell].allow_destructive = true` pre-authorizes and skips the prompt (not
+recommended).
+
 ## Tools
 | Tool | Arguments | Access | Purpose |
 | --- | --- | --- | --- |
-| `shell_run` | `command`, `workdir?`, `timeout_secs?` | write / **arbitrary exec** | Run a command; returns exit code + stdout/stderr (output truncated to the server char budget). |
+| `shell_run` | `command`, `workdir?`, `timeout_secs?`, `confirm?`, `trust?` | **destructive / arbitrary exec** | Run a command (confirm first); returns exit code + stdout/stderr (output truncated to the server char budget). |
 
 `workdir` defaults to `[shell].workdir` (else the server CWD); `timeout_secs`
 defaults to `[shell].timeout_secs` and is clamped to 1–600.
 
 ## Configuration & gating
-The tool is hidden unless `[shell].enabled = true` — there is no confirmation guard;
-the safety boundary is the gate plus the policy. Keys: `enabled` (expose the tool),
-`allow` (allowlisted program names — matched on the command's first token, by
-basename, case-insensitively; empty + not unrestricted = nothing runs),
-`allow_unrestricted` (run anything via the system shell — full RCE),
+The tool is hidden unless `[shell].enabled = true`, and even then every call confirms
+at call time (see above). Keys: `enabled` (expose the tool), `allow` (allowlisted
+program names — matched on the command's first token, by basename, case-insensitively;
+empty + not unrestricted = nothing runs), `allow_unrestricted` (run anything via the
+system shell — full RCE), `allow_destructive` (skip the per-command prompt),
 `timeout_secs`, and `workdir`. Env: `LODESTONE_SHELL_ENABLED`,
-`LODESTONE_SHELL_ALLOW_UNRESTRICTED` (others follow the `LODESTONE_SHELL_*` pattern).
-Prefer allowlist mode with a tight `allow` list; only set `allow_unrestricted` when
-you fully trust the calling model and host.
+`LODESTONE_SHELL_ALLOW_UNRESTRICTED`, `LODESTONE_SHELL_ALLOW_DESTRUCTIVE` (others
+follow the `LODESTONE_SHELL_*` pattern). Prefer allowlist mode with a tight `allow`
+list; only set `allow_unrestricted` when you fully trust the calling model and host.
 
 ## Example uses
 - **Run a build step (allowlisted)** — with `allow = ["cargo"]`, `shell_run` (`command="cargo build --release"`) executes `cargo` directly.

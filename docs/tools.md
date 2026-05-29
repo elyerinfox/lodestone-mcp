@@ -72,8 +72,10 @@ Full detail: [containers.md](containers.md).
 ## Confirming destructive actions
 
 Destructive tools (`docker_stop`/`docker_remove`/`docker_exec`/`docker_rmi`,
-`k8s_delete`, `fs_delete`/`fs_move`, destructive `git_run` subcommands, and database
-writes via `db_query`/`redis_command`) are **always exposed**, but the first call
+`k8s_delete`, `fs_delete`/`fs_move`, destructive `git_run` subcommands, every
+`shell_run` (arbitrary code), `ffmpeg_convert`, `sheet_write`, `serial_send`,
+`printer_print`, and database writes via `db_query`/`redis_command`) are **always
+exposed** (when their family is enabled), but the first call
 performs nothing: it returns a one-time `confirm` token describing exactly what will
 happen. Call the tool again with `confirm=<token>` to actually run it, or
 `confirm=<token>, trust=true` to also stop being asked for that action for the rest
@@ -146,12 +148,15 @@ rejected. See [`config/10-filesystem.toml`](../config/10-filesystem.toml).
 `shell_run` runs commands on the machine. **Off by default** — the most dangerous
 tool. Gated by `[shell]`: in allowlist mode only programs in `[shell].allow` run
 (executed directly, no shell, so metacharacters are inert); `[shell].allow_unrestricted`
-runs anything via the system shell. Each run has a timeout + working dir. See
+runs anything via the system shell. Because it's arbitrary code, **every call confirms
+at call time** (see above): the first call returns a token and runs nothing; call again
+with `confirm=<token>` (or `confirm` + `trust=true` to whitelist that exact command).
+`[shell].allow_destructive` pre-authorizes. Each run has a timeout + working dir. See
 [`config/11-shell.toml`](../config/11-shell.toml).
 
 | Tool | Arguments | Purpose |
 | --- | --- | --- |
-| `shell_run` | `command`, `workdir?`, `timeout_secs?` | Run a command; returns exit code + stdout/stderr. |
+| `shell_run` | `command`, `workdir?`, `timeout_secs?`, `confirm?`, `trust?` | Run a command (confirm first); returns exit code + stdout/stderr. |
 
 ## Git
 

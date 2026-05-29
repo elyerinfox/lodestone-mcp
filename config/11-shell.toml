@@ -14,15 +14,22 @@
 #       (sh -c / cmd /C). Full power, full risk.
 #   * Every run has a timeout (process killed) and a working directory.
 #
+# CONFIRMATION: a shell command is arbitrary code, so EVERY shell_run is treated as
+# destructive and confirms at call time (golden rule 8) — the first call returns a
+# one-time token and runs nothing; call again with confirm=<token> (or confirm +
+# trust=true to whitelist that exact command for the session). allow_destructive =
+# true pre-authorizes and skips the prompt (NOT recommended for shell).
+#
 # Run behind an MCP host that approves tool calls. Prefer a tight `allow` list.
 # Env: LODESTONE_SHELL_ENABLED, LODESTONE_SHELL_ALLOW_UNRESTRICTED,
-#      LODESTONE_SHELL_ALLOW (comma list), LODESTONE_SHELL_WORKDIR,
-#      LODESTONE_SHELL_TIMEOUT_SECS
+#      LODESTONE_SHELL_ALLOW_DESTRUCTIVE, LODESTONE_SHELL_ALLOW (comma list),
+#      LODESTONE_SHELL_WORKDIR, LODESTONE_SHELL_TIMEOUT_SECS
 # -----------------------------------------------------------------------------
 
 [shell]
 enabled = false            # OFF by default — set true to grant
 allow_unrestricted = false # true = run ANY command via the system shell
+allow_destructive = false  # true = skip the per-command confirmation prompt
 # Allowlisted programs (matched on the command's first token, by basename):
 #   allow = ["git", "cargo", "ls", "cat", "rg"]
 allow = []

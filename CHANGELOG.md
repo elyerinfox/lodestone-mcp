@@ -76,6 +76,12 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **`shell_run` now confirms at call time.** Because a shell command is arbitrary
+  code, every `shell_run` is treated as destructive and routed through the
+  confirmation guard (golden rule 8): the first call returns a one-time token and runs
+  nothing; call again with `confirm=<token>` (or `confirm` + `trust=true` to whitelist
+  that exact command). `[shell].allow_destructive` pre-authorizes. (Still off by
+  default behind `[shell].enabled`.)
 - **Split the `math` module by field** (breaking tool renames): `math_eval` →
   `arithmetic_eval` (new `arithmetic` module), `math_solve` → `algebra_solve` (new
   `algebra` module). `geo_distance`/`geo_azimuth` moved to `geometry` and

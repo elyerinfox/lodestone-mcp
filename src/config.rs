@@ -436,6 +436,11 @@ pub struct Shell {
     /// Allowlisted program names (matched on the command's first token, by
     /// basename, case-insensitively). Empty + not unrestricted = nothing runs.
     pub allow: Vec<String>,
+    /// Pre-authorize execution, skipping the per-call confirmation prompt. Off by
+    /// default: because a shell command is arbitrary code, every `shell_run` is
+    /// treated as destructive and confirms at call time (see `skills::guard`) unless
+    /// this is set.
+    pub allow_destructive: bool,
     /// Per-command timeout in seconds (the process is killed on timeout).
     pub timeout_secs: u64,
     /// Working directory for commands. Empty = the server's working directory.
@@ -448,6 +453,7 @@ impl Default for Shell {
             enabled: false,
             allow_unrestricted: false,
             allow: Vec::new(),
+            allow_destructive: false,
             timeout_secs: 30,
             workdir: String::new(),
         }
@@ -1101,6 +1107,9 @@ impl Config {
         }
         if let Ok(v) = std::env::var("LODESTONE_SHELL_ENABLED") {
             self.shell.enabled = is_truthy(&v);
+        }
+        if let Ok(v) = std::env::var("LODESTONE_SHELL_ALLOW_DESTRUCTIVE") {
+            self.shell.allow_destructive = is_truthy(&v);
         }
         if let Ok(v) = std::env::var("LODESTONE_SHELL_ALLOW_UNRESTRICTED") {
             self.shell.allow_unrestricted = is_truthy(&v);

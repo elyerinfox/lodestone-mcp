@@ -8,6 +8,12 @@
 //! * **Unrestricted** (`[shell].allow_unrestricted`): the whole command runs via
 //!   the system shell (`sh -c` / `cmd /C`) — full power, full risk.
 //!
+//! Because a command is arbitrary code, **every** `shell_run` is treated as
+//! destructive and goes through the confirmation [`guard`](crate::skills::guard):
+//! the first call returns a one-time token and executes nothing; call again with
+//! `confirm=<token>` (or `confirm` + `trust=true` to whitelist that exact command).
+//! `[shell].allow_destructive` pre-authorizes (skips the prompt).
+//!
 //! Each run has a timeout (`kill_on_drop`) and a working directory.
 
 use std::process::Stdio;
@@ -20,6 +26,7 @@ use rmcp::ErrorData as McpError;
 use serde::Deserialize;
 use tokio::process::Command;
 
+use crate::skills::guard::Decision;
 use crate::skills::{schema_for, Skill, SkillCtx};
 use crate::util::truncate_chars;
 use crate::{internal, invalid, text_result};
@@ -56,6 +63,12 @@ struct ShellRunArgs {
     /// configured default; capped at 600.
     #[serde(default)]
     timeout_secs: Option<u32>,
+    /// One-time token from a prior call's confirmation prompt. Omit on the first call.
+    #[serde(default)]
+    confirm: Option<String>,
+    /// With `confirm`, stop prompting for this exact command for the rest of the session.
+    #[serde(default)]
+    trust: Option<bool>,
 }
 
 pub struct ShellRun;
@@ -64,10 +77,12 @@ impl Skill for ShellRun {
         "shell_run"
     }
     fn description(&self) -> &'static str {
-        "Run a shell command on this machine (gated by [shell]; off by default). In allowlist mode \
-        only programs in [shell].allow run, executed directly without a shell; in unrestricted mode \
-        the whole command runs via the system shell. Returns exit code + stdout/stderr. Powerful \
-        and dangerous — runs with the server's privileges."
+        "Run a shell command on this machine (gated by [shell]; off by default). Arbitrary code, so \
+        it always confirms first: the initial call returns a one-time token and runs nothing — call \
+        again with confirm=<token> to execute (or confirm + trust=true to stop prompting for that \
+        exact command). In allowlist mode only programs in [shell].allow run, executed directly \
+        without a shell; in unrestricted mode the whole command runs via the system shell. Returns \
+        exit code + stdout/stderr. Runs with the server's privileges."
     }
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<ShellRunArgs>()
@@ -79,6 +94,20 @@ impl Skill for ShellRun {
             let command = args.command.trim().to_string();
             if command.is_empty() {
                 return Err(invalid("empty command"));
+            }
+            // A shell command is arbitrary code, so every run is treated as
+            // destructive: confirm at call time (keyed by the exact command, so
+            // `trust` whitelists only that command) unless `[shell].allow_destructive`
+            // pre-authorizes. The first call returns a token and runs nothing.
+            if let Decision::Challenge(msg) = server.guard.check(
+                &format!("shell_run|{command}"),
+                "shell_run",
+                cfg.allow_destructive,
+                &format!("run shell command: {command}"),
+                args.confirm.as_deref(),
+                args.trust.unwrap_or(false),
+            ) {
+                return Ok(text_result(msg));
             }
             let secs = args
                 .timeout_secs
