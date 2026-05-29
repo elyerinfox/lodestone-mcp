@@ -653,19 +653,44 @@ async fn main() -> anyhow::Result<()> {
 
     // Constellation: mount peer endpoints and start discovery/sync (opt-in).
     if let Some(h) = &constellation {
-        let bind_port = cfg
-            .bind
-            .rsplit(':')
-            .next()
-            .and_then(|p| p.parse::<u16>().ok())
-            .unwrap_or(0);
-        app = app.merge(constellation_routes(h.clone()));
-        h.clone().start(bind_port);
-        tracing::info!(
-            peers = cfg.network.peers.len(),
-            mdns = cfg.network.mdns,
-            "constellation enabled"
-        );
+        let port_of = |addr: &str| addr.rsplit(':').next().and_then(|p| p.parse::<u16>().ok());
+        let sep_bind = cfg.network.bind.trim();
+        if sep_bind.is_empty() {
+            // Share the MCP listener: mount /constellation/* on the main app.
+            let bind_port = port_of(&cfg.bind).unwrap_or(0);
+            app = app.merge(constellation_routes(h.clone()));
+            h.clone().start(bind_port);
+            tracing::info!(
+                peers = cfg.network.peers.len(),
+                mdns = cfg.network.mdns,
+                "constellation enabled (shares the MCP port)"
+            );
+        } else {
+            // Separate listener: expose ONLY /constellation/* here so this port can be
+            // forwarded (galaxy ingress) without publishing the MCP endpoint.
+            let cbind = sep_bind.to_string();
+            let advertise_port = port_of(&cbind).unwrap_or(0);
+            h.clone().start(advertise_port);
+            let router = constellation_routes(h.clone());
+            tokio::spawn(async move {
+                match tokio::net::TcpListener::bind(&cbind).await {
+                    Ok(l) => {
+                        tracing::info!("constellation listening on http://{cbind}/constellation");
+                        if let Err(e) = axum::serve(l, router).await {
+                            tracing::error!(error = %e, "constellation listener stopped");
+                        }
+                    }
+                    Err(e) => {
+                        tracing::error!(error = %e, bind = %cbind, "constellation bind failed")
+                    }
+                }
+            });
+            tracing::info!(
+                peers = cfg.network.peers.len(),
+                mdns = cfg.network.mdns,
+                "constellation enabled (separate port; MCP not exposed here)"
+            );
+        }
     }
 
     // Galaxy participation (the broker itself is a SEPARATE binary, `lodestone-galaxy`):

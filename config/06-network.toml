@@ -22,6 +22,14 @@
 # Master switch. Env: LODESTONE_NETWORK_ENABLED
 enabled = false
 
+# Optional SEPARATE host:port for the /constellation/* endpoints. Empty = share the
+# main MCP `bind` (top of config). Set this to expose ONLY the constellation — e.g.
+# forward this port publicly as a galaxy `ingress` — without publishing the MCP
+# server itself. Peers advertise this port (see advertise_port below).
+#   bind = "0.0.0.0:8801"
+# Env: LODESTONE_NETWORK_BIND
+bind = ""
+
 # Static peer base URLs (no trailing /). Env: LODESTONE_NETWORK_PEERS (comma-sep)
 #   peers = ["http://10.0.0.2:8000", "http://10.0.0.3:8000"]
 peers = []

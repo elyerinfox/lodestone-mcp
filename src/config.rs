@@ -234,6 +234,10 @@ impl Default for Google {
 pub struct Network {
     /// Master switch for the constellation.
     pub enabled: bool,
+    /// Optional separate host:port for the `/constellation/*` endpoints. Empty =
+    /// share the main MCP `bind`. Set this to expose ONLY the constellation (e.g.
+    /// forward it as a galaxy ingress) without publishing the MCP server itself.
+    pub bind: String,
     /// Static peer base URLs, e.g. ["http://10.0.0.2:8000"].
     pub peers: Vec<String>,
     /// Auto-discover peers on the LAN via mDNS (only runs when `enabled`).
@@ -267,6 +271,7 @@ impl Default for Network {
     fn default() -> Self {
         Self {
             enabled: false,
+            bind: String::new(),
             peers: Vec::new(),
             mdns: true,
             token: String::new(),
@@ -993,6 +998,9 @@ impl Config {
             if let Ok(n) = n.trim().parse::<u64>() {
                 self.store.max_bytes = n;
             }
+        }
+        if let Ok(v) = std::env::var("LODESTONE_NETWORK_BIND") {
+            self.network.bind = v;
         }
         if let Ok(v) = std::env::var("LODESTONE_NETWORK_ENABLED") {
             self.network.enabled = is_truthy(&v);

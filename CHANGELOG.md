@@ -53,6 +53,10 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Constellation can listen on its own port** (`[network].bind`): when set, the
+  `/constellation/*` endpoints serve on a separate listener so you can forward *only*
+  that port (e.g. as a galaxy ingress) without exposing the `/mcp` server. Empty
+  (default) keeps them merged on the main bind. Peers advertise this port.
 - **Renamed the "hivemind" to the "constellation"** throughout (module
   `src/constellation`, the `constellation_status`/`constellation_peers`/
   `constellation_seeds` tools, the `/constellation/*` peer endpoints, and all docs).
