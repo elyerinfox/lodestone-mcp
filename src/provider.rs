@@ -9,7 +9,8 @@
 //!   re-rank the merged results (a built-in SearXNG-style meta-search).
 
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -190,6 +191,9 @@ pub struct Registry {
     /// dropped so one unresponsive/blocked source can't stall the whole search.
     /// 0 = no deadline.
     provider_timeout: u64,
+    /// Per-provider circuit breaker (None when disabled): trips a source that keeps
+    /// failing so it's skipped fast instead of re-waiting the deadline every call.
+    breakers: Option<Arc<Breakers>>,
     /// Per-engine quality weights for the composite ranker (default 1.0).
     weights: HashMap<String, f64>,
     /// Extra trusted domains given an authority boost (composite ranker).
@@ -234,6 +238,12 @@ impl Registry {
             hive,
             max_concurrency: cfg.search.max_concurrency,
             provider_timeout: cfg.search.provider_timeout_secs,
+            breakers: (cfg.search.breaker_threshold > 0).then(|| {
+                Arc::new(Breakers::new(
+                    cfg.search.breaker_threshold,
+                    cfg.search.breaker_cooldown_secs,
+                ))
+            }),
             weights: cfg.search.engine_weights.clone(),
             trusted: cfg.search.trusted_domains.clone(),
         }
@@ -337,7 +347,14 @@ impl Registry {
         if let Some(hits) = self.cache_get(&key) {
             return hits;
         }
-        let results = search_budgeted(provider.as_ref(), http, query, self.provider_timeout).await;
+        let results = search_budgeted(
+            provider.as_ref(),
+            http,
+            query,
+            self.provider_timeout,
+            self.breakers.as_deref(),
+        )
+        .await;
         self.cache_put(&key, &results);
         results
     }
@@ -424,8 +441,14 @@ impl Registry {
         query: &SearchQuery,
     ) -> (Vec<SearchResult>, String) {
         for provider in self.chain(kind) {
-            let results =
-                search_budgeted(provider.as_ref(), http, query, self.provider_timeout).await;
+            let results = search_budgeted(
+                provider.as_ref(),
+                http,
+                query,
+                self.provider_timeout,
+                self.breakers.as_deref(),
+            )
+            .await;
             if results.is_empty() {
                 tracing::debug!(
                     provider = provider.id(),
@@ -462,6 +485,7 @@ impl Registry {
                 let http = http.clone();
                 let query = query.clone();
                 let sem = sem.clone();
+                let breakers = self.breakers.clone();
                 tokio::spawn(async move {
                     // Hold a permit (if a cap is set) for the provider's whole call.
                     let _permit = match sem {
@@ -469,7 +493,14 @@ impl Registry {
                         None => None,
                     };
                     let id = provider.id();
-                    let results = search_budgeted(provider.as_ref(), &http, &query, budget).await;
+                    let results = search_budgeted(
+                        provider.as_ref(),
+                        &http,
+                        &query,
+                        budget,
+                        breakers.as_deref(),
+                    )
+                    .await;
                     (id, results)
                 })
             })
@@ -540,22 +571,31 @@ impl Registry {
     }
 }
 
-/// Run one provider with an optional per-provider deadline. A provider that
-/// times out or errors yields an empty result set (logged) rather than stalling
-/// or aborting the whole search — so one unresponsive/blocked source is simply
-/// dropped. `budget_secs == 0` disables the deadline.
+/// Run one provider with an optional per-provider deadline and circuit breaker.
+/// A provider that times out or errors yields an empty result set (logged) rather
+/// than stalling or aborting the whole search — so one unresponsive/blocked source
+/// is simply dropped. When `breakers` is set, a tripped provider is skipped without
+/// a network call, and timeouts/errors feed the breaker so a persistently failing
+/// source fails fast. `budget_secs == 0` disables the deadline.
 async fn search_budgeted(
     provider: &dyn SearchProvider,
     http: &Client,
     query: &SearchQuery,
     budget_secs: u64,
+    breakers: Option<&Breakers>,
 ) -> Vec<SearchResult> {
     let id = provider.id();
+    if let Some(b) = breakers {
+        if b.is_open(id) {
+            tracing::debug!(provider = id, "circuit open; skipping provider");
+            return Vec::new();
+        }
+    }
     let run = provider.search(http, query);
     let outcome = if budget_secs == 0 {
         run.await
     } else {
-        match tokio::time::timeout(std::time::Duration::from_secs(budget_secs), run).await {
+        match tokio::time::timeout(Duration::from_secs(budget_secs), run).await {
             Ok(res) => res,
             Err(_) => {
                 tracing::warn!(
@@ -563,15 +603,98 @@ async fn search_budgeted(
                     secs = budget_secs,
                     "provider timed out; dropped"
                 );
+                if let Some(b) = breakers {
+                    b.record_failure(id);
+                }
                 return Vec::new();
             }
         }
     };
     match outcome {
-        Ok(results) => results,
+        Ok(results) => {
+            // Any reachable response (even empty "no results") clears the streak.
+            if let Some(b) = breakers {
+                b.record_success(id);
+            }
+            results
+        }
         Err(e) => {
             tracing::warn!(provider = id, error = %e, "provider failed");
+            if let Some(b) = breakers {
+                b.record_failure(id);
+            }
             Vec::new()
+        }
+    }
+}
+
+/// Per-provider circuit breaker. Tracks consecutive *reachability* failures
+/// (timeouts / transport / parse errors) per provider id; once `threshold` is hit,
+/// the provider is skipped until `cooldown` elapses — so a source actively blocking
+/// this egress IP fails fast instead of burning the per-provider deadline on every
+/// call. Any successful response (including an empty result set) resets the streak.
+struct Breakers {
+    threshold: u32,
+    cooldown: Duration,
+    state: Mutex<HashMap<&'static str, BreakerState>>,
+}
+
+#[derive(Default)]
+struct BreakerState {
+    failures: u32,
+    open_until: Option<Instant>,
+}
+
+impl Breakers {
+    fn new(threshold: u32, cooldown_secs: u64) -> Self {
+        Self {
+            threshold,
+            cooldown: Duration::from_secs(cooldown_secs),
+            state: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// True if `id` is currently tripped and its cooldown hasn't elapsed. Once the
+    /// cooldown passes the breaker resets to closed, so the next call probes the
+    /// source (half-open): if it fails again the breaker simply re-trips.
+    fn is_open(&self, id: &str) -> bool {
+        let mut state = self.state.lock().unwrap();
+        let Some(s) = state.get_mut(id) else {
+            return false;
+        };
+        match s.open_until {
+            Some(until) if Instant::now() < until => true,
+            Some(_) => {
+                s.failures = 0;
+                s.open_until = None;
+                false
+            }
+            None => false,
+        }
+    }
+
+    /// Record a reachable response: clears the failure streak and closes the breaker.
+    fn record_success(&self, id: &'static str) {
+        let mut state = self.state.lock().unwrap();
+        if let Some(s) = state.get_mut(id) {
+            s.failures = 0;
+            s.open_until = None;
+        }
+    }
+
+    /// Record a reachability failure; trips the breaker once the threshold is hit.
+    fn record_failure(&self, id: &'static str) {
+        let mut state = self.state.lock().unwrap();
+        let s = state.entry(id).or_default();
+        s.failures = s.failures.saturating_add(1);
+        if s.failures >= self.threshold && s.open_until.is_none() {
+            s.open_until = Some(Instant::now() + self.cooldown);
+            tracing::warn!(
+                provider = id,
+                failures = s.failures,
+                cooldown_secs = self.cooldown.as_secs(),
+                "circuit breaker opened; skipping provider during cooldown"
+            );
         }
     }
 }
@@ -1030,5 +1153,34 @@ mod tests {
         )];
         let out = merge(per, 10, Ranking::Composite, &tc.ctx());
         assert_eq!(out[0].url, "https://x.com/b");
+    }
+
+    #[test]
+    fn breaker_trips_after_threshold_and_resets_on_success() {
+        // Threshold 3, long cooldown so it stays open until we reset it.
+        let b = Breakers::new(3, 600);
+        assert!(!b.is_open("ddg"));
+        b.record_failure("ddg");
+        b.record_failure("ddg");
+        // Below threshold: still closed.
+        assert!(!b.is_open("ddg"));
+        b.record_failure("ddg");
+        // Threshold reached: tripped.
+        assert!(b.is_open("ddg"));
+        // A reachable response closes it again and clears the streak.
+        b.record_success("ddg");
+        assert!(!b.is_open("ddg"));
+        // Other providers are unaffected.
+        assert!(!b.is_open("mojeek"));
+    }
+
+    #[test]
+    fn breaker_cooldown_expiry_reopens_for_a_probe() {
+        // Zero cooldown: the moment it trips, the window is already past, so the
+        // next is_open() check half-opens (resets) and lets a probe through.
+        let b = Breakers::new(1, 0);
+        b.record_failure("ddg");
+        // Cooldown of 0 means open_until is already <= now → treated as elapsed.
+        assert!(!b.is_open("ddg"));
     }
 }

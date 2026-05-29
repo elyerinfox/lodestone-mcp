@@ -155,6 +155,14 @@ pub struct Search {
     /// is dropped from the result set so one unresponsive/blocked source can't stall
     /// the whole search. Bounded by `timeout_secs`. 0 = no per-provider deadline.
     pub provider_timeout_secs: u64,
+    /// Circuit breaker: after this many consecutive failures (timeout or transport/
+    /// parse error) a provider is "tripped" and skipped for `breaker_cooldown_secs`,
+    /// so a source actively blocking this egress IP fails fast instead of burning the
+    /// per-provider deadline on every call. 0 = breaker disabled.
+    pub breaker_threshold: u32,
+    /// How long (seconds) a tripped provider stays skipped before a single probe is
+    /// allowed through again. Only meaningful when `breaker_threshold > 0`.
+    pub breaker_cooldown_secs: u64,
     /// Optional per-kind overrides of `strategy`/`ranking`. Empty fields inherit
     /// the global values above, so e.g. web/code can `aggregate` while qa stays
     /// `fallback`.
@@ -684,6 +692,8 @@ impl Default for Search {
             timeout_secs: 25,
             max_concurrency: 8,
             provider_timeout_secs: 10,
+            breaker_threshold: 5,
+            breaker_cooldown_secs: 60,
             web: KindSearch::default(),
             code: KindSearch::default(),
             qa: KindSearch::default(),
@@ -808,6 +818,16 @@ impl Config {
         if let Ok(n) = std::env::var("LODESTONE_SEARCH_PROVIDER_TIMEOUT_SECS") {
             if let Ok(n) = n.trim().parse::<u64>() {
                 self.search.provider_timeout_secs = n;
+            }
+        }
+        if let Ok(n) = std::env::var("LODESTONE_SEARCH_BREAKER_THRESHOLD") {
+            if let Ok(n) = n.trim().parse::<u32>() {
+                self.search.breaker_threshold = n;
+            }
+        }
+        if let Ok(n) = std::env::var("LODESTONE_SEARCH_BREAKER_COOLDOWN_SECS") {
+            if let Ok(n) = n.trim().parse::<u64>() {
+                self.search.breaker_cooldown_secs = n;
             }
         }
         if let Some(sites) = env_list("LODESTONE_CODE_SITES") {

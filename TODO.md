@@ -104,7 +104,7 @@ likely involved). Checked items are done; unchecked are open.
   (read-only, on by default); blocking work runs on `spawn_blocking`. Docs + config
   (`config/13-sysinfo.toml`) added.
 
-- [~] **Search resilience: per-provider circuit breaker + latency budget.** Under
+- [x] **Search resilience: per-provider circuit breaker + latency budget.** Under
   sustained scraping, engines start blocking the server's egress IP (DuckDuckGo
   tarpits → connection timeout; Mojeek → 403).
   - **Done (per-provider deadline):** `[search].provider_timeout_secs` (default 10,
@@ -112,12 +112,16 @@ likely involved). Checked items are done; unchecked are open.
     `search_budgeted` (`src/provider.rs`); a provider that doesn't answer in time is
     dropped — in aggregate the other engines still return, in fallback the chain
     moves on — so one unresponsive/blocked source can't stall the whole search.
-  - **Remaining:** (1) a **circuit breaker** — after N consecutive failures/403s/
-    timeouts, cool a provider down for a window and skip it (fail fast instead of
-    re-waiting the deadline every call); (2) a tighter **latency budget** inside
-    `search_raw` — its endpoint rotation + per-endpoint retry can still stack
-    (lite+html × retry) within the deadline; cap total attempts when endpoints are
-    timing out. The `render=true` path is the real bypass (a true browser isn't
+  - **Done (circuit breaker):** `[search].breaker_threshold` (default 5, 0 = off) +
+    `breaker_cooldown_secs` (default 60). After N consecutive failures (timeout or
+    transport/parse error) a provider is tripped and skipped for the cooldown — so a
+    source actively blocking this egress IP fails fast instead of re-waiting the
+    deadline every call. Any reachable response (even empty) resets the streak; after
+    the cooldown one probe is allowed through, re-tripping if it fails again
+    (`Breakers` in `src/provider.rs`, unit-tested).
+  - **Subsumed:** the per-provider deadline already caps the worst case from
+    `search_raw`'s endpoint-rotation + retry stacking, so no separate latency cap was
+    needed. The `render=true` path remains the real bypass (a true browser isn't
     IP-blocked) but needs a working headless Chrome.
 
 - [ ] **SDR skill (RTL-SDR / HackRF).** Not supported yet. Would wrap `rtl-sdr` /

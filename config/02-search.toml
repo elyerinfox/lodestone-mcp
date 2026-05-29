@@ -54,6 +54,16 @@ max_concurrency = 8
 # Env: LODESTONE_SEARCH_PROVIDER_TIMEOUT_SECS
 provider_timeout_secs = 10
 
+# Circuit breaker. After this many consecutive failures (a timeout or a transport/
+# parse error) a provider is "tripped" and skipped entirely for the cooldown below,
+# so a source actively blocking this egress IP fails fast instead of re-waiting the
+# per-provider deadline on every call. Any successful response (even "no results")
+# resets the streak. After the cooldown one probe is allowed through; if it fails,
+# the provider re-trips. 0 = breaker disabled.
+# Env: LODESTONE_SEARCH_BREAKER_THRESHOLD / LODESTONE_SEARCH_BREAKER_COOLDOWN_SECS
+breaker_threshold = 5
+breaker_cooldown_secs = 60
+
 # Optional PER-KIND overrides of strategy/ranking. Empty/unset fields inherit the
 # global values above. Lets you e.g. aggregate web+code for coverage while keeping
 # qa on fallback (so the StackExchange API isn't always hit). Uncomment to use:
