@@ -70,3 +70,29 @@ truth — the README and CONTRIBUTING link here rather than restating them.
    support it. A family's `allow_destructive` flag pre-authorizes the action (skips
    the prompt) but is never required for the tool to exist. Destructive tools are
    exposed and gated at *call time*, not silently hidden.
+
+9. **One tool per method — no hidden auto-selection.** Each distinct
+   methodology, algorithm, or mode is its own explicitly-named tool. A tool must
+   **not** silently fork between genuinely different methods based on an optional
+   argument or an internal heuristic — that hides the choice from the caller and
+   takes the decision away from the model (golden rule 2). Be granular: prefer
+   `forecast_holt_linear` + `forecast_holt_winters` over one `forecast` that guesses
+   from a `season_length`; prefer `hf_model_search` + `hf_dataset_search` over one
+   `hf_search` with a `kind` flag. The method belongs **in the tool name**, so the
+   model picks it by picking the tool and the schema/description can be specific to
+   that one method.
+
+   This is about *distinct methods*, not *targets* or *parameters*. It is **fine**
+   to:
+   - select by an explicit required id where the id *is* the method — a
+     named-formula registry (`physics_formula { name: "kinetic_energy" }`), a
+     resource `kind` in a polymorphic API (`k8s_get`), or a search `strategy` the
+     user sets deliberately;
+   - address different *targets* through one interface when the user names the
+     target — `db_query` runs SQL against whatever the connection URL points to
+     (Postgres/MySQL); the scheme is the user's explicit choice, not a hidden
+     algorithm. (A genuinely different protocol still gets its own tool, e.g.
+     `redis_command`.)
+
+   The test: if a caller would be surprised *which* method ran, split it. If the
+   caller named it (by id, target, or required enum), it's already explicit.

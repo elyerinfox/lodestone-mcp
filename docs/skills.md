@@ -41,7 +41,7 @@ behind the search tools see [providers.md](providers.md).
 | [arxiv](skills/arxiv.md) | `arxiv_search`, `arxiv_get` | arXiv papers (PDF URLs feed `read_pdf`). |
 | [pubmed](skills/pubmed.md) | `pubmed_search`, `pubmed_summary`, `ncbi_search`, `ncbi_summary` | PubMed literature/abstracts + any NCBI database (gene, protein, taxonomy, …) via keyless E-utilities. |
 | [openaccess](skills/openaccess.md) | `unpaywall_lookup`, `openalex_search`, `openalex_work` | Find LEGAL open-access full text by DOI/search (Unpaywall + OpenAlex) → feed `read_pdf`. |
-| [huggingface](skills/huggingface.md) | `hf_search`, `hf_model` | Hugging Face Hub models/datasets. |
+| [huggingface](skills/huggingface.md) | `hf_model_search`, `hf_dataset_search`, `hf_model` | Hugging Face Hub models/datasets. |
 | [wikipedia](skills/wikipedia.md) | `wikipedia_search`, `wikipedia_summary` | Wikipedia search + article text. |
 | [news](skills/news.md) | `news_feed` | Recent items from any RSS/Atom feed (or a built-in shorthand). |
 | [kernel](skills/kernel.md) | `kernel_releases` | Current Linux kernel releases. |

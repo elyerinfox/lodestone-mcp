@@ -265,7 +265,7 @@ likely involved). Checked items are done; unchecked are open.
 
 - [x] **Cache audit + file store + cache-management skills.**
   - **Done (1) Audit:** every networked lookup now caches. `arxiv_search`/`arxiv_get`,
-    `hf_search`/`hf_model`, and `kernel_releases` were missing caching and now route
+    `hf_model_search`/`hf_dataset_search`/`hf_model`, and `kernel_releases` were missing caching and now route
     through the retrieval cache; search/docs/rfc/standards/wikipedia/oci/dockerhub/
     artifacthub/github/translate and the retrieval tools already did. Deliberately
     *not* cached: system-specific/sensitive families (docker/k8s/fs/shell/git/

@@ -92,7 +92,7 @@ tree below is scoped by domain → sub-field → the concrete capability and too
   don't re-download); evaluate/solve expressions (`arithmetic_eval` / `algebra_solve`)
 and plug into ~85 named formulas across fields (`physics_formula`, `geometry_formula`,
 `trig_formula`, …, plus `physical_constant`); pull a
-  model/dataset card from **Hugging Face** (`hf_model` / `hf_search`).
+  model/dataset card from **Hugging Face** (`hf_model` / `hf_model_search` / `hf_dataset_search`).
 - **Engineering & standards** — look up an **IETF RFC** (`rfc_get` / `rfc_search`)
   or an **IEEE / SAE / NIST / ISO** standard (`standards_search`, with DOI links and
   free NIST full text via `read_pdf`); unit conversions across dimensions
@@ -254,7 +254,8 @@ The project's non-negotiable invariants live in
 [docs/golden-rules.md](docs/golden-rules.md): scrape-by-default/render-optional · the
 LLM decides · keyless by default · always parallelize · everything is
 enable/disable-able · every provider/skill is documented · every tool is a
-self-contained skill module · **destructive actions never fire unguarded**.
+self-contained skill module · **destructive actions never fire unguarded** · one
+tool per method (no hidden auto-selection).
 
 ## Disclaimer
 

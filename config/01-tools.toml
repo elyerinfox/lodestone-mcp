@@ -20,7 +20,7 @@
 #        regex_search, regex_replace, math_eval, math_solve, convert_units
 # IETF: rfc_get, rfc_search
 # Standards: standards_search (IEEE/SAE/NIST/ISO/… metadata via Crossref)
-# Research/ML: arxiv_search, arxiv_get, hf_search, hf_model
+# Research/ML: arxiv_search, arxiv_get, hf_model_search, hf_dataset_search, hf_model
 # Reference: wikipedia_search, wikipedia_summary, kernel_releases
 # Filesystem (gated by [filesystem] in 10-filesystem.toml; OFF by default): fs_read,
 #        fs_list, fs_stat, fs_find, fs_write, fs_edit, fs_mkdir, fs_delete, fs_move

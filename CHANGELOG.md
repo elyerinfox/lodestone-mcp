@@ -78,6 +78,13 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **One tool per method (golden rule 9).** New invariant: a tool must not silently
+  pick between distinct methodologies via an optional arg or heuristic — the method
+  goes in the tool name so the model chooses it. Applied by splitting `hf_search`
+  (a `kind` flag) into `hf_model_search` + `hf_dataset_search`. (The `forecast`
+  split above is the same principle.) Targets addressed by an explicit user-supplied
+  id/URL (e.g. `db_query` inferring Postgres/MySQL from the connection scheme) are
+  *not* hidden selection and stay as-is.
 - **Databases are now ad-hoc (no preconfiguration).** Dropped the stored
   `[databases.<id>]` instances and `db_list`; `db_query`/`redis_command` take a
   `connection` URL passed in the call (the credentials the user hands the model),
@@ -169,8 +176,9 @@ required), served over Streamable HTTP at `/mcp`.
 - **arXiv skills** (keyless): `arxiv_search` (search papers) and `arxiv_get` (one
   paper's metadata + abstract). Each result includes the free PDF URL, so `read_pdf`
   retrieves the full text. Atom XML parsed with `roxmltree`.
-- **Hugging Face skills** (keyless): `hf_search` (models or datasets) and `hf_model`
-  (model metadata: downloads, likes, task, library, license, tags).
+- **Hugging Face skills** (keyless): `hf_model_search` and `hf_dataset_search` (each
+  searches one corpus — no hidden mode flag) and `hf_model` (model metadata:
+  downloads, likes, task, library, license, tags).
 - **Standards lookup** (keyless): `standards_search` finds published standards
   (IEEE, SAE, NIST, ISO, ANSI, IEC, …) via the Crossref API — title, publisher,
   type, year, DOI, and a doi.org link (metadata; IEEE/SAE are paywalled, NIST is

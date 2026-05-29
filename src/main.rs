@@ -270,7 +270,7 @@ impl ServerHandler for Lodestone {
                 - standards_search: search published standards (IEEE/SAE/NIST/ISO/…) via Crossref (metadata; \
                 IEEE/SAE paywalled, NIST free).\n\
                 - arxiv_search / arxiv_get: search arXiv papers, or get one by id (free PDF → read_pdf for full text).\n\
-                - hf_search / hf_model: search the Hugging Face Hub (models/datasets) or get a model's metadata.\n\
+                - hf_model_search / hf_dataset_search / hf_model: search the Hugging Face Hub for models or datasets, or get a model's metadata.\n\
                 - wikipedia_search / wikipedia_summary: search Wikipedia, or read an article (lead or full); lang configurable.\n\
                 - kernel_releases: current Linux kernel releases (mainline/stable/longterm) from kernel.org.\n\
                 - qa_search: search the configured Q&A providers (StackExchange network).\n\

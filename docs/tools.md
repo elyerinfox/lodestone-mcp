@@ -41,7 +41,8 @@ Fetch one known thing.
 | `unpaywall_lookup` | `doi` | Best LEGAL open-access PDF + all OA locations for a DOI (Unpaywall; needs `LODESTONE_CONTACT_EMAIL`). |
 | `openalex_search` | `query`, `max_results?` | Search OpenAlex works: authors/year/venue/DOI + OA PDF link. |
 | `openalex_work` | `id` | One OpenAlex work by DOI or id, with OA status + PDF. |
-| `hf_search` | `query`, `kind?`, `max_results?` | Search the Hugging Face Hub — models (default) or datasets. |
+| `hf_model_search` | `query`, `max_results?` | Search the Hugging Face Hub for models (by downloads). |
+| `hf_dataset_search` | `query`, `max_results?` | Search the Hugging Face Hub for datasets (by downloads). |
 | `hf_model` | `model` | A Hugging Face model's metadata (downloads, likes, task, license, tags). |
 | `wikipedia_search` | `query`, `lang?`, `max_results?` | Search Wikipedia (MediaWiki API); titles + snippets + URLs. |
 | `wikipedia_summary` | `title`, `lang?`, `full?`, `max_chars?` | An article's lead summary, or the full plain-text article. |

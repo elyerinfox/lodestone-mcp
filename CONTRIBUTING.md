@@ -17,6 +17,8 @@ uphold all of them; a change that breaks one is wrong by definition. In brief:
 6. Every provider is documented.
 7. Every tool is a self-contained skill module under a common contract (no tool
    logic in `main.rs`).
+8. Destructive actions never fire unguarded (prompt, disable, or guard-challenge).
+9. One tool per method — no hidden auto-selection (the method is in the tool name).
 
 Read [docs/golden-rules.md](docs/golden-rules.md) for the full statement of each.
 

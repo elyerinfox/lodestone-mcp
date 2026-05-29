@@ -1,6 +1,7 @@
-//! Hugging Face Hub skills (keyless): `hf_search` searches models or datasets,
-//! `hf_model` fetches one model's metadata. Uses the public `huggingface.co/api`
-//! JSON endpoints — no token (a token would only be needed for private/gated repos).
+//! Hugging Face Hub skills (keyless): `hf_model_search` and `hf_dataset_search`
+//! each search one corpus (no hidden mode flag); `hf_model` fetches one model's
+//! metadata. Uses the public `huggingface.co/api` JSON endpoints — no token (a
+//! token would only be needed for private/gated repos).
 
 use std::sync::Arc;
 
@@ -36,11 +37,8 @@ fn tag_value<'a>(tags: &'a [Value], prefix: &str) -> Option<&'a str> {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct HfSearchArgs {
-    /// What to search for (model/dataset name or keyword).
+    /// What to search for (name or keyword).
     query: String,
-    /// What to search: "model" (default) or "dataset".
-    #[serde(default)]
-    kind: Option<String>,
     /// Maximum number of results. Default 10, capped at 25.
     #[serde(default)]
     max_results: Option<u32>,
@@ -52,15 +50,62 @@ struct HfModelArgs {
     model: String,
 }
 
-pub struct HfSearch;
-impl Skill for HfSearch {
+/// Search one Hub corpus (`models` or `datasets`), sorted by downloads.
+async fn hf_search(
+    server: &crate::Lodestone,
+    query: &str,
+    max_results: Option<u32>,
+    dataset: bool,
+) -> Result<String, McpError> {
+    let limit = clamp(max_results, 10, 25);
+    let endpoint = if dataset { "datasets" } else { "models" };
+    let cache_key = format!("hf_search|{endpoint}|{limit}|{}", query.trim());
+    if let Some(cached) = server.retrieval_get(&cache_key).await {
+        return Ok(cached);
+    }
+    let url = format!(
+        "https://huggingface.co/api/{endpoint}?search={}&limit={limit}&sort=downloads&direction=-1",
+        urlencoding(query)
+    );
+    let v = api_get(&server.http, &url).await.map_err(internal)?;
+    let empty = Vec::new();
+    let items = v.as_array().unwrap_or(&empty);
+    if items.is_empty() {
+        return Ok(format!("No {endpoint} match: {query}"));
+    }
+    let mut out = format!("Hugging Face {endpoint} for \"{query}\":\n");
+    for it in items.iter().take(limit) {
+        let id = it.get("id").and_then(|x| x.as_str()).unwrap_or("");
+        let downloads = it.get("downloads").and_then(|x| x.as_i64()).unwrap_or(0);
+        let likes = it.get("likes").and_then(|x| x.as_i64()).unwrap_or(0);
+        let link = if dataset {
+            format!("https://huggingface.co/datasets/{id}")
+        } else {
+            format!("https://huggingface.co/{id}")
+        };
+        out.push_str(&format!(
+            "\n{id}\n   {link}\n   ↓ {} · ♥ {}",
+            human_count(downloads),
+            human_count(likes)
+        ));
+        if let Some(task) = it.get("pipeline_tag").and_then(|x| x.as_str()) {
+            out.push_str(&format!(" · {task}"));
+        }
+        out.push('\n');
+    }
+    server.retrieval_put(cache_key, &out);
+    Ok(out)
+}
+
+pub struct HfModelSearch;
+impl Skill for HfModelSearch {
     fn name(&self) -> &'static str {
-        "hf_search"
+        "hf_model_search"
     }
     fn description(&self) -> &'static str {
-        "Search the Hugging Face Hub (keyless) for models or datasets. `kind` is \"model\" \
-        (default) or \"dataset\". Returns id, downloads, likes, and task/pipeline, sorted by \
-        downloads. Use hf_model for one model's details."
+        "Search the Hugging Face Hub for MODELS (keyless). Returns id, downloads, likes, and \
+        task/pipeline, sorted by downloads. Use hf_dataset_search for datasets, or hf_model for \
+        one model's full details."
     }
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<HfSearchArgs>()
@@ -68,52 +113,31 @@ impl Skill for HfSearch {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (server, args) = ctx.parse::<HfSearchArgs>()?;
-            let limit = clamp(args.max_results, 10, 25);
-            let dataset = matches!(
-                args.kind
-                    .as_deref()
-                    .map(str::trim)
-                    .map(str::to_ascii_lowercase)
-                    .as_deref(),
-                Some("dataset") | Some("datasets")
-            );
-            let endpoint = if dataset { "datasets" } else { "models" };
-            let cache_key = format!("hf_search|{endpoint}|{limit}|{}", args.query.trim());
-            if let Some(cached) = server.retrieval_get(&cache_key).await {
-                return Ok(text_result(cached));
-            }
-            let url = format!(
-                "https://huggingface.co/api/{endpoint}?search={}&limit={limit}&sort=downloads&direction=-1",
-                urlencoding(&args.query)
-            );
-            let v = api_get(&server.http, &url).await.map_err(internal)?;
-            let empty = Vec::new();
-            let items = v.as_array().unwrap_or(&empty);
-            if items.is_empty() {
-                return Ok(text_result(format!("No {endpoint} match: {}", args.query)));
-            }
-            let mut out = format!("Hugging Face {endpoint} for \"{}\":\n", args.query);
-            for it in items.iter().take(limit) {
-                let id = it.get("id").and_then(|x| x.as_str()).unwrap_or("");
-                let downloads = it.get("downloads").and_then(|x| x.as_i64()).unwrap_or(0);
-                let likes = it.get("likes").and_then(|x| x.as_i64()).unwrap_or(0);
-                let link = if dataset {
-                    format!("https://huggingface.co/datasets/{id}")
-                } else {
-                    format!("https://huggingface.co/{id}")
-                };
-                out.push_str(&format!(
-                    "\n{id}\n   {link}\n   ↓ {} · ♥ {}",
-                    human_count(downloads),
-                    human_count(likes)
-                ));
-                if let Some(task) = it.get("pipeline_tag").and_then(|x| x.as_str()) {
-                    out.push_str(&format!(" · {task}"));
-                }
-                out.push('\n');
-            }
-            server.retrieval_put(cache_key, &out);
-            Ok(text_result(out))
+            Ok(text_result(
+                hf_search(server, &args.query, args.max_results, false).await?,
+            ))
+        })
+    }
+}
+
+pub struct HfDatasetSearch;
+impl Skill for HfDatasetSearch {
+    fn name(&self) -> &'static str {
+        "hf_dataset_search"
+    }
+    fn description(&self) -> &'static str {
+        "Search the Hugging Face Hub for DATASETS (keyless). Returns id, downloads, likes, sorted \
+        by downloads. Use hf_model_search for models."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<HfSearchArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (server, args) = ctx.parse::<HfSearchArgs>()?;
+            Ok(text_result(
+                hf_search(server, &args.query, args.max_results, true).await?,
+            ))
         })
     }
 }
@@ -203,5 +227,9 @@ fn urlencoding(s: &str) -> String {
 
 /// The skills this module contributes.
 pub fn skills() -> Vec<Box<dyn Skill>> {
-    vec![Box::new(HfSearch), Box::new(HfModel)]
+    vec![
+        Box::new(HfModelSearch),
+        Box::new(HfDatasetSearch),
+        Box::new(HfModel),
+    ]
 }
