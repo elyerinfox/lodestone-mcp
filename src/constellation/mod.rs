@@ -450,6 +450,12 @@ impl Constellation {
         self.peers.lock().unwrap().len()
     }
 
+    /// Number of peers currently in the table (static + discovered). Used by the
+    /// galaxy client to tell when local discovery has produced a constellation.
+    pub(crate) fn known_peer_count(&self) -> usize {
+        self.peers.lock().unwrap().len()
+    }
+
     /// Answer an incoming `/constellation/query`: serve from our own cache, else (while
     /// `ttl > 0` and we haven't been visited) relay to our bloom-matching peers
     /// one hop closer. The `seen` node-id set breaks loops.

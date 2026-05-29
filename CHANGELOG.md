@@ -8,6 +8,15 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Galaxy** (`[galaxy]`, optional, off by default): a rendezvous **broker** that
+  links constellations across networks. It's deliberately *not* a proxy — it only
+  keeps a directory of `{ constellation → public ingress endpoint(s) }`; constellations
+  fetch it and then talk directly over `/constellation/*`. Two opt-in roles: `serve`
+  (run the public broker) and `servers` (a participating constellation registers its
+  ingress + pulls the directory, adding others as peers). Supports multiple ingress
+  endpoints (distributed inbound) and inherent multi-egress; a node joins its own
+  constellation first (warm-up) before reaching out. Endpoints: `POST /galaxy/register`
+  / `…/heartbeat`, `GET /galaxy/directory`.
 - **SDR skill** (`sdr_devices`, `sdr_scan`): list software-defined radios and sweep
   the RF spectrum by shelling out to `rtl_test`/`hackrf_info`/`rtl_power`. Off by
   default (`[sdr]`); **receive-only** (no transmit), with hardware/tool-absent

@@ -324,14 +324,18 @@ likely involved). Checked items are done; unchecked are open.
 
 ## Distributed / federation
 
-- [ ] **Galaxy: link multiple constellations.** A *constellation* is one directly-
-  discovered mesh (static peers + LAN mDNS). A *galaxy* is the next layer up — a
-  linking/broker server that pairs multiple constellations across external networks,
-  so a query unanswered within your own constellation can reach a federated one
-  without every node exposing itself to the public internet. The galaxy brokers
-  introductions and relays digests/consults between constellations under their own
-  consensus + token rules; each constellation stays independently useful and opt-in.
-  Design notes in `docs/constellation.md` ("Galaxy (planned)"). Not yet started.
+- [x] **Galaxy: link multiple constellations.** Done: `src/galaxy/` — a rendezvous
+  **broker** (NOT a proxy) that keeps a directory of `{ constellation → public ingress
+  endpoint(s) }`; constellations register + pull the directory and then talk directly
+  over `/constellation/*`. Opt-in + off by default (`[galaxy]`): `serve` runs the
+  public broker (`POST /galaxy/register`|`heartbeat`, `GET /galaxy/directory`, token +
+  TTL eviction); `servers`/`ingress` make this constellation participate. Multiple
+  ingress endpoints → distributed inbound; per-node clients → distributed egress. A
+  node joins its own constellation first (`join_warmup_secs`, returns early once a
+  local peer appears) before reaching out. Docs: `docs/constellation.md` (Galaxy).
+  - **Deferred:** broker persistence/HA (the directory is in-memory; run multiple
+    brokers and list them all in `servers` for redundancy), and authenticated
+    constellation-to-constellation trust beyond the shared `[network].token`.
 
 - [x] **Peer-to-peer "constellation" of instances with shared query knowledge.** Done
   (v1): `src/constellation/` — opt-in `[network]` (off by default). Discovery via a static

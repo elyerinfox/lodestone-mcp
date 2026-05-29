@@ -12,6 +12,7 @@ mod browser;
 mod cache;
 mod config;
 mod constellation;
+mod galaxy;
 mod provider;
 mod providers;
 mod skills;
@@ -665,6 +666,62 @@ async fn main() -> anyhow::Result<()> {
             mdns = cfg.network.mdns,
             "constellation enabled"
         );
+    }
+
+    // Galaxy broker: a publicly-reachable directory that links constellations. It is
+    // NOT a proxy — it only stores/returns endpoints. Runs on its own listener and is
+    // independent of this node participating in (or even having) a constellation.
+    if cfg.galaxy.serve {
+        let broker = galaxy::GalaxyBroker::new(&cfg.galaxy.token, cfg.galaxy.ttl_secs);
+        let gbind = cfg.galaxy.bind.clone();
+        let router = galaxy::galaxy_routes(broker);
+        tokio::spawn(async move {
+            match tokio::net::TcpListener::bind(&gbind).await {
+                Ok(l) => {
+                    tracing::info!("galaxy broker listening on http://{gbind}/galaxy");
+                    if let Err(e) = axum::serve(l, router).await {
+                        tracing::error!(error = %e, "galaxy broker stopped");
+                    }
+                }
+                Err(e) => {
+                    tracing::error!(error = %e, bind = %gbind, "galaxy broker bind failed")
+                }
+            }
+        });
+    }
+
+    // Galaxy participation: register this constellation with the configured brokers
+    // and pull their directories, adding other constellations' ingress endpoints as
+    // peers (so consults reach them directly). A node joins its own constellation
+    // first (warm-up) before reaching out.
+    if let Some(h) = &constellation {
+        if !cfg.galaxy.servers.is_empty() {
+            let id = if cfg.galaxy.id.trim().is_empty() {
+                cfg.network.node_id.clone()
+            } else {
+                cfg.galaxy.id.clone()
+            };
+            let ghttp = reqwest::Client::builder()
+                .user_agent("lodestone-galaxy")
+                .timeout(std::time::Duration::from_secs(10))
+                .build()
+                .unwrap_or_else(|_| reqwest::Client::new());
+            galaxy::GalaxyClient {
+                http: ghttp,
+                servers: cfg.galaxy.servers.clone(),
+                id,
+                ingress: cfg.galaxy.ingress.clone(),
+                token: cfg.galaxy.token.clone(),
+                heartbeat_secs: cfg.galaxy.heartbeat_secs,
+                join_warmup_secs: cfg.galaxy.join_warmup_secs,
+            }
+            .start(h.clone());
+            tracing::info!(
+                servers = cfg.galaxy.servers.len(),
+                ingress = cfg.galaxy.ingress.len(),
+                "galaxy participation enabled"
+            );
+        }
     }
 
     let listener = tokio::net::TcpListener::bind(&cfg.bind).await?;

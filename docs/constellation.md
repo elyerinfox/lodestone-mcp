@@ -172,16 +172,45 @@ logs show the activity.
 On a real LAN, leave `mdns = true` and omit `peers`; nodes find each other
 automatically.
 
-## Galaxy (planned)
+## Galaxy — linking constellations
 
 A **constellation** is a single mesh of instances that discover each other directly
-(static peers + LAN mDNS) and share within that trust domain. A **galaxy** is the
-next layer up: a linking server that pairs *multiple constellations* across external
-networks, so a query unanswered within your own constellation can reach a federated
-one without every node exposing itself directly to the public internet. The galaxy
-brokers introductions and relays digests/consults between constellations under their
-own consensus and token rules; each constellation stays independently useful and
-opt-in. Not yet implemented — see [TODO.md](../TODO.md).
+(static peers + LAN mDNS). A **galaxy** is the next layer up: a small **broker** that
+links *multiple constellations* across networks. Configure it under `[galaxy]`.
+
+> **Galaxy connectivity is entirely optional.** It is off by default and is never a
+> dependency: a constellation is fully functional on its own (and a single instance
+> works with no constellation at all). The galaxy only *adds* cross-network discovery
+> of other constellations — nothing breaks, and no behavior changes, without it.
+
+It is deliberately **not a proxy** — the broker never relays digests, queries, or
+blobs. It only keeps a directory of `{ constellation id → public endpoint(s) }`. A
+constellation registers its publicly-reachable **ingress** URL(s); peers fetch the
+directory and then talk to each other **directly** over the normal `/constellation/*`
+endpoints (under each constellation's own token + consensus rules). So at least one
+host must be publicly reachable — usually the broker, plus each constellation's
+ingress node(s) (a forwarded/open port).
+
+Two opt-in roles (independent):
+
+- **Serve a broker** (`[galaxy].serve = true`, on `[galaxy].bind`): runs the public
+  directory. Endpoints: `POST /galaxy/register` (also `…/heartbeat`) and
+  `GET /galaxy/directory?id=<self>`; both honor an optional `[galaxy].token`. Entries
+  expire after `ttl_secs` without a heartbeat.
+- **Participate** (`[galaxy].servers = [...]`, requires the constellation enabled):
+  every `heartbeat_secs`, register this constellation (its `id` + `ingress` URLs) with
+  each broker and pull the directory, adding other constellations' endpoints as peers.
+
+**Distribution.** A constellation may advertise **several `ingress` endpoints** — all
+are added as peers, spreading inbound load across member nodes. Egress is distributed
+too: every member node runs its own galaxy client and registers independently.
+
+**Join order.** A node **joins its own constellation first** — the galaxy client
+waits out a warm-up (`join_warmup_secs`, returning sooner once a local peer appears)
+so local discovery settles before it asks a broker about *other* constellations.
+
+A node can be a pure broker (set `serve = true`, leave the constellation off), a pure
+participant, or both.
 
 ## Deferred
 

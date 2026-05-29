@@ -32,6 +32,7 @@ pub struct Config {
     pub cache: Cache,
     pub store: Store,
     pub network: Network,
+    pub galaxy: Galaxy,
     pub docker: Docker,
     pub kubernetes: Kubernetes,
     pub filesystem: Filesystem,
@@ -278,6 +279,56 @@ impl Default for Network {
             relay_hops: 1,
             node_id: String::new(),
             state_file: String::new(),
+        }
+    }
+}
+
+/// The galaxy (`src/galaxy/`) — a rendezvous **broker** that links constellations
+/// across networks. It only keeps a directory of `{ constellation → public
+/// endpoint(s) }`; it never proxies digests/queries/blobs (constellations talk
+/// directly once introduced). Two opt-in roles: `serve` (run a broker) and joining
+/// brokers via `servers` (a participating constellation). Both off by default.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct Galaxy {
+    /// Run a galaxy broker (the publicly-reachable directory host).
+    pub serve: bool,
+    /// host:port the broker binds to when `serve = true`.
+    pub bind: String,
+    /// Broker base URLs this constellation registers with / queries (the
+    /// participating side). Empty = don't join any galaxy.
+    pub servers: Vec<String>,
+    /// This constellation's id in the galaxy directory. Empty = derive from the
+    /// constellation node id.
+    pub id: String,
+    /// This constellation's **publicly-reachable** ingress base URLs that other
+    /// constellations should peer with (e.g. ["http://1.2.3.4:8001"]). List several
+    /// to distribute inbound load across multiple member nodes.
+    pub ingress: Vec<String>,
+    /// Optional shared secret for the broker's `/galaxy/*` endpoints.
+    pub token: String,
+    /// How often (seconds) to register + pull the directory.
+    pub heartbeat_secs: u64,
+    /// Broker: evict a constellation from the directory after this many seconds
+    /// without a heartbeat.
+    pub ttl_secs: u64,
+    /// Participating side: how long to let *local* constellation discovery settle
+    /// before contacting a broker (a node joins its own constellation first).
+    pub join_warmup_secs: u64,
+}
+
+impl Default for Galaxy {
+    fn default() -> Self {
+        Self {
+            serve: false,
+            bind: "0.0.0.0:8077".to_string(),
+            servers: Vec::new(),
+            id: String::new(),
+            ingress: Vec::new(),
+            token: String::new(),
+            heartbeat_secs: 30,
+            ttl_secs: 90,
+            join_warmup_secs: 20,
         }
     }
 }
@@ -697,6 +748,7 @@ impl Default for Config {
             cache: Cache::default(),
             store: Store::default(),
             network: Network::default(),
+            galaxy: Galaxy::default(),
             docker: Docker::default(),
             kubernetes: Kubernetes::default(),
             filesystem: Filesystem::default(),
@@ -968,6 +1020,24 @@ impl Config {
         }
         if let Ok(path) = std::env::var("LODESTONE_NETWORK_STATE_FILE") {
             self.network.state_file = path;
+        }
+        if let Ok(v) = std::env::var("LODESTONE_GALAXY_SERVE") {
+            self.galaxy.serve = is_truthy(&v);
+        }
+        if let Ok(v) = std::env::var("LODESTONE_GALAXY_BIND") {
+            self.galaxy.bind = v;
+        }
+        if let Some(servers) = env_list("LODESTONE_GALAXY_SERVERS") {
+            self.galaxy.servers = servers;
+        }
+        if let Ok(v) = std::env::var("LODESTONE_GALAXY_ID") {
+            self.galaxy.id = v;
+        }
+        if let Some(ingress) = env_list("LODESTONE_GALAXY_INGRESS") {
+            self.galaxy.ingress = ingress;
+        }
+        if let Ok(v) = std::env::var("LODESTONE_GALAXY_TOKEN") {
+            self.galaxy.token = v;
         }
         if let Ok(v) = std::env::var("LODESTONE_DOCKER_ENABLED") {
             self.docker.enabled = is_truthy(&v);

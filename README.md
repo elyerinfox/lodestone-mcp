@@ -212,6 +212,11 @@ peers are found automatically over mDNS; add `[network].peers` for off-LAN nodes
 See [`config/06-network.toml`](config/06-network.toml) and
 [docs/constellation.md](docs/constellation.md).
 
+To link constellations **across** networks, an optional `[galaxy]` broker keeps a
+directory of each constellation's public ingress endpoints so they can find and
+talk to each other directly (it never proxies traffic). Entirely optional and off
+by default — see [docs/constellation.md → Galaxy](docs/constellation.md#galaxy--linking-constellations).
+
 ## Golden rules
 
 The project's non-negotiable invariants live in

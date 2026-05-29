@@ -68,3 +68,48 @@ node_id = ""
 # url -> reputation). Empty = no persistence. Env: LODESTONE_NETWORK_STATE_FILE
 #   state_file = "lodestone-constellation-state.json"
 state_file = ""
+
+# -----------------------------------------------------------------------------
+# [galaxy] — link CONSTELLATIONS across networks via a rendezvous broker.
+# -----------------------------------------------------------------------------
+# ENTIRELY OPTIONAL and off by default. A constellation is fully functional without
+# any galaxy; this only ADDS cross-network discovery of other constellations.
+#
+# A constellation (above) is one directly-discovered mesh. A *galaxy* is the layer
+# up: a tiny public broker that keeps a directory of { constellation -> public
+# endpoint(s) }. It is NOT a proxy — it never relays digests/queries/blobs; it only
+# hands back endpoints so constellations talk DIRECTLY over /constellation/*.
+#
+# At least one host must be publicly reachable. Usually that's the broker itself,
+# and each constellation advertises one or more publicly-reachable `ingress` URLs
+# (member nodes with a forwarded/open port). List several to spread inbound load.
+#
+# Two independent, opt-in roles:
+[galaxy]
+# (1) Run a broker (the public directory host). Off by default.
+# Env: LODESTONE_GALAXY_SERVE / LODESTONE_GALAXY_BIND
+serve = false
+bind = "0.0.0.0:8077"
+
+# (2) Participate: register this constellation with these broker URLs and pull their
+# directories, adding other constellations' endpoints as peers. Empty = don't join.
+# Requires the constellation above to be enabled. A node joins its OWN constellation
+# first (warm-up) before reaching out. Env: LODESTONE_GALAXY_SERVERS (comma list)
+servers = []
+# This constellation's id in the directory. Empty = derived from node_id.
+# Env: LODESTONE_GALAXY_ID
+id = ""
+# This constellation's PUBLICLY-REACHABLE ingress base URLs (what peers connect to).
+# List several member nodes to distribute inbound load. Env: LODESTONE_GALAXY_INGRESS
+#   ingress = ["http://203.0.113.10:8001", "http://203.0.113.11:8001"]
+ingress = []
+# Optional shared secret for the broker's /galaxy/* endpoints.
+# Env: LODESTONE_GALAXY_TOKEN
+token = ""
+# How often (seconds) to register + pull the directory.
+heartbeat_secs = 30
+# Broker: drop a constellation from the directory after this long without a heartbeat.
+ttl_secs = 90
+# Participate: seconds to let local discovery settle before contacting a broker
+# (returns sooner once a local peer appears).
+join_warmup_secs = 20

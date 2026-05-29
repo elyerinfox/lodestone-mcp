@@ -67,6 +67,9 @@ src/
   constellation/          Opt-in P2P constellation: Bloom-filter digests, consult-then-fetch
                  with consensus/reputation anti-poisoning, mDNS + gossip
                  discovery, bounded relay across the mesh graph.
+  galaxy/        Opt-in rendezvous broker that links constellations across
+                 networks (a directory of public ingress endpoints; not a
+                 proxy). Serve a broker and/or register+pull as a participant.
   util.rs        HTML→text, whitespace/entity helpers, truncation.
 ```
 
