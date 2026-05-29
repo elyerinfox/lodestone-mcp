@@ -197,6 +197,11 @@ pub struct Registry {
     /// Also key searches by a normalized concept signature so reworded-but-equivalent
     /// queries reuse a cached/peer result on an exact-key miss (off by default).
     fuzzy_match: bool,
+    /// Optional egress proxy client (built from `[search].proxy`): a second route a
+    /// blocked provider is retried through (different egress IP). None = no proxy.
+    proxy_http: Option<Client>,
+    /// Retry a blocked provider through the headless browser as a last route.
+    render_fallback: bool,
     /// Per-engine quality weights for the composite ranker (default 1.0).
     weights: HashMap<String, f64>,
     /// Extra trusted domains given an authority boost (composite ranker).
@@ -248,6 +253,8 @@ impl Registry {
                 ))
             }),
             fuzzy_match: cfg.search.fuzzy_match,
+            proxy_http: build_proxy_client(&cfg.search.proxy, cfg.search.timeout_secs),
+            render_fallback: cfg.search.render_fallback,
             weights: cfg.search.engine_weights.clone(),
             trusted: cfg.search.trusted_domains.clone(),
         }
@@ -354,6 +361,8 @@ impl Registry {
         let results = search_budgeted(
             provider.as_ref(),
             http,
+            self.proxy_http.as_ref(),
+            self.render_fallback,
             query,
             self.provider_timeout,
             self.breakers.as_deref(),
@@ -504,6 +513,8 @@ impl Registry {
             let results = search_budgeted(
                 provider.as_ref(),
                 http,
+                self.proxy_http.as_ref(),
+                self.render_fallback,
                 query,
                 self.provider_timeout,
                 self.breakers.as_deref(),
@@ -537,12 +548,14 @@ impl Registry {
         let sem = (self.max_concurrency > 0)
             .then(|| Arc::new(tokio::sync::Semaphore::new(self.max_concurrency)));
         let budget = self.provider_timeout;
+        let render_fallback = self.render_fallback;
         let handles: Vec<_> = self
             .chain(kind)
             .iter()
             .map(|provider| {
                 let provider = Arc::clone(provider);
                 let http = http.clone();
+                let proxy = self.proxy_http.clone();
                 let query = query.clone();
                 let sem = sem.clone();
                 let breakers = self.breakers.clone();
@@ -556,6 +569,8 @@ impl Registry {
                     let results = search_budgeted(
                         provider.as_ref(),
                         &http,
+                        proxy.as_ref(),
+                        render_fallback,
                         &query,
                         budget,
                         breakers.as_deref(),
@@ -640,6 +655,8 @@ impl Registry {
 async fn search_budgeted(
     provider: &dyn SearchProvider,
     http: &Client,
+    proxy: Option<&Client>,
+    render_fallback: bool,
     query: &SearchQuery,
     budget_secs: u64,
     breakers: Option<&Breakers>,
@@ -651,39 +668,129 @@ async fn search_budgeted(
             return Vec::new();
         }
     }
-    let run = provider.search(http, query);
+    // Try independent egress routes and take the first that yields results — so a
+    // source that blocks/rate-limits one route (a tarpitted IP, a bot-wall) can still
+    // be reached another way. Each route gets the full deadline; we only escalate
+    // when the prior route returns nothing or fails.
+    let mut reachable = false;
+    let success = |b: Option<&Breakers>| {
+        if let Some(b) = b {
+            b.record_success(id);
+        }
+    };
+
+    // 1) Direct (honors the caller's `render` flag as-is).
+    match run_route(provider, http, query, budget_secs, "direct").await {
+        Reach::Hits(r) => {
+            success(breakers);
+            return r;
+        }
+        Reach::Empty => reachable = true,
+        Reach::Fail => {}
+    }
+    // 2) Proxy (different egress IP), same query.
+    if let Some(p) = proxy {
+        match run_route(provider, p, query, budget_secs, "proxy").await {
+            Reach::Hits(r) => {
+                success(breakers);
+                return r;
+            }
+            Reach::Empty => reachable = true,
+            Reach::Fail => {}
+        }
+    }
+    // 3) Headless browser (a real browser bypasses many bot-walls), unless already
+    //    rendering.
+    if render_fallback && !query.render {
+        let q = SearchQuery {
+            render: true,
+            ..query.clone()
+        };
+        match run_route(provider, http, &q, budget_secs, "render").await {
+            Reach::Hits(r) => {
+                success(breakers);
+                return r;
+            }
+            Reach::Empty => reachable = true,
+            Reach::Fail => {}
+        }
+    }
+
+    if let Some(b) = breakers {
+        // Reachable on any route (even empty) clears the streak; all-routes-failed trips it.
+        if reachable {
+            b.record_success(id);
+        } else {
+            b.record_failure(id);
+        }
+    }
+    Vec::new()
+}
+
+/// Outcome of one egress route attempt.
+enum Reach {
+    /// Non-empty results.
+    Hits(Vec<SearchResult>),
+    /// Reachable but no results (a valid empty response).
+    Empty,
+    /// Timed out or errored.
+    Fail,
+}
+
+/// Run one route (a given client + query) within the deadline.
+async fn run_route(
+    provider: &dyn SearchProvider,
+    client: &Client,
+    query: &SearchQuery,
+    budget_secs: u64,
+    route: &str,
+) -> Reach {
+    let id = provider.id();
+    let run = provider.search(client, query);
     let outcome = if budget_secs == 0 {
         run.await
     } else {
         match tokio::time::timeout(Duration::from_secs(budget_secs), run).await {
             Ok(res) => res,
             Err(_) => {
-                tracing::warn!(
-                    provider = id,
-                    secs = budget_secs,
-                    "provider timed out; dropped"
-                );
-                if let Some(b) = breakers {
-                    b.record_failure(id);
-                }
-                return Vec::new();
+                tracing::warn!(provider = id, route, secs = budget_secs, "route timed out");
+                return Reach::Fail;
             }
         }
     };
     match outcome {
-        Ok(results) => {
-            // Any reachable response (even empty "no results") clears the streak.
-            if let Some(b) = breakers {
-                b.record_success(id);
-            }
-            results
+        Ok(r) if !r.is_empty() => Reach::Hits(r),
+        Ok(_) => Reach::Empty,
+        Err(e) => {
+            tracing::warn!(provider = id, route, error = %e, "route failed");
+            Reach::Fail
+        }
+    }
+}
+
+/// Build an egress proxy client (http/https/socks5/socks5h) sharing the main UA +
+/// timeout. None when unset; logs and returns None on a bad URL so a typo can't take
+/// the proxy route (or the server) down.
+fn build_proxy_client(proxy: &str, timeout_secs: u64) -> Option<Client> {
+    let url = proxy.trim();
+    if url.is_empty() {
+        return None;
+    }
+    let built = reqwest::Proxy::all(url).and_then(|p| {
+        Client::builder()
+            .user_agent(crate::USER_AGENT)
+            .timeout(Duration::from_secs(timeout_secs.max(1)))
+            .proxy(p)
+            .build()
+    });
+    match built {
+        Ok(c) => {
+            tracing::info!(proxy = url, "search egress proxy route enabled");
+            Some(c)
         }
         Err(e) => {
-            tracing::warn!(provider = id, error = %e, "provider failed");
-            if let Some(b) = breakers {
-                b.record_failure(id);
-            }
-            Vec::new()
+            tracing::warn!(proxy = url, error = %e, "invalid [search].proxy; proxy route disabled");
+            None
         }
     }
 }

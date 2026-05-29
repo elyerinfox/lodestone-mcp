@@ -121,8 +121,12 @@ likely involved). Checked items are done; unchecked are open.
     (`Breakers` in `src/provider.rs`, unit-tested).
   - **Subsumed:** the per-provider deadline already caps the worst case from
     `search_raw`'s endpoint-rotation + retry stacking, so no separate latency cap was
-    needed. The `render=true` path remains the real bypass (a true browser isn't
-    IP-blocked) but needs a working headless Chrome.
+    needed.
+  - **Done (multi-route egress):** when a provider yields nothing/fails, it's retried
+    over independent routes — direct → `[search].proxy` (different egress IP, e.g. an
+    `arti` SOCKS port) → `[search].render_fallback` (headless browser, the real
+    bot-wall bypass) — first route with results wins (`search_budgeted`/`run_route` in
+    `src/provider.rs`). Both off by default; each route gets the per-provider deadline.
 
 - [x] **SDR skill (RTL-SDR / HackRF).** Done: `src/skills/sdr.rs` — `sdr_devices`
   (probe via `rtl_test`/`hackrf_info`) and `sdr_scan` (single `rtl_power` sweep →

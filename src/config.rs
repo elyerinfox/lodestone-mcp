@@ -175,6 +175,15 @@ pub struct Search {
     /// order-insensitive, so direction-sensitive phrasings (e.g. "json to yaml" vs
     /// "yaml to json") can collide. The constellation path stays consensus-gated.
     pub fuzzy_match: bool,
+    /// Optional egress **proxy** URL (`http://…`, `socks5://…`, or `socks5h://…` —
+    /// e.g. a local `arti` Tor SOCKS port). When a provider yields nothing or fails
+    /// on the direct route, it's retried through the proxy (a different egress IP).
+    /// Empty = no proxy route.
+    pub proxy: String,
+    /// When a provider yields nothing/fails on the plain routes (direct, then proxy),
+    /// retry it through the **headless browser** (a real browser bypasses many
+    /// bot-walls). Off by default — it needs a working Chrome and is heavier.
+    pub render_fallback: bool,
     /// Optional per-kind overrides of `strategy`/`ranking`. Empty fields inherit
     /// the global values above, so e.g. web/code can `aggregate` while qa stays
     /// `fallback`.
@@ -803,6 +812,8 @@ impl Default for Search {
             breaker_threshold: 5,
             breaker_cooldown_secs: 60,
             fuzzy_match: false,
+            proxy: String::new(),
+            render_fallback: false,
             web: KindSearch::default(),
             code: KindSearch::default(),
             qa: KindSearch::default(),
@@ -941,6 +952,12 @@ impl Config {
         }
         if let Ok(v) = std::env::var("LODESTONE_SEARCH_FUZZY_MATCH") {
             self.search.fuzzy_match = is_truthy(&v);
+        }
+        if let Ok(v) = std::env::var("LODESTONE_SEARCH_PROXY") {
+            self.search.proxy = v;
+        }
+        if let Ok(v) = std::env::var("LODESTONE_SEARCH_RENDER_FALLBACK") {
+            self.search.render_fallback = is_truthy(&v);
         }
         if let Some(sites) = env_list("LODESTONE_CODE_SITES") {
             self.code.sites = sites;

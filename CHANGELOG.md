@@ -63,6 +63,12 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Multi-route egress for blocked providers** (`[search].proxy`,
+  `[search].render_fallback`, both off by default): when a provider returns nothing
+  or fails, it's retried over independent routes — direct → proxy (a different egress
+  IP, e.g. a local `arti` SOCKS port; needs the new reqwest `socks` feature) → the
+  headless browser — and the first route with results wins. Each route gets the
+  per-provider deadline; the breaker counts a provider reachable if any route works.
 - **Shared, convergent constellation id** (`[network].id`): member nodes share one
   constellation id (distinct from `node_id`); unset = random, and nodes that reach
   each other converge to the smallest id, so multi-node constellations register as a

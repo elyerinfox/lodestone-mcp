@@ -75,6 +75,23 @@ breaker_cooldown_secs = 60
 # Env: LODESTONE_SEARCH_FUZZY_MATCH
 fuzzy_match = false
 
+# Multi-route egress (rate-limit / bot-wall escape). A provider is tried over
+# independent routes and the FIRST that returns results wins — so a source that
+# blocks one route can still be reached another way. Routes, in order:
+#   1. direct (always)
+#   2. proxy   — if `proxy` below is set: retried through it (a different egress IP)
+#   3. browser — if `render_fallback` is true: retried through the headless browser
+#                (a real browser bypasses many bot-walls; needs a working Chrome)
+# Escalation only happens when the prior route returns nothing/fails; each route gets
+# the per-provider deadline. Both are OFF by default.
+#
+# `proxy` accepts http(s):// or socks5://|socks5h:// — e.g. a local `arti` Tor SOCKS
+# port (note: Tor exit IPs are widely blocked by search engines, so a residential/
+# rotating proxy usually works better here). Env: LODESTONE_SEARCH_PROXY
+proxy = ""
+# Retry blocked providers through the headless browser. Env: LODESTONE_SEARCH_RENDER_FALLBACK
+render_fallback = false
+
 # Optional PER-KIND overrides of strategy/ranking. Empty/unset fields inherit the
 # global values above. Lets you e.g. aggregate web+code for coverage while keeping
 # qa on fallback (so the StackExchange API isn't always hit). Uncomment to use:
