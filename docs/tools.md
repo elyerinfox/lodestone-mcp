@@ -36,6 +36,8 @@ Fetch one known thing.
 | `arxiv_get` | `id` | One arXiv paper's metadata + full abstract + PDF URL (then `read_pdf` for full text). |
 | `pubmed_search` | `query`, `max_results?` | Search PubMed (NCBI E-utilities, keyless): PMID, title, authors, journal, date, link. Supports field tags ([Title], [Author], …). |
 | `pubmed_summary` | `pmid`, `max_chars?` | A PubMed paper's citation, DOI, link, and abstract text. |
+| `ncbi_search` | `db`, `query`, `max_results?` | Search ANY NCBI database (pmc, gene, protein, nucleotide, snp, clinvar, taxonomy, books, mesh, …) via E-utilities; UIDs + key fields + ncbi.nlm.nih.gov link. |
+| `ncbi_summary` | `db`, `id` | One NCBI record's summary fields + link. |
 | `hf_search` | `query`, `kind?`, `max_results?` | Search the Hugging Face Hub — models (default) or datasets. |
 | `hf_model` | `model` | A Hugging Face model's metadata (downloads, likes, task, license, tags). |
 | `wikipedia_search` | `query`, `lang?`, `max_results?` | Search Wikipedia (MediaWiki API); titles + snippets + URLs. |

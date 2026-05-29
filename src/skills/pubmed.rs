@@ -50,10 +50,11 @@ fn common_params() -> String {
     p
 }
 
-/// `esearch` → the matching PMIDs (most relevant first).
-async fn esearch(http: &Client, query: &str, retmax: usize) -> Result<Vec<String>> {
+/// `esearch` in any NCBI `db` → the matching UIDs (most relevant first).
+async fn esearch(http: &Client, db: &str, query: &str, retmax: usize) -> Result<Vec<String>> {
     let url = format!(
-        "{EUTILS}/esearch.fcgi?db=pubmed&retmode=json&retmax={retmax}&term={}{}",
+        "{EUTILS}/esearch.fcgi?db={}&retmode=json&retmax={retmax}&term={}{}",
+        enc(db),
         enc(query),
         common_params()
     );
@@ -74,10 +75,11 @@ async fn esearch(http: &Client, query: &str, retmax: usize) -> Result<Vec<String
         .unwrap_or_default())
 }
 
-/// `esummary` for a set of PMIDs → the `result` object (per-uid metadata).
-async fn esummary(http: &Client, ids: &[String]) -> Result<Value> {
+/// `esummary` for a set of UIDs in any NCBI `db` → the `result` object (per-uid metadata).
+async fn esummary(http: &Client, db: &str, ids: &[String]) -> Result<Value> {
     let url = format!(
-        "{EUTILS}/esummary.fcgi?db=pubmed&retmode=json&id={}{}",
+        "{EUTILS}/esummary.fcgi?db={}&retmode=json&id={}{}",
+        enc(db),
         ids.join(","),
         common_params()
     );
@@ -88,6 +90,16 @@ async fn esummary(http: &Client, ids: &[String]) -> Result<Value> {
         .error_for_status()?
         .json()
         .await?)
+}
+
+/// A web link to an NCBI record (the ncbi.nlm.nih.gov page for `db`/`uid`).
+fn ncbi_url(db: &str, uid: &str) -> String {
+    format!("https://www.ncbi.nlm.nih.gov/{db}/{uid}/")
+}
+
+/// True for a syntactically acceptable NCBI db name (lowercase letters/digits/_).
+fn valid_db(db: &str) -> bool {
+    !db.is_empty() && db.len() <= 32 && db.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
 }
 
 /// Author list → "First A, Second B, … et al." (capped).
@@ -164,11 +176,15 @@ impl Skill for PubmedSearch {
             if let Some(c) = server.retrieval_get(&key).await {
                 return Ok(text_result(c));
             }
-            let ids = esearch(&server.http, query, max).await.map_err(internal)?;
+            let ids = esearch(&server.http, "pubmed", query, max)
+                .await
+                .map_err(internal)?;
             if ids.is_empty() {
                 return Ok(text_result(format!("No PubMed results for '{query}'.")));
             }
-            let sum = esummary(&server.http, &ids).await.map_err(internal)?;
+            let sum = esummary(&server.http, "pubmed", &ids)
+                .await
+                .map_err(internal)?;
             let result = sum.get("result");
             let mut lines = vec![format!("{} PubMed result(s) for '{query}':", ids.len())];
             for (i, pmid) in ids.iter().enumerate() {
@@ -232,7 +248,7 @@ impl Skill for PubmedSummary {
             if let Some(c) = server.retrieval_get(&key).await {
                 return Ok(text_result(c));
             }
-            let sum = esummary(&server.http, &[pmid.to_string()])
+            let sum = esummary(&server.http, "pubmed", &[pmid.to_string()])
                 .await
                 .map_err(internal)?;
             let doc = sum
@@ -297,9 +313,193 @@ impl Skill for PubmedSummary {
     }
 }
 
+/// A document's headline: the first present of title/name/caption, else "(uid)".
+fn headline(doc: &Value, uid: &str) -> String {
+    for k in ["title", "name", "caption"] {
+        if let Some(s) = doc.get(k).and_then(Value::as_str) {
+            if !s.trim().is_empty() {
+                return s.trim().to_string();
+            }
+        }
+    }
+    format!("(uid {uid})")
+}
+
+/// A compact one-entry rendering for `ncbi_search` across arbitrary NCBI dbs.
+fn ncbi_entry(db: &str, uid: &str, doc: &Value) -> Vec<String> {
+    let mut lines = vec![format!("{uid} — {}", headline(doc, uid))];
+    // A few broadly-useful scalar fields, shown when present.
+    let mut extras: Vec<String> = Vec::new();
+    for k in [
+        "description",
+        "organism",
+        "source",
+        "pubdate",
+        "moltype",
+        "slen",
+    ] {
+        match doc.get(k) {
+            Some(Value::String(s)) if !s.trim().is_empty() => {
+                extras.push(format!("{k}: {}", s.trim()))
+            }
+            Some(Value::Number(n)) => extras.push(format!("{k}: {n}")),
+            _ => {}
+        }
+    }
+    if !extras.is_empty() {
+        lines.push(format!("   {}", extras.join(" · ")));
+    }
+    lines.push(format!("   {}", ncbi_url(db, uid)));
+    lines
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct NcbiSearchArgs {
+    /// NCBI database, e.g. `pubmed`, `pmc`, `gene`, `protein`, `nucleotide`, `snp`,
+    /// `clinvar`, `taxonomy`, `books`, `mesh`, `assembly`, `genome`.
+    db: String,
+    /// Entrez query (free text or field tags, db-dependent).
+    query: String,
+    /// Max results (default 10, capped at 50).
+    #[serde(default)]
+    max_results: Option<usize>,
+}
+
+pub struct NcbiSearch;
+impl Skill for NcbiSearch {
+    fn name(&self) -> &'static str {
+        "ncbi_search"
+    }
+    fn description(&self) -> &'static str {
+        "Search ANY NCBI database via E-utilities (keyless) — the same API behind ncbi.nlm.nih.gov. \
+        Pick `db` (pubmed, pmc, gene, protein, nucleotide, snp, clinvar, taxonomy, books, mesh, …) \
+        and a `query`; returns UIDs with a headline, a few key fields, and an ncbi.nlm.nih.gov link. \
+        Use ncbi_summary for one record's full metadata (or pubmed_summary for a PubMed abstract)."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<NcbiSearchArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (server, args) = ctx.parse::<NcbiSearchArgs>()?;
+            let db = args.db.trim().to_ascii_lowercase();
+            if !valid_db(&db) {
+                return Err(invalid(
+                    "db must be an NCBI database name (e.g. pubmed, gene)",
+                ));
+            }
+            let query = args.query.trim();
+            if query.is_empty() {
+                return Err(invalid("empty query"));
+            }
+            let max = args.max_results.unwrap_or(10).clamp(1, 50);
+            let key = format!("ncbi_search|{db}|{max}|{query}");
+            if let Some(c) = server.retrieval_get(&key).await {
+                return Ok(text_result(c));
+            }
+            let ids = esearch(&server.http, &db, query, max)
+                .await
+                .map_err(internal)?;
+            if ids.is_empty() {
+                return Ok(text_result(format!("No {db} results for '{query}'.")));
+            }
+            let sum = esummary(&server.http, &db, &ids).await.map_err(internal)?;
+            let result = sum.get("result");
+            let mut lines = vec![format!("{} {db} result(s) for '{query}':", ids.len())];
+            for (i, uid) in ids.iter().enumerate() {
+                let Some(doc) = result.and_then(|r| r.get(uid)) else {
+                    continue;
+                };
+                lines.push(format!("\n{}.", i + 1));
+                lines.extend(ncbi_entry(&db, uid, doc));
+            }
+            let report = lines.join("\n");
+            server.retrieval_put(key, &report);
+            Ok(text_result(report))
+        })
+    }
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct NcbiSummaryArgs {
+    /// NCBI database (see ncbi_search).
+    db: String,
+    /// Record UID in that database.
+    id: String,
+}
+
+pub struct NcbiSummary;
+impl Skill for NcbiSummary {
+    fn name(&self) -> &'static str {
+        "ncbi_summary"
+    }
+    fn description(&self) -> &'static str {
+        "Fetch one NCBI record's summary metadata from any database via E-utilities (keyless). \
+        Give `db` and a UID; returns the record's scalar fields and an ncbi.nlm.nih.gov link. For \
+        PubMed abstracts use pubmed_summary."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<NcbiSummaryArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (server, args) = ctx.parse::<NcbiSummaryArgs>()?;
+            let db = args.db.trim().to_ascii_lowercase();
+            let uid = args.id.trim();
+            if !valid_db(&db) {
+                return Err(invalid("db must be an NCBI database name"));
+            }
+            if uid.is_empty()
+                || !uid
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'_')
+            {
+                return Err(invalid("id must be a record UID"));
+            }
+            let key = format!("ncbi_summary|{db}|{uid}");
+            if let Some(c) = server.retrieval_get(&key).await {
+                return Ok(text_result(c));
+            }
+            let sum = esummary(&server.http, &db, &[uid.to_string()])
+                .await
+                .map_err(internal)?;
+            let doc = sum
+                .pointer(&format!("/result/{uid}"))
+                .filter(|d| d.get("uid").is_some())
+                .ok_or_else(|| invalid(format!("no {db} record for UID {uid}")))?;
+
+            let mut lines = vec![headline(doc, uid)];
+            // Render scalar fields (skip noise and structured values).
+            if let Some(obj) = doc.as_object() {
+                for (k, v) in obj {
+                    if k == "uid" || k == "title" || k == "name" || k == "caption" {
+                        continue;
+                    }
+                    match v {
+                        Value::String(s) if !s.trim().is_empty() => {
+                            lines.push(format!("  {k}: {}", s.trim()))
+                        }
+                        Value::Number(n) => lines.push(format!("  {k}: {n}")),
+                        _ => {}
+                    }
+                }
+            }
+            lines.push(format!("  {}", ncbi_url(&db, uid)));
+            let report = lines.join("\n");
+            server.retrieval_put(key, &report);
+            Ok(text_result(report))
+        })
+    }
+}
+
 /// Always-on, keyless (still gateable via `[tools]`).
 pub fn skills() -> Vec<Box<dyn Skill>> {
-    vec![Box::new(PubmedSearch), Box::new(PubmedSummary)]
+    vec![
+        Box::new(PubmedSearch),
+        Box::new(PubmedSummary),
+        Box::new(NcbiSearch),
+        Box::new(NcbiSummary),
+    ]
 }
 
 #[cfg(test)]
@@ -346,5 +546,38 @@ mod tests {
     #[test]
     fn pubmed_url_format() {
         assert_eq!(pubmed_url("123"), "https://pubmed.ncbi.nlm.nih.gov/123/");
+    }
+
+    #[test]
+    fn ncbi_url_and_valid_db() {
+        assert_eq!(
+            ncbi_url("gene", "672"),
+            "https://www.ncbi.nlm.nih.gov/gene/672/"
+        );
+        assert!(valid_db("pubmed"));
+        assert!(valid_db("pmc"));
+        assert!(!valid_db(""));
+        assert!(!valid_db("bad db"));
+        assert!(!valid_db("a/b"));
+    }
+
+    #[test]
+    fn headline_prefers_title_then_name() {
+        assert_eq!(headline(&serde_json::json!({"title": "T"}), "1"), "T");
+        assert_eq!(
+            headline(&serde_json::json!({"name": "BRCA1"}), "1"),
+            "BRCA1"
+        );
+        assert_eq!(headline(&serde_json::json!({}), "42"), "(uid 42)");
+    }
+
+    #[test]
+    fn ncbi_entry_includes_link_and_fields() {
+        let doc = serde_json::json!({"name": "BRCA1", "description": "DNA repair", "organism": "Homo sapiens"});
+        let lines = ncbi_entry("gene", "672", &doc);
+        let joined = lines.join("\n");
+        assert!(joined.contains("672 — BRCA1"));
+        assert!(joined.contains("description: DNA repair"));
+        assert!(joined.contains("https://www.ncbi.nlm.nih.gov/gene/672/"));
     }
 }

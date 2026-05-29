@@ -12,10 +12,12 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `task_cancel`, off by default `[tasks]`): run long work (currently a search) off the
   request path and poll for results — model-polled, so it works on any client
   including LM Studio. Bounded job table with eviction; cancellable.
-- **PubMed skill** (`pubmed_search`, `pubmed_summary`): search the biomedical
-  literature and read abstracts via NCBI E-utilities (esearch/esummary/efetch).
-  Keyless (optional `LODESTONE_NCBI_API_KEY` raises the rate limit); cached; supports
-  PubMed field tags. Links to pubmed.ncbi.nlm.nih.gov.
+- **PubMed + NCBI skills** (`pubmed_search`, `pubmed_summary`, `ncbi_search`,
+  `ncbi_summary`): query NCBI via E-utilities (esearch/esummary/efetch) — the single
+  API behind ncbi.nlm.nih.gov. PubMed tools cover the biomedical literature
+  (abstracts, DOI); the generic `ncbi_*` tools reach **any** Entrez database via a
+  `db` param (pmc, gene, protein, nucleotide, snp, clinvar, taxonomy, books, mesh, …).
+  Keyless (optional `LODESTONE_NCBI_API_KEY` raises the rate limit); cached.
 - **Galaxy** (optional, off by default): links constellations across networks. The
   **broker** is a *separate binary*, `lodestone-galaxy` — a rendezvous directory of
   `{ constellation → public ingress endpoint(s) }`, configured by env
