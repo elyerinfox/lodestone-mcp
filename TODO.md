@@ -104,6 +104,22 @@ likely involved). Checked items are done; unchecked are open.
   (read-only, on by default); blocking work runs on `spawn_blocking`. Docs + config
   (`config/13-sysinfo.toml`) added.
 
+- [~] **Search resilience: per-provider circuit breaker + latency budget.** Under
+  sustained scraping, engines start blocking the server's egress IP (DuckDuckGo
+  tarpits → connection timeout; Mojeek → 403).
+  - **Done (per-provider deadline):** `[search].provider_timeout_secs` (default 10,
+    `LODESTONE_SEARCH_PROVIDER_TIMEOUT_SECS`, 0 = off) wraps every provider call in
+    `search_budgeted` (`src/provider.rs`); a provider that doesn't answer in time is
+    dropped — in aggregate the other engines still return, in fallback the chain
+    moves on — so one unresponsive/blocked source can't stall the whole search.
+  - **Remaining:** (1) a **circuit breaker** — after N consecutive failures/403s/
+    timeouts, cool a provider down for a window and skip it (fail fast instead of
+    re-waiting the deadline every call); (2) a tighter **latency budget** inside
+    `search_raw` — its endpoint rotation + per-endpoint retry can still stack
+    (lite+html × retry) within the deadline; cap total attempts when endpoints are
+    timing out. The `render=true` path is the real bypass (a true browser isn't
+    IP-blocked) but needs a working headless Chrome.
+
 - [ ] **SDR skill (RTL-SDR / HackRF).** Not supported yet. Would wrap `rtl-sdr` /
   `hackrf` (or `soapysdr`) to scan/sample radio — heavy native deps + hardware +
   drivers, off by default, side-effecting (tuning) → guarded. Likely shell out to

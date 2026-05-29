@@ -186,6 +186,10 @@ pub struct Registry {
     /// the burst of outbound requests so a wide `docs` fan-out doesn't trip engine
     /// rate limits.
     max_concurrency: usize,
+    /// Per-provider deadline (seconds): a provider that doesn't answer in time is
+    /// dropped so one unresponsive/blocked source can't stall the whole search.
+    /// 0 = no deadline.
+    provider_timeout: u64,
     /// Per-engine quality weights for the composite ranker (default 1.0).
     weights: HashMap<String, f64>,
     /// Extra trusted domains given an authority boost (composite ranker).
@@ -229,6 +233,7 @@ impl Registry {
             cache,
             hive,
             max_concurrency: cfg.search.max_concurrency,
+            provider_timeout: cfg.search.provider_timeout_secs,
             weights: cfg.search.engine_weights.clone(),
             trusted: cfg.search.trusted_domains.clone(),
         }
@@ -332,16 +337,9 @@ impl Registry {
         if let Some(hits) = self.cache_get(&key) {
             return hits;
         }
-        match provider.search(http, query).await {
-            Ok(results) => {
-                self.cache_put(&key, &results);
-                results
-            }
-            Err(e) => {
-                tracing::warn!(provider = id, error = %e, "provider failed");
-                Vec::new()
-            }
-        }
+        let results = search_budgeted(provider.as_ref(), http, query, self.provider_timeout).await;
+        self.cache_put(&key, &results);
+        results
     }
 
     /// Look up a cached, still-live result list for `key`.
@@ -426,14 +424,16 @@ impl Registry {
         query: &SearchQuery,
     ) -> (Vec<SearchResult>, String) {
         for provider in self.chain(kind) {
-            match provider.search(http, query).await {
-                Ok(results) if !results.is_empty() => return (results, provider.id().to_string()),
-                Ok(_) => tracing::debug!(
+            let results =
+                search_budgeted(provider.as_ref(), http, query, self.provider_timeout).await;
+            if results.is_empty() {
+                tracing::debug!(
                     provider = provider.id(),
                     kind = provider.kind().as_str(),
                     "no results"
-                ),
-                Err(e) => tracing::warn!(provider = provider.id(), error = %e, "provider failed"),
+                );
+            } else {
+                return (results, provider.id().to_string());
             }
         }
         (Vec::new(), "none".to_string())
@@ -453,6 +453,7 @@ impl Registry {
         // the cap queue for a permit. `max_concurrency == 0` means unlimited.
         let sem = (self.max_concurrency > 0)
             .then(|| Arc::new(tokio::sync::Semaphore::new(self.max_concurrency)));
+        let budget = self.provider_timeout;
         let handles: Vec<_> = self
             .chain(kind)
             .iter()
@@ -468,13 +469,8 @@ impl Registry {
                         None => None,
                     };
                     let id = provider.id();
-                    match provider.search(&http, &query).await {
-                        Ok(results) => (id, results),
-                        Err(e) => {
-                            tracing::warn!(provider = id, error = %e, "provider failed");
-                            (id, Vec::new())
-                        }
-                    }
+                    let results = search_budgeted(provider.as_ref(), &http, &query, budget).await;
+                    (id, results)
                 })
             })
             .collect();
@@ -541,6 +537,42 @@ impl Registry {
             line(ProviderKind::Qa),
             line(ProviderKind::Docs),
         )
+    }
+}
+
+/// Run one provider with an optional per-provider deadline. A provider that
+/// times out or errors yields an empty result set (logged) rather than stalling
+/// or aborting the whole search — so one unresponsive/blocked source is simply
+/// dropped. `budget_secs == 0` disables the deadline.
+async fn search_budgeted(
+    provider: &dyn SearchProvider,
+    http: &Client,
+    query: &SearchQuery,
+    budget_secs: u64,
+) -> Vec<SearchResult> {
+    let id = provider.id();
+    let run = provider.search(http, query);
+    let outcome = if budget_secs == 0 {
+        run.await
+    } else {
+        match tokio::time::timeout(std::time::Duration::from_secs(budget_secs), run).await {
+            Ok(res) => res,
+            Err(_) => {
+                tracing::warn!(
+                    provider = id,
+                    secs = budget_secs,
+                    "provider timed out; dropped"
+                );
+                return Vec::new();
+            }
+        }
+    };
+    match outcome {
+        Ok(results) => results,
+        Err(e) => {
+            tracing::warn!(provider = id, error = %e, "provider failed");
+            Vec::new()
+        }
     }
 }
 

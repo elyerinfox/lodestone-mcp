@@ -151,6 +151,10 @@ pub struct Search {
     /// (the rest queue for a slot). Bounds the outbound-request burst so a wide
     /// `docs` fan-out doesn't trip engine rate limits. 0 = unlimited.
     pub max_concurrency: usize,
+    /// Per-provider deadline (seconds): a provider that doesn't answer within this
+    /// is dropped from the result set so one unresponsive/blocked source can't stall
+    /// the whole search. Bounded by `timeout_secs`. 0 = no per-provider deadline.
+    pub provider_timeout_secs: u64,
     /// Optional per-kind overrides of `strategy`/`ranking`. Empty fields inherit
     /// the global values above, so e.g. web/code can `aggregate` while qa stays
     /// `fallback`.
@@ -679,6 +683,7 @@ impl Default for Search {
             trusted_domains: Vec::new(),
             timeout_secs: 25,
             max_concurrency: 8,
+            provider_timeout_secs: 10,
             web: KindSearch::default(),
             code: KindSearch::default(),
             qa: KindSearch::default(),
@@ -798,6 +803,11 @@ impl Config {
         if let Ok(n) = std::env::var("LODESTONE_SEARCH_MAX_CONCURRENCY") {
             if let Ok(n) = n.trim().parse::<usize>() {
                 self.search.max_concurrency = n;
+            }
+        }
+        if let Ok(n) = std::env::var("LODESTONE_SEARCH_PROVIDER_TIMEOUT_SECS") {
+            if let Ok(n) = n.trim().parse::<u64>() {
+                self.search.provider_timeout_secs = n;
             }
         }
         if let Some(sites) = env_list("LODESTONE_CODE_SITES") {

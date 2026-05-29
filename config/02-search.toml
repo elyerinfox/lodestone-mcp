@@ -46,6 +46,14 @@ timeout_secs = 25
 # Env: LODESTONE_SEARCH_MAX_CONCURRENCY
 max_concurrency = 8
 
+# Per-provider deadline (seconds). A provider that doesn't answer within this is
+# dropped from the result set — in "aggregate" mode the other engines still
+# return, and in "fallback" mode the chain moves on — so one unresponsive or
+# blocked source (e.g. an engine timing out from your egress IP) can't stall the
+# whole search. Keep it at or below timeout_secs. 0 = no per-provider deadline.
+# Env: LODESTONE_SEARCH_PROVIDER_TIMEOUT_SECS
+provider_timeout_secs = 10
+
 # Optional PER-KIND overrides of strategy/ranking. Empty/unset fields inherit the
 # global values above. Lets you e.g. aggregate web+code for coverage while keeping
 # qa on fallback (so the StackExchange API isn't always hit). Uncomment to use:
