@@ -131,21 +131,21 @@ likely involved). Checked items are done; unchecked are open.
   **receive-only** — no transmit path is exposed (chose safety over wrapping
   `hackrf_transfer -t`). Docs: `docs/skills/sdr.md`.
 
-- [ ] **Background tasks & alerts.** Two parts:
-  1. **A tasks skill** — `task_list`, `task_status`, `task_result`, `task_cancel`
-     over a server-side registry of running jobs, plus scheduled/periodic jobs
-     (poll a feed, watch a container/quote/satellite pass) that surface alerts.
-  2. **Per-action backgrounding** — any work-performing tool (search, read_pdf,
-     docker_build, db_query, sat_observe, …) gains an optional `background: true`
-     that returns a task id immediately; the model later polls `task_result`. This
-     lets the model fan out long operations and parallelize itself.
-  Design notes: MCP is request/response, so *delivery* is the hard part — options
-  are MCP logging/notifications to the client (if the host supports them; **LM Studio
-  may not** — needs verification) or a model-polled results buffer (works on any
-  client, the safe default). Keep a bounded in-memory job table with TTL'd results;
-  the constellation already runs a background loop to model the lifecycle on. Off by
-  default (`[tasks]`); ensure cancellation + resource caps so runaway fan-out can't
-  exhaust the host.
+- [~] **Background tasks & alerts.**
+  - **Done (tasks skill + model-polled buffer):** `src/skills/tasks.rs` — `task_run`,
+    `task_list`, `task_status`, `task_result`, `task_cancel` over a bounded in-memory
+    job registry (eviction, cancellation via abort handle). Delivery is a model-polled
+    results buffer (no server push), so it works on **any** client including LM Studio.
+    `task_run` currently backgrounds a **search** (web/code/docs/qa), run from owned
+    handles (`Arc<Registry>` + HTTP client). Off by default (`[tasks]`). Docs:
+    `docs/skills/tasks.md`.
+  - **Remaining:** (1) **per-action backgrounding** of more tools (read_pdf,
+    docker_build, db_query, sat_observe, …) — generalize beyond search (each long tool
+    opts in / a generic re-dispatch); (2) **scheduled/periodic jobs + alerts** (poll a
+    feed/quote/container/satellite pass and surface a result) — needs a scheduler loop
+    on top of the registry. Asynchronously *pushing* an alert to the model still
+    depends on host notification support (LM Studio likely polls), so the model-polled
+    buffer remains the safe default.
 
 - [x] **FFmpeg conversion skill.** Done: `src/skills/ffmpeg.rs` — `ffmpeg_convert`
   (input/output + pre-split `args`) shells out to the local `ffmpeg`; `ffmpeg_probe`

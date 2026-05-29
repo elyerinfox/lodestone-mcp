@@ -307,6 +307,19 @@ the rate limit.
 | `sat_position` | `tle_line1`, `tle_line2`, `at?` | SGP4 sub-point: latitude, longitude, altitude, speed. |
 | `sat_observe` | `tle_line1`, `tle_line2`, `observer_lat`, `observer_lon`, `observer_alt_km?`, `at?` | Azimuth/elevation/range from an observer. |
 
+## Background tasks (off by default)
+
+Run long work off the request path and poll for results (model-polled — works on any
+client). Gated by `[tasks]`. Currently backgrounds searches.
+
+| Tool | Arguments | Purpose |
+| --- | --- | --- |
+| `task_run` | `op?`, `kind`, `query`, `max_results?` | Start a background search (`kind` = web/code/docs/qa); returns a task id. |
+| `task_list` | — | List background tasks (id, status, label, age). |
+| `task_status` | `id` | A task's status (running/done/failed/cancelled). |
+| `task_result` | `id` | A task's result (or still-running / error). |
+| `task_cancel` | `id` | Cancel a running task. |
+
 ## Meta
 
 | Tool | Arguments | Purpose |

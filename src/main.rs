@@ -83,6 +83,9 @@ pub(crate) struct Lodestone {
     /// Per-session confirmation state for destructive actions (the client-agnostic
     /// alternative to MCP elicitation). Shared across cloned handles.
     pub(crate) guard: skills::guard::Guard,
+    /// Background-job registry (model-polled): `task_*` tools spawn long work and
+    /// poll for results here. Shared across cloned handles.
+    pub(crate) tasks: skills::tasks::Tasks,
     // The filtered tool router; `#[tool_handler(router = self.tool_router)]`
     // uses it for both tool listing and dispatch.
     tool_router: ToolRouter<Lodestone>,
@@ -139,6 +142,7 @@ impl Lodestone {
             databases: Arc::new(databases),
             store,
             guard: skills::guard::Guard::default(),
+            tasks: skills::tasks::Tasks::new(),
             tool_router,
         }
     }

@@ -42,6 +42,7 @@ pub struct Config {
     pub ffmpeg: Ffmpeg,
     pub spreadsheet: Spreadsheet,
     pub sdr: Sdr,
+    pub tasks: Tasks,
     pub serial: Serial,
     pub printer: Printer,
     pub nasa: Nasa,
@@ -513,6 +514,15 @@ pub struct Sdr {
     pub enabled: bool,
 }
 
+/// Background-tasks skill (`src/skills/tasks.rs`) — run long work (currently search)
+/// off the request path and poll for results. **Off by default.**
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct Tasks {
+    /// Expose the `task_*` tools.
+    pub enabled: bool,
+}
+
 /// Serial-port skill (`src/skills/serial.rs`) — read/write raw serial devices.
 /// **Off by default** (hardware access); writes go through the confirmation guard.
 #[derive(Debug, Clone, Deserialize)]
@@ -754,6 +764,7 @@ impl Default for Config {
             ffmpeg: Ffmpeg::default(),
             spreadsheet: Spreadsheet::default(),
             sdr: Sdr::default(),
+            tasks: Tasks::default(),
             serial: Serial::default(),
             printer: Printer::default(),
             nasa: Nasa::default(),
@@ -1099,6 +1110,9 @@ impl Config {
         }
         if let Ok(v) = std::env::var("LODESTONE_SDR_ENABLED") {
             self.sdr.enabled = is_truthy(&v);
+        }
+        if let Ok(v) = std::env::var("LODESTONE_TASKS_ENABLED") {
+            self.tasks.enabled = is_truthy(&v);
         }
         if let Ok(v) = std::env::var("LODESTONE_SERIAL_ENABLED") {
             self.serial.enabled = is_truthy(&v);
