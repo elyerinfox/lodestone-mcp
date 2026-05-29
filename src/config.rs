@@ -263,6 +263,11 @@ pub struct Network {
     pub relay_hops: u32,
     /// Stable node id. Empty = a random id generated per process.
     pub node_id: String,
+    /// The **constellation** id — shared by all member nodes (distinct from the
+    /// per-node `node_id`). Empty = a random id is chosen at startup; nodes that
+    /// discover each other converge to the smallest id, so co-located meshes MERGE
+    /// into one constellation. Set explicitly to pin a constellation's identity.
+    pub id: String,
     /// Optional path to persist peer reputations across restarts (JSON). Empty
     /// disables persistence.
     pub state_file: String,
@@ -284,6 +289,7 @@ impl Default for Network {
             min_agreement: 2,
             relay_hops: 1,
             node_id: String::new(),
+            id: String::new(),
             state_file: String::new(),
         }
     }
@@ -1024,6 +1030,9 @@ impl Config {
         }
         if let Ok(t) = std::env::var("LODESTONE_NETWORK_TOKEN") {
             self.network.token = t;
+        }
+        if let Ok(id) = std::env::var("LODESTONE_NETWORK_ID") {
+            self.network.id = id;
         }
         if let Ok(id) = std::env::var("LODESTONE_NETWORK_NODE_ID") {
             self.network.node_id = id;

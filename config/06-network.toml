@@ -66,11 +66,18 @@ min_agreement = 2
 # can't fabricate corroboration.
 relay_hops = 1
 
-# Stable node id. Empty = derived from the OS machine id (machine-uid; falls back
-# to hostname, else random) mixed with the bind port — stable across restarts and
-# distinct per instance on one host. Set explicitly to override.
+# Stable per-NODE id. Empty = derived from the OS machine id (machine-uid; falls
+# back to hostname, else random) mixed with the bind port — stable across restarts
+# and distinct per instance on one host. Set explicitly to override.
 # Env: LODESTONE_NETWORK_NODE_ID
 node_id = ""
+
+# The shared CONSTELLATION id — common to all member nodes (distinct from node_id
+# above). Empty = a random id is chosen at startup; nodes that can reach each other
+# CONVERGE to the smallest id, so multiple meshes on one network MERGE into a single
+# constellation. Set it explicitly to pin a constellation's identity. (The galaxy
+# directory lists a constellation under this id.) Env: LODESTONE_NETWORK_ID
+id = ""
 
 # Optional path to persist peer reputations across restarts (JSON map of
 # url -> reputation). Empty = no persistence. Env: LODESTONE_NETWORK_STATE_FILE
@@ -105,8 +112,9 @@ state_file = ""
 # first (warm-up) before reaching out. Env: LODESTONE_GALAXY_SERVERS (comma list)
 #   servers = ["http://broker.example.net:8077"]
 servers = []
-# This constellation's id in the directory. Empty = derived from node_id.
-# Env: LODESTONE_GALAXY_ID
+# Override the id this constellation registers under. Empty = use the shared
+# constellation id ([network].id above) — recommended, so all member nodes appear
+# as ONE constellation. Env: LODESTONE_GALAXY_ID
 id = ""
 # This constellation's PUBLICLY-REACHABLE ingress base URLs (what peers connect to).
 # List several member nodes to distribute inbound load. Env: LODESTONE_GALAXY_INGRESS

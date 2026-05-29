@@ -335,6 +335,11 @@ likely involved). Checked items are done; unchecked are open.
   per-node clients → distributed egress. A node joins its own constellation first
   (`join_warmup_secs`, returns early once a local peer appears) before reaching out.
   Docs: `docs/constellation.md` (Galaxy).
+  - **Also done:** a shared, convergent **constellation id** (`[network].id`; random
+    if unset, nodes converge to the smallest so co-located meshes merge and a
+    multi-node constellation is one galaxy entry) — the galaxy client registers under
+    it. Participation is explicitly **bidirectional** (register ingress = traffic in,
+    pull directory = reach out; ingress optional for outbound-only).
   - **Deferred:** broker persistence/HA (the directory is in-memory; run multiple
     brokers and list them all in `servers` for redundancy), and authenticated
     constellation-to-constellation trust beyond the shared `[network].token`.

@@ -236,6 +236,21 @@ Two sides (independent):
   URLs) with each broker and pull the directory, adding other constellations'
   endpoints as peers.
 
+**One id per constellation.** Member nodes share a single **constellation id**
+(`[network].id`; distinct from each node's `node_id`). It's random if unset, and
+nodes that reach each other **converge to the smallest id** — so a multi-node
+constellation registers as *one* entry in the galaxy (not one per node), and two
+meshes that find each other on a network **merge** into a single constellation. The
+galaxy client registers under this id unless `[galaxy].id` overrides it.
+
+**Bidirectional ("reach out" *and* "allow in").** Participation is two-way and
+symmetric through the directory: **registering** your `ingress` makes you discoverable
+so other constellations connect *to* you (traffic in), while **pulling** the directory
+adds their endpoints as peers so you connect *to* them (reach out). Both happen each
+cycle. A node with no public `ingress` can still pull-and-consult (outbound-only);
+a node with `ingress` is also reachable (inbound). The broker never proxies — all
+constellation traffic is direct.
+
 **Distribution.** A constellation may advertise **several `ingress` endpoints** — all
 are added as peers, spreading inbound load across member nodes. Egress is distributed
 too: every member node runs its own galaxy client and registers independently.

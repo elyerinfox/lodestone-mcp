@@ -63,6 +63,13 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Shared, convergent constellation id** (`[network].id`): member nodes share one
+  constellation id (distinct from `node_id`); unset = random, and nodes that reach
+  each other converge to the smallest id, so multi-node constellations register as a
+  single galaxy entry and co-located meshes **merge**. The galaxy client registers
+  under this id (unless `[galaxy].id` overrides). Galaxy participation is explicitly
+  bidirectional — registering `ingress` allows traffic in, pulling the directory
+  reaches out.
 - **Constellation can listen on its own port** (`[network].bind`): when set, the
   `/constellation/*` endpoints serve on a separate listener so you can forward *only*
   that port (e.g. as a galaxy ingress) without exposing the `/mcp` server. Empty

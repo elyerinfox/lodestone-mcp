@@ -43,6 +43,10 @@ use bloom::BloomFilter;
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct Digest {
     pub node_id: String,
+    /// The advertiser's shared constellation id (for convergence/merge). `serde
+    /// default` keeps older peers (which omit it) working.
+    #[serde(default)]
+    pub constellation_id: String,
     pub generation: u64,
     pub count: usize,
     pub bloom: BloomFilter,
@@ -145,6 +149,9 @@ impl Peer {
 pub(crate) struct Constellation {
     cfg: NetworkConfig,
     node_id: String,
+    /// The shared constellation id (distinct from `node_id`). Mutable so the mesh can
+    /// converge to one id — co-located constellations merge by adopting the smallest.
+    constellation_id: Mutex<String>,
     http: Client,
     cache: Arc<TtlCache>,
     /// Optional on-disk file store, shared over the mesh as raw bytes so a PDF/file
@@ -180,6 +187,13 @@ impl Constellation {
         } else {
             cfg.node_id.trim().to_string()
         };
+        // Shared constellation id: configured, else random. Convergence on sync makes
+        // co-located nodes/meshes agree on (and merge to) the smallest id.
+        let constellation_id = if cfg.id.trim().is_empty() {
+            random_id()
+        } else {
+            cfg.id.trim().to_string()
+        };
         let http = Client::builder()
             .user_agent("lodestone-constellation")
             .timeout(Duration::from_millis(cfg.request_timeout_ms.max(100)))
@@ -197,6 +211,7 @@ impl Constellation {
         Arc::new(Self {
             cfg: cfg.clone(),
             node_id,
+            constellation_id: Mutex::new(constellation_id),
             http,
             cache,
             store,
@@ -246,10 +261,29 @@ impl Constellation {
         };
         Digest {
             node_id: self.node_id.clone(),
+            constellation_id: self.constellation_id.lock().unwrap().clone(),
             generation: now_secs(),
             count: keys.len(),
             bloom: BloomFilter::from_keys(&keys),
             peers,
+        }
+    }
+
+    /// This node's current (possibly converged) constellation id.
+    pub(crate) fn constellation_id(&self) -> String {
+        self.constellation_id.lock().unwrap().clone()
+    }
+
+    /// Adopt `peer_cid` as our constellation id iff it's a non-empty id smaller than
+    /// ours — the deterministic merge rule that converges a connected mesh to one id.
+    fn maybe_adopt_id(&self, peer_cid: &str) {
+        if peer_cid.is_empty() {
+            return;
+        }
+        let mut mine = self.constellation_id.lock().unwrap();
+        if peer_cid < mine.as_str() {
+            tracing::info!(adopted = %peer_cid, "constellation id converged (merge)");
+            *mine = peer_cid.to_string();
         }
     }
 
@@ -706,14 +740,20 @@ impl Constellation {
         for url in urls {
             match fetch_digest(&self.http, &url, &self.cfg.token).await {
                 Ok(d) if d.node_id != self.node_id && d.bloom.is_valid() => {
+                    let peer_cid = d.constellation_id.clone();
                     gossiped.extend(d.peers.iter().take(MAX_GOSSIP_PEERS).cloned());
-                    let mut peers = self.peers.lock().unwrap();
-                    if let Some(p) = peers.get_mut(&url) {
-                        p.bloom = Some(d.bloom);
-                        p.misses = 0;
-                        p.known = d.peers;
-                        p.node_id = Some(d.node_id);
+                    {
+                        let mut peers = self.peers.lock().unwrap();
+                        if let Some(p) = peers.get_mut(&url) {
+                            p.bloom = Some(d.bloom);
+                            p.misses = 0;
+                            p.known = d.peers;
+                            p.node_id = Some(d.node_id);
+                        }
                     }
+                    // Converge to the smallest constellation id seen, so nodes that can
+                    // reach each other (incl. two co-located meshes) MERGE to one id.
+                    self.maybe_adopt_id(&peer_cid);
                 }
                 Ok(_) => {
                     // Self or malformed: don't consult it.
@@ -1113,6 +1153,25 @@ mod tests {
         // though the entry is cached.
         let me = constellation.node_id().to_string();
         assert!(constellation.answer_query(key, 1, &[me]).await.is_empty());
+    }
+
+    #[test]
+    fn constellation_id_configured_and_converges_to_smallest() {
+        let cfg = NetworkConfig {
+            enabled: true,
+            id: "mmm-mid".to_string(),
+            ..NetworkConfig::default()
+        };
+        let c = Constellation::new(&cfg, Arc::new(TtlCache::new(60, 64)), None, None);
+        assert_eq!(c.constellation_id(), "mmm-mid");
+        // A larger peer id is ignored; a smaller one is adopted (merge).
+        c.maybe_adopt_id("zzz-high");
+        assert_eq!(c.constellation_id(), "mmm-mid");
+        c.maybe_adopt_id("aaa-low");
+        assert_eq!(c.constellation_id(), "aaa-low");
+        // Empty peer id never changes ours.
+        c.maybe_adopt_id("");
+        assert_eq!(c.constellation_id(), "aaa-low");
     }
 
     #[test]

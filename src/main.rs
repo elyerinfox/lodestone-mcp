@@ -704,11 +704,7 @@ async fn main() -> anyhow::Result<()> {
     // (warm-up) before reaching out.
     if let Some(h) = &constellation {
         if !cfg.galaxy.servers.is_empty() {
-            let id = if cfg.galaxy.id.trim().is_empty() {
-                cfg.network.node_id.clone()
-            } else {
-                cfg.galaxy.id.clone()
-            };
+            // Empty id → the client registers under the shared constellation id.
             let ghttp = reqwest::Client::builder()
                 .user_agent("lodestone-galaxy")
                 .timeout(std::time::Duration::from_secs(10))
@@ -717,7 +713,7 @@ async fn main() -> anyhow::Result<()> {
             galaxy::client::GalaxyClient {
                 http: ghttp,
                 servers: cfg.galaxy.servers.clone(),
-                id,
+                id: cfg.galaxy.id.clone(),
                 ingress: cfg.galaxy.ingress.clone(),
                 token: cfg.galaxy.token.clone(),
                 heartbeat_secs: cfg.galaxy.heartbeat_secs,

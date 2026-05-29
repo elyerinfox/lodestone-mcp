@@ -82,7 +82,15 @@ impl GalaxyClient {
     /// One register + directory-pull against a single broker.
     async fn sync_once(&self, server: &str, constellation: &Constellation) {
         let base = server.trim_end_matches('/');
-        let reg = serde_json::json!({ "id": self.id, "endpoints": self.ingress });
+        // Register under the SHARED constellation id (so all member nodes appear as
+        // one constellation), unless an explicit `[galaxy].id` overrides it. Read it
+        // fresh each cycle since the id can converge as meshes merge.
+        let id = if self.id.trim().is_empty() {
+            constellation.constellation_id()
+        } else {
+            self.id.clone()
+        };
+        let reg = serde_json::json!({ "id": id, "endpoints": self.ingress });
         let mut post = self.http.post(format!("{base}/galaxy/register")).json(&reg);
         if !self.token.is_empty() {
             post = post.bearer_auth(&self.token);
@@ -91,10 +99,9 @@ impl GalaxyClient {
             tracing::debug!(server = base, error = %e, "galaxy register failed");
             return;
         }
-        let mut get = self.http.get(format!(
-            "{base}/galaxy/directory?id={}",
-            urlencode(&self.id)
-        ));
+        let mut get = self
+            .http
+            .get(format!("{base}/galaxy/directory?id={}", urlencode(&id)));
         if !self.token.is_empty() {
             get = get.bearer_auth(&self.token);
         }
@@ -118,7 +125,7 @@ impl GalaxyClient {
         };
         let mut added = 0usize;
         for entry in &dir.constellations {
-            if entry.id == self.id {
+            if entry.id == id {
                 continue;
             }
             for ep in &entry.endpoints {
