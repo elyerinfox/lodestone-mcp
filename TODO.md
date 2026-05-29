@@ -110,12 +110,21 @@ likely involved). Checked items are done; unchecked are open.
   `rtl_power`/`rtl_fm`/`hackrf_transfer` first (dependency safeguard when absent)
   rather than linking the C libs. Scope: `sdr_devices`, `sdr_scan` (power spectrum).
 
-- [ ] **Background tasks & alerts.** A scheduler so the server can run periodic jobs
-  (e.g. poll a feed, watch a container/quote/satellite pass) and surface alerts.
-  MCP is request/response, so delivery is the hard part — options: MCP logging/
-  notifications to the client, or a results buffer the model polls via a tool
-  (`tasks_list`/`task_result`). The hivemind already runs a background sync loop to
-  build on. Define create/list/cancel tools + a `[tasks]` config (off by default).
+- [ ] **Background tasks & alerts.** Two parts:
+  1. **A tasks skill** — `task_list`, `task_status`, `task_result`, `task_cancel`
+     over a server-side registry of running jobs, plus scheduled/periodic jobs
+     (poll a feed, watch a container/quote/satellite pass) that surface alerts.
+  2. **Per-action backgrounding** — any work-performing tool (search, read_pdf,
+     docker_build, db_query, sat_observe, …) gains an optional `background: true`
+     that returns a task id immediately; the model later polls `task_result`. This
+     lets the model fan out long operations and parallelize itself.
+  Design notes: MCP is request/response, so *delivery* is the hard part — options
+  are MCP logging/notifications to the client (if the host supports them; **LM Studio
+  may not** — needs verification) or a model-polled results buffer (works on any
+  client, the safe default). Keep a bounded in-memory job table with TTL'd results;
+  the hivemind already runs a background loop to model the lifecycle on. Off by
+  default (`[tasks]`); ensure cancellation + resource caps so runaway fan-out can't
+  exhaust the host.
 
 - [ ] **FFmpeg conversion skill.** There's an `ffmpeg` *docs* provider (`docs_ffmpeg`)
   but no conversion tool. Add `ffmpeg_convert` (input path, output path, optional
@@ -210,6 +219,7 @@ likely involved). Checked items are done; unchecked are open.
 
 - [x] **Result cache (in-memory).** Done: `src/cache.rs` `TtlCache` (TTL +
   size-bounded), wired into `Registry::search`/`run_one` keyed by the normalized
+- 
   query; only non-empty results are stored, secrets never are. Config `[cache]`
   (`enabled`/`ttl_secs`/`max_entries`, `LODESTONE_CACHE_*`), on by default at
   300s. See `config/05-cache.toml`.

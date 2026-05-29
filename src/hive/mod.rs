@@ -389,7 +389,7 @@ impl Hive {
             return "No blobs served or fetched yet.".to_string();
         }
         let mut entries: Vec<(&String, &BlobStat)> = seeds.iter().collect();
-        entries.sort_by(|a, b| b.1.served_bytes.cmp(&a.1.served_bytes));
+        entries.sort_by_key(|e| std::cmp::Reverse(e.1.served_bytes));
         let (mut ts, mut tf) = (0u64, 0u64);
         let mut out = format!("Blob seed accounting ({} tracked):\n", entries.len());
         for (hash, s) in &entries {

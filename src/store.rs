@@ -196,7 +196,7 @@ impl FileStore {
                 modified,
             });
         }
-        out.sort_by(|a, b| b.modified.cmp(&a.modified));
+        out.sort_by_key(|e| std::cmp::Reverse(e.modified));
         out
     }
 
@@ -229,7 +229,7 @@ impl FileStore {
         if total <= self.max_bytes {
             return;
         }
-        entries.sort_by(|a, b| a.2.cmp(&b.2)); // oldest first
+        entries.sort_by_key(|e| e.2); // oldest first
         for (path, size, _) in entries {
             if total <= self.max_bytes {
                 break;
