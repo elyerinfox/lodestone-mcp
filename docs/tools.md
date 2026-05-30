@@ -362,6 +362,8 @@ client). Gated by `[tasks]`. Currently backgrounds searches.
 | `conversation_list` | `max?` | List recorded conversations, most recently active first; turn count, started/last-seen, first query preview. |
 | `conversation_show` | `id`, `max?` | Walk one conversation: every tool call (chronological), with query + a short response excerpt + the list of solutions whose revisions it produced. |
 | `solution_conversations` | `id` | List the conversation(s) a solution came from, grouped by which revisions each one produced (many-to-many via revisions). |
+| `conversation_forget` | `id`, `confirm?`, `trust?` | Delete one conversation (cascades to turns; NULLs revisions' back-pointer). **Destructive — guarded.** |
+| `conversation_prune` | `older_than_days?`, `keep_newest?`, `dry_run?`, `confirm?`, `trust?` | Bulk-delete by retention policy. Falls back to configured `[memory].conversation_retention_days` / `max_conversations` when no args given. **Destructive — guarded; `dry_run=true` bypasses.** |
 
 ## Meta
 

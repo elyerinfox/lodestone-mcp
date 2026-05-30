@@ -159,6 +159,8 @@ fn intent_trigger(tool_name: &str, args: &JsonObject) -> Option<String> {
             | "synonym_list"
             | "conversation_list"
             | "conversation_show"
+            | "conversation_forget"
+            | "conversation_prune"
             | "solution_conversations"
     ) {
         return None;
@@ -255,30 +257,37 @@ fn route(skill: Box<dyn Skill>) -> ToolRoute<Lodestone> {
         Box::pin(async move {
             let mut result = fut.await?;
             if server.memory.enabled() {
-                if let Some(q) = trigger.as_deref() {
-                    let hits = server.memory.auto_recall(q, 3).await;
-                    if !hits.is_empty() {
-                        let preamble = rmcp::model::Content::text(recall_preamble(&hits));
-                        result.content.insert(0, preamble);
+                let cfg = server.memory.config();
+                if cfg.auto_recall {
+                    if let Some(q) = trigger.as_deref() {
+                        let hits = server
+                            .memory
+                            .auto_recall(q, cfg.recall_max_hits.max(1))
+                            .await;
+                        if !hits.is_empty() {
+                            let preamble = rmcp::model::Content::text(recall_preamble(&hits));
+                            result.content.insert(0, preamble);
+                        }
                     }
                 }
-                // Record one conversation turn per tool call. The active
-                // conversation id is decided by the idle-gap heuristic in
-                // `Memory::current_conversation_id`. Best-effort — DB errors
-                // must not break the user-visible response.
-                if let Some(conv_id) = server.memory.current_conversation_id().await {
-                    let excerpt = result
-                        .content
-                        .iter()
-                        .find_map(|c| match &c.raw {
-                            rmcp::model::RawContent::Text(t) => Some(t.text.as_str()),
-                            _ => None,
-                        })
-                        .unwrap_or("");
-                    server
-                        .memory
-                        .record_turn(&conv_id, tool_name, trigger.as_deref(), excerpt)
-                        .await;
+                // Record one conversation turn per tool call. Skip when
+                // `record_conversations` is off; the helper also drops
+                // query-less calls when `record_only_query_calls` is on.
+                if cfg.record_conversations {
+                    if let Some(conv_id) = server.memory.current_conversation_id().await {
+                        let excerpt = result
+                            .content
+                            .iter()
+                            .find_map(|c| match &c.raw {
+                                rmcp::model::RawContent::Text(t) => Some(t.text.as_str()),
+                                _ => None,
+                            })
+                            .unwrap_or("");
+                        server
+                            .memory
+                            .record_turn(&conv_id, tool_name, trigger.as_deref(), excerpt)
+                            .await;
+                    }
                 }
             }
             Ok(result)

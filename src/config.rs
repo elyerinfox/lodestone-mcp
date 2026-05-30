@@ -136,22 +136,76 @@ pub struct Systemd {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct Memory {
-    /// Expose the `memory_*`, `solution_*`, and `synonym_*` tools and arm
-    /// the dispatch-wrapper that auto-prepends prior-solution recall to
-    /// every query-bearing tool call. **On by default** — the layer is local
-    /// (SQLite under `dir`), has no external dependencies, and the recall
-    /// preamble is what gives the model the "I solved this before" surface.
-    /// Set to false to silence the family entirely.
+    /// Expose the `memory_*`, `solution_*`, `synonym_*`, and `conversation_*`
+    /// tools and arm the dispatch-wrapper that auto-prepends prior-solution
+    /// recall to every query-bearing tool call. **On by default** — the layer
+    /// is local (SQLite under `dir`), has no external dependencies, and the
+    /// recall preamble is what gives the model the "I solved this before"
+    /// surface. Set to false to silence the family entirely.
     pub enabled: bool,
-    /// Directory for the JSONL stores (`memory.jsonl`, `solutions.jsonl`).
+    /// Directory for the SQLite store (`store.db`).
     /// Default: `.lodestone-memory` (relative to the server's working directory).
     pub dir: String,
-    /// Pre-authorize `memory_forget` / `solution_forget` — skip the per-call confirm.
+    /// Pre-authorize destructive tools (`memory_forget` / `solution_forget` /
+    /// `conversation_forget` / `conversation_prune`) — skip the per-call
+    /// confirm-token handshake.
     pub allow_destructive: bool,
     /// Soft cap on each store (memories or solutions). Saves beyond it return an error.
     pub max_entries: usize,
     /// Per-value character cap (memory value or solution content). Larger inputs are rejected.
     pub max_value_chars: usize,
+
+    // -------- Intrinsic recall ----------------------------------------------
+    /// Whether the dispatch wrapper auto-prepends prior-solution recall to
+    /// query-bearing tool responses. Independent from `enabled`: you can keep
+    /// the tools available while silencing the preamble (e.g. quieter token
+    /// budgets during long sessions). Default: true.
+    pub auto_recall: bool,
+    /// Minimum match score for a solution to fire intrinsic recall. The ranker
+    /// is `exact canonical = 100 > exact concept = 80 > fuzzy = 20 + 40·j >
+    /// substring = 15`, plus a per-tag boost of 5. Lower = chattier; higher =
+    /// quieter and higher-signal. Default: 30.
+    pub recall_threshold: f64,
+    /// Max prior solutions shown in one recall preamble. Default: 3.
+    pub recall_max_hits: usize,
+    /// How many `superseded-by` hops the recall walker chases to find the head
+    /// of a chain. 0 disables the warning entirely. Default: 5.
+    pub superseded_walk_max_hops: usize,
+
+    // -------- Conversation tracking ------------------------------------------
+    /// Whether the dispatch wrapper records one row per tool call into
+    /// `conversation_turns`. Independent from `enabled`: turning this off
+    /// keeps the recall preamble but stops growing the conversation log.
+    /// Default: true.
+    pub record_conversations: bool,
+    /// Seconds of silence (no tool calls) before the next call starts a fresh
+    /// conversation id. Default: 1800 (30 minutes).
+    pub conversation_idle_gap_secs: u64,
+    /// Max characters of a tool's response retained in
+    /// `conversation_turns.response_excerpt`. Large enough to be recognizable
+    /// when traversing later, small enough that 100 turns fits on a page.
+    /// Default: 240.
+    pub conversation_turn_excerpt_max_chars: usize,
+    /// Only record turns for tools that actually carry a free-text `query`.
+    /// When true, low-signal local-system calls (fs_read, arithmetic_eval,
+    /// docker_ps, …) are skipped to keep the log focused on intent. Default:
+    /// false (record everything for full traversal).
+    pub record_only_query_calls: bool,
+
+    // -------- Retention / pruning -------------------------------------------
+    /// Auto-delete conversations older than this many days. 0 = keep forever.
+    /// Honored on startup when `prune_on_startup` is true, and by the manual
+    /// `conversation_prune` tool. Default: 0.
+    pub conversation_retention_days: u32,
+    /// Soft cap on the number of stored conversations. When pruning, the
+    /// newest `max_conversations` are kept and the rest are deleted. 0 =
+    /// unlimited. Default: 0.
+    pub max_conversations: usize,
+    /// Run a retention sweep at startup against the rules above. Off by
+    /// default so a misconfigured retention doesn't surprise-delete history
+    /// on first boot; turn on once you've verified the policy in
+    /// `conversation_prune dry_run=true`. Default: false.
+    pub prune_on_startup: bool,
 }
 
 impl Default for Memory {
@@ -162,6 +216,17 @@ impl Default for Memory {
             allow_destructive: false,
             max_entries: 10_000,
             max_value_chars: 64_000,
+            auto_recall: true,
+            recall_threshold: 30.0,
+            recall_max_hits: 3,
+            superseded_walk_max_hops: 5,
+            record_conversations: true,
+            conversation_idle_gap_secs: 30 * 60,
+            conversation_turn_excerpt_max_chars: 240,
+            record_only_query_calls: false,
+            conversation_retention_days: 0,
+            max_conversations: 0,
+            prune_on_startup: false,
         }
     }
 }
@@ -1287,6 +1352,53 @@ impl Config {
         }
         if let Ok(v) = std::env::var("LODESTONE_MEMORY_ALLOW_DESTRUCTIVE") {
             self.memory.allow_destructive = is_truthy(&v);
+        }
+        if let Ok(v) = std::env::var("LODESTONE_MEMORY_AUTO_RECALL") {
+            self.memory.auto_recall = is_truthy(&v);
+        }
+        if let Ok(v) = std::env::var("LODESTONE_MEMORY_RECALL_THRESHOLD") {
+            if let Ok(n) = v.parse::<f64>() {
+                self.memory.recall_threshold = n;
+            }
+        }
+        if let Ok(v) = std::env::var("LODESTONE_MEMORY_RECALL_MAX_HITS") {
+            if let Ok(n) = v.parse::<usize>() {
+                self.memory.recall_max_hits = n;
+            }
+        }
+        if let Ok(v) = std::env::var("LODESTONE_MEMORY_SUPERSEDED_WALK_MAX_HOPS") {
+            if let Ok(n) = v.parse::<usize>() {
+                self.memory.superseded_walk_max_hops = n;
+            }
+        }
+        if let Ok(v) = std::env::var("LODESTONE_MEMORY_RECORD_CONVERSATIONS") {
+            self.memory.record_conversations = is_truthy(&v);
+        }
+        if let Ok(v) = std::env::var("LODESTONE_MEMORY_CONVERSATION_IDLE_GAP_SECS") {
+            if let Ok(n) = v.parse::<u64>() {
+                self.memory.conversation_idle_gap_secs = n;
+            }
+        }
+        if let Ok(v) = std::env::var("LODESTONE_MEMORY_CONVERSATION_TURN_EXCERPT_MAX_CHARS") {
+            if let Ok(n) = v.parse::<usize>() {
+                self.memory.conversation_turn_excerpt_max_chars = n;
+            }
+        }
+        if let Ok(v) = std::env::var("LODESTONE_MEMORY_RECORD_ONLY_QUERY_CALLS") {
+            self.memory.record_only_query_calls = is_truthy(&v);
+        }
+        if let Ok(v) = std::env::var("LODESTONE_MEMORY_CONVERSATION_RETENTION_DAYS") {
+            if let Ok(n) = v.parse::<u32>() {
+                self.memory.conversation_retention_days = n;
+            }
+        }
+        if let Ok(v) = std::env::var("LODESTONE_MEMORY_MAX_CONVERSATIONS") {
+            if let Ok(n) = v.parse::<usize>() {
+                self.memory.max_conversations = n;
+            }
+        }
+        if let Ok(v) = std::env::var("LODESTONE_MEMORY_PRUNE_ON_STARTUP") {
+            self.memory.prune_on_startup = is_truthy(&v);
         }
         if let Ok(v) = std::env::var("LODESTONE_SIGNAL_ENABLED") {
             self.signal.enabled = is_truthy(&v);

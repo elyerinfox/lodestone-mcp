@@ -8,6 +8,27 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Memory levers exposed as config** (`[memory]`): every behavior that used to
+  be a hardcoded constant is now a knob. `auto_recall`, `recall_threshold`,
+  `recall_max_hits`, `superseded_walk_max_hops` shape the intrinsic-recall
+  preamble; `record_conversations`, `conversation_idle_gap_secs`,
+  `conversation_turn_excerpt_max_chars`, `record_only_query_calls` tune
+  conversation tracking; `conversation_retention_days`, `max_conversations`,
+  `prune_on_startup` drive retention. Each has an
+  `LODESTONE_MEMORY_<UPPER_SNAKE>` env override.
+- **`conversation_forget { id, confirm?, trust? }`** — delete one recorded
+  conversation. CASCADE drops its turns; `solution_revisions.conversation_id`
+  is set to NULL for any revision that referenced it, so revision content
+  remains queryable via `solution_show`. Destructive, guarded.
+- **`conversation_prune { older_than_days?, keep_newest?, dry_run?, confirm?, trust? }`** —
+  bulk delete by retention policy. Falls back to the configured
+  `[memory].conversation_retention_days` / `max_conversations` when neither
+  argument is set. `dry_run=true` reports what *would* be deleted without
+  asking for confirmation — use to validate the policy first.
+- **Startup pruning**: when `[memory].prune_on_startup = true`, the configured
+  retention policy is applied once at boot. Off by default so a misconfigured
+  policy can't surprise-delete history on first upgrade.
+
 - **Conversation tracking** (when `[memory]` is on): the dispatch wrapper now
   records one row per tool call into a new `conversation_turns` table, grouped
   into `conversations` by a 30-minute idle-gap heuristic. `solution_record` /

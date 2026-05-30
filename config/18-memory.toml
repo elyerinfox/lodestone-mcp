@@ -32,13 +32,41 @@
 # confirm + trust=true to whitelist for the session). `allow_destructive = true`
 # pre-authorizes (skips the prompt).
 #
-# Env: LODESTONE_MEMORY_ENABLED, LODESTONE_MEMORY_DIR,
-#      LODESTONE_MEMORY_ALLOW_DESTRUCTIVE
+# Env overrides (every key below has a LODESTONE_MEMORY_<UPPER_SNAKE> form):
+#   LODESTONE_MEMORY_ENABLED, LODESTONE_MEMORY_DIR,
+#   LODESTONE_MEMORY_ALLOW_DESTRUCTIVE, LODESTONE_MEMORY_AUTO_RECALL,
+#   LODESTONE_MEMORY_RECALL_THRESHOLD, LODESTONE_MEMORY_RECALL_MAX_HITS,
+#   LODESTONE_MEMORY_SUPERSEDED_WALK_MAX_HOPS,
+#   LODESTONE_MEMORY_RECORD_CONVERSATIONS,
+#   LODESTONE_MEMORY_CONVERSATION_IDLE_GAP_SECS,
+#   LODESTONE_MEMORY_CONVERSATION_TURN_EXCERPT_MAX_CHARS,
+#   LODESTONE_MEMORY_RECORD_ONLY_QUERY_CALLS,
+#   LODESTONE_MEMORY_CONVERSATION_RETENTION_DAYS,
+#   LODESTONE_MEMORY_MAX_CONVERSATIONS,
+#   LODESTONE_MEMORY_PRUNE_ON_STARTUP
 # -----------------------------------------------------------------------------
 
 [memory]
 enabled = true                 # ON by default; set false to silence the whole family
 dir = ".lodestone-memory"      # SQLite store lives here
-allow_destructive = false      # true = skip the memory_forget / solution_forget prompt
+allow_destructive = false      # true = skip the *_forget / conversation_prune prompts
 max_entries = 10000            # soft cap on each store (memories or solutions)
 max_value_chars = 64000        # per-value cap on memory `value` / solution `content`
+
+# --- Intrinsic recall ------------------------------------------------------
+auto_recall = true             # auto-prepend "💡 prior solutions" preambles
+recall_threshold = 30.0        # match score floor — lower = chattier, higher = quieter
+recall_max_hits = 3            # max solutions shown in one preamble
+superseded_walk_max_hops = 5   # chain length the head walker chases; 0 = disable warning
+
+# --- Conversation tracking -------------------------------------------------
+record_conversations = true        # one row per tool call in conversation_turns
+conversation_idle_gap_secs = 1800  # 30 min of silence ends a conversation; raise to merge sessions, lower to split
+conversation_turn_excerpt_max_chars = 240
+record_only_query_calls = false    # true = skip fs_read, arithmetic_eval, docker_ps — keeps the log intent-only
+
+# --- Retention / pruning ---------------------------------------------------
+conversation_retention_days = 0    # 0 = keep forever; >0 = auto-prune older
+max_conversations = 0              # 0 = unlimited; >0 = keep N newest, drop the rest
+prune_on_startup = false           # apply the two rules above at boot; verify with
+                                   # `conversation_prune dry_run=true` first

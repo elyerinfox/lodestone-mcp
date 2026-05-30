@@ -78,6 +78,9 @@ pub const TOOL_NAMES: &[&str] = &[
     "conversation_list",
     "conversation_show",
     "solution_conversations",
+    // Conversation destructive controls.
+    "conversation_forget",
+    "conversation_prune",
 ];
 
 const DEFAULT_DIR: &str = ".lodestone-memory";
@@ -240,21 +243,10 @@ struct ActiveConversation {
     last_seen_secs: u64,
 }
 
-/// How many seconds of no tool calls before a fresh conversation id is minted.
-/// Conservative default (30 minutes) — long enough that bathroom breaks don't
-/// fragment a session, short enough that a next-morning return is clearly a
-/// new conversation.
-const IDLE_GAP_SECS: u64 = 30 * 60;
-
 /// Per-process monotonic counter that disambiguates same-second conversation
 /// ids. Combined with `now_secs()`, the id is unique within a process for the
 /// lifetime of the universe — and stays decipherable when traversing later.
 static CONV_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-
-/// Max chars of a tool response we keep in `conversation_turns.response_excerpt`.
-/// Small enough that 100 turns is well under a page, large enough to be
-/// recognizable when traversing later.
-const TURN_EXCERPT_MAX_CHARS: usize = 240;
 
 /// The memory layer: a SQLite connection pool plus a fast in-memory mirror of
 /// the synonyms table (so `canonical_query` doesn't hit the disk on every
@@ -306,12 +298,19 @@ impl Memory {
         self.cfg.enabled
     }
 
+    /// Read-only handle to the resolved `[memory]` config. Used by the
+    /// dispatch wrapper to decide whether to run auto-recall, record
+    /// conversation turns, etc.
+    pub(crate) fn config(&self) -> &config::Memory {
+        &self.cfg
+    }
+
     /// Run the same scoring path `solution_find` uses, but return the top
     /// matches above a threshold as plain data (no rendering). Called from the
     /// dispatch wrapper on every query-bearing tool so prior solutions are
     /// surfaced **intrinsically** — the model never has to remember to look.
     ///
-    /// Returns at most `max` hits with `score ≥ 30`. Threshold avoids drowning
+    /// Returns at most `max` hits with `score â‰¥ 30`. Threshold avoids drowning
     /// the response in marginal substring matches.
     pub(crate) async fn auto_recall(&self, query: &str, max: usize) -> Vec<RecallHit> {
         if !self.cfg.enabled || query.trim().is_empty() || max == 0 {
@@ -356,7 +355,7 @@ impl Memory {
                     &filter_tags_lc,
                 )?;
                 // Threshold: only surface meaningful matches automatically.
-                if score < 30.0 {
+                if score < self.cfg.recall_threshold {
                     None
                 } else {
                     Some((sol, score))
@@ -407,22 +406,25 @@ impl Memory {
     }
 
     /// Decide which conversation id to attribute the current tool call to.
-    /// Idle-gap heuristic: if the previous call was within `IDLE_GAP_SECS`,
-    /// reuse the same id; otherwise mint a fresh one and INSERT the row.
+    /// Idle-gap heuristic: if the previous call was within
+    /// `[memory].conversation_idle_gap_secs`, reuse the same id; otherwise
+    /// mint a fresh one and INSERT the row.
     ///
-    /// Returns `None` when memory is disabled — callers should treat that as
-    /// "no conversation context" and skip the bookkeeping entirely.
+    /// Returns `None` when memory is disabled OR conversation recording is
+    /// turned off — callers should treat that as "no conversation context"
+    /// and skip the bookkeeping entirely.
     pub(crate) async fn current_conversation_id(&self) -> Option<String> {
-        if !self.cfg.enabled {
+        if !self.cfg.enabled || !self.cfg.record_conversations {
             return None;
         }
         let now = now_secs();
+        let gap = self.cfg.conversation_idle_gap_secs;
         // Decide under the lock whether to reuse or rotate. We don't hit the
         // DB while holding the lock — only the in-memory tracker.
         let (id, is_new) = {
             let mut guard = self.active_conv.lock().ok()?;
             match guard.as_mut() {
-                Some(active) if now.saturating_sub(active.last_seen_secs) <= IDLE_GAP_SECS => {
+                Some(active) if now.saturating_sub(active.last_seen_secs) <= gap => {
                     active.last_seen_secs = now;
                     (active.id.clone(), false)
                 }
@@ -463,13 +465,19 @@ impl Memory {
         query: Option<&str>,
         response_excerpt: &str,
     ) {
-        if !self.cfg.enabled {
+        if !self.cfg.enabled || !self.cfg.record_conversations {
+            return;
+        }
+        // `record_only_query_calls=true` keeps the log focused on intent:
+        // a tool call with no free-text query (fs_read, arithmetic_eval,
+        // docker_ps) doesn't get written. Recall is unaffected.
+        if self.cfg.record_only_query_calls && query.unwrap_or("").trim().is_empty() {
             return;
         }
         let now = now_secs() as i64;
         let excerpt: String = response_excerpt
             .chars()
-            .take(TURN_EXCERPT_MAX_CHARS)
+            .take(self.cfg.conversation_turn_excerpt_max_chars)
             .collect();
         // Try to compute the next seq + bump turn_count + last_seen_at +
         // first_query (if NULL) atomically. Worst case the unique constraint
@@ -511,17 +519,127 @@ impl Memory {
         let _ = tx.commit().await;
     }
 
+    /// Apply the retention rules in `[memory]` (older-than-N-days and
+    /// keep-newest-N) and return the number of conversations that would be /
+    /// were deleted. Best-effort: a DB error mid-sweep returns whatever count
+    /// we managed before the failure.
+    ///
+    /// When `dry_run` is true, no rows are deleted — the count reflects what
+    /// *would* be removed. `solution_revisions.conversation_id` is set to
+    /// NULL for any revision whose conversation is deleted, so historical
+    /// solution data stays intact (just loses its back-pointer).
+    pub(crate) async fn prune_conversations(
+        &self,
+        retention_days: u32,
+        keep_newest: usize,
+        dry_run: bool,
+    ) -> Result<u64, sqlx::Error> {
+        // 1) Build the ids-to-delete set in one pass.
+        let mut to_delete: Vec<String> = Vec::new();
+        if retention_days > 0 {
+            let cutoff = now_secs().saturating_sub(retention_days as u64 * 86_400) as i64;
+            let old: Vec<(String,)> =
+                sqlx::query_as("SELECT id FROM conversations WHERE last_seen_at < ?")
+                    .bind(cutoff)
+                    .fetch_all(&self.pool)
+                    .await?;
+            to_delete.extend(old.into_iter().map(|r| r.0));
+        }
+        if keep_newest > 0 {
+            // SQLite OFFSET on an ORDER BY last_seen_at DESC gives us
+            // everything past the newest N. dedup with the above set.
+            let extras: Vec<(String,)> = sqlx::query_as(
+                "SELECT id FROM conversations ORDER BY last_seen_at DESC LIMIT -1 OFFSET ?",
+            )
+            .bind(keep_newest as i64)
+            .fetch_all(&self.pool)
+            .await?;
+            for (id,) in extras {
+                if !to_delete.contains(&id) {
+                    to_delete.push(id);
+                }
+            }
+        }
+        if dry_run || to_delete.is_empty() {
+            return Ok(to_delete.len() as u64);
+        }
+        // 2) Apply in a transaction. CASCADE removes turns; we explicitly
+        //    NULL revisions' back-pointer so solution_show / list still work.
+        let mut tx = self.pool.begin().await?;
+        for id in &to_delete {
+            sqlx::query(
+                "UPDATE solution_revisions SET conversation_id = NULL WHERE conversation_id = ?",
+            )
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+            sqlx::query("DELETE FROM conversations WHERE id = ?")
+                .bind(id)
+                .execute(&mut *tx)
+                .await?;
+        }
+        tx.commit().await?;
+        // 3) If the active conversation was just deleted, rotate next call.
+        if let Ok(mut guard) = self.active_conv.lock() {
+            if let Some(active) = guard.as_ref() {
+                if to_delete.iter().any(|x| x == &active.id) {
+                    *guard = None;
+                }
+            }
+        }
+        Ok(to_delete.len() as u64)
+    }
+
+    /// Delete exactly one conversation by id. Returns whether a row existed.
+    /// Like [`prune_conversations`], NULLs `solution_revisions.conversation_id`
+    /// for any revision that referenced it.
+    pub(crate) async fn forget_conversation(&self, id: &str) -> Result<bool, sqlx::Error> {
+        let existed: Option<(String,)> =
+            sqlx::query_as("SELECT id FROM conversations WHERE id = ?")
+                .bind(id)
+                .fetch_optional(&self.pool)
+                .await?;
+        if existed.is_none() {
+            return Ok(false);
+        }
+        let mut tx = self.pool.begin().await?;
+        sqlx::query(
+            "UPDATE solution_revisions SET conversation_id = NULL WHERE conversation_id = ?",
+        )
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query("DELETE FROM conversations WHERE id = ?")
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        if let Ok(mut guard) = self.active_conv.lock() {
+            if let Some(active) = guard.as_ref() {
+                if active.id == id {
+                    *guard = None;
+                }
+            }
+        }
+        Ok(true)
+    }
+
     /// Follow `superseded-by` edges from `start` forward until none remain,
     /// returning the id of the final (head) solution. Returns `None` when
-    /// nothing supersedes `start`. Bounded to `MAX_SUPERSEDE_HOPS` and uses a
-    /// visited set so cyclic data can't loop the recall path.
+    /// nothing supersedes `start`. Bounded to
+    /// `[memory].superseded_walk_max_hops` and uses a visited set so cyclic
+    /// data can't loop the recall path. When the cap is 0, supersession
+    /// walking is effectively disabled (no warning is ever emitted).
     async fn walk_supersession_head(&self, start: &str) -> Option<String> {
-        const MAX_SUPERSEDE_HOPS: usize = 5;
+        let max_hops = self.cfg.superseded_walk_max_hops;
+        if max_hops == 0 {
+            return None;
+        }
         let mut visited: HashSet<String> = HashSet::new();
         visited.insert(start.to_string());
         let mut current = start.to_string();
         let mut found_any = false;
-        for _ in 0..MAX_SUPERSEDE_HOPS {
+        for _ in 0..max_hops {
             let next: Option<(String,)> = sqlx::query_as(
                 "SELECT to_id FROM solution_links \
                  WHERE from_id = ? AND kind = 'superseded-by' \
@@ -1509,7 +1627,7 @@ impl Skill for SolutionShow {
                     } else {
                         format!("  — {}", l.note)
                     };
-                    out.push_str(&format!("  ─{}→ {}{}\n", l.kind, l.to_id, note));
+                    out.push_str(&format!("  â”€{}→ {}{}\n", l.kind, l.to_id, note));
                 }
             }
             for r in &revs {
@@ -1518,7 +1636,7 @@ impl Skill for SolutionShow {
                     None => String::new(),
                 };
                 out.push_str(&format!(
-                    "\n── rev {} · {}{conv_tail} ──\nsummary: {}\n\n{}\n",
+                    "\nâ”€â”€ rev {} · {}{conv_tail} â”€â”€\nsummary: {}\n\n{}\n",
                     r.rev,
                     fmt_ts(r.ts as u64),
                     r.summary,
@@ -1894,7 +2012,7 @@ impl Skill for SolutionLink {
                 .map_err(|e| internal(e.into()))?;
             tx.commit().await.map_err(|e| internal(e.into()))?;
             Ok(text_result(format!(
-                "Linked {} ─{kind}→ {} (reciprocal {} ─{recip}→ {} added).",
+                "Linked {} â”€{kind}→ {} (reciprocal {} â”€{recip}→ {} added).",
                 args.from, args.to, args.to, args.from
             )))
         })
@@ -1950,12 +2068,12 @@ impl Skill for SolutionUnlink {
             tx.commit().await.map_err(|e| internal(e.into()))?;
             if r1.rows_affected() == 0 && r2.rows_affected() == 0 {
                 return Ok(text_result(format!(
-                    "No link {} ─{}→ {} was present; nothing to remove.",
+                    "No link {} â”€{}→ {} was present; nothing to remove.",
                     args.from, args.kind, args.to
                 )));
             }
             Ok(text_result(format!(
-                "Unlinked {} ─{}→ {} (and removed the reciprocal {} ─{}→ {}).",
+                "Unlinked {} â”€{}→ {} (and removed the reciprocal {} â”€{}→ {}).",
                 args.from, args.kind, args.to, args.to, recip, args.from
             )))
         })
@@ -2053,7 +2171,7 @@ impl Skill for SolutionGraph {
                         out.push_str(&format!("{indent}{node}: {problem}\n"));
                     } else {
                         out.push_str(&format!(
-                            "{indent}─{kind}→ {node} (from {parent}): {problem}\n"
+                            "{indent}â”€{kind}→ {node} (from {parent}): {problem}\n"
                         ));
                     }
                 }
@@ -2081,7 +2199,7 @@ impl Skill for SolutionRelated {
     }
     fn description(&self) -> &'static str {
         "Rank solutions related to one source, combining EXPLICIT links (weight 30 per link) + \
-        shared TAGS (2 per tag) + concept-token JACCARD overlap (20 × overlap). Returns the top \
+        shared TAGS (2 per tag) + concept-token JACCARD overlap (20 Ã— overlap). Returns the top \
         `max` as advisory suggestions, with the contributing signals shown."
     }
     fn schema(&self) -> Arc<JsonObject> {
@@ -2670,6 +2788,167 @@ impl Skill for SolutionConversations {
     }
 }
 
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct ConversationForgetArgs {
+    /// Conversation id to delete (drops all turns; nulls back-pointers from
+    /// `solution_revisions` so revisions stay queryable).
+    id: String,
+    /// Confirmation token returned by the first call.
+    #[serde(default)]
+    confirm: Option<String>,
+    /// Whitelist `conversation_forget` for the rest of the session.
+    #[serde(default)]
+    trust: Option<bool>,
+}
+
+pub struct ConversationForget;
+impl Skill for ConversationForget {
+    fn name(&self) -> &'static str {
+        "conversation_forget"
+    }
+    fn description(&self) -> &'static str {
+        "Delete one recorded conversation and its turns. Destructive — first call returns a \
+        confirm token; call again with confirm=<token> (or trust=true to whitelist for the \
+        session). `[memory].allow_destructive=true` pre-authorizes. Revisions of solutions that \
+        referenced this conversation keep their content; their conversation_id is set to NULL."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<ConversationForgetArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (server, args) = ctx.parse::<ConversationForgetArgs>()?;
+            let mem = &server.memory;
+            let exists: Option<(String,)> =
+                sqlx::query_as("SELECT id FROM conversations WHERE id = ?")
+                    .bind(&args.id)
+                    .fetch_optional(&mem.pool)
+                    .await
+                    .map_err(|e| internal(e.into()))?;
+            if exists.is_none() {
+                return Ok(text_result(format!(
+                    "No conversation \"{}\" — nothing to forget.",
+                    args.id
+                )));
+            }
+            if let Decision::Challenge(msg) = server.guard.check(
+                &format!("conversation_forget|{}", args.id),
+                "conversation_forget",
+                mem.cfg.allow_destructive,
+                &format!("delete conversation {} (drops all turns)", args.id),
+                args.confirm.as_deref(),
+                args.trust.unwrap_or(false),
+            ) {
+                return Ok(text_result(msg));
+            }
+            mem.forget_conversation(&args.id)
+                .await
+                .map_err(|e| internal(e.into()))?;
+            Ok(text_result(format!("Forgot conversation {}.", args.id)))
+        })
+    }
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct ConversationPruneArgs {
+    /// Delete conversations whose `last_seen_at` is older than this many days.
+    /// 0 or omitted = no age-based pruning.
+    #[serde(default)]
+    older_than_days: Option<u32>,
+    /// Keep only the N most recently active conversations; delete the rest.
+    /// 0 or omitted = no count-based pruning.
+    #[serde(default)]
+    keep_newest: Option<u32>,
+    /// Preview only — report how many conversations WOULD be deleted, don't
+    /// touch anything. Bypasses the confirm-token guard. Default false.
+    #[serde(default)]
+    dry_run: Option<bool>,
+    /// Confirmation token returned by the first non-dry-run call.
+    #[serde(default)]
+    confirm: Option<String>,
+    /// Whitelist `conversation_prune` for the rest of the session.
+    #[serde(default)]
+    trust: Option<bool>,
+}
+
+pub struct ConversationPrune;
+impl Skill for ConversationPrune {
+    fn name(&self) -> &'static str {
+        "conversation_prune"
+    }
+    fn description(&self) -> &'static str {
+        "Bulk-delete conversations by retention policy. Filters: `older_than_days` and/or \
+        `keep_newest`. When neither is set, falls back to the configured retention \
+        (`[memory].conversation_retention_days`, `[memory].max_conversations`). \
+        Use `dry_run=true` first to preview the count without deleting. Destructive when \
+        live — first non-dry-run call returns a confirm token; `[memory].allow_destructive=true` \
+        pre-authorizes."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<ConversationPruneArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (server, args) = ctx.parse::<ConversationPruneArgs>()?;
+            let mem = &server.memory;
+            let dry = args.dry_run.unwrap_or(false);
+            // Fall back to configured policy when neither knob is set.
+            let days = args
+                .older_than_days
+                .unwrap_or(mem.cfg.conversation_retention_days);
+            let keep = args
+                .keep_newest
+                .map(|n| n as usize)
+                .unwrap_or(mem.cfg.max_conversations);
+            if days == 0 && keep == 0 {
+                return Ok(text_result(
+                    "No retention policy specified and none configured — nothing to prune. \
+                     Pass older_than_days and/or keep_newest, or set them in [memory]."
+                        .to_string(),
+                ));
+            }
+            // Preview-first: always cheap, lets the caller see the impact.
+            let would = mem
+                .prune_conversations(days, keep, true)
+                .await
+                .map_err(|e| internal(e.into()))?;
+            if dry {
+                return Ok(text_result(format!(
+                    "[dry run] would delete {would} conversation{} \
+                     (older_than_days={days}, keep_newest={keep})",
+                    if would == 1 { "" } else { "s" }
+                )));
+            }
+            if would == 0 {
+                return Ok(text_result(
+                    "Nothing to prune under that policy.".to_string(),
+                ));
+            }
+            if let Decision::Challenge(msg) = server.guard.check(
+                &format!("conversation_prune|{days}|{keep}"),
+                "conversation_prune",
+                mem.cfg.allow_destructive,
+                &format!(
+                    "delete {would} conversation{} (older_than_days={days}, keep_newest={keep})",
+                    if would == 1 { "" } else { "s" }
+                ),
+                args.confirm.as_deref(),
+                args.trust.unwrap_or(false),
+            ) {
+                return Ok(text_result(msg));
+            }
+            let deleted = mem
+                .prune_conversations(days, keep, false)
+                .await
+                .map_err(|e| internal(e.into()))?;
+            Ok(text_result(format!(
+                "Pruned {deleted} conversation{}.",
+                if deleted == 1 { "" } else { "s" }
+            )))
+        })
+    }
+}
+
 /// The skills this module contributes (gating happens in `disabled_by_config`).
 pub fn skills() -> Vec<Box<dyn Skill>> {
     vec![
@@ -2694,6 +2973,8 @@ pub fn skills() -> Vec<Box<dyn Skill>> {
         Box::new(ConversationList),
         Box::new(ConversationShow),
         Box::new(SolutionConversations),
+        Box::new(ConversationForget),
+        Box::new(ConversationPrune),
     ]
 }
 
@@ -2709,17 +2990,24 @@ mod tests {
     static SEQ: AtomicU32 = AtomicU32::new(0);
 
     async fn fresh_memory() -> Memory {
+        fresh_memory_with(|_| {}).await
+    }
+
+    /// Build a fresh `Memory` with a unique tempdir and let the caller tweak
+    /// the config (e.g. disable conversation recording for that test).
+    async fn fresh_memory_with(tweak: impl FnOnce(&mut config::Memory)) -> Memory {
         let n = SEQ.fetch_add(1, Ordering::Relaxed);
         let dir =
             std::env::temp_dir().join(format!("lodestone-memory-test-{n}-{}", std::process::id()));
         let _ = tokio::fs::remove_dir_all(&dir).await;
-        let cfg = config::Memory {
+        let mut cfg = config::Memory {
             enabled: true,
             dir: dir.to_string_lossy().to_string(),
             max_entries: 1000,
             max_value_chars: 1_000_000,
             ..Default::default()
         };
+        tweak(&mut cfg);
         Memory::new(cfg).await.unwrap()
     }
 
@@ -2927,7 +3215,9 @@ mod tests {
         {
             let mut guard = mem.active_conv.lock().unwrap();
             if let Some(active) = guard.as_mut() {
-                active.last_seen_secs = active.last_seen_secs.saturating_sub(IDLE_GAP_SECS + 60);
+                active.last_seen_secs = active
+                    .last_seen_secs
+                    .saturating_sub(mem.cfg.conversation_idle_gap_secs + 60);
             }
         }
         let second = mem.current_conversation_id().await.unwrap();
@@ -2978,6 +3268,143 @@ mod tests {
         // Sequence must be strictly increasing.
         assert!(turns[0].0 < turns[1].0);
         assert!(turns[1].0 < turns[2].0);
+    }
+
+    /// When `[memory].record_conversations = false`, the wrapper-side helper
+    /// must short-circuit: no id is minted, no rows are written.
+    #[tokio::test]
+    async fn record_conversations_off_disables_tracking() {
+        let mem = fresh_memory_with(|c| c.record_conversations = false).await;
+        assert_eq!(mem.current_conversation_id().await, None);
+        mem.record_turn("conv-x", "web_search", Some("q"), "result")
+            .await;
+        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM conversation_turns")
+            .fetch_one(&mem.pool)
+            .await
+            .unwrap();
+        assert_eq!(count.0, 0);
+    }
+
+    /// When `[memory].record_only_query_calls = true`, `record_turn` drops
+    /// calls without a free-text query — keeps the log focused on intent.
+    #[tokio::test]
+    async fn record_only_query_calls_filters_silent_tools() {
+        let mem = fresh_memory_with(|c| c.record_only_query_calls = true).await;
+        let conv = mem.current_conversation_id().await.unwrap();
+        mem.record_turn(&conv, "fs_read", None, "contents").await;
+        mem.record_turn(&conv, "arithmetic_eval", Some("   "), "42")
+            .await;
+        mem.record_turn(&conv, "web_search", Some("rust ownership"), "results")
+            .await;
+        let count: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM conversation_turns WHERE conversation_id = ?")
+                .bind(&conv)
+                .fetch_one(&mem.pool)
+                .await
+                .unwrap();
+        assert_eq!(count.0, 1, "only the query-bearing turn should be recorded");
+    }
+
+    /// `conversation_idle_gap_secs` is honored: a tiny gap means each call
+    /// rotates to a new id.
+    #[tokio::test]
+    async fn idle_gap_config_governs_rotation() {
+        // gap=0 means any subsequent call should rotate.
+        let mem = fresh_memory_with(|c| c.conversation_idle_gap_secs = 0).await;
+        let a = mem.current_conversation_id().await.unwrap();
+        // Forcibly age the tracker by one second so the gap (0) is exceeded.
+        {
+            let mut guard = mem.active_conv.lock().unwrap();
+            if let Some(active) = guard.as_mut() {
+                active.last_seen_secs = active.last_seen_secs.saturating_sub(1);
+            }
+        }
+        let b = mem.current_conversation_id().await.unwrap();
+        assert_ne!(a, b, "with gap=0 a second call should mint a new id");
+    }
+
+    /// `forget_conversation` deletes the row, cascades to turns, and NULLs
+    /// revisions' back-pointer (keeping revision content intact).
+    #[tokio::test]
+    async fn forget_conversation_preserves_revision_content() {
+        let mem = fresh_memory().await;
+        let conv = mem.current_conversation_id().await.unwrap();
+        mem.record_turn(&conv, "web_search", Some("q"), "r").await;
+        let now = now_secs() as i64;
+        sqlx::query(
+            "INSERT INTO solutions (id, problem, canon_key, created_at, updated_at) \
+             VALUES ('sol-1', 'p', 'p', ?, ?)",
+        )
+        .bind(now)
+        .bind(now)
+        .execute(&mem.pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO solution_revisions \
+             (solution_id, rev, ts, summary, content, notes, conversation_id) \
+             VALUES ('sol-1', 1, ?, 's', 'c', '', ?)",
+        )
+        .bind(now)
+        .bind(&conv)
+        .execute(&mem.pool)
+        .await
+        .unwrap();
+        assert!(mem.forget_conversation(&conv).await.unwrap());
+        let row: (i64, Option<String>) = sqlx::query_as(
+            "SELECT rev, conversation_id FROM solution_revisions WHERE solution_id = 'sol-1'",
+        )
+        .fetch_one(&mem.pool)
+        .await
+        .unwrap();
+        assert_eq!(row.0, 1, "revision must still exist");
+        assert_eq!(row.1, None, "back-pointer should be NULL");
+        let turns: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM conversation_turns")
+            .fetch_one(&mem.pool)
+            .await
+            .unwrap();
+        assert_eq!(turns.0, 0, "CASCADE drops turns");
+    }
+
+    /// `prune_conversations` honors both age and keep-newest, and a dry run
+    /// reports the count without deleting.
+    #[tokio::test]
+    async fn prune_by_age_and_keep_newest() {
+        let mem = fresh_memory().await;
+        let now = now_secs() as i64;
+        let day = 86_400i64;
+        // Three old (15 days back), three recent.
+        for (i, age) in [15, 15, 15, 1, 1, 1].iter().enumerate() {
+            sqlx::query(
+                "INSERT INTO conversations (id, started_at, last_seen_at, turn_count) \
+                 VALUES (?, ?, ?, 0)",
+            )
+            .bind(format!("conv-{i}"))
+            .bind(now - age * day)
+            .bind(now - age * day)
+            .execute(&mem.pool)
+            .await
+            .unwrap();
+        }
+        // dry_run reports without mutating.
+        let n_dry = mem.prune_conversations(7, 0, true).await.unwrap();
+        assert_eq!(n_dry, 3, "three conversations are older than 7 days");
+        let still: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM conversations")
+            .fetch_one(&mem.pool)
+            .await
+            .unwrap();
+        assert_eq!(still.0, 6, "dry run mustn't delete");
+        // Live age-based prune.
+        let n = mem.prune_conversations(7, 0, false).await.unwrap();
+        assert_eq!(n, 3);
+        // Now keep only the newest 2 of the remaining 3.
+        let n2 = mem.prune_conversations(0, 2, false).await.unwrap();
+        assert_eq!(n2, 1);
+        let final_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM conversations")
+            .fetch_one(&mem.pool)
+            .await
+            .unwrap();
+        assert_eq!(final_count.0, 2);
     }
 
     /// `solution_revisions.conversation_id` is populated when a revision is

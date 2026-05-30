@@ -559,6 +559,34 @@ async fn main() -> anyhow::Result<()> {
         .map_err(|e| anyhow::anyhow!("failed to initialize memory store: {e:#}"))?;
     if cfg.memory.enabled {
         tracing::info!("memory store enabled dir={}", cfg.memory.dir);
+        // Startup prune is opt-in: a misconfigured retention shouldn't
+        // surprise-delete history on the first boot after upgrading. Verify
+        // the policy with `conversation_prune dry_run=true` first, then flip
+        // [memory].prune_on_startup = true.
+        if cfg.memory.prune_on_startup
+            && (cfg.memory.conversation_retention_days > 0 || cfg.memory.max_conversations > 0)
+        {
+            match memory
+                .prune_conversations(
+                    cfg.memory.conversation_retention_days,
+                    cfg.memory.max_conversations,
+                    false,
+                )
+                .await
+            {
+                Ok(n) if n > 0 => tracing::info!(
+                    "startup prune: deleted {n} conversation{} \
+                     (retention_days={}, max_conversations={})",
+                    if n == 1 { "" } else { "s" },
+                    cfg.memory.conversation_retention_days,
+                    cfg.memory.max_conversations
+                ),
+                Ok(_) => tracing::info!("startup prune: nothing to delete"),
+                Err(e) => {
+                    tracing::warn!("startup prune failed: {e:#}");
+                }
+            }
+        }
     }
 
     let server = Lodestone::new(

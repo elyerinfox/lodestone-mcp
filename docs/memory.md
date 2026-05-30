@@ -332,28 +332,58 @@ wording changes.
 
 ## Configuration
 
-Everything lives in `config/18-memory.toml`:
+Everything lives in `config/18-memory.toml`. The layer is intentionally
+lever-rich — recall verbosity, conversation rotation, retention, and
+per-behavior switches are all separately tunable so operators can dial it in
+without writing code.
 
 ```toml
 [memory]
-enabled = false             # master switch
-dir = ".lodestone-memory"   # SQLite store lives here
-allow_destructive = false   # pre-authorize memory_forget / solution_forget
-max_entries = 10000         # soft cap per store (memories or solutions)
-max_value_chars = 64000     # per-value cap on memory value / solution content
+# --- Family switches ---------------------------------------------------------
+enabled            = true             # silence the whole family when false
+dir                = ".lodestone-memory"
+allow_destructive  = false            # pre-authorize *_forget / conversation_prune
+max_entries        = 10000            # soft cap per store
+max_value_chars    = 64000            # per-value cap
+
+# --- Intrinsic recall --------------------------------------------------------
+auto_recall              = true       # auto-prepend "💡 prior solutions" preambles
+recall_threshold         = 30.0       # match score floor; lower = chattier
+recall_max_hits          = 3          # cap preamble length
+superseded_walk_max_hops = 5          # supersession-head walker; 0 disables warning
+
+# --- Conversation tracking ---------------------------------------------------
+record_conversations               = true
+conversation_idle_gap_secs         = 1800   # 30 min of silence ends a session
+conversation_turn_excerpt_max_chars = 240
+record_only_query_calls            = false  # true = skip fs_read / arithmetic_eval
+
+# --- Retention / pruning -----------------------------------------------------
+conversation_retention_days = 0       # 0 = keep forever
+max_conversations           = 0       # 0 = unlimited
+prune_on_startup            = false   # apply the two above at boot
 ```
 
-Environment overrides: `LODESTONE_MEMORY_ENABLED`, `LODESTONE_MEMORY_DIR`,
-`LODESTONE_MEMORY_ALLOW_DESTRUCTIVE`.
+Every key has a `LODESTONE_MEMORY_<UPPER_SNAKE>` environment override
+(e.g. `LODESTONE_MEMORY_AUTO_RECALL=false`,
+`LODESTONE_MEMORY_CONVERSATION_RETENTION_DAYS=30`).
 
-When `enabled = false`, none of the `memory_*` / `solution_*` / `synonym_*`
-tools are advertised in `tools/list`, and the dispatch wrapper short-circuits
-without touching the DB.
+### Lever reference
 
-The intrinsic-recall thresholds are currently constants in the code, not
-config: a hit must score **≥ 30** to be surfaced, and the preamble shows at
-most **3 hits**. Both numbers are deliberately conservative — recall is a
-prompt-context cost, so the bar to fire is high.
+| Knob | What turning it off / down / up does |
+| --- | --- |
+| `enabled` | Hides the whole family from `tools/list`; the dispatch wrapper short-circuits without touching the DB. |
+| `auto_recall` | Keeps the tools available but stops the preamble. Useful when token budget is tight. |
+| `recall_threshold` | Higher = quieter (only obvious matches surface); lower = chattier. |
+| `recall_max_hits` | Smaller preambles when 1; richer when 5. |
+| `superseded_walk_max_hops` | 0 disables the `⚠ superseded` warning entirely. |
+| `record_conversations` | Keeps recall but stops growing the turn log. |
+| `conversation_idle_gap_secs` | Raise to keep loosely-related sessions in one conversation; lower to split eagerly. |
+| `conversation_turn_excerpt_max_chars` | Smaller = compact log; larger = richer traversal context. |
+| `record_only_query_calls` | true filters silent local-system tools out of the turn log (intent-only log). |
+| `conversation_retention_days` + `max_conversations` | The bulk-prune policy. Honored by `conversation_prune` (no-arg call) and by the startup sweep. |
+| `prune_on_startup` | Applies the retention rules at boot. Off by default so a misconfigured policy doesn't surprise-delete on upgrade. |
+| `allow_destructive` | Skips the confirm-token handshake on `*_forget` and `conversation_prune`. |
 
 ## Destructive tools
 
@@ -365,6 +395,13 @@ the family with `allow_destructive = true` in the config):
 
 - `memory_forget`
 - `solution_forget`
+- `conversation_forget` — deletes one conversation (CASCADE drops its turns;
+  `solution_revisions.conversation_id` is set to NULL for any revision that
+  referenced it, so the revision content is preserved).
+- `conversation_prune` — bulk delete by retention policy
+  (`older_than_days` and/or `keep_newest`). With `dry_run=true`, the count is
+  reported without deleting and the confirm-token handshake is **bypassed** —
+  use it to validate the policy before flipping a live prune.
 
 `synonym_remove` and `solution_unlink` are also data-changing but small enough
 to fire without the handshake — they're cheap to undo by re-adding the same
