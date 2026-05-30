@@ -18,7 +18,12 @@ use crate::util::human_size;
 use crate::{internal, text_result};
 
 /// Tool names for this family (gated by `[sysinfo].enabled` in `disabled_by_config`).
-pub const TOOL_NAMES: &[&str] = &["system_info", "system_disks", "system_gpu"];
+pub const TOOL_NAMES: &[&str] = &[
+    "system_info",
+    "system_disks",
+    "system_gpu",
+    "system_os_release",
+];
 
 /// Host/OS/CPU/memory summary. Blocking work (sysinfo refresh + a short CPU
 /// sampling interval), so callers run it on a blocking thread.
@@ -228,11 +233,61 @@ fn format_duration(secs: u64) -> String {
 }
 
 /// The skills this module contributes (gating happens in `disabled_by_config`).
+/// Parse the simple KEY=VALUE / KEY="VALUE" format used by `/etc/os-release`
+/// (and `/usr/lib/os-release` as a fallback) per the systemd man page. On
+/// non-Linux hosts the file is absent and we say so.
+pub struct SystemOsRelease;
+impl Skill for SystemOsRelease {
+    fn name(&self) -> &'static str {
+        "system_os_release"
+    }
+    fn description(&self) -> &'static str {
+        "Read and parse `/etc/os-release` (Linux distro identifier per the systemd spec). \
+        Returns NAME, VERSION, ID, ID_LIKE, PRETTY_NAME, VERSION_ID, HOME_URL, etc. On \
+        non-Linux hosts (or when the file is missing) says so."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<NoArgs>()
+    }
+    fn call<'a>(&self, _ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let candidates = ["/etc/os-release", "/usr/lib/os-release"];
+            let mut found: Option<(String, String)> = None;
+            for path in candidates {
+                if let Ok(s) = tokio::fs::read_to_string(path).await {
+                    found = Some((path.to_string(), s));
+                    break;
+                }
+            }
+            let Some((path, contents)) = found else {
+                return Ok(text_result(
+                    "os-release file not present (typical on non-Linux hosts).".to_string(),
+                ));
+            };
+            let mut out = format!("Parsed from {path}:\n");
+            for line in contents.lines() {
+                let line = line.trim();
+                if line.is_empty() || line.starts_with('#') {
+                    continue;
+                }
+                if let Some((k, v)) = line.split_once('=') {
+                    let v = v.trim();
+                    let v = v.strip_prefix('"').unwrap_or(v);
+                    let v = v.strip_suffix('"').unwrap_or(v);
+                    out.push_str(&format!("  {k} = {v}\n"));
+                }
+            }
+            Ok(text_result(out))
+        })
+    }
+}
+
 pub fn skills() -> Vec<Box<dyn Skill>> {
     vec![
         Box::new(SystemInfo),
         Box::new(SystemDisks),
         Box::new(SystemGpu),
+        Box::new(SystemOsRelease),
     ]
 }
 
