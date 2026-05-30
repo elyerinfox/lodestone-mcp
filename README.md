@@ -63,27 +63,30 @@ One stone, many bearings.
 - **Not a guaranteed-stable data source** — scraping is best-effort and degrades to
   fallbacks / the web archive. See the [honest limitations](docs/comparison.md#honest-limitations).
 
-## The thesis
+## Why this shape
 
-A generalist LLM asked a hard question has to be retriever, reasoner, and
-calculator at once — and the failure modes of all three collapse into a single
-silent one: a confident hallucination. A constellation of small, specialized
-tools refactors the job. Retrieval moves to **grounded sources** with structured
-failure modes (arXiv, NCBI, registries, the host's own daemons). Computation
-moves to **deterministic engines** (named formulas, forecasts, orbit
-propagation, unit conversion). The LLM stays in charge of **orchestration** —
-picking tools and composing outputs, the part it is actually good at — and
-hallucinations become orchestration errors, which are recoverable.
+Ask a plain LLM "what's the kinetic energy of a 1500 kg car at 60 mph?" and it
+has to do three different jobs at once, all from inside its own weights:
+remember the formula, convert the units, and run the multiplication. If any one
+step goes wrong, the answer still *sounds* right. That's the hallucination
+problem in a sentence.
 
-The empirical case is broad: Toolformer (Schick et al., NeurIPS 2023), WebGPT
-(Nakano et al., 2021), PAL (Gao et al., ICML 2023), ReAct (Yao et al., ICLR
-2023), Self-ask (Press et al., EMNLP 2023), Gorilla (Patil et al., 2023), and
-Voyager (Wang et al., TMLR 2024) each show specialized-tool-augmented models
-matching or beating much larger un-tooled ones on the tasks they target; the
-"compound AI systems" framing (Zaharia et al., BAIR 2024) now describes most
-state-of-the-art results. Leaning on web search alone keeps extraction inside
-the LLM and inherits an increasingly SEO-polluted source (Bevendorff et al.,
-ECIR 2024). Lodestone is built on that bet.
+Lodestone splits the work. The fact lookup goes to a real source (`physics_formula`
+knows ½mv²; `kernel_releases` knows the current Linux release; `arxiv_get`
+returns the actual abstract). The math goes to a real engine (`convert_units`
+does the mph→m/s; the formula itself does the energy). The LLM stays in the
+role it's reliable at — *picking which tool to call*. When a tool can't answer,
+it says so out loud (404, no result, schema mismatch) instead of being silently
+wrong.
+
+Web search alone doesn't fix this — the LLM is still the one reading and
+summarizing pages, and modern search results are increasingly SEO-shaped
+(Bevendorff et al., ECIR 2024). The bet is that a constellation of small,
+boring, verifiable tools beats one big model trying to be everything — the
+"compound AI systems" thesis (Zaharia et al., BAIR 2024) — and it's borne out
+empirically: Toolformer (Schick et al., NeurIPS 2023) and WebGPT (Nakano et
+al., 2021) both showed tool-augmented smaller models outperforming much larger
+un-tooled ones on the tasks they target.
 
 ## How it works
 
