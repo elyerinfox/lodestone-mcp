@@ -22,10 +22,13 @@ pub const TOOL_NAMES: &[&str] = &[
     "binary_hexdump",
 ];
 
-fn read_file(server: &crate::Lodestone, path: &str) -> Result<(std::path::PathBuf, Vec<u8>), McpError> {
+fn read_file(
+    server: &crate::Lodestone,
+    path: &str,
+) -> Result<(std::path::PathBuf, Vec<u8>), McpError> {
     let p = filesystem::resolve(&server.fs, path)?;
-    let bytes = std::fs::read(&p)
-        .map_err(|e| internal(anyhow::anyhow!("read {}: {e}", p.display())))?;
+    let bytes =
+        std::fs::read(&p).map_err(|e| internal(anyhow::anyhow!("read {}: {e}", p.display())))?;
     Ok((p, bytes))
 }
 
@@ -66,7 +69,11 @@ impl Skill for BinaryInfo {
                 }
             };
             let arch = format!("{:?}", file.architecture());
-            let endian = if file.is_little_endian() { "little" } else { "big" };
+            let endian = if file.is_little_endian() {
+                "little"
+            } else {
+                "big"
+            };
             let format = format!("{:?}", file.format());
             let mut out = format!(
                 "{}\n  format: {format}\n  architecture: {arch}\n  endianness: {endian}\n  entry: 0x{:x}\n  size: {} bytes\n",

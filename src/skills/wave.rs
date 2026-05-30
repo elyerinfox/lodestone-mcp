@@ -143,11 +143,7 @@ impl Skill for WaveSamples {
 }
 
 fn make_result(p: &std::path::Path, channel: usize, samples: &[f64], cap: usize) -> CallToolResult {
-    let preview: Vec<String> = samples
-        .iter()
-        .take(16)
-        .map(|v| format!("{v:.4}"))
-        .collect();
+    let preview: Vec<String> = samples.iter().take(16).map(|v| format!("{v:.4}")).collect();
     text_result(format!(
         "WAV {} — channel {}, {} samples (cap {})\nFirst {}: [{}]{}",
         p.display(),

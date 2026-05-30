@@ -71,9 +71,7 @@ impl Skill for PythonRun {
                 .as_ref()
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty())
-                .or_else(|| {
-                    Some(cfg.interpreter.clone()).filter(|s| !s.is_empty())
-                })
+                .or_else(|| Some(cfg.interpreter.clone()).filter(|s| !s.is_empty()))
                 .unwrap_or_else(|| {
                     if cfg!(windows) {
                         "python".to_string()
@@ -91,10 +89,17 @@ impl Skill for PythonRun {
                 "run Python ({}): {}{}",
                 interp,
                 preview,
-                if args.code.chars().count() > 80 { "…" } else { "" }
+                if args.code.chars().count() > 80 {
+                    "…"
+                } else {
+                    ""
+                }
             );
             // Guard on the code itself, so a different script forces a new prompt.
-            let key = format!("python_run|{interp}|{}", crate::constellation::hash_key(&args.code));
+            let key = format!(
+                "python_run|{interp}|{}",
+                crate::constellation::hash_key(&args.code)
+            );
             if let Decision::Challenge(msg) = server.guard.check(
                 &key,
                 "python_run",
@@ -106,7 +111,9 @@ impl Skill for PythonRun {
                 return Ok(text_result(msg));
             }
             let mut cmd = Command::new(&interp);
-            cmd.arg("-").kill_on_drop(true).stdin(std::process::Stdio::piped())
+            cmd.arg("-")
+                .kill_on_drop(true)
+                .stdin(std::process::Stdio::piped())
                 .stdout(std::process::Stdio::piped())
                 .stderr(std::process::Stdio::piped());
             if let Some(a) = &args.args {

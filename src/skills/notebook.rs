@@ -19,9 +19,10 @@ pub const TOOL_NAMES: &[&str] = &["notebook_info", "notebook_cells"];
 
 fn load(server: &crate::Lodestone, path: &str) -> Result<(std::path::PathBuf, Value), McpError> {
     let p = filesystem::resolve(&server.fs, path)?;
-    let bytes = std::fs::read(&p)
-        .map_err(|e| internal(anyhow::anyhow!("read {}: {e}", p.display())))?;
-    let json: Value = serde_json::from_slice(&bytes).map_err(|e| invalid(format!("not JSON: {e}")))?;
+    let bytes =
+        std::fs::read(&p).map_err(|e| internal(anyhow::anyhow!("read {}: {e}", p.display())))?;
+    let json: Value =
+        serde_json::from_slice(&bytes).map_err(|e| invalid(format!("not JSON: {e}")))?;
     Ok((p, json))
 }
 
@@ -78,7 +79,9 @@ impl Skill for NotebookInfo {
             let nb_ver = format!(
                 "{}.{}",
                 j.get("nbformat").and_then(|v| v.as_i64()).unwrap_or(0),
-                j.get("nbformat_minor").and_then(|v| v.as_i64()).unwrap_or(0)
+                j.get("nbformat_minor")
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(0)
             );
             let empty: Vec<Value> = Vec::new();
             let cells = j.get("cells").and_then(|v| v.as_array()).unwrap_or(&empty);
@@ -145,11 +148,13 @@ impl Skill for NotebookCells {
             let filtered: Vec<(usize, &Value)> = cells
                 .iter()
                 .enumerate()
-                .filter(|(_, c)| match (&want, c.get("cell_type").and_then(|v| v.as_str())) {
-                    (Some(w), Some(t)) => t == w,
-                    (None, _) => true,
-                    _ => false,
-                })
+                .filter(
+                    |(_, c)| match (&want, c.get("cell_type").and_then(|v| v.as_str())) {
+                        (Some(w), Some(t)) => t == w,
+                        (None, _) => true,
+                        _ => false,
+                    },
+                )
                 .collect();
             let total = filtered.len();
             let shown: Vec<&(usize, &Value)> = filtered.iter().skip(offset).take(max).collect();

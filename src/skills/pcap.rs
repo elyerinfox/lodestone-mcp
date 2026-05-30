@@ -58,7 +58,10 @@ impl Skill for PcapInfo {
                 };
                 count += 1;
                 bytes += pkt.orig_len as u64;
-                let ts = (pkt.timestamp.as_secs() as u32, pkt.timestamp.subsec_micros());
+                let ts = (
+                    pkt.timestamp.as_secs() as u32,
+                    pkt.timestamp.subsec_micros(),
+                );
                 if first_ts.is_none() {
                     first_ts = Some(ts);
                 }

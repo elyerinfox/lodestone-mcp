@@ -80,6 +80,10 @@ pub struct Config {
     pub python: Python,
     /// Linux systemd skills (off by default).
     pub systemd: Systemd,
+    /// Astronomy skills (sun/moon/star, off by default).
+    pub astro: ToggleOnly,
+    /// Radio / RF link-budget skills (off by default).
+    pub radio: ToggleOnly,
 }
 
 /// A skill family whose only knob is on/off (no extra parameters).
@@ -892,6 +896,8 @@ impl Default for Config {
             notebook: ToggleOnly::default(),
             python: Python::default(),
             systemd: Systemd::default(),
+            astro: ToggleOnly::default(),
+            radio: ToggleOnly::default(),
         }
     }
 }
@@ -1291,6 +1297,12 @@ impl Config {
         }
         if let Ok(v) = std::env::var("LODESTONE_SYSTEMD_ALLOW_DESTRUCTIVE") {
             self.systemd.allow_destructive = is_truthy(&v);
+        }
+        if let Ok(v) = std::env::var("LODESTONE_ASTRO_ENABLED") {
+            self.astro.enabled = is_truthy(&v);
+        }
+        if let Ok(v) = std::env::var("LODESTONE_RADIO_ENABLED") {
+            self.radio.enabled = is_truthy(&v);
         }
         if let Ok(v) = std::env::var("LODESTONE_SERIAL_ENABLED") {
             self.serial.enabled = is_truthy(&v);

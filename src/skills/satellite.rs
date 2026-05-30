@@ -307,12 +307,418 @@ fn urlencoding(s: &str) -> String {
     out
 }
 
+// ---------------------------------------------------------------------------
+// sat_passes — predict upcoming visible passes over an observer
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct PassesArgs {
+    /// TLE line 1.
+    tle_line1: String,
+    /// TLE line 2.
+    tle_line2: String,
+    /// Observer latitude (decimal degrees).
+    observer_lat: f64,
+    /// Observer longitude (decimal degrees).
+    observer_lon: f64,
+    /// Observer altitude in km (default 0).
+    #[serde(default)]
+    observer_alt_km: Option<f64>,
+    /// Start of the search window as RFC3339; omit for now.
+    #[serde(default)]
+    from: Option<String>,
+    /// Search window length in hours (default 24, capped at 168 = one week).
+    #[serde(default)]
+    hours: Option<f64>,
+    /// Minimum peak elevation in degrees to report (default 10°; lower for
+    /// HEO/Molniya and other low passes). 0 returns every horizon crossing.
+    #[serde(default)]
+    min_elevation_deg: Option<f64>,
+    /// Max passes to return (default 10, capped at 50).
+    #[serde(default)]
+    max_passes: Option<u32>,
+}
+
+/// 16-point compass label from an azimuth in degrees.
+fn compass(az: f64) -> &'static str {
+    const POINTS: [&str; 16] = [
+        "N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW",
+        "NW", "NNW",
+    ];
+    let i = (((az.rem_euclid(360.0) / 22.5) + 0.5).floor() as usize) % 16;
+    POINTS[i]
+}
+
+fn fmt_hhmmss(secs: i64) -> String {
+    let secs = secs.max(0);
+    let h = secs / 3600;
+    let m = (secs % 3600) / 60;
+    let s = secs % 60;
+    if h > 0 {
+        format!("{h}h {m}m {s}s")
+    } else if m > 0 {
+        format!("{m}m {s}s")
+    } else {
+        format!("{s}s")
+    }
+}
+
+/// Compute elevation at one instant; returns None on propagation error.
+fn elevation_at(
+    l1: &str,
+    l2: &str,
+    when: &NaiveDateTime,
+    obs_lat: f64,
+    obs_lon: f64,
+    obs_alt: f64,
+) -> Option<(f64, f64)> {
+    let (ecef, _) = propagate(l1, l2, when).ok()?;
+    let (az, el, _) = look_angles(obs_lat, obs_lon, obs_alt, ecef);
+    Some((az, el))
+}
+
+/// Binary-search the horizon-crossing time between `lo` (below) and `hi` (above)
+/// — or vice versa — to one-second precision.
+fn refine_horizon(
+    l1: &str,
+    l2: &str,
+    mut lo: NaiveDateTime,
+    mut hi: NaiveDateTime,
+    obs_lat: f64,
+    obs_lon: f64,
+    obs_alt: f64,
+) -> NaiveDateTime {
+    use chrono::Duration;
+    for _ in 0..20 {
+        let mid = lo + (hi - lo) / 2;
+        if (hi - lo) <= Duration::seconds(1) {
+            return mid;
+        }
+        match elevation_at(l1, l2, &mid, obs_lat, obs_lon, obs_alt) {
+            Some((_, el)) if el >= 0.0 => hi = mid,
+            _ => lo = mid,
+        }
+    }
+    lo
+}
+
+#[derive(Clone)]
+struct Pass {
+    rise: NaiveDateTime,
+    rise_az: f64,
+    peak: NaiveDateTime,
+    peak_az: f64,
+    peak_el: f64,
+    set: NaiveDateTime,
+    set_az: f64,
+}
+
+pub struct SatPasses;
+impl Skill for SatPasses {
+    fn name(&self) -> &'static str {
+        "sat_passes"
+    }
+    fn description(&self) -> &'static str {
+        "Predict upcoming VISIBLE PASSES of a satellite over an observer location: rise time and \
+        azimuth, peak time and elevation, set time and azimuth, plus pass duration. Scans the \
+        TLE forward in `hours` (default 24, max 168) and reports passes above `min_elevation_deg` \
+        (default 10°). Use this instead of repeatedly calling sat_observe at guessed times."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<PassesArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (_, args) = ctx.parse::<PassesArgs>()?;
+            let start = parse_at(args.from.as_deref())?;
+            let hours = args.hours.unwrap_or(24.0).clamp(0.1, 168.0);
+            let min_el = args.min_elevation_deg.unwrap_or(10.0).clamp(0.0, 89.0);
+            let cap = args.max_passes.unwrap_or(10).clamp(1, 50) as usize;
+            let obs_alt = args.observer_alt_km.unwrap_or(0.0);
+            let l1 = &args.tle_line1;
+            let l2 = &args.tle_line2;
+
+            // 30 s steps catch passes as short as ~1 min (LEO passes are 3–12 min).
+            let step = chrono::Duration::seconds(30);
+            let total = chrono::Duration::milliseconds((hours * 3600.0 * 1000.0) as i64);
+            let end = start + total;
+
+            let mut passes: Vec<Pass> = Vec::new();
+            let mut t = start;
+            let mut prev_el =
+                match elevation_at(l1, l2, &t, args.observer_lat, args.observer_lon, obs_alt) {
+                    Some((_, el)) => el,
+                    None => return Err(invalid("invalid TLE — could not propagate")),
+                };
+            let mut in_pass = prev_el >= 0.0;
+            let mut rise_t = t;
+            let mut rise_below = t;
+            let mut peak_t = t;
+            let mut peak_az = 0.0;
+            let mut peak_el = prev_el;
+
+            while t < end && passes.len() < cap {
+                t += step;
+                let Some((az, el)) =
+                    elevation_at(l1, l2, &t, args.observer_lat, args.observer_lon, obs_alt)
+                else {
+                    break;
+                };
+                if !in_pass && el >= 0.0 {
+                    // Rising — refine rise time between rise_below and t.
+                    in_pass = true;
+                    rise_t = refine_horizon(
+                        l1,
+                        l2,
+                        rise_below,
+                        t,
+                        args.observer_lat,
+                        args.observer_lon,
+                        obs_alt,
+                    );
+                    peak_t = t;
+                    peak_az = az;
+                    peak_el = el;
+                } else if in_pass && el >= 0.0 {
+                    if el > peak_el {
+                        peak_el = el;
+                        peak_az = az;
+                        peak_t = t;
+                    }
+                } else if in_pass && el < 0.0 {
+                    // Setting — refine set time between (t - step) and t.
+                    let set_t = refine_horizon(
+                        l1,
+                        l2,
+                        t,
+                        t - step,
+                        args.observer_lat,
+                        args.observer_lon,
+                        obs_alt,
+                    );
+                    let rise_az = elevation_at(
+                        l1,
+                        l2,
+                        &rise_t,
+                        args.observer_lat,
+                        args.observer_lon,
+                        obs_alt,
+                    )
+                    .map(|(a, _)| a)
+                    .unwrap_or(0.0);
+                    let set_az = elevation_at(
+                        l1,
+                        l2,
+                        &set_t,
+                        args.observer_lat,
+                        args.observer_lon,
+                        obs_alt,
+                    )
+                    .map(|(a, _)| a)
+                    .unwrap_or(0.0);
+                    if peak_el >= min_el {
+                        passes.push(Pass {
+                            rise: rise_t,
+                            rise_az,
+                            peak: peak_t,
+                            peak_az,
+                            peak_el,
+                            set: set_t,
+                            set_az,
+                        });
+                    }
+                    in_pass = false;
+                }
+                rise_below = if !in_pass { t } else { rise_below };
+                prev_el = el;
+            }
+            let _ = prev_el;
+
+            if passes.is_empty() {
+                return Ok(text_result(format!(
+                    "No passes ≥ {min_el:.0}° elevation in the next {hours:.1} h from ({:.4}, {:.4}).",
+                    args.observer_lat, args.observer_lon
+                )));
+            }
+            // Sort by peak elevation desc to surface the BEST pass at the top, but
+            // also report chronologically so the model sees the actual order.
+            let mut chrono = passes.clone();
+            chrono.sort_by_key(|p| p.rise);
+            let best = passes
+                .iter()
+                .max_by(|a, b| a.peak_el.partial_cmp(&b.peak_el).unwrap())
+                .unwrap()
+                .clone();
+            let mut out = format!(
+                "{} pass(es) ≥ {:.0}° over ({:.4}, {:.4}) in {:.1} h from {}.\n\n",
+                chrono.len(),
+                min_el,
+                args.observer_lat,
+                args.observer_lon,
+                hours,
+                start.format("%Y-%m-%d %H:%M UTC")
+            );
+            out.push_str(&format!(
+                "BEST (peak {:.1}°): {} → {} (in {})\n\n",
+                best.peak_el,
+                best.rise.format("%Y-%m-%d %H:%M:%S UTC"),
+                best.set.format("%H:%M:%S"),
+                fmt_hhmmss((best.rise - start).num_seconds())
+            ));
+            for (i, p) in chrono.iter().enumerate() {
+                let dur = (p.set - p.rise).num_seconds();
+                out.push_str(&format!(
+                    "#{}  {}  (in {})\n    rise  {}  az {:>5.1}° ({})\n    peak  {}  el {:>5.1}°  az {:>5.1}° ({})\n    set   {}  az {:>5.1}° ({})\n    duration  {}\n\n",
+                    i + 1,
+                    p.rise.format("%Y-%m-%d %H:%M:%S UTC"),
+                    fmt_hhmmss((p.rise - start).num_seconds()),
+                    p.rise.format("%H:%M:%S"),
+                    p.rise_az,
+                    compass(p.rise_az),
+                    p.peak.format("%H:%M:%S"),
+                    p.peak_el,
+                    p.peak_az,
+                    compass(p.peak_az),
+                    p.set.format("%H:%M:%S"),
+                    p.set_az,
+                    compass(p.set_az),
+                    fmt_hhmmss(dur),
+                ));
+            }
+            Ok(text_result(out))
+        })
+    }
+}
+
+// ---------------------------------------------------------------------------
+// sat_group — fetch a whole CelesTrak group (Starlink, GPS, Iridium, …)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct GroupArgs {
+    /// CelesTrak group id (e.g. "starlink", "gps-ops", "oneweb", "iridium",
+    /// "iridium-NEXT", "weather", "noaa", "amateur", "galileo", "glo-ops",
+    /// "stations", "active", "visual", "science", "geo"). Case-insensitive.
+    group: String,
+    /// Optional case-insensitive name substring to filter the returned TLEs
+    /// (e.g. "STARLINK-30" to grab one shell of Starlinks).
+    #[serde(default)]
+    name_filter: Option<String>,
+    /// Max satellites to return (default 25, capped at 500). Use this with
+    /// `name_filter` so the prompt doesn't drown — Starlink alone is 5000+.
+    #[serde(default)]
+    max: Option<u32>,
+}
+
+pub struct SatGroup;
+impl Skill for SatGroup {
+    fn name(&self) -> &'static str {
+        "sat_group"
+    }
+    fn description(&self) -> &'static str {
+        "Fetch all TLEs for a CelesTrak constellation group (Starlink, GPS, Iridium, OneWeb, \
+        Galileo, GLONASS, weather, NOAA, amateur, science, geo, …). Returns a list of \
+        {name, tle_line1, tle_line2} entries you can pass to sat_position / sat_observe / \
+        sat_passes — usually together with `name_filter` to scope the haul (Starlink alone is \
+        thousands)."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<GroupArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (server, args) = ctx.parse::<GroupArgs>()?;
+            let group = args.group.trim().to_ascii_lowercase();
+            if group.is_empty() {
+                return Err(invalid("group must not be empty"));
+            }
+            let max = args.max.unwrap_or(25).clamp(1, 500) as usize;
+            let cache_key = format!("sat_group|{group}");
+            let body = if let Some(c) = server.retrieval_get(&cache_key).await {
+                c
+            } else {
+                let url = format!(
+                    "https://celestrak.org/NORAD/elements/gp.php?GROUP={}&FORMAT=tle",
+                    urlencoding(&group)
+                );
+                let resp = server
+                    .http
+                    .get(&url)
+                    .send()
+                    .await
+                    .and_then(|r| r.error_for_status())
+                    .map_err(|e| internal(anyhow!("CelesTrak fetch: {e}")))?;
+                let text = resp
+                    .text()
+                    .await
+                    .map_err(|e| internal(anyhow!("CelesTrak read: {e}")))?;
+                if text.trim().is_empty() || text.contains("No GP data found") {
+                    return Err(invalid(format!(
+                        "no TLEs for group \"{group}\" — check the group id at celestrak.org"
+                    )));
+                }
+                server.retrieval_put(cache_key, &text);
+                text
+            };
+
+            // TLE-format response: 3 lines per satellite (name, "1 ...", "2 ...").
+            let lines: Vec<&str> = body.lines().collect();
+            let want = args
+                .name_filter
+                .as_ref()
+                .map(|s| s.trim().to_ascii_uppercase())
+                .filter(|s| !s.is_empty());
+            let mut sats: Vec<(String, String, String)> = Vec::new();
+            let mut i = 0;
+            let mut total = 0usize;
+            while i + 2 < lines.len() {
+                let name = lines[i].trim().to_string();
+                let l1 = lines[i + 1].trim().to_string();
+                let l2 = lines[i + 2].trim().to_string();
+                if l1.starts_with("1 ") && l2.starts_with("2 ") {
+                    total += 1;
+                    let match_ok = want
+                        .as_ref()
+                        .is_none_or(|w| name.to_ascii_uppercase().contains(w));
+                    if match_ok && sats.len() < max {
+                        sats.push((name, l1, l2));
+                    }
+                    i += 3;
+                } else {
+                    i += 1;
+                }
+            }
+            if sats.is_empty() {
+                return Ok(text_result(format!(
+                    "{} satellites in CelesTrak group \"{group}\"; none matched filter {:?}.",
+                    total, want
+                )));
+            }
+            let mut out = format!(
+                "{} satellites in CelesTrak group \"{group}\"; showing {}",
+                total,
+                sats.len()
+            );
+            if let Some(w) = &want {
+                out.push_str(&format!(" matching \"{w}\""));
+            }
+            out.push_str(":\n\n");
+            for (n, a, b) in &sats {
+                out.push_str(&format!("{n}\n{a}\n{b}\n\n"));
+            }
+            Ok(text_result(out))
+        })
+    }
+}
+
 /// The skills this module contributes.
 pub fn skills() -> Vec<Box<dyn Skill>> {
     vec![
         Box::new(SatTle),
         Box::new(SatPosition),
         Box::new(SatObserve),
+        Box::new(SatPasses),
+        Box::new(SatGroup),
     ]
 }
 

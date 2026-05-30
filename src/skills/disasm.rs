@@ -17,10 +17,7 @@ use crate::{internal, invalid, text_result};
 pub const TOOL_NAMES: &[&str] = &["disasm_x86_hex", "disasm_x86_file"];
 
 fn parse_hex(s: &str) -> Result<Vec<u8>, McpError> {
-    let cleaned: String = s
-        .chars()
-        .filter(|c| c.is_ascii_hexdigit())
-        .collect();
+    let cleaned: String = s.chars().filter(|c| c.is_ascii_hexdigit()).collect();
     if cleaned.is_empty() {
         return Err(invalid("no hex digits in bytes_hex"));
     }

@@ -76,7 +76,13 @@ impl Skill for SystemdList {
         Box::pin(async move {
             let (server, args) = ctx.parse::<ListArgs>()?;
             let kind = args.kind.unwrap_or_else(|| "service".into());
-            let mut sysctl_args = vec!["list-units", "--no-pager", "--no-legend", "--type", kind.as_str()];
+            let mut sysctl_args = vec![
+                "list-units",
+                "--no-pager",
+                "--no-legend",
+                "--type",
+                kind.as_str(),
+            ];
             if let Some(s) = &args.state {
                 sysctl_args.push("--state");
                 sysctl_args.push(s);
@@ -198,7 +204,10 @@ async fn act(
     } else if !stderr.is_empty() {
         stderr
     } else {
-        format!("systemctl {action} {} (exit {code}) — no output.", args.unit)
+        format!(
+            "systemctl {action} {} (exit {code}) — no output.",
+            args.unit
+        )
     };
     Ok(text_result(format!(
         "$ systemctl {action} {} (exit {code})\n{body}",
