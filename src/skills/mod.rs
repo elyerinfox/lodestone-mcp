@@ -149,6 +149,8 @@ fn intent_trigger(tool_name: &str, args: &JsonObject) -> Option<String> {
             | "solution_unlink"
             | "solution_graph"
             | "solution_related"
+            | "solution_alias_add"
+            | "solution_alias_remove"
             | "memory_save"
             | "memory_get"
             | "memory_list"
@@ -262,7 +264,7 @@ fn route(skill: Box<dyn Skill>) -> ToolRoute<Lodestone> {
                     if let Some(q) = trigger.as_deref() {
                         let hits = server
                             .memory
-                            .auto_recall(q, cfg.recall_max_hits.max(1))
+                            .auto_recall(&server.http, q, cfg.recall_max_hits.max(1))
                             .await;
                         if !hits.is_empty() {
                             let preamble = rmcp::model::Content::text(recall_preamble(&hits));

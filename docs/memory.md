@@ -310,6 +310,85 @@ the typical traversal flow is:
 - **The idle gap is hardcoded at 30 minutes.** Tunable later if it turns out
   to be too aggressive or too lax.
 
+## Semantic recall — embeddings + phrasings
+
+The big risk of any recall system is that the **first time you record a
+solution, you commit to one vocabulary** — and the next time the same
+underlying question gets asked with different words, the recall layer
+silently fails to surface it. Two complementary mechanisms close that gap:
+
+### Embeddings (semantic match)
+
+When `[memory].embedding_endpoint` points at an OpenAI-compatible
+`/v1/embeddings` server (LM Studio serves one at
+`http://127.0.0.1:1234/v1/embeddings`), every recorded solution and every
+attached phrasing is embedded at write time and the vector is stored as a
+length-prefixed BLOB on the row. At recall time, the query is embedded too,
+and the scoring path takes **`max(token_score, semantic_score)`** per
+solution. Cosine similarity in `[embedding_threshold, 1.0]` is linearly
+mapped onto `[40, 100]` — a hit at exactly the threshold is enough to fire
+the preamble on its own, near-perfect matches outscore even exact canonical
+token matches.
+
+- **Off by default.** Empty `embedding_endpoint` skips the whole semantic
+  path; recall continues with token-only scoring. No network dep when off.
+- **Graceful degradation.** A down embedding server doesn't error the
+  write — the row just lands with `embedding = NULL` and is invisible to
+  semantic recall until re-embedded (via `solution_update`).
+- **Storage cost.** ~3 KB per vector for nomic-embed (768 dims × 4 bytes +
+  prefix). Negligible for typical solution counts.
+
+### Phrasings (`solution_alias_add` / `solution_alias_remove`)
+
+When the model notices the same solution would have applied to a question
+asked in a way the original problem text wouldn't have matched, it can
+attach the new phrasing:
+
+```json
+solution_alias_add {
+  "id": "sol-3",
+  "phrasing": "How far is Microsoft HQ from downtown Seattle?"
+}
+```
+
+Each phrasing carries its own `canon_key` / `concept_key` (so token
+overlap considers it) and its own embedding (so semantic similarity does
+too). Recall scores against the **union** of the solution's own problem
+text and every attached phrasing, taking the best match. A solution
+accumulates ways it's been asked over time, turning the "one wording
+locks in the recall" failure mode into a self-improving loop.
+
+```mermaid
+flowchart LR
+    Q["query"]
+    QE["query embedding"]
+    QT["query tokens"]
+    S["solution row<br/>problem · concept_key · embedding"]
+    P1["phrasing 1<br/>concept_key · embedding"]
+    P2["phrasing 2<br/>concept_key · embedding"]
+    SC["score_solution_row<br/>(token path)"]
+    SEM["cosine similarity<br/>(semantic path)"]
+    MAX["max(token, semantic)<br/>per solution"]
+    PRE["💡 preamble<br/>if ≥ recall_threshold"]
+
+    Q --> QT --> SC
+    Q --> QE --> SEM
+    S --> SC
+    P1 --> SC
+    P2 --> SC
+    S --> SEM
+    P1 --> SEM
+    P2 --> SEM
+    SC --> MAX
+    SEM --> MAX
+    MAX --> PRE
+```
+
+| Tool | Purpose |
+| --- | --- |
+| `solution_alias_add { id, phrasing }` | Attach an alternate phrasing of the same underlying question. Best-effort embedded for semantic recall. |
+| `solution_alias_remove { id, phrasing }` | Detach a previously-added phrasing. Match is by canonical form. |
+
 ## Synonyms — `synonym_*`
 
 A single-token alias map: `token` → `canonical`. The fold runs in both
@@ -362,6 +441,11 @@ record_only_query_calls            = false  # true = skip fs_read / arithmetic_e
 conversation_retention_days = 0       # 0 = keep forever
 max_conversations           = 0       # 0 = unlimited
 prune_on_startup            = false   # apply the two above at boot
+
+# --- Semantic recall (optional) ----------------------------------------------
+embedding_endpoint  = ""              # set to enable; e.g. http://127.0.0.1:1234/v1/embeddings
+embedding_model     = "text-embedding-nomic-embed-text-v1.5"
+embedding_threshold = 0.55            # cosine floor; tighten for stricter matches
 ```
 
 Every key has a `LODESTONE_MEMORY_<UPPER_SNAKE>` environment override
@@ -384,6 +468,8 @@ Every key has a `LODESTONE_MEMORY_<UPPER_SNAKE>` environment override
 | `conversation_retention_days` + `max_conversations` | The bulk-prune policy. Honored by `conversation_prune` (no-arg call) and by the startup sweep. |
 | `prune_on_startup` | Applies the retention rules at boot. Off by default so a misconfigured policy doesn't surprise-delete on upgrade. |
 | `allow_destructive` | Skips the confirm-token handshake on `*_forget` and `conversation_prune`. |
+| `embedding_endpoint` | Empty = semantic recall off (no network dep). Set to enable. |
+| `embedding_threshold` | Cosine floor for semantic-only hits; 0.55 is permissive, 0.65+ is strict. |
 
 ## Destructive tools
 

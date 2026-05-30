@@ -206,6 +206,21 @@ pub struct Memory {
     /// on first boot; turn on once you've verified the policy in
     /// `conversation_prune dry_run=true`. Default: false.
     pub prune_on_startup: bool,
+
+    // -------- Semantic recall (embeddings) ----------------------------------
+    /// OpenAI-compatible `/v1/embeddings` endpoint to call when storing /
+    /// recalling solutions. **Empty by default** → semantic recall is off and
+    /// scoring falls back to the token-based path. LM Studio's local server
+    /// serves this at `http://127.0.0.1:1234/v1/embeddings`. Failures (server
+    /// down, model unreachable) degrade gracefully — the write still
+    /// succeeds with `embedding=NULL`, and recall ignores the semantic path.
+    pub embedding_endpoint: String,
+    /// Embedding model to request. Default `text-embedding-nomic-embed-text-v1.5`.
+    pub embedding_model: String,
+    /// Cosine similarity threshold for semantic recall to fire on a solution.
+    /// Conservative default — nomic-embed maps even loosely-related text into
+    /// the 0.4-0.6 range, so a 0.55 floor excludes genuinely unrelated hits.
+    pub embedding_threshold: f32,
 }
 
 impl Default for Memory {
@@ -227,6 +242,9 @@ impl Default for Memory {
             conversation_retention_days: 0,
             max_conversations: 0,
             prune_on_startup: false,
+            embedding_endpoint: String::new(),
+            embedding_model: "text-embedding-nomic-embed-text-v1.5".to_string(),
+            embedding_threshold: 0.55,
         }
     }
 }
@@ -1399,6 +1417,19 @@ impl Config {
         }
         if let Ok(v) = std::env::var("LODESTONE_MEMORY_PRUNE_ON_STARTUP") {
             self.memory.prune_on_startup = is_truthy(&v);
+        }
+        if let Ok(v) = std::env::var("LODESTONE_MEMORY_EMBEDDING_ENDPOINT") {
+            self.memory.embedding_endpoint = v;
+        }
+        if let Ok(v) = std::env::var("LODESTONE_MEMORY_EMBEDDING_MODEL") {
+            if !v.trim().is_empty() {
+                self.memory.embedding_model = v;
+            }
+        }
+        if let Ok(v) = std::env::var("LODESTONE_MEMORY_EMBEDDING_THRESHOLD") {
+            if let Ok(n) = v.parse::<f32>() {
+                self.memory.embedding_threshold = n;
+            }
         }
         if let Ok(v) = std::env::var("LODESTONE_SIGNAL_ENABLED") {
             self.signal.enabled = is_truthy(&v);

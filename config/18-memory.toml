@@ -70,3 +70,13 @@ conversation_retention_days = 0    # 0 = keep forever; >0 = auto-prune older
 max_conversations = 0              # 0 = unlimited; >0 = keep N newest, drop the rest
 prune_on_startup = false           # apply the two rules above at boot; verify with
                                    # `conversation_prune dry_run=true` first
+
+# --- Semantic recall (optional) --------------------------------------------
+# When set, every recorded solution / phrasing is embedded via this OpenAI-
+# compatible endpoint and stored as a vector. Recall then scores by
+# max(token_score, semantic_score) so a question worded *differently* from
+# the original still surfaces the solution. Empty = disabled (no network
+# dependency); failures degrade silently (token scoring continues).
+embedding_endpoint = ""            # e.g. "http://127.0.0.1:1234/v1/embeddings" for LM Studio
+embedding_model = "text-embedding-nomic-embed-text-v1.5"
+embedding_threshold = 0.55         # cosine floor; tighten to 0.65+ for stricter matches

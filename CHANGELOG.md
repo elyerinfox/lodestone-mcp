@@ -8,6 +8,28 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Semantic recall via OpenAI-compatible embeddings** (`[memory]`). When
+  `embedding_endpoint` is set (LM Studio serves one at
+  `http://127.0.0.1:1234/v1/embeddings`), every recorded solution and every
+  attached phrasing is embedded at write time and stored as a length-
+  prefixed `f32` BLOB. `auto_recall` takes `max(token_score, semantic_score)`
+  per solution so a question worded with completely different vocabulary
+  still surfaces the prior solution. Cosine similarity above
+  `embedding_threshold` is linearly mapped onto a token-comparable score
+  range; defaults: `0.55` threshold, `text-embedding-nomic-embed-text-v1.5`
+  model. Off when `embedding_endpoint` is empty (no network dep). Failures
+  degrade silently — the row lands with `embedding=NULL` and re-embeds on
+  the next `solution_update`. Migration `0003_embeddings` adds the column.
+- **Per-solution phrasings** (`solution_alias_add` / `solution_alias_remove`).
+  Lets a solution accumulate multiple ways the same underlying question has
+  been asked. Each phrasing carries its own canonical / concept keys (for
+  token overlap) and its own embedding (for semantic match); recall scores
+  against the union of the solution's own problem text and every attached
+  phrasing, taking the best match. Closes the "we'll only ever recall this
+  in the original wording" failure mode — over time the recall layer grows
+  more robust as the model attaches the alt-phrasings it notices.
+  Migration `0003_embeddings` adds the `solution_phrasings` table.
+
 - **Memory levers exposed as config** (`[memory]`): every behavior that used to
   be a hardcoded constant is now a knob. `auto_recall`, `recall_threshold`,
   `recall_max_hits`, `superseded_walk_max_hops` shape the intrinsic-recall

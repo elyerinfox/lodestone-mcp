@@ -70,6 +70,9 @@ pub const TOOL_NAMES: &[&str] = &[
     "solution_unlink",
     "solution_graph",
     "solution_related",
+    // Solution phrasings (alt-phrasing recall + semantic search)
+    "solution_alias_add",
+    "solution_alias_remove",
     // Learned synonyms
     "synonym_add",
     "synonym_remove",
@@ -85,6 +88,102 @@ pub const TOOL_NAMES: &[&str] = &[
 
 const DEFAULT_DIR: &str = ".lodestone-memory";
 const DB_FILE: &str = "store.db";
+
+// ---------------------------------------------------------------------------
+// Embeddings — optional OpenAI-compatible /v1/embeddings client + cosine.
+// ---------------------------------------------------------------------------
+
+/// Cosine similarity in [-1.0, 1.0]. Returns 0.0 when either vector is zero
+/// or the lengths differ.
+fn cosine(a: &[f32], b: &[f32]) -> f32 {
+    if a.len() != b.len() || a.is_empty() {
+        return 0.0;
+    }
+    let mut dot = 0.0_f32;
+    let mut na = 0.0_f32;
+    let mut nb = 0.0_f32;
+    for i in 0..a.len() {
+        dot += a[i] * b[i];
+        na += a[i] * a[i];
+        nb += b[i] * b[i];
+    }
+    if na == 0.0 || nb == 0.0 {
+        0.0
+    } else {
+        dot / (na.sqrt() * nb.sqrt())
+    }
+}
+
+/// Pack a vector as `[u32 LE dim][f32 LE]*dim` for BLOB storage. Length-
+/// prefixed so a later config change to a different-dim model can be
+/// detected at read time (rows with mismatched dim are ignored, not crashed).
+fn embedding_to_blob(v: &[f32]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(4 + v.len() * 4);
+    out.extend_from_slice(&(v.len() as u32).to_le_bytes());
+    for f in v {
+        out.extend_from_slice(&f.to_le_bytes());
+    }
+    out
+}
+
+/// Decode a BLOB written by [`embedding_to_blob`]. Returns `None` on a length
+/// mismatch or a malformed prefix.
+fn blob_to_embedding(b: &[u8]) -> Option<Vec<f32>> {
+    if b.len() < 4 {
+        return None;
+    }
+    let dim = u32::from_le_bytes([b[0], b[1], b[2], b[3]]) as usize;
+    if b.len() != 4 + dim * 4 {
+        return None;
+    }
+    let mut out = Vec::with_capacity(dim);
+    for i in 0..dim {
+        let off = 4 + i * 4;
+        out.push(f32::from_le_bytes([
+            b[off],
+            b[off + 1],
+            b[off + 2],
+            b[off + 3],
+        ]));
+    }
+    Some(out)
+}
+
+/// Fetch an embedding for `text` from an OpenAI-compatible
+/// `/v1/embeddings` endpoint. Returns `None` when embeddings are disabled
+/// (`endpoint.is_empty()`) or the call fails — callers must treat this as
+/// "no semantic recall for this row" rather than a hard error.
+async fn fetch_embedding(
+    http: &reqwest::Client,
+    endpoint: &str,
+    model: &str,
+    text: &str,
+) -> Option<Vec<f32>> {
+    if endpoint.trim().is_empty() || text.trim().is_empty() {
+        return None;
+    }
+    let body = serde_json::json!({ "input": text, "model": model });
+    let resp = http
+        .post(endpoint)
+        .header("Content-Type", "application/json")
+        .json(&body)
+        .send()
+        .await
+        .ok()?
+        .error_for_status()
+        .ok()?;
+    let v: serde_json::Value = resp.json().await.ok()?;
+    let arr = v.pointer("/data/0/embedding").and_then(|x| x.as_array())?;
+    let mut out = Vec::with_capacity(arr.len());
+    for x in arr {
+        out.push(x.as_f64()? as f32);
+    }
+    if out.is_empty() {
+        None
+    } else {
+        Some(out)
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Schema migrations
@@ -112,6 +211,11 @@ const MIGRATIONS: &[Migration] = &[
         version: 2,
         name: "conversations",
         sql: include_str!("../../migrations/0002_conversations.sql"),
+    },
+    Migration {
+        version: 3,
+        name: "embeddings",
+        sql: include_str!("../../migrations/0003_embeddings.sql"),
     },
 ];
 
@@ -305,6 +409,19 @@ impl Memory {
         &self.cfg
     }
 
+    /// Fetch an embedding for `text` if the embedding endpoint is configured
+    /// and reachable. Best-effort: returns `None` on any failure, so callers
+    /// degrade to token-only scoring without raising.
+    pub(crate) async fn embed(&self, http: &reqwest::Client, text: &str) -> Option<Vec<f32>> {
+        fetch_embedding(
+            http,
+            &self.cfg.embedding_endpoint,
+            &self.cfg.embedding_model,
+            text,
+        )
+        .await
+    }
+
     /// Run the same scoring path `solution_find` uses, but return the top
     /// matches above a threshold as plain data (no rendering). Called from the
     /// dispatch wrapper on every query-bearing tool so prior solutions are
@@ -312,7 +429,12 @@ impl Memory {
     ///
     /// Returns at most `max` hits with `score â‰¥ 30`. Threshold avoids drowning
     /// the response in marginal substring matches.
-    pub(crate) async fn auto_recall(&self, query: &str, max: usize) -> Vec<RecallHit> {
+    pub(crate) async fn auto_recall(
+        &self,
+        http: &reqwest::Client,
+        query: &str,
+        max: usize,
+    ) -> Vec<RecallHit> {
         if !self.cfg.enabled || query.trim().is_empty() || max == 0 {
             return Vec::new();
         }
@@ -322,8 +444,11 @@ impl Memory {
         let needle = query.trim().to_ascii_lowercase();
         let filter_tags_lc: HashSet<String> = HashSet::new();
 
-        let rows: Vec<SolutionRow> = match sqlx::query_as(
-            "SELECT id, problem, canon_key, concept_key, created_at, updated_at FROM solutions",
+        // Pull solutions with their (optional) embeddings. Phrasings are loaded
+        // in a second pass so a solution's recall fires on ANY phrasing.
+        let rows: Vec<SolutionWithEmbed> = match sqlx::query_as(
+            "SELECT id, problem, canon_key, concept_key, created_at, updated_at, embedding \
+             FROM solutions",
         )
         .fetch_all(&self.pool)
         .await
@@ -340,12 +465,44 @@ impl Memory {
         for (sid, tag) in all_tags {
             tags_by_sol.entry(sid).or_default().insert(tag);
         }
+        // Phrasings, indexed by solution_id. Each contributes its own
+        // canon_key/concept_key (for token scoring) and embedding (for
+        // semantic scoring). A solution's hit is the *best* score across
+        // its own problem text and every attached phrasing.
+        let phrasing_rows: Vec<PhrasingRow> = sqlx::query_as(
+            "SELECT solution_id, phrasing, canon_key, concept_key, embedding \
+             FROM solution_phrasings",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .unwrap_or_default();
+        let mut phrasings_by_sol: HashMap<String, Vec<PhrasingRow>> = HashMap::new();
+        for p in phrasing_rows {
+            phrasings_by_sol
+                .entry(p.solution_id.clone())
+                .or_default()
+                .push(p);
+        }
+
+        // Compute the query embedding once. None when embeddings are disabled
+        // or the endpoint is unreachable — the semantic path simply skips.
+        let q_emb = self.embed(http, query).await;
+
         let empty_set: HashSet<String> = HashSet::new();
         let mut scored: Vec<(SolutionRow, f64)> = rows
             .into_iter()
-            .filter_map(|sol| {
-                let tags = tags_by_sol.get(&sol.id).unwrap_or(&empty_set);
-                let (score, _) = score_solution_row(
+            .filter_map(|row| {
+                let tags = tags_by_sol.get(&row.id).unwrap_or(&empty_set);
+                let sol = SolutionRow {
+                    id: row.id.clone(),
+                    problem: row.problem.clone(),
+                    canon_key: row.canon_key.clone(),
+                    concept_key: row.concept_key.clone(),
+                    created_at: row.created_at,
+                    updated_at: row.updated_at,
+                };
+                // Token score against the solution's own problem first.
+                let mut best = score_solution_row(
                     &sol,
                     tags,
                     &qcanon,
@@ -353,12 +510,75 @@ impl Memory {
                     &q_concept_toks,
                     &needle,
                     &filter_tags_lc,
-                )?;
-                // Threshold: only surface meaningful matches automatically.
-                if score < self.cfg.recall_threshold {
+                )
+                .map(|(s, _)| s)
+                .unwrap_or(0.0_f64);
+                // Then against each attached phrasing — take the max so a
+                // single rephrasing covers every prior wording.
+                if let Some(phrs) = phrasings_by_sol.get(&row.id) {
+                    for p in phrs {
+                        let p_sol = SolutionRow {
+                            id: row.id.clone(),
+                            problem: p.phrasing.clone(),
+                            canon_key: p.canon_key.clone(),
+                            concept_key: p.concept_key.clone(),
+                            created_at: row.created_at,
+                            updated_at: row.updated_at,
+                        };
+                        if let Some((s, _)) = score_solution_row(
+                            &p_sol,
+                            tags,
+                            &qcanon,
+                            qconcept_str.as_deref(),
+                            &q_concept_toks,
+                            &needle,
+                            &filter_tags_lc,
+                        ) {
+                            if s > best {
+                                best = s;
+                            }
+                        }
+                    }
+                }
+                // Semantic path: cosine similarity against the solution's
+                // own embedding AND each phrasing's embedding, take the max.
+                if let Some(qv) = q_emb.as_ref() {
+                    let mut sim_best = 0.0_f32;
+                    if let Some(blob) = row.embedding.as_ref() {
+                        if let Some(sv) = blob_to_embedding(blob) {
+                            sim_best = cosine(qv, &sv).max(sim_best);
+                        }
+                    }
+                    if let Some(phrs) = phrasings_by_sol.get(&row.id) {
+                        for p in phrs {
+                            if let Some(blob) = p.embedding.as_ref() {
+                                if let Some(sv) = blob_to_embedding(blob) {
+                                    sim_best = cosine(qv, &sv).max(sim_best);
+                                }
+                            }
+                        }
+                    }
+                    if sim_best >= self.cfg.embedding_threshold {
+                        // Map cosine [threshold, 1.0] linearly into a token-
+                        // comparable score in [40, 100]. So a hit at exactly
+                        // the threshold scores 40 (above the default 30
+                        // recall floor — fires by itself), and a near-
+                        // perfect match scores 100. The slope only depends
+                        // on the configured threshold so operators can
+                        // tighten or loosen without touching this formula.
+                        let span = (1.0_f32 - self.cfg.embedding_threshold).max(1e-3);
+                        let sem_score =
+                            40.0 + 60.0 * ((sim_best - self.cfg.embedding_threshold) / span) as f64;
+                        let sem_score = sem_score.clamp(40.0, 100.0);
+                        if sem_score > best {
+                            best = sem_score;
+                        }
+                    }
+                }
+                if best < self.cfg.recall_threshold {
                     None
                 } else {
-                    Some((sol, score))
+                    Some((sol, best))
                 }
             })
             .collect();
@@ -1192,6 +1412,30 @@ struct SolutionRow {
     updated_at: i64,
 }
 
+/// Row variant used by `auto_recall` — same as `SolutionRow` plus the
+/// optional `embedding` BLOB so we can score semantically in one query.
+#[derive(FromRow)]
+struct SolutionWithEmbed {
+    id: String,
+    problem: String,
+    canon_key: String,
+    concept_key: Option<String>,
+    created_at: i64,
+    updated_at: i64,
+    embedding: Option<Vec<u8>>,
+}
+
+/// Row variant used by `auto_recall` — one alternate phrasing attached to a
+/// solution, with its own token keys and (optional) embedding.
+#[derive(FromRow)]
+struct PhrasingRow {
+    solution_id: String,
+    phrasing: String,
+    canon_key: String,
+    concept_key: Option<String>,
+    embedding: Option<Vec<u8>>,
+}
+
 #[derive(FromRow)]
 struct RevisionRow {
     rev: i64,
@@ -1336,6 +1580,20 @@ impl Skill for SolutionRecord {
                     .map_err(|e| internal(e.into()))?;
             }
             tx.commit().await.map_err(|e| internal(e.into()))?;
+            // Best-effort embedding fetch — outside the tx so a slow / down
+            // embedding server can't hold the write open. embedding=NULL is a
+            // legitimate state (semantic recall just skips this solution).
+            if !mem.cfg.embedding_endpoint.trim().is_empty() {
+                let text = format!("{}\n\n{}", args.problem, args.summary);
+                if let Some(vec) = mem.embed(&server.http, &text).await {
+                    let blob = embedding_to_blob(&vec);
+                    let _ = sqlx::query("UPDATE solutions SET embedding = ? WHERE id = ?")
+                        .bind(blob)
+                        .bind(&id)
+                        .execute(&mem.pool)
+                        .await;
+                }
+            }
             let tag_tail = if tags.is_empty() {
                 String::new()
             } else {
@@ -1857,6 +2115,30 @@ impl Skill for SolutionUpdate {
                 }
             }
             tx.commit().await.map_err(|e| internal(e.into()))?;
+            // Re-embed against the new summary so semantic recall stays
+            // aligned with the current revision. The old embedding stays
+            // intact if the call fails.
+            if !mem.cfg.embedding_endpoint.trim().is_empty() {
+                // Pull the solution's problem text to combine with the new summary.
+                let problem: Option<(String,)> =
+                    sqlx::query_as("SELECT problem FROM solutions WHERE id = ?")
+                        .bind(&args.id)
+                        .fetch_optional(&mem.pool)
+                        .await
+                        .ok()
+                        .flatten();
+                if let Some((problem,)) = problem {
+                    let text = format!("{}\n\n{}", problem, args.summary);
+                    if let Some(vec) = mem.embed(&server.http, &text).await {
+                        let blob = embedding_to_blob(&vec);
+                        let _ = sqlx::query("UPDATE solutions SET embedding = ? WHERE id = ?")
+                            .bind(blob)
+                            .bind(&args.id)
+                            .execute(&mem.pool)
+                            .await;
+                    }
+                }
+            }
             Ok(text_result(format!(
                 "Updated {} (now at rev {}) at {}.",
                 args.id,
@@ -2366,6 +2648,153 @@ impl Skill for SolutionRelated {
             Ok(text_result(out))
         })
     }
+}
+
+// ---------------------------------------------------------------------------
+// solution_alias_add / solution_alias_remove — multiple phrasings per
+// solution. Closes the "we'll never recall this if someone asks it
+// differently" gap: every alias contributes its own canon_key / concept_key
+// (for token-overlap scoring) and its own embedding (for semantic scoring).
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct SolutionAliasAddArgs {
+    /// Solution id this alias attaches to.
+    id: String,
+    /// A phrasing of the same underlying question — what someone might have
+    /// asked instead. E.g. for the Seattle-Redmond distance solution:
+    /// "How far is it from downtown Seattle to Microsoft HQ?"
+    phrasing: String,
+}
+
+pub struct SolutionAliasAdd;
+impl Skill for SolutionAliasAdd {
+    fn name(&self) -> &'static str {
+        "solution_alias_add"
+    }
+    fn description(&self) -> &'static str {
+        "Attach an alternate PHRASING of the same underlying question to a recorded solution. \
+        Recall scoring (both token-overlap and semantic) considers every phrasing — so a \
+        question worded differently from the original problem text still surfaces the \
+        solution. Use when you notice the same solution would apply to a question asked in \
+        a way the original problem text wouldn't match."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<SolutionAliasAddArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (server, args) = ctx.parse::<SolutionAliasAddArgs>()?;
+            let mem = &server.memory;
+            let phrasing = args.phrasing.trim().to_string();
+            if phrasing.is_empty() {
+                return Err(invalid("phrasing must not be empty".to_string()));
+            }
+            let exists: Option<(String,)> = sqlx::query_as("SELECT id FROM solutions WHERE id = ?")
+                .bind(&args.id)
+                .fetch_optional(&mem.pool)
+                .await
+                .map_err(|e| internal(e.into()))?;
+            if exists.is_none() {
+                return Err(invalid(format!("no solution \"{}\"", args.id)));
+            }
+            let canon = crate::provider::canonical_query(&phrasing);
+            let concept = concept_key_of(&phrasing);
+            // Cheap hash so we can de-dupe identical phrasings without
+            // building an index on a long TEXT column.
+            let hash = phrasing_hash(&canon);
+            let now = now_secs() as i64;
+            sqlx::query(
+                "INSERT OR IGNORE INTO solution_phrasings \
+                 (solution_id, hash, phrasing, canon_key, concept_key, created_at) \
+                 VALUES (?, ?, ?, ?, ?, ?)",
+            )
+            .bind(&args.id)
+            .bind(&hash)
+            .bind(&phrasing)
+            .bind(&canon)
+            .bind(&concept)
+            .bind(now)
+            .execute(&mem.pool)
+            .await
+            .map_err(|e| internal(e.into()))?;
+            // Best-effort embed of the alias for semantic recall.
+            if !mem.cfg.embedding_endpoint.trim().is_empty() {
+                if let Some(vec) = mem.embed(&server.http, &phrasing).await {
+                    let blob = embedding_to_blob(&vec);
+                    let _ = sqlx::query(
+                        "UPDATE solution_phrasings SET embedding = ? \
+                         WHERE solution_id = ? AND hash = ?",
+                    )
+                    .bind(blob)
+                    .bind(&args.id)
+                    .bind(&hash)
+                    .execute(&mem.pool)
+                    .await;
+                }
+            }
+            Ok(text_result(format!(
+                "Attached phrasing to {}. Future recall now considers it.",
+                args.id
+            )))
+        })
+    }
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct SolutionAliasRemoveArgs {
+    /// Solution id the alias is attached to.
+    id: String,
+    /// The exact phrasing to remove (must match a previously-added one).
+    phrasing: String,
+}
+
+pub struct SolutionAliasRemove;
+impl Skill for SolutionAliasRemove {
+    fn name(&self) -> &'static str {
+        "solution_alias_remove"
+    }
+    fn description(&self) -> &'static str {
+        "Detach a previously-added alternate phrasing from a solution. Match is by canonical \
+        form of the phrasing (case / stop-word insensitive)."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<SolutionAliasRemoveArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (server, args) = ctx.parse::<SolutionAliasRemoveArgs>()?;
+            let mem = &server.memory;
+            let canon = crate::provider::canonical_query(args.phrasing.trim());
+            let hash = phrasing_hash(&canon);
+            let r =
+                sqlx::query("DELETE FROM solution_phrasings WHERE solution_id = ? AND hash = ?")
+                    .bind(&args.id)
+                    .bind(&hash)
+                    .execute(&mem.pool)
+                    .await
+                    .map_err(|e| internal(e.into()))?;
+            if r.rows_affected() == 0 {
+                Ok(text_result(format!(
+                    "No matching phrasing on {} — nothing to detach.",
+                    args.id
+                )))
+            } else {
+                Ok(text_result(format!("Detached phrasing from {}.", args.id)))
+            }
+        })
+    }
+}
+
+/// Stable 64-bit hash of a canonical phrasing (FNV-1a). Used as the
+/// dedup key in `solution_phrasings` so we don't index on the full TEXT.
+fn phrasing_hash(canon: &str) -> String {
+    let mut h: u64 = 0xcbf29ce484222325;
+    for b in canon.as_bytes() {
+        h ^= *b as u64;
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    format!("{h:016x}")
 }
 
 // ---------------------------------------------------------------------------
@@ -3002,6 +3431,8 @@ pub fn skills() -> Vec<Box<dyn Skill>> {
         Box::new(SolutionUnlink),
         Box::new(SolutionGraph),
         Box::new(SolutionRelated),
+        Box::new(SolutionAliasAdd),
+        Box::new(SolutionAliasRemove),
         Box::new(SynonymAdd),
         Box::new(SynonymRemove),
         Box::new(SynonymList),
@@ -3059,6 +3490,7 @@ mod tests {
             "synonyms",
             "conversations",
             "conversation_turns",
+            "solution_phrasings",
             "_schema_version",
         ] {
             let q = format!("SELECT COUNT(*) FROM {table}");
@@ -3069,7 +3501,7 @@ mod tests {
             .fetch_one(&mem.pool)
             .await
             .unwrap();
-        assert_eq!(v.0, 2, "migrations v1 and v2 should both be recorded");
+        assert_eq!(v.0, 3, "migrations v1 through v3 should all be recorded");
     }
 
     #[tokio::test]
@@ -3082,8 +3514,8 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(
-            count.0, 2,
-            "migrations v1 and v2 should each be recorded exactly once"
+            count.0, 3,
+            "migrations v1 through v3 should each be recorded exactly once"
         );
     }
 
@@ -3347,7 +3779,8 @@ mod tests {
             .await
             .unwrap();
         }
-        let hits = mem.auto_recall("Seattle Redmond distance", 5).await;
+        let http = reqwest::Client::new();
+        let hits = mem.auto_recall(&http, "Seattle Redmond distance", 5).await;
         assert!(
             !hits.is_empty(),
             "tag overlap (2) + fuzzy must clear the recall threshold"
@@ -3527,5 +3960,119 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(row.0.as_deref(), Some(conv.as_str()));
+    }
+
+    /// Cosine similarity returns 1.0 for identical vectors, 0.0 for orthogonal,
+    /// and is symmetric. Also handles the L2-norm path correctly for
+    /// nomic-style L2-normalized embeddings.
+    #[test]
+    fn cosine_basic_properties() {
+        let a = vec![1.0, 0.0, 0.0];
+        let b = vec![1.0, 0.0, 0.0];
+        let c = vec![0.0, 1.0, 0.0];
+        assert!((cosine(&a, &b) - 1.0).abs() < 1e-6);
+        assert!(cosine(&a, &c).abs() < 1e-6);
+        assert!((cosine(&a, &b) - cosine(&b, &a)).abs() < 1e-6);
+        // Different-length vectors return 0.0 (defense against dim mismatch).
+        let d = vec![1.0, 0.0];
+        assert_eq!(cosine(&a, &d), 0.0);
+        // Zero vector returns 0.0 (no divide-by-zero).
+        let z = vec![0.0, 0.0, 0.0];
+        assert_eq!(cosine(&a, &z), 0.0);
+    }
+
+    /// BLOB encoding is reversible and self-describing — the dim prefix lets
+    /// us detect mismatched-model rows at read time.
+    #[test]
+    fn embedding_blob_round_trip() {
+        let v = vec![0.1_f32, -0.2, 0.3, 0.42, -0.5];
+        let blob = embedding_to_blob(&v);
+        assert_eq!(blob.len(), 4 + 5 * 4);
+        let back = blob_to_embedding(&blob).unwrap();
+        assert_eq!(v.len(), back.len());
+        for i in 0..v.len() {
+            assert!((v[i] - back[i]).abs() < 1e-7);
+        }
+        // Truncated blob → None, not panic.
+        assert!(blob_to_embedding(&blob[..blob.len() - 2]).is_none());
+        // Too-short for the prefix → None.
+        assert!(blob_to_embedding(&[0]).is_none());
+    }
+
+    /// An attached phrasing makes auto_recall fire on queries that share NO
+    /// tokens with the solution's own problem text. This is the "we'll never
+    /// surface this if asked differently" gap closed.
+    #[tokio::test]
+    async fn alias_phrasings_extend_recall_to_unrelated_wording() {
+        let mem = fresh_memory().await;
+        let now = now_secs() as i64;
+        // Solution's own problem mentions Redmond / Seattle — query about
+        // "Microsoft headquarters" shares ZERO tokens with this.
+        sqlx::query(
+            "INSERT INTO solutions (id, problem, canon_key, concept_key, created_at, updated_at) \
+             VALUES ('sol-z', 'Redmond is 40 miles east of Seattle - validate', \
+             'redmond 40 miles east seattle validate', \
+             'redmond 40 miles east seattle validate', ?, ?)",
+        )
+        .bind(now)
+        .bind(now)
+        .execute(&mem.pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO solution_revisions \
+             (solution_id, rev, ts, summary, content, notes) \
+             VALUES ('sol-z', 1, ?, 's', 'c', '')",
+        )
+        .bind(now)
+        .execute(&mem.pool)
+        .await
+        .unwrap();
+        let http = reqwest::Client::new();
+        // Baseline: a query about Microsoft HQ shares no tokens / tags. No hit.
+        let baseline = mem
+            .auto_recall(
+                &http,
+                "drive time from downtown to Microsoft headquarters",
+                5,
+            )
+            .await;
+        assert!(
+            baseline.is_empty(),
+            "without phrasings, the unrelated-wording query must NOT recall this solution"
+        );
+        // Attach a phrasing that shares vocabulary with the new query.
+        let phrasing = "How far is Microsoft headquarters from downtown Seattle?";
+        let canon = crate::provider::canonical_query(phrasing);
+        let concept = concept_key_of(phrasing);
+        let hash = phrasing_hash(&canon);
+        sqlx::query(
+            "INSERT INTO solution_phrasings \
+             (solution_id, hash, phrasing, canon_key, concept_key, created_at) \
+             VALUES ('sol-z', ?, ?, ?, ?, ?)",
+        )
+        .bind(&hash)
+        .bind(phrasing)
+        .bind(&canon)
+        .bind(&concept)
+        .bind(now)
+        .execute(&mem.pool)
+        .await
+        .unwrap();
+        // With the phrasing attached, the query now lands on sol-z via the
+        // phrasing's concept tokens (microsoft, headquarters, downtown,
+        // seattle) overlapping the new query's tokens.
+        let after = mem
+            .auto_recall(
+                &http,
+                "drive time from downtown to Microsoft headquarters",
+                5,
+            )
+            .await;
+        assert!(
+            !after.is_empty(),
+            "with a phrasing attached, the alternate wording must now recall sol-z"
+        );
+        assert_eq!(after[0].id, "sol-z");
     }
 }
