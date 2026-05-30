@@ -42,6 +42,7 @@ pub mod news;
 pub mod notebook;
 pub mod oci;
 pub mod openaccess;
+pub mod osm;
 pub mod pcap;
 pub mod physics;
 pub mod printer;
@@ -176,6 +177,7 @@ fn all_skills() -> Vec<Box<dyn Skill>> {
     skills.extend(systemd::skills());
     skills.extend(astro::skills());
     skills.extend(radio::skills());
+    skills.extend(osm::skills());
     skills.extend(datetime::skills());
     skills.extend(translate::skills());
     skills.extend(data::skills());
