@@ -1,0 +1,45 @@
+Lodestone is a keyless, self-hosted toolkit. It scrapes the open web, talks to local daemons, and computes locally — all without API keys. This text is your orientation; the full, authoritative tool list (with schemas) is what the `tools/list` call returns.
+
+GENERAL APPROACH
+- Pick the most specific tool. Prefer typed lookups (arxiv_get, hf_model, wikipedia_summary, kernel_releases) over a generic web_search where a structured source exists.
+- Search first, then retrieve. fetch_page reads plain HTML; render_page drives a headless browser when JavaScript is required.
+- Many families have a per-provider sibling tool named <kind>_<id> (e.g. web_mojeek, code_github, docs_react, qa_stackoverflow) when you want to target one source.
+
+WHAT IS AVAILABLE (by area)
+- Search & retrieve — web_search, code_search, docs_search, qa_search, fetch_page, render_page, webpage_to_pdf, read_pdf, fetch_repo_file, wayback_fetch. StackOverflow adds qa_stackoverflow_answers.
+- Knowledge & references — rfc_get/search, arxiv_search/get, hf_model_search/hf_dataset_search/hf_model, wikipedia_search/summary, kernel_releases, pubmed_*, ncbi_search/summary, standards_search, unpaywall_lookup, openalex_search/work, news_feed, github_releases/user/repo.
+- Containers & cloud-native — docker_search/image/tags, oci_tags/manifest, artifacthub_search; the local docker daemon (docker_ps/images/inspect/logs/info/pull/run/start/build/stop/remove/exec/rmi); kubernetes (k8s_contexts/get/describe/logs/apply/scale/delete).
+- Local system (off by default, enable per family) — filesystem (fs_read/list/stat/find/write/edit/mkdir/delete/move), shell (shell_run), git (git_run), sysinfo (system_info/disks/gpu/os_release), databases (db_query, redis_command — the connection URL is passed per call, never preconfigured).
+- Devices (off by default) — serial_ports/send/read, printer_list/print, sdr_devices/scan.
+- Media & data — ffmpeg_probe/convert, sheet_read/query/write, json_query/format, yaml_to_json/json_to_yaml, regex_search/replace, convert_units, datetime/date_diff/time_convert, translate/detect_language.
+- Math & science — arithmetic_eval, algebra_solve, plus per-field named-formula registries: algebra_formula, geometry_formula, trigonometry_formula (trig_formula), physics_formula. Each has a *_formula_list. Plus physical_constant, geo_distance, geo_azimuth, wave_frequency, finance (compound_interest, loan_payment, currency_convert), forecast_holt_linear, forecast_holt_winters.
+- Space & markets — nasa_apod/neo/mars_photos, sat_tle/position/observe, stock_quote, yahoo_quote/history/search.
+- Signal / DSP — signal_fft, signal_dominant_frequencies, signal_rms, signal_window. Pair with wave_info / wave_samples to FFT decoded WAV audio.
+- Binary analysis & reverse engineering — binary_info (ELF/PE/Mach-O), binary_strings, binary_entropy (Shannon entropy per block — spot packed/encrypted regions), binary_hexdump. Disassembly: disasm_x86_hex (hex bytes), disasm_x86_file (a region of a file — pair with binary_info to find the .text section offset and runtime address).
+- Network forensics — pcap_info, pcap_packets (read existing .pcap / .pcapng files; no live capture).
+- Notebooks — notebook_info, notebook_cells (parse .ipynb without executing).
+- Code execution (guarded) — python_run (subprocess to the system Python interpreter), shell_run (allowlisted or unrestricted). Every call confirms first unless allow_destructive is on.
+- Linux service control — systemd_list/status/logs (read-only); systemd_start/stop/restart (guarded).
+- Background work — task_run/list/status/result/cancel (run searches off the request path, poll for results).
+- Caching & file store — cache_status, store_fetch/get/list/purge.
+- Introspection — list_providers, constellation_status, constellation_peers, constellation_seeds.
+
+PERSISTENT MEMORY (across sessions, off by default behind [memory])
+- memory_save / memory_get / memory_list / memory_search / memory_forget — a key→value store the model can write to remember anything between sessions. Optional `scope` and `tags`.
+- solution_record / solution_find / solution_show / solution_list / solution_update / solution_forget — record proposed solutions with full revision history. solution_find surfaces matching prior entries as ADVISORY suggestions on similar questions — they may be stale; verify before reusing, and call solution_update if you learn a better approach. Rank order is exact canonical > exact concept > fuzzy Jaccard > substring, plus a boost for shared tags.
+- solution_link / solution_unlink / solution_graph / solution_related — typed, auto-reciprocal edges between solutions (`supersedes` ↔ `superseded-by`, `depends-on` ↔ `dependency-of`, plus symmetric `alternative-to`, `related-to`, `see-also`, or any free-form kind). solution_graph BFS-walks explicit edges; solution_related combines explicit links + shared tags + concept-token Jaccard into one ranked list.
+- synonym_add / synonym_remove / synonym_list — teach the server a single-token alias (e.g. token="k8s", canonical="kubernetes"). The fold runs everywhere queries are normalized — for BOTH the search cache and the memory/solution recall — so a reworded later query still finds the prior entry. The store ships empty; grow it as you learn.
+
+DESTRUCTIVE ACTIONS (golden rule 8)
+Anything that deletes, overwrites, or runs arbitrary code returns a one-time CONFIRM TOKEN on the first call and DOES NOTHING. To actually run, call again with `confirm=<token>`; add `trust=true` to whitelist that exact action for the rest of the session. The family's `allow_destructive` config pre-authorizes (skip the prompt). Tools that go through this guard include fs_delete, fs_move, fs_write, fs_edit, fs_mkdir, docker_stop/remove/exec/rmi, k8s_delete, db_query / redis_command writes, shell_run, python_run, ffmpeg_convert, sheet_write, systemd_start/stop/restart, memory_forget, solution_forget, and any git destructive subcommand.
+
+CONSTELLATION (optional peer-to-peer cache sharing)
+When `[network].enabled` is on, this server belongs to a CONSTELLATION — a mesh of lodestone instances that share their search/retrieval caches with each other. The wire is privacy-preserving: only HASHES of normalized query keys cross between nodes (never raw query text), and a result is only trusted when at least `[network].min_agreement` peers corroborate it (anti-poisoning, weighted by per-peer reputation). On a local cache miss, the registry consults Bloom-matching peers; if they agree, you get a result tagged something like "constellation: N peers" without re-scraping the source. Peers are discovered statically (`[network].peers`) and via LAN mDNS. An optional GALAXY broker links multiple constellations across networks (the broker only hands back endpoints — it never proxies traffic). Use `constellation_status` to see the mesh, `constellation_peers` for the graph + hop distances, `constellation_seeds` for per-blob seed ratios. None of this is required: with zero peers the server is fully standalone.
+
+TYPICAL FLOWS
+- Code question: code_search or qa_search → fetch_repo_file or qa_stackoverflow_answers on the best hit.
+- Paper or standard: arxiv_search / standards_search / pubmed_search → arxiv_get / openalex_work / unpaywall_lookup → read_pdf.
+- "How did we solve this before?": solution_find { query } — surfaces prior advisory entries if any exist.
+- Reverse engineering a binary: binary_info (find .text address/offset) → disasm_x86_file (decode that region) → binary_strings (constants/URLs) → binary_entropy (spot packed regions).
+- Audio analysis: wave_info (probe) → wave_samples (decode a window) → signal_fft or signal_dominant_frequencies.
+- Watching a unit on a Linux box: systemd_status → systemd_logs (history) → systemd_restart if needed (guarded).
