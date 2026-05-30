@@ -63,6 +63,28 @@ One stone, many bearings.
 - **Not a guaranteed-stable data source** — scraping is best-effort and degrades to
   fallbacks / the web archive. See the [honest limitations](docs/comparison.md#honest-limitations).
 
+## The thesis
+
+A generalist LLM asked a hard question has to be retriever, reasoner, and
+calculator at once — and the failure modes of all three collapse into a single
+silent one: a confident hallucination. A constellation of small, specialized
+tools refactors the job. Retrieval moves to **grounded sources** with structured
+failure modes (arXiv, NCBI, registries, the host's own daemons). Computation
+moves to **deterministic engines** (named formulas, forecasts, orbit
+propagation, unit conversion). The LLM stays in charge of **orchestration** —
+picking tools and composing outputs, the part it is actually good at — and
+hallucinations become orchestration errors, which are recoverable.
+
+The empirical case is broad: Toolformer (Schick et al., NeurIPS 2023), WebGPT
+(Nakano et al., 2021), PAL (Gao et al., ICML 2023), ReAct (Yao et al., ICLR
+2023), Self-ask (Press et al., EMNLP 2023), Gorilla (Patil et al., 2023), and
+Voyager (Wang et al., TMLR 2024) each show specialized-tool-augmented models
+matching or beating much larger un-tooled ones on the tasks they target; the
+"compound AI systems" framing (Zaharia et al., BAIR 2024) now describes most
+state-of-the-art results. Leaning on web search alone keeps extraction inside
+the LLM and inherits an increasingly SEO-polluted source (Bevendorff et al.,
+ECIR 2024). Lodestone is built on that bet.
+
 ## How it works
 
 Lodestone speaks MCP over **Streamable HTTP** at `/mcp`. Search sources are
