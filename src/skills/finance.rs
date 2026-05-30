@@ -217,6 +217,32 @@ impl Skill for CurrencyConvert {
 }
 
 /// The skills this module contributes.
+#[cfg(test)]
+mod live {
+    fn http() -> reqwest::Client {
+        reqwest::Client::builder()
+            .user_agent("lodestone-mcp/0.1.0 (+https://github.com/elyerinfox/lodestone-mcp)")
+            .build()
+            .unwrap()
+    }
+
+    /// ECB publishes a daily XML reference-rates file — the source the
+    /// currency_convert skill reads. Stable URL, small payload.
+    #[tokio::test]
+    #[ignore]
+    async fn ecb_reference_rates_live() {
+        let r = http()
+            .get("https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml")
+            .send().await.expect("network").error_for_status().unwrap();
+        let body = r.text().await.unwrap();
+        assert!(body.contains("<gesmes:Envelope") || body.contains("Envelope"));
+        // Major-currency entries we expect.
+        for ccy in ["USD", "JPY", "GBP", "CHF"] {
+            assert!(body.contains(&format!("'{ccy}'")), "missing currency {ccy}");
+        }
+    }
+}
+
 pub fn skills() -> Vec<Box<dyn Skill>> {
     vec![
         Box::new(CompoundInterest),

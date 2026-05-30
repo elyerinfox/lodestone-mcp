@@ -133,6 +133,34 @@ pub fn skills() -> Vec<Box<dyn Skill>> {
 }
 
 #[cfg(test)]
+mod live {
+    fn http() -> reqwest::Client {
+        reqwest::Client::builder()
+            .user_agent("lodestone-mcp/0.1.0 (+https://github.com/elyerinfox/lodestone-mcp)")
+            .build()
+            .unwrap()
+    }
+
+    /// Stooq's CSV quote endpoint — keyless, the source `stock_quote` reads.
+    #[tokio::test]
+    #[ignore]
+    async fn stooq_quote_live() {
+        let r = http()
+            .get("https://stooq.com/q/l/?s=aapl.us&i=d&f=sd2t2ohlcv&h&e=csv")
+            .send().await.expect("network").error_for_status().unwrap();
+        let body = r.text().await.unwrap();
+        // First line is the CSV header; second line carries the quote.
+        let mut lines = body.lines();
+        let header = lines.next().expect("no CSV header");
+        for col in ["Symbol", "Date", "Open", "High", "Low", "Close", "Volume"] {
+            assert!(header.contains(col), "missing column {col}");
+        }
+        let row = lines.next().expect("no CSV row");
+        assert!(row.to_uppercase().contains("AAPL"), "row missing AAPL: {row}");
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::{parse_csv, stooq_symbol};
 

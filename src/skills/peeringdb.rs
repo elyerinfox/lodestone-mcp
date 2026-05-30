@@ -182,12 +182,18 @@ impl Skill for PeeringDbExchange {
             for ix in data {
                 let id = ix.get("id").and_then(|x| x.as_i64()).unwrap_or(0);
                 let name = ix.get("name").and_then(|x| x.as_str()).unwrap_or("");
+                let name_long = ix.get("name_long").and_then(|x| x.as_str()).unwrap_or("");
                 let city = ix.get("city").and_then(|x| x.as_str()).unwrap_or("");
                 let country = ix.get("country").and_then(|x| x.as_str()).unwrap_or("");
-                let org = ix.get("org_name").and_then(|x| x.as_str()).unwrap_or("");
+                let org_id = ix.get("org_id").and_then(|x| x.as_i64()).unwrap_or(0);
                 let net_count = ix.get("net_count").and_then(|x| x.as_i64()).unwrap_or(0);
+                let long = if name_long.is_empty() || name_long == name {
+                    String::new()
+                } else {
+                    format!(" ({name_long})")
+                };
                 out.push_str(&format!(
-                    "  ix-{id}  {name}\n    {city}, {country} · {org} · {net_count} member(s)\n"
+                    "  ix-{id}  {name}{long}\n    {city}, {country} · org-{org_id} · {net_count} member(s)\n"
                 ));
             }
             Ok(text_result(out))
@@ -265,11 +271,11 @@ impl Skill for PeeringDbFacility {
                 let addr = f.get("address1").and_then(|x| x.as_str()).unwrap_or("");
                 let city = f.get("city").and_then(|x| x.as_str()).unwrap_or("");
                 let country = f.get("country").and_then(|x| x.as_str()).unwrap_or("");
-                let org = f.get("org_name").and_then(|x| x.as_str()).unwrap_or("");
+                let org_id = f.get("org_id").and_then(|x| x.as_i64()).unwrap_or(0);
                 let net_count = f.get("net_count").and_then(|x| x.as_i64()).unwrap_or(0);
                 let ix_count = f.get("ix_count").and_then(|x| x.as_i64()).unwrap_or(0);
                 out.push_str(&format!(
-                    "  fac-{id}  {name}\n    {addr}, {city}, {country} · {org} · {net_count} net(s) · {ix_count} IX(es)\n"
+                    "  fac-{id}  {name}\n    {addr}, {city}, {country} · org-{org_id} · {net_count} net(s) · {ix_count} IX(es)\n"
                 ));
             }
             Ok(text_result(out))
@@ -283,4 +289,83 @@ pub fn skills() -> Vec<Box<dyn Skill>> {
         Box::new(PeeringDbExchange),
         Box::new(PeeringDbFacility),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn url_encoding_is_aggressive_enough() {
+        // Names with spaces/special chars must be encoded so PeeringDB doesn't 400.
+        assert_eq!(url_enc("amsterdam ix"), "amsterdam%20ix");
+        assert_eq!(url_enc("AS#13335"), "AS%2313335");
+        assert_eq!(url_enc("plain"), "plain");
+    }
+
+    fn http() -> reqwest::Client {
+        reqwest::Client::builder()
+            .user_agent("lodestone-mcp/0.1.0 (+https://github.com/elyerinfox/lodestone-mcp)")
+            .build()
+            .unwrap()
+    }
+
+    /// AS13335 = Cloudflare — well-known, stable.
+    #[tokio::test]
+    #[ignore]
+    async fn peeringdb_network_live() {
+        let r = http()
+            .get("https://www.peeringdb.com/api/net?asn=13335")
+            .header("Accept", "application/json")
+            .send()
+            .await
+            .expect("network")
+            .error_for_status()
+            .unwrap();
+        let v: Value = r.json().await.unwrap();
+        let data = v["data"].as_array().expect("no data array");
+        assert!(!data.is_empty(), "AS13335 should always be present");
+        assert_eq!(data[0]["asn"].as_i64(), Some(13335));
+        // Schema sanity for fields the skill renders.
+        for k in ["name", "info_type", "info_traffic", "info_prefixes4", "info_prefixes6"] {
+            assert!(data[0].get(k).is_some(), "missing field {k}");
+        }
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn peeringdb_exchange_live() {
+        let r = http()
+            .get("https://www.peeringdb.com/api/ix?name__contains=AMS-IX&limit=3")
+            .header("Accept", "application/json")
+            .send()
+            .await
+            .expect("network")
+            .error_for_status()
+            .unwrap();
+        let v: Value = r.json().await.unwrap();
+        assert!(v["data"].as_array().is_some_and(|a| !a.is_empty()));
+        for k in ["id", "name", "name_long", "city", "country", "org_id", "net_count"] {
+            assert!(v["data"][0].get(k).is_some(), "missing field {k}");
+        }
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn peeringdb_facility_live() {
+        let r = http()
+            .get("https://www.peeringdb.com/api/fac?country=US&limit=3")
+            .header("Accept", "application/json")
+            .send()
+            .await
+            .expect("network")
+            .error_for_status()
+            .unwrap();
+        let v: Value = r.json().await.unwrap();
+        let data = v["data"].as_array().expect("no data array");
+        assert!(!data.is_empty());
+        for k in ["id", "name", "city", "country", "org_id", "net_count", "ix_count"] {
+            assert!(data[0].get(k).is_some(), "missing field {k}");
+        }
+    }
 }

@@ -364,6 +364,63 @@ impl Skill for GithubRepo {
 }
 
 /// The skills this module contributes.
+#[cfg(test)]
+mod live {
+    fn http() -> reqwest::Client {
+        reqwest::Client::builder()
+            .user_agent("lodestone-mcp/0.1.0 (+https://github.com/elyerinfox/lodestone-mcp)")
+            .build()
+            .unwrap()
+    }
+
+    /// Unauthenticated GitHub allows 60 req/h/IP — fine for one nightly run
+    /// per endpoint. With LODESTONE_GITHUB_TOKEN the limit is 5000/h.
+    fn auth_header(req: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+        match std::env::var("LODESTONE_GITHUB_TOKEN").or_else(|_| std::env::var("GITHUB_TOKEN")) {
+            Ok(t) if !t.trim().is_empty() => req.header("Authorization", format!("Bearer {t}")),
+            _ => req,
+        }
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn github_releases_live() {
+        let r = auth_header(http().get("https://api.github.com/repos/rust-lang/rust/releases?per_page=3"))
+            .header("Accept", "application/vnd.github+json")
+            .send().await.expect("network").error_for_status().unwrap();
+        let v: serde_json::Value = r.json().await.unwrap();
+        let arr = v.as_array().expect("expected array");
+        assert!(!arr.is_empty());
+        for k in ["tag_name", "name", "published_at"] {
+            assert!(arr[0].get(k).is_some(), "missing field {k}");
+        }
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn github_user_live() {
+        let r = auth_header(http().get("https://api.github.com/users/torvalds"))
+            .header("Accept", "application/vnd.github+json")
+            .send().await.expect("network").error_for_status().unwrap();
+        let v: serde_json::Value = r.json().await.unwrap();
+        for k in ["login", "id", "public_repos", "followers"] {
+            assert!(v.get(k).is_some(), "missing field {k}");
+        }
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn github_repo_live() {
+        let r = auth_header(http().get("https://api.github.com/repos/rust-lang/rust"))
+            .header("Accept", "application/vnd.github+json")
+            .send().await.expect("network").error_for_status().unwrap();
+        let v: serde_json::Value = r.json().await.unwrap();
+        for k in ["full_name", "stargazers_count", "forks_count", "language"] {
+            assert!(v.get(k).is_some(), "missing field {k}");
+        }
+    }
+}
+
 pub fn skills() -> Vec<Box<dyn Skill>> {
     vec![
         Box::new(GithubReleases),

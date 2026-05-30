@@ -712,6 +712,46 @@ impl Skill for SatGroup {
 }
 
 /// The skills this module contributes.
+#[cfg(test)]
+mod live {
+    fn http() -> reqwest::Client {
+        reqwest::Client::builder()
+            .user_agent("lodestone-mcp/0.1.0 (+https://github.com/elyerinfox/lodestone-mcp)")
+            .build()
+            .unwrap()
+    }
+
+    /// CelesTrak: the source for both sat_tle (by NORAD id) and sat_group.
+    /// Returns plain-text TLEs (3 lines per satellite). 25544 = ISS.
+    #[tokio::test]
+    #[ignore]
+    async fn celestrak_iss_tle_live() {
+        let r = http()
+            .get("https://celestrak.org/NORAD/elements/gp.php?CATNR=25544&FORMAT=tle")
+            .send().await.expect("network").error_for_status().unwrap();
+        let body = r.text().await.unwrap();
+        let lines: Vec<&str> = body.lines().filter(|l| !l.trim().is_empty()).collect();
+        assert!(lines.len() >= 3, "expected 3-line TLE block, got {} lines", lines.len());
+        assert!(lines[0].to_uppercase().contains("ISS"), "name line missing ISS");
+        assert!(lines[1].starts_with("1 "));
+        assert!(lines[2].starts_with("2 "));
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn celestrak_starlink_group_live() {
+        let r = http()
+            .get("https://celestrak.org/NORAD/elements/gp.php?GROUP=stations&FORMAT=tle")
+            .send().await.expect("network").error_for_status().unwrap();
+        let body = r.text().await.unwrap();
+        // 'stations' is a small, stable group (ISS + a handful of others).
+        let lines: Vec<&str> = body.lines().filter(|l| !l.trim().is_empty()).collect();
+        assert!(lines.len() >= 6, "expected ≥ 6 lines (≥ 2 sats); got {}", lines.len());
+        assert!(lines[1].starts_with("1 "));
+        assert!(lines[2].starts_with("2 "));
+    }
+}
+
 pub fn skills() -> Vec<Box<dyn Skill>> {
     vec![
         Box::new(SatTle),

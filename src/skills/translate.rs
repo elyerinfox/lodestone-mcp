@@ -173,6 +173,30 @@ pub fn skills() -> Vec<Box<dyn Skill>> {
 }
 
 #[cfg(test)]
+mod live {
+    fn http() -> reqwest::Client {
+        reqwest::Client::builder()
+            .user_agent("lodestone-mcp/0.1.0 (+https://github.com/elyerinfox/lodestone-mcp)")
+            .build()
+            .unwrap()
+    }
+
+    /// Google Translate's free `translate_a/single` endpoint — exactly the
+    /// path lodestone uses. Catches the day Google tightens this.
+    #[tokio::test]
+    #[ignore]
+    async fn google_translate_live() {
+        let r = http()
+            .get("https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=es&dt=t&q=hello")
+            .send().await.expect("network").error_for_status().unwrap();
+        let body = r.text().await.unwrap();
+        // Response is a JSON array; first inner translation chunk should hold
+        // the Spanish for "hello".
+        assert!(body.to_ascii_lowercase().contains("hola"), "got: {}", &body[..body.len().min(200)]);
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

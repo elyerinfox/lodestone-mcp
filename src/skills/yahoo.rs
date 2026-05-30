@@ -401,6 +401,52 @@ impl Skill for YahooSearch {
 pub const TOOL_NAMES: &[&str] = &["yahoo_quote", "yahoo_history", "yahoo_search"];
 
 /// The skills this module contributes.
+#[cfg(test)]
+mod live {
+    fn http() -> reqwest::Client {
+        reqwest::Client::builder()
+            .user_agent("lodestone-mcp/0.1.0 (+https://github.com/elyerinfox/lodestone-mcp)")
+            .build()
+            .unwrap()
+    }
+
+    /// Yahoo Finance's keyless v7 quote endpoint — Yahoo periodically tightens
+    /// crumb requirements; this test catches it the day they break.
+    #[tokio::test]
+    #[ignore]
+    async fn yahoo_quote_live() {
+        let r = http()
+            .get("https://query1.finance.yahoo.com/v7/finance/quote?symbols=AAPL")
+            .send().await.expect("network");
+        // 401/429 = Yahoo tightened things; surface that as a skip so it
+        // doesn't block CI but we still see it in stdout.
+        if matches!(r.status().as_u16(), 401 | 403 | 429) {
+            eprintln!("skipping yahoo_quote_live: status {}", r.status());
+            return;
+        }
+        let r = r.error_for_status().unwrap();
+        let v: serde_json::Value = r.json().await.unwrap();
+        let q = &v["quoteResponse"]["result"][0];
+        assert_eq!(q["symbol"].as_str(), Some("AAPL"));
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn yahoo_search_live() {
+        let r = http()
+            .get("https://query1.finance.yahoo.com/v1/finance/search?q=apple&quotesCount=3")
+            .send().await.expect("network");
+        if matches!(r.status().as_u16(), 401 | 403 | 429) {
+            eprintln!("skipping yahoo_search_live: status {}", r.status());
+            return;
+        }
+        let r = r.error_for_status().unwrap();
+        let v: serde_json::Value = r.json().await.unwrap();
+        let quotes = v["quotes"].as_array().expect("missing quotes");
+        assert!(!quotes.is_empty());
+    }
+}
+
 pub fn skills() -> Vec<Box<dyn Skill>> {
     vec![
         Box::new(YahooQuote),

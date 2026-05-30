@@ -2,6 +2,13 @@
 //! no key via `DEMO_KEY` (low rate limit); an optional free `[nasa].key` raises it.
 //! Results are cached. `nasa_apod` (Astronomy Picture of the Day), `nasa_neo`
 //! (near-Earth objects for a day), `nasa_mars_photos` (rover imagery).
+//!
+//! ⚠ **`nasa_mars_photos` is currently broken upstream.** The Mars Rover Photos
+//! API was hosted on a Heroku free dyno that NASA never migrated; the endpoint
+//! `api.nasa.gov/mars-photos/...` now returns 404 ("No such app"). The skill
+//! still ships so the contract surface stays stable, but every call will
+//! surface NASA's 404 verbatim. The `nasa_mars_photos_currently_down`
+//! integration test asserts this state so we'll notice if NASA restores it.
 
 use std::sync::Arc;
 
@@ -264,4 +271,75 @@ pub fn skills() -> Vec<Box<dyn Skill>> {
         Box::new(NasaNeo),
         Box::new(NasaMarsPhotos),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    fn http() -> reqwest::Client {
+        reqwest::Client::builder()
+            .user_agent("lodestone-mcp/0.1.0 (+https://github.com/elyerinfox/lodestone-mcp)")
+            .build()
+            .unwrap()
+    }
+
+    /// NASA's DEMO_KEY allows ~30 req/IP/hour. Live tests should use a real key
+    /// if one is available (LODESTONE_NASA_KEY) and skip cleanly otherwise — so
+    /// repeated nightly runs don't fail on the public quota.
+    fn nasa_key_or_skip() -> Option<String> {
+        match std::env::var("LODESTONE_NASA_KEY").or_else(|_| std::env::var("NASA_API_KEY")) {
+            Ok(k) if !k.trim().is_empty() => Some(k),
+            _ => {
+                eprintln!("skipping nasa live: no LODESTONE_NASA_KEY/NASA_API_KEY (DEMO_KEY rate-limits at 30/hr)");
+                None
+            }
+        }
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn nasa_apod_live() {
+        let Some(key) = nasa_key_or_skip() else { return; };
+        let url = format!("https://api.nasa.gov/planetary/apod?api_key={key}");
+        let r = http()
+            .get(&url)
+            .send().await.expect("network").error_for_status().unwrap();
+        let v: serde_json::Value = r.json().await.unwrap();
+        for k in ["date", "title", "url", "explanation"] {
+            assert!(v.get(k).is_some(), "missing field {k}");
+        }
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn nasa_neo_live() {
+        let Some(key) = nasa_key_or_skip() else { return; };
+        let url = format!("https://api.nasa.gov/neo/rest/v1/feed?api_key={key}");
+        let r = http()
+            .get(&url)
+            .send().await.expect("network").error_for_status().unwrap();
+        let v: serde_json::Value = r.json().await.unwrap();
+        assert!(v.get("element_count").is_some());
+        assert!(v.get("near_earth_objects").is_some());
+    }
+
+    /// As of mid-2025 the Mars Rover Photos API (hosted on Heroku free dynos)
+    /// has been DECOMMISSIONED by NASA — `api.nasa.gov/mars-photos/...` 404s
+    /// and the underlying app returns "No such app". The `nasa_mars_photos`
+    /// skill is therefore non-functional. This test asserts the **outage** so
+    /// we'll notice the day NASA restores it (and can then re-enable the
+    /// skill / change this test back to assert success).
+    #[tokio::test]
+    #[ignore]
+    async fn nasa_mars_photos_currently_down() {
+        let Some(key) = nasa_key_or_skip() else { return; };
+        let url = format!("https://api.nasa.gov/mars-photos/api/v1/rovers/curiosity/photos?sol=1000&api_key={key}");
+        let r = http().get(&url).send().await.expect("network");
+        // When NASA restores the service the status will flip away from 404
+        // — and this test will fail, prompting us to re-enable the skill.
+        assert_eq!(
+            r.status().as_u16(),
+            404,
+            "Mars Photos API responded — restore the skill and switch this test to assert success"
+        );
+    }
 }

@@ -166,6 +166,40 @@ pub fn skills() -> Vec<Box<dyn Skill>> {
 }
 
 #[cfg(test)]
+mod live {
+    fn http() -> reqwest::Client {
+        reqwest::Client::builder()
+            .user_agent("lodestone-mcp/0.1.0 (+https://github.com/elyerinfox/lodestone-mcp)")
+            .build()
+            .unwrap()
+    }
+
+    /// RFC Editor txt format — stable URL. RFC 2616 = HTTP/1.1.
+    #[tokio::test]
+    #[ignore]
+    async fn rfc_get_live() {
+        let r = http()
+            .get("https://www.rfc-editor.org/rfc/rfc2616.txt")
+            .send().await.expect("network").error_for_status().unwrap();
+        let body = r.text().await.unwrap();
+        assert!(body.contains("Hypertext Transfer Protocol"), "got non-RFC body");
+    }
+
+    /// IETF Datatracker search-by-title — JSON envelope.
+    #[tokio::test]
+    #[ignore]
+    async fn ietf_datatracker_search_live() {
+        let r = http()
+            .get("https://datatracker.ietf.org/api/v1/doc/document/?type=rfc&title__contains=HTTP&limit=3&format=json")
+            .send().await.expect("network").error_for_status().unwrap();
+        let v: serde_json::Value = r.json().await.unwrap();
+        let objects = v["objects"].as_array().expect("missing objects array");
+        assert!(!objects.is_empty());
+        assert!(objects[0].get("title").is_some());
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::rfc_number;
 

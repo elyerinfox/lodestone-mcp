@@ -257,6 +257,43 @@ pub fn skills() -> Vec<Box<dyn Skill>> {
 }
 
 #[cfg(test)]
+mod live {
+    fn http() -> reqwest::Client {
+        reqwest::Client::builder()
+            .user_agent("lodestone-mcp/0.1.0 (+https://github.com/elyerinfox/lodestone-mcp)")
+            .build()
+            .unwrap()
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn wikipedia_search_live() {
+        let r = http()
+            .get("https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=Rust+programming+language&format=json&utf8=1&srlimit=3")
+            .send().await.expect("network").error_for_status().unwrap();
+        let v: serde_json::Value = r.json().await.unwrap();
+        let items = v["query"]["search"].as_array().expect("missing search array");
+        assert!(!items.is_empty());
+        for k in ["title", "pageid", "snippet"] {
+            assert!(items[0].get(k).is_some(), "missing field {k}");
+        }
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn wikipedia_summary_live() {
+        // MediaWiki extract API on a stable page.
+        let r = http()
+            .get("https://en.wikipedia.org/w/api.php?action=query&prop=extracts&exintro=1&explaintext=1&titles=Rust_(programming_language)&format=json&utf8=1")
+            .send().await.expect("network").error_for_status().unwrap();
+        let v: serde_json::Value = r.json().await.unwrap();
+        let pages = v["query"]["pages"].as_object().expect("missing pages");
+        let first = pages.values().next().expect("no page");
+        assert!(first.get("extract").is_some());
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::{article_url, enc_title, lang_code};
 

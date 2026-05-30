@@ -744,6 +744,74 @@ impl Skill for OciManifest {
 }
 
 /// The skills this module contributes.
+#[cfg(test)]
+mod live {
+    fn http() -> reqwest::Client {
+        reqwest::Client::builder()
+            .user_agent("lodestone-mcp/0.1.0 (+https://github.com/elyerinfox/lodestone-mcp)")
+            .build()
+            .unwrap()
+    }
+
+    /// Docker Hub search v1 search/repositories — the legacy keyless endpoint.
+    #[tokio::test]
+    #[ignore]
+    async fn docker_hub_search_live() {
+        let r = http()
+            .get("https://hub.docker.com/v2/search/repositories/?query=nginx&page_size=3")
+            .send().await.expect("network").error_for_status().unwrap();
+        let v: serde_json::Value = r.json().await.unwrap();
+        let results = v["results"].as_array().expect("missing results");
+        assert!(!results.is_empty());
+        for k in ["repo_name", "star_count", "pull_count"] {
+            assert!(results[0].get(k).is_some(), "missing field {k}");
+        }
+    }
+
+    /// Docker Hub repo metadata for `library/nginx`.
+    #[tokio::test]
+    #[ignore]
+    async fn docker_hub_image_live() {
+        let r = http()
+            .get("https://hub.docker.com/v2/repositories/library/nginx/")
+            .send().await.expect("network").error_for_status().unwrap();
+        let v: serde_json::Value = r.json().await.unwrap();
+        for k in ["name", "namespace", "pull_count", "star_count"] {
+            assert!(v.get(k).is_some(), "missing field {k}");
+        }
+    }
+
+    /// GHCR is an OCI registry — anonymous tag list for a public image.
+    #[tokio::test]
+    #[ignore]
+    async fn ghcr_tags_anonymous_live() {
+        // Need a bearer token for GHCR even anonymous; the docker_v2 flow asks
+        // for it via WWW-Authenticate. Mirror that two-step.
+        let auth = http()
+            .get("https://ghcr.io/token?scope=repository:nginxinc/nginx-unprivileged:pull")
+            .send().await.expect("network");
+        if !auth.status().is_success() {
+            eprintln!("skipping ghcr: token endpoint {}", auth.status());
+            return;
+        }
+        let tv: serde_json::Value = auth.json().await.unwrap();
+        let Some(tok) = tv.get("token").and_then(|x| x.as_str()) else {
+            eprintln!("skipping ghcr: no token field");
+            return;
+        };
+        let r = http()
+            .get("https://ghcr.io/v2/nginxinc/nginx-unprivileged/tags/list")
+            .bearer_auth(tok)
+            .send().await.expect("network");
+        if !r.status().is_success() {
+            eprintln!("skipping ghcr tag list: {}", r.status());
+            return;
+        }
+        let v: serde_json::Value = r.json().await.unwrap();
+        assert!(v["tags"].is_array(), "missing tags array");
+    }
+}
+
 pub fn skills() -> Vec<Box<dyn Skill>> {
     vec![
         Box::new(DockerSearch),

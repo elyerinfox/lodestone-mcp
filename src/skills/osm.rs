@@ -631,6 +631,94 @@ pub fn skills() -> Vec<Box<dyn Skill>> {
 }
 
 #[cfg(test)]
+mod live {
+    use super::*;
+
+    fn http() -> reqwest::Client {
+        reqwest::Client::builder()
+            .user_agent("lodestone-mcp/0.1.0 (+https://github.com/elyerinfox/lodestone-mcp)")
+            .build()
+            .unwrap()
+    }
+
+    /// Nominatim — keyless geocode. The OSM UA policy requires a descriptive
+    /// User-Agent (same lesson as Overpass), so the http() builder uses it.
+    #[tokio::test]
+    #[ignore]
+    async fn nominatim_geocode_live() {
+        let r = http()
+            .get("https://nominatim.openstreetmap.org/search?q=Redmond%2C+WA&format=json&limit=1")
+            .send().await.expect("network").error_for_status().unwrap();
+        let v: serde_json::Value = r.json().await.unwrap();
+        let arr = v.as_array().expect("expected JSON array");
+        assert!(!arr.is_empty());
+        for k in ["lat", "lon", "display_name", "class", "type"] {
+            assert!(arr[0].get(k).is_some(), "missing field {k}");
+        }
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn nominatim_reverse_live() {
+        let r = http()
+            .get("https://nominatim.openstreetmap.org/reverse?lat=47.6700&lon=-122.1200&format=json&zoom=18")
+            .send().await.expect("network").error_for_status().unwrap();
+        let v: serde_json::Value = r.json().await.unwrap();
+        assert!(v.get("display_name").is_some());
+        assert!(v["address"].is_object());
+    }
+
+    /// Overpass: the bug from the previous fix. The osm_overpass skill code
+    /// path sends the same UA + Accept; this test catches a regression there.
+    #[tokio::test]
+    #[ignore]
+    async fn osm_overpass_post_live() {
+        // Single-substation tiny bbox so the call is fast and we never get
+        // rate-limited even on a CI nightly.
+        let ql = "[out:json][timeout:30];(node[\"power\"=\"substation\"](47.66,-122.13,47.68,-122.11);way[\"power\"=\"substation\"](47.66,-122.13,47.68,-122.11);relation[\"power\"=\"substation\"](47.66,-122.13,47.68,-122.11););out center tags;";
+        let body = format!("data={}", url_encode(ql));
+        let r = http()
+            .post("https://overpass-api.de/api/interpreter")
+            .body(body)
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .header("Accept", "application/json")
+            .send().await.expect("network").error_for_status().unwrap();
+        let v: serde_json::Value = r.json().await.unwrap();
+        assert_eq!(v["version"].as_f64(), Some(0.6));
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn open_elevation_live() {
+        let body = serde_json::json!({"locations": [{"latitude": 47.67, "longitude": -122.12}]});
+        let r = http()
+            .post("https://api.open-elevation.com/api/v1/lookup")
+            .json(&body)
+            .send().await.expect("network").error_for_status().unwrap();
+        let v: serde_json::Value = r.json().await.unwrap();
+        let results = v["results"].as_array().expect("missing results");
+        assert!(!results.is_empty());
+        assert!(results[0].get("elevation").is_some());
+    }
+
+    /// OSRM public demo — very short route to keep the call cheap.
+    #[tokio::test]
+    #[ignore]
+    async fn osrm_route_live() {
+        let r = http()
+            .get("https://router.project-osrm.org/route/v1/driving/-122.12,47.67;-122.11,47.68?overview=false&steps=false")
+            .send().await.expect("network").error_for_status().unwrap();
+        let v: serde_json::Value = r.json().await.unwrap();
+        assert_eq!(v["code"].as_str(), Some("Ok"));
+        let routes = v["routes"].as_array().expect("missing routes");
+        assert!(!routes.is_empty());
+        for k in ["distance", "duration"] {
+            assert!(routes[0].get(k).is_some(), "missing field {k}");
+        }
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

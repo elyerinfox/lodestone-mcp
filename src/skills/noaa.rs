@@ -197,3 +197,67 @@ impl Skill for NoaaForecast {
 pub fn skills() -> Vec<Box<dyn Skill>> {
     vec![Box::new(NoaaAlerts), Box::new(NoaaForecast)]
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn http() -> reqwest::Client {
+        reqwest::Client::builder()
+            .user_agent("lodestone-mcp/0.1.0 (+https://github.com/elyerinfox/lodestone-mcp)")
+            .build()
+            .unwrap()
+    }
+
+    /// The /alerts endpoint returns a GeoJSON FeatureCollection even when
+    /// there's nothing active — verify the envelope.
+    #[tokio::test]
+    #[ignore]
+    async fn nws_alerts_live() {
+        let r = http()
+            .get("https://api.weather.gov/alerts/active?status=actual&area=WA")
+            .header("Accept", "application/geo+json")
+            .send()
+            .await
+            .expect("network")
+            .error_for_status()
+            .unwrap();
+        let v: Value = r.json().await.unwrap();
+        assert_eq!(v["type"].as_str(), Some("FeatureCollection"));
+        assert!(v["features"].is_array());
+    }
+
+    /// The two-step /points → forecast handoff is the brittle bit:
+    /// the /points response embeds the gridpoint forecast URL we follow.
+    #[tokio::test]
+    #[ignore]
+    async fn nws_points_then_forecast_live() {
+        let c = http();
+        let p = c
+            .get("https://api.weather.gov/points/47.6700,-122.1200")
+            .header("Accept", "application/geo+json")
+            .send()
+            .await
+            .expect("network")
+            .error_for_status()
+            .unwrap();
+        let pv: Value = p.json().await.unwrap();
+        let fc_url = pv["properties"]["forecastHourly"]
+            .as_str()
+            .expect("forecastHourly missing — /points contract change");
+        let fc = c
+            .get(fc_url)
+            .header("Accept", "application/geo+json")
+            .send()
+            .await
+            .expect("forecast network")
+            .error_for_status()
+            .unwrap();
+        let fv: Value = fc.json().await.unwrap();
+        // Each period carries the keys our renderer relies on.
+        let p0 = &fv["properties"]["periods"][0];
+        for k in ["startTime", "temperature", "temperatureUnit", "windSpeed", "shortForecast"] {
+            assert!(p0.get(k).is_some(), "missing key {k} in /forecast/hourly period");
+        }
+    }
+}

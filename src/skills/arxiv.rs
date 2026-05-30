@@ -245,6 +245,64 @@ pub fn skills() -> Vec<Box<dyn Skill>> {
 }
 
 #[cfg(test)]
+mod live {
+    fn http() -> reqwest::Client {
+        reqwest::Client::builder()
+            .user_agent("lodestone-mcp/0.1.0 (+https://github.com/elyerinfox/lodestone-mcp)")
+            .build()
+            .unwrap()
+    }
+
+    /// arXiv's API requires ≥ 3 s between requests per IP and is quick to
+    /// 429/503 when nightly CI / parallel tests violate that. We treat
+    /// transient throttling as a skip — the test still detects schema or
+    /// breaking-change regressions when it does get through.
+    async fn fetch_or_skip(url: &str) -> Option<String> {
+        let r = match http().get(url).send().await {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("skipping arxiv live ({url}): {e}");
+                return None;
+            }
+        };
+        let status = r.status().as_u16();
+        if matches!(status, 429 | 503) {
+            eprintln!("skipping arxiv live ({url}): rate-limited {status}");
+            return None;
+        }
+        if !r.status().is_success() {
+            panic!("arxiv unexpected status {status} on {url}");
+        }
+        Some(r.text().await.expect("body"))
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn arxiv_search_live() {
+        let Some(body) =
+            fetch_or_skip("https://export.arxiv.org/api/query?search_query=ti:transformer&max_results=1").await
+        else {
+            return;
+        };
+        assert!(body.contains("<feed"), "no Atom feed envelope");
+        assert!(body.contains("<entry"), "no entry");
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn arxiv_get_live() {
+        // 1706.03762 = "Attention Is All You Need" — stable target.
+        let Some(body) =
+            fetch_or_skip("https://export.arxiv.org/api/query?id_list=1706.03762").await
+        else {
+            return;
+        };
+        assert!(body.contains("1706.03762"));
+        assert!(body.contains("Attention Is All You Need"));
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::{arxiv_id, parse_feed};
 

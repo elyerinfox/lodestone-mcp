@@ -484,3 +484,48 @@ pub fn skills() -> Vec<Box<dyn Skill>> {
         Box::new(FetchRepoFile),
     ]
 }
+
+#[cfg(test)]
+mod tests {
+    fn http() -> reqwest::Client {
+        reqwest::Client::builder()
+            .user_agent("lodestone-mcp/0.1.0 (+https://github.com/elyerinfox/lodestone-mcp)")
+            .build()
+            .unwrap()
+    }
+
+    /// example.com is the IANA-blessed stable test domain — won't move.
+    #[tokio::test]
+    #[ignore]
+    async fn fetch_page_live() {
+        let r = http()
+            .get("https://example.com/")
+            .send()
+            .await
+            .expect("network")
+            .error_for_status()
+            .unwrap();
+        let body = r.text().await.unwrap();
+        assert!(
+            body.contains("Example Domain"),
+            "example.com schema drift — got: {}",
+            &body[..body.len().min(200)]
+        );
+    }
+
+    /// Raw GitHub: stable URL pattern. Pull the lodestone README as a known
+    /// file the fetch_repo_file resolver targets.
+    #[tokio::test]
+    #[ignore]
+    async fn fetch_repo_file_github_raw_live() {
+        let r = http()
+            .get("https://raw.githubusercontent.com/rust-lang/rust/master/README.md")
+            .send()
+            .await
+            .expect("network")
+            .error_for_status()
+            .unwrap();
+        let body = r.text().await.unwrap();
+        assert!(body.contains("Rust"), "raw.githubusercontent.com schema drift");
+    }
+}

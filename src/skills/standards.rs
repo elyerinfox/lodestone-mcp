@@ -178,6 +178,32 @@ pub fn skills() -> Vec<Box<dyn Skill>> {
 }
 
 #[cfg(test)]
+mod live {
+    fn http() -> reqwest::Client {
+        reqwest::Client::builder()
+            .user_agent("lodestone-mcp/0.1.0 (+https://github.com/elyerinfox/lodestone-mcp)")
+            .build()
+            .unwrap()
+    }
+
+    /// Crossref REST — keyless; the politely-mailto'd UA is recommended.
+    #[tokio::test]
+    #[ignore]
+    async fn crossref_standards_search_live() {
+        let r = http()
+            .get("https://api.crossref.org/works?query.bibliographic=IEEE%20802.11&rows=3")
+            .send().await.expect("network").error_for_status().unwrap();
+        let v: serde_json::Value = r.json().await.unwrap();
+        assert_eq!(v["status"].as_str(), Some("ok"));
+        let items = v["message"]["items"].as_array().expect("missing items");
+        assert!(!items.is_empty());
+        for k in ["DOI", "title", "type"] {
+            assert!(items[0].get(k).is_some(), "missing field {k}");
+        }
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::{publisher_needle, year};
 

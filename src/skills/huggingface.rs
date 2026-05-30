@@ -233,3 +233,80 @@ pub fn skills() -> Vec<Box<dyn Skill>> {
         Box::new(HfModel),
     ]
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn urlencoding_safe_chars_passthrough() {
+        assert_eq!(urlencoding("bert-base"), "bert-base");
+        assert_eq!(urlencoding("a/b"), "a%2Fb");
+        assert_eq!(urlencoding("hello world"), "hello%20world");
+    }
+
+    #[test]
+    fn tag_value_extracts_prefix() {
+        let tags = vec![
+            serde_json::Value::String("license:apache-2.0".into()),
+            serde_json::Value::String("arxiv:2305.15334".into()),
+            serde_json::Value::String("text-generation".into()),
+        ];
+        assert_eq!(tag_value(&tags, "license:"), Some("apache-2.0"));
+        assert_eq!(tag_value(&tags, "arxiv:"), Some("2305.15334"));
+        assert_eq!(tag_value(&tags, "missing:"), None);
+    }
+
+    fn http() -> reqwest::Client {
+        reqwest::Client::builder()
+            .user_agent("lodestone-mcp/0.1.0 (+https://github.com/elyerinfox/lodestone-mcp)")
+            .build()
+            .unwrap()
+    }
+
+    /// `gpt2` is canonical and won't go away — stable target for the live test.
+    #[tokio::test]
+    #[ignore]
+    async fn hf_model_live() {
+        let r = http()
+            .get("https://huggingface.co/api/models/gpt2")
+            .header("Accept", "application/json")
+            .send().await.expect("network").error_for_status().unwrap();
+        let v: Value = r.json().await.unwrap();
+        let id = v["id"].as_str().expect("id field missing");
+        // HF reorganized many models under org namespaces; gpt2 now resolves to
+        // openai-community/gpt2. Accept either form so the test stays useful
+        // when they migrate again.
+        assert!(id.ends_with("gpt2"), "got id={id:?}");
+        // Fields the skill renders:
+        for k in ["downloads", "likes", "tags"] {
+            assert!(v.get(k).is_some(), "missing field {k}");
+        }
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn hf_model_search_live() {
+        let r = http()
+            .get("https://huggingface.co/api/models?search=bert&limit=3&sort=downloads&direction=-1")
+            .header("Accept", "application/json")
+            .send().await.expect("network").error_for_status().unwrap();
+        let v: Value = r.json().await.unwrap();
+        let arr = v.as_array().expect("expected JSON array");
+        assert!(!arr.is_empty());
+        assert!(arr[0].get("id").is_some());
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn hf_dataset_search_live() {
+        let r = http()
+            .get("https://huggingface.co/api/datasets?search=squad&limit=3&sort=downloads&direction=-1")
+            .header("Accept", "application/json")
+            .send().await.expect("network").error_for_status().unwrap();
+        let v: Value = r.json().await.unwrap();
+        let arr = v.as_array().expect("expected JSON array");
+        assert!(!arr.is_empty());
+        assert!(arr[0].get("id").is_some());
+    }
+}

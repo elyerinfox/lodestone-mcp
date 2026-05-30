@@ -503,6 +503,40 @@ pub fn skills() -> Vec<Box<dyn Skill>> {
 }
 
 #[cfg(test)]
+mod live {
+    fn http() -> reqwest::Client {
+        reqwest::Client::builder()
+            .user_agent("lodestone-mcp/0.1.0 (+https://github.com/elyerinfox/lodestone-mcp)")
+            .build()
+            .unwrap()
+    }
+
+    /// NCBI E-utilities — keyless (3 req/sec without key, 10 with one).
+    #[tokio::test]
+    #[ignore]
+    async fn pubmed_esearch_live() {
+        let r = http()
+            .get("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=crispr&retmax=3&retmode=json")
+            .send().await.expect("network").error_for_status().unwrap();
+        let v: serde_json::Value = r.json().await.unwrap();
+        let ids = v["esearchresult"]["idlist"].as_array().expect("missing idlist");
+        assert!(!ids.is_empty());
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn pubmed_esummary_live() {
+        let r = http()
+            .get("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=pubmed&id=20020651&retmode=json")
+            .send().await.expect("network").error_for_status().unwrap();
+        let v: serde_json::Value = r.json().await.unwrap();
+        let doc = &v["result"]["20020651"];
+        assert!(doc.get("title").is_some(), "missing title");
+        assert!(doc.get("authors").is_some(), "missing authors");
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

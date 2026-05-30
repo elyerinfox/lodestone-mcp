@@ -377,6 +377,62 @@ impl Skill for OpenAlexWork {
 }
 
 /// Always-on, keyless (still gateable via `[tools]`).
+#[cfg(test)]
+mod live {
+    fn http() -> reqwest::Client {
+        reqwest::Client::builder()
+            .user_agent("lodestone-mcp/0.1.0 (+https://github.com/elyerinfox/lodestone-mcp)")
+            .build()
+            .unwrap()
+    }
+
+    /// Unpaywall rejects example.com emails — needs LODESTONE_CONTACT_EMAIL.
+    #[tokio::test]
+    #[ignore]
+    async fn unpaywall_live() {
+        let email = match std::env::var("LODESTONE_CONTACT_EMAIL") {
+            Ok(e) if !e.trim().is_empty() => e,
+            _ => {
+                eprintln!("skipping unpaywall live: no LODESTONE_CONTACT_EMAIL");
+                return;
+            }
+        };
+        // 10.1038/s41586-020-2649-2 = the Nature 2020 paper on Array Programming (NumPy).
+        let url = format!("https://api.unpaywall.org/v2/10.1038/s41586-020-2649-2?email={email}");
+        let r = http().get(&url).send().await.expect("network").error_for_status().unwrap();
+        let v: serde_json::Value = r.json().await.unwrap();
+        for k in ["doi", "title", "is_oa"] {
+            assert!(v.get(k).is_some(), "missing field {k}");
+        }
+    }
+
+    /// OpenAlex is keyless but recommends a polite mailto in the User-Agent.
+    #[tokio::test]
+    #[ignore]
+    async fn openalex_search_live() {
+        let r = http()
+            .get("https://api.openalex.org/works?search=transformer+attention&per_page=3")
+            .send().await.expect("network").error_for_status().unwrap();
+        let v: serde_json::Value = r.json().await.unwrap();
+        let results = v["results"].as_array().expect("missing results");
+        assert!(!results.is_empty());
+        for k in ["id", "title", "doi"] {
+            assert!(results[0].get(k).is_some(), "missing field {k}");
+        }
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn openalex_work_live() {
+        let r = http()
+            .get("https://api.openalex.org/works/doi:10.1038/s41586-020-2649-2")
+            .send().await.expect("network").error_for_status().unwrap();
+        let v: serde_json::Value = r.json().await.unwrap();
+        assert!(v.get("title").is_some());
+        assert!(v.get("publication_year").is_some());
+    }
+}
+
 pub fn skills() -> Vec<Box<dyn Skill>> {
     vec![
         Box::new(UnpaywallLookup),

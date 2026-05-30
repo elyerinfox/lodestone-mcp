@@ -85,3 +85,29 @@ impl Skill for KernelReleases {
 pub fn skills() -> Vec<Box<dyn Skill>> {
     vec![Box::new(KernelReleases)]
 }
+
+#[cfg(test)]
+mod tests {
+    fn http() -> reqwest::Client {
+        reqwest::Client::builder()
+            .user_agent("lodestone-mcp/0.1.0 (+https://github.com/elyerinfox/lodestone-mcp)")
+            .build()
+            .unwrap()
+    }
+
+    /// kernel.org publishes `releases.json` with a stable schema covering
+    /// mainline / stable / longterm. This is the contract the skill renders.
+    #[tokio::test]
+    #[ignore]
+    async fn kernel_releases_live() {
+        let r = http()
+            .get("https://www.kernel.org/releases.json")
+            .send().await.expect("network").error_for_status().unwrap();
+        let v: serde_json::Value = r.json().await.unwrap();
+        let releases = v["releases"].as_array().expect("missing releases array");
+        assert!(!releases.is_empty());
+        for k in ["version", "moniker", "released", "iseol"] {
+            assert!(releases[0].get(k).is_some(), "missing field {k}");
+        }
+    }
+}

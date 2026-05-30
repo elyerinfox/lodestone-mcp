@@ -231,6 +231,39 @@ pub fn skills() -> Vec<Box<dyn Skill>> {
 }
 
 #[cfg(test)]
+mod live {
+    fn http() -> reqwest::Client {
+        reqwest::Client::builder()
+            .user_agent("lodestone-mcp/0.1.0 (+https://github.com/elyerinfox/lodestone-mcp)")
+            .build()
+            .unwrap()
+    }
+
+    /// Lobsters RSS — one of the built-in shortcuts; small + stable.
+    #[tokio::test]
+    #[ignore]
+    async fn news_lobsters_rss_live() {
+        let r = http()
+            .get("https://lobste.rs/rss")
+            .send().await.expect("network").error_for_status().unwrap();
+        let body = r.text().await.unwrap();
+        assert!(body.contains("<rss") || body.contains("<feed"), "no RSS/Atom envelope");
+        assert!(body.contains("<item") || body.contains("<entry"), "no items");
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn news_bbc_rss_live() {
+        let r = http()
+            .get("https://feeds.bbci.co.uk/news/world/rss.xml")
+            .send().await.expect("network").error_for_status().unwrap();
+        let body = r.text().await.unwrap();
+        assert!(body.contains("<rss"));
+        assert!(body.contains("<item"));
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

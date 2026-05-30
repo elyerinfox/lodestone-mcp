@@ -429,3 +429,113 @@ pub fn skills() -> Vec<Box<dyn Skill>> {
         Box::new(WeatherAirQuality),
     ]
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A tiny inline Open-Meteo response shape; render_hourly should produce a
+    /// fixed-width table with units pulled from `hourly_units` and rows for
+    /// each timestamp.
+    fn fixture_hourly() -> Value {
+        serde_json::json!({
+            "hourly_units": {"temperature_2m": "°C", "wind_speed_10m": "km/h"},
+            "hourly": {
+                "time": ["2026-05-30T00:00", "2026-05-30T01:00", "2026-05-30T02:00"],
+                "temperature_2m": [12.3, 12.1, 11.9],
+                "wind_speed_10m": [8.0, 10.5, 11.2]
+            }
+        })
+    }
+
+    #[test]
+    fn render_hourly_pulls_units_and_caps_rows() {
+        let v = fixture_hourly();
+        let out = render_hourly(&v, "Forecast", 2);
+        assert!(out.contains("Forecast (first 2 hours of 3 returned)"));
+        assert!(out.contains("temperature_2m [°C]"));
+        assert!(out.contains("wind_speed_10m [km/h]"));
+        // Row count: 2 data rows + the truncation footer.
+        assert!(out.contains("2026-05-30T00:00"));
+        assert!(out.contains("2026-05-30T01:00"));
+        assert!(!out.contains("2026-05-30T02:00"));
+        assert!(out.contains("1 more hours truncated"));
+        // Numeric values formatted to 2 decimals.
+        assert!(out.contains("12.30"));
+        assert!(out.contains("10.50"));
+    }
+
+    #[test]
+    fn render_hourly_handles_missing_block() {
+        let v = serde_json::json!({});
+        let out = render_hourly(&v, "Forecast", 10);
+        assert!(out.contains("no hourly block returned"));
+    }
+
+    #[test]
+    fn render_daily_basic() {
+        let v = serde_json::json!({
+            "daily_units": {"temperature_2m_max": "°C", "sunrise": "iso8601"},
+            "daily": {
+                "time": ["2026-05-30", "2026-05-31"],
+                "temperature_2m_max": [22.5, 24.1],
+                "sunrise": ["2026-05-30T05:30", "2026-05-31T05:29"]
+            }
+        });
+        let out = render_daily(&v, "Daily", 10);
+        assert!(out.contains("temperature_2m_max [°C]"));
+        assert!(out.contains("sunrise [iso8601]"));
+        assert!(out.contains("2026-05-30"));
+        assert!(out.contains("22.50"));
+        // String values pass through.
+        assert!(out.contains("2026-05-30T05:30"));
+    }
+
+    fn http() -> reqwest::Client {
+        reqwest::Client::builder()
+            .user_agent("lodestone-mcp/0.1.0 (+https://github.com/elyerinfox/lodestone-mcp)")
+            .build()
+            .unwrap()
+    }
+
+    /// Live forecast call — Redmond, WA, 1-hour horizon, single variable.
+    #[tokio::test]
+    #[ignore]
+    async fn open_meteo_forecast_live() {
+        let url = "https://api.open-meteo.com/v1/forecast?latitude=47.67&longitude=-122.12&hourly=temperature_2m&forecast_days=1&timezone=UTC&models=best_match";
+        let r = http().get(url).send().await.expect("network").error_for_status().unwrap();
+        let v: Value = r.json().await.unwrap();
+        assert!(v.get("hourly").is_some(), "no hourly block");
+        assert!(v["hourly"]["time"].as_array().unwrap().len() >= 24);
+        assert!(v["hourly"]["temperature_2m"].as_array().unwrap().len() >= 24);
+    }
+
+    /// Live ERA5 archive — yesterday only, one variable.
+    #[tokio::test]
+    #[ignore]
+    async fn open_meteo_archive_live() {
+        let url = "https://archive-api.open-meteo.com/v1/archive?latitude=47.67&longitude=-122.12&start_date=2024-01-01&end_date=2024-01-01&hourly=temperature_2m&timezone=UTC";
+        let r = http().get(url).send().await.expect("network").error_for_status().unwrap();
+        let v: Value = r.json().await.unwrap();
+        assert_eq!(v["hourly"]["time"].as_array().unwrap().len(), 24);
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn open_meteo_marine_live() {
+        // Open ocean coordinates so we definitely get wave data.
+        let url = "https://marine-api.open-meteo.com/v1/marine?latitude=36.7&longitude=-122.3&hourly=wave_height";
+        let r = http().get(url).send().await.expect("network").error_for_status().unwrap();
+        let v: Value = r.json().await.unwrap();
+        assert!(v["hourly"]["wave_height"].is_array());
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn open_meteo_air_quality_live() {
+        let url = "https://air-quality-api.open-meteo.com/v1/air-quality?latitude=47.67&longitude=-122.12&hourly=pm2_5";
+        let r = http().get(url).send().await.expect("network").error_for_status().unwrap();
+        let v: Value = r.json().await.unwrap();
+        assert!(v["hourly"]["pm2_5"].is_array());
+    }
+}

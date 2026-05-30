@@ -138,3 +138,30 @@ impl Skill for WaybackFetch {
 pub fn skills() -> Vec<Box<dyn Skill>> {
     vec![Box::new(WaybackFetch)]
 }
+
+#[cfg(test)]
+mod tests {
+    fn http() -> reqwest::Client {
+        reqwest::Client::builder()
+            .user_agent("lodestone-mcp/0.1.0 (+https://github.com/elyerinfox/lodestone-mcp)")
+            .build()
+            .unwrap()
+    }
+
+    /// Wayback's `available` JSON endpoint — the lightweight lookup the skill
+    /// uses to resolve a snapshot URL before fetching it.
+    #[tokio::test]
+    #[ignore]
+    async fn wayback_available_live() {
+        let r = http()
+            .get("https://archive.org/wayback/available?url=example.com")
+            .send()
+            .await
+            .expect("network")
+            .error_for_status()
+            .unwrap();
+        let v: serde_json::Value = r.json().await.unwrap();
+        let url = v["archived_snapshots"]["closest"]["url"].as_str();
+        assert!(url.is_some_and(|u| u.contains("web.archive.org")));
+    }
+}

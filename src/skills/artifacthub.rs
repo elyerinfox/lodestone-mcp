@@ -223,6 +223,31 @@ pub fn skills() -> Vec<Box<dyn Skill>> {
 }
 
 #[cfg(test)]
+mod live {
+    fn http() -> reqwest::Client {
+        reqwest::Client::builder()
+            .user_agent("lodestone-mcp/0.1.0 (+https://github.com/elyerinfox/lodestone-mcp)")
+            .build()
+            .unwrap()
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn artifacthub_search_live() {
+        let r = http()
+            .get("https://artifacthub.io/api/v1/packages/search?ts_query_web=nginx&limit=3")
+            .header("Accept", "application/json")
+            .send().await.expect("network").error_for_status().unwrap();
+        let v: serde_json::Value = r.json().await.unwrap();
+        let pkgs = v["packages"].as_array().expect("missing packages");
+        assert!(!pkgs.is_empty());
+        for k in ["package_id", "name", "repository"] {
+            assert!(pkgs[0].get(k).is_some(), "missing field {k}");
+        }
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
