@@ -1379,10 +1379,30 @@ fn score_solution_row(
             let q_toks: HashSet<&str> = q_concept_toks.iter().map(|s| s.as_str()).collect();
             let inter = s_toks.intersection(&q_toks).count();
             if inter > 0 {
+                // Two complementary measures of fuzzy match. We take the
+                // stronger of the two so neither shape of query suffers:
+                //   * Jaccard (intersection / union) is good for rich queries
+                //     of comparable size to the solution's concept key.
+                //   * Query-coverage (intersection / |query|) handles short
+                //     focused queries — "Seattle, WA" on a 10-token solution
+                //     would score Jaccard 1/10=0.1, but query-coverage 1/1=1.0
+                //     correctly reflects "this query is entirely covered."
+                // Without query-coverage, single-noun queries like the kind a
+                // tool-using model emits when geocoding never clear the recall
+                // threshold even when the match is obvious.
                 let union = s_toks.union(&q_toks).count().max(1);
                 let jaccard = inter as f64 / union as f64;
-                if jaccard < 1.0 {
-                    consider(20.0 + 40.0 * jaccard, "fuzzy overlap");
+                let coverage = inter as f64 / q_toks.len().max(1) as f64;
+                let strength = jaccard.max(coverage);
+                if strength < 1.0 {
+                    consider(20.0 + 40.0 * strength, "fuzzy overlap");
+                } else {
+                    // Both q_toks ⊆ s_toks and q_toks == s_toks land here;
+                    // the latter is already caught by the "concept exact"
+                    // path higher up. For the strict-subset case (every
+                    // query token present but solution has more) score just
+                    // under the exact-concept path so we don't dilute it.
+                    consider(60.0, "fuzzy overlap");
                 }
             }
         }
@@ -1390,13 +1410,28 @@ fn score_solution_row(
     if !needle.is_empty() && sol.problem.to_ascii_lowercase().contains(needle) {
         consider(15.0, "substring");
     }
-    let tag_overlap = if filter_tags_lc.is_empty() {
-        0
-    } else {
+    // Tag overlap path:
+    //   * If the caller passed `tags=[…]`, count tags that intersect that
+    //     explicit filter (`solution_find tags=…` users get this).
+    //   * Otherwise (auto-recall, plain `solution_find query=…`), count tags
+    //     that intersect the query's significant concept tokens — so tags
+    //     pull their weight as match signal even without an explicit filter.
+    //     Tags are how the model labels what a solution is *about*; an
+    //     overlap with the query is a meaningful score signal we were
+    //     previously ignoring.
+    let tag_overlap = if !filter_tags_lc.is_empty() {
         sol_tags_lc
             .iter()
             .filter(|t| filter_tags_lc.contains(*t))
             .count()
+    } else if !q_concept_toks.is_empty() {
+        let q_toks: HashSet<&str> = q_concept_toks.iter().map(|s| s.as_str()).collect();
+        sol_tags_lc
+            .iter()
+            .filter(|t| q_toks.contains(t.as_str()))
+            .count()
+    } else {
+        0
     };
     if let Some((score, label)) = best.as_mut() {
         if tag_overlap > 0 {
@@ -3268,6 +3303,56 @@ mod tests {
         // Sequence must be strictly increasing.
         assert!(turns[0].0 < turns[1].0);
         assert!(turns[1].0 < turns[2].0);
+    }
+
+    /// In auto-recall (no explicit `tags=` filter), tag overlap with the
+    /// query's concept tokens contributes to the score. Without this, single-
+    /// noun queries can't clear the 30 threshold against richly-tagged
+    /// solutions even when the tag is exactly the topic word in question.
+    #[tokio::test]
+    async fn auto_recall_counts_tag_overlap_with_query_tokens() {
+        let mem = fresh_memory().await;
+        // Record a solution with seattle/redmond tags, then query for "Seattle
+        // Redmond distance" — the fuzzy path alone wouldn't fire because of
+        // dilution, but tag overlap (2 tags) plus fuzzy should clear 30.
+        let now = now_secs() as i64;
+        sqlx::query(
+            "INSERT INTO solutions (id, problem, canon_key, concept_key, created_at, updated_at) \
+             VALUES ('sol-x', ?, ?, ?, ?, ?)",
+        )
+        .bind("Redmond approximately 40 miles east of Seattle - validate claim")
+        .bind("redmond approximately 40 miles east seattle validate claim")
+        .bind("redmond approximately 40 miles east seattle validate claim")
+        .bind(now)
+        .bind(now)
+        .execute(&mem.pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO solution_revisions \
+             (solution_id, rev, ts, summary, content, notes, conversation_id) \
+             VALUES ('sol-x', 1, ?, 's', 'c', '', NULL)",
+        )
+        .bind(now)
+        .execute(&mem.pool)
+        .await
+        .unwrap();
+        for tag in ["seattle", "redmond", "geography", "grid"] {
+            sqlx::query(
+                "INSERT INTO solution_tags (solution_id, tag, label) VALUES ('sol-x', ?, ?)",
+            )
+            .bind(tag)
+            .bind(tag)
+            .execute(&mem.pool)
+            .await
+            .unwrap();
+        }
+        let hits = mem.auto_recall("Seattle Redmond distance", 5).await;
+        assert!(
+            !hits.is_empty(),
+            "tag overlap (2) + fuzzy must clear the recall threshold"
+        );
+        assert_eq!(hits[0].id, "sol-x");
     }
 
     /// When `[memory].record_conversations = false`, the wrapper-side helper
