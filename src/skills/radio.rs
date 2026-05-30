@@ -1,6 +1,11 @@
-//! Radio-link / RF skills — Friis path loss, Shannon-Hartley capacity, thermal
-//! noise, full link budgets, and max-range-for-bandwidth. Pure formulas, no
-//! network. Off by default (`[radio].enabled`).
+//! Radio link-budget skills — composite RF analyses that **chain** the atomic
+//! formulas already in [`physics_formula`] (`friis_path_loss`,
+//! `thermal_noise_kTB`, `shannon_hartley`) into multi-step engineering
+//! workflows. Off by default (`[radio].enabled`).
+//!
+//! For a single number — just the FSPL, just the noise floor, just the Shannon
+//! capacity — call those `physics_formula` entries directly. This module is
+//! for the *integrated* analyses that combine them.
 
 use std::sync::Arc;
 
@@ -13,11 +18,8 @@ use crate::skills::{schema_for, Skill, SkillCtx};
 use crate::{invalid, text_result};
 
 pub const TOOL_NAMES: &[&str] = &[
-    "radio_friis_path_loss",
     "radio_link_budget",
     "radio_max_range",
-    "radio_shannon_capacity",
-    "radio_noise_floor",
     "radio_range_for_bandwidth",
 ];
 
@@ -32,6 +34,11 @@ fn fmt(n: f64) -> String {
     s.trim_end_matches('0').trim_end_matches('.').to_string()
 }
 
+fn fspl_db(frequency_hz: f64, distance_m: f64) -> f64 {
+    let lambda = C / frequency_hz;
+    20.0 * (4.0 * std::f64::consts::PI * distance_m / lambda).log10()
+}
+
 fn freq_check(hz: f64) -> Result<(), McpError> {
     if !hz.is_finite() || hz <= 0.0 {
         return Err(invalid("frequency_hz must be positive"));
@@ -44,138 +51,6 @@ fn dist_check(m: f64) -> Result<(), McpError> {
         return Err(invalid("distance_m must be positive"));
     }
     Ok(())
-}
-
-// ----- friis path loss -----
-
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-struct FsplArgs {
-    /// Frequency in Hz (e.g. 2.4e9 for 2.4 GHz).
-    frequency_hz: f64,
-    /// Distance in meters.
-    distance_m: f64,
-}
-
-pub struct RadioFsplPath;
-impl Skill for RadioFsplPath {
-    fn name(&self) -> &'static str {
-        "radio_friis_path_loss"
-    }
-    fn description(&self) -> &'static str {
-        "Friis free-space path loss in dB: FSPL = 20·log10(4·π·d / λ). Pure line-of-sight model, \
-        no fading, no terrain. Use as the baseline of a link budget."
-    }
-    fn schema(&self) -> Arc<JsonObject> {
-        schema_for::<FsplArgs>()
-    }
-    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
-        Box::pin(async move {
-            let (_, args) = ctx.parse::<FsplArgs>()?;
-            freq_check(args.frequency_hz)?;
-            dist_check(args.distance_m)?;
-            let lambda = C / args.frequency_hz;
-            let fspl = 20.0 * (4.0 * std::f64::consts::PI * args.distance_m / lambda).log10();
-            Ok(text_result(format!(
-                "FSPL at {} Hz over {} m: {} dB  (λ = {} m)",
-                fmt(args.frequency_hz),
-                fmt(args.distance_m),
-                fmt(fspl),
-                fmt(lambda)
-            )))
-        })
-    }
-}
-
-// ----- noise floor -----
-
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-struct NoiseArgs {
-    /// Receiver bandwidth in Hz.
-    bandwidth_hz: f64,
-    /// Receiver noise figure in dB (default 5).
-    #[serde(default)]
-    noise_figure_db: Option<f64>,
-    /// System noise temperature in K (default 290 — room temperature).
-    #[serde(default)]
-    temperature_k: Option<f64>,
-}
-
-pub struct RadioNoiseFloor;
-impl Skill for RadioNoiseFloor {
-    fn name(&self) -> &'static str {
-        "radio_noise_floor"
-    }
-    fn description(&self) -> &'static str {
-        "Thermal noise floor at the receiver: N = kTB + NF. Returns dBm. Default temperature \
-        is 290 K (-174 dBm/Hz floor) with a 5 dB receiver noise figure."
-    }
-    fn schema(&self) -> Arc<JsonObject> {
-        schema_for::<NoiseArgs>()
-    }
-    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
-        Box::pin(async move {
-            let (_, args) = ctx.parse::<NoiseArgs>()?;
-            if !args.bandwidth_hz.is_finite() || args.bandwidth_hz <= 0.0 {
-                return Err(invalid("bandwidth_hz must be positive"));
-            }
-            let nf = args.noise_figure_db.unwrap_or(5.0);
-            let t = args.temperature_k.unwrap_or(290.0);
-            // N₀ (dBm/Hz) = 10·log10(kT/1mW) = 10·log10(1.38e-23 · T) + 30 dB (W→mW)
-            let n0_dbm_per_hz = 10.0 * (1.380649e-23 * t).log10() + 30.0;
-            let noise_dbm = n0_dbm_per_hz + 10.0 * args.bandwidth_hz.log10() + nf;
-            Ok(text_result(format!(
-                "Noise floor: {} dBm  (kTB+NF; T={}K, B={} Hz, NF={} dB; N₀ ≈ {} dBm/Hz)",
-                fmt(noise_dbm),
-                fmt(t),
-                fmt(args.bandwidth_hz),
-                fmt(nf),
-                fmt(n0_dbm_per_hz)
-            )))
-        })
-    }
-}
-
-// ----- shannon-hartley -----
-
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-struct ShannonArgs {
-    /// Channel bandwidth in Hz.
-    bandwidth_hz: f64,
-    /// Signal-to-noise ratio in dB (S/N).
-    snr_db: f64,
-}
-
-pub struct RadioShannon;
-impl Skill for RadioShannon {
-    fn name(&self) -> &'static str {
-        "radio_shannon_capacity"
-    }
-    fn description(&self) -> &'static str {
-        "Shannon-Hartley channel capacity: C = B · log2(1 + SNR). Returns bits/s. The hard ceiling \
-        on data rate for a given bandwidth and SNR — real systems hit a fraction of this."
-    }
-    fn schema(&self) -> Arc<JsonObject> {
-        schema_for::<ShannonArgs>()
-    }
-    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
-        Box::pin(async move {
-            let (_, args) = ctx.parse::<ShannonArgs>()?;
-            if !args.bandwidth_hz.is_finite() || args.bandwidth_hz <= 0.0 {
-                return Err(invalid("bandwidth_hz must be positive"));
-            }
-            let snr_lin = 10f64.powf(args.snr_db / 10.0);
-            let c = args.bandwidth_hz * (1.0 + snr_lin).log2();
-            Ok(text_result(format!(
-                "Shannon capacity: {} bit/s  ({} kbit/s, {} Mbit/s) — B={} Hz, SNR={} dB (linear {})",
-                fmt(c),
-                fmt(c / 1e3),
-                fmt(c / 1e6),
-                fmt(args.bandwidth_hz),
-                fmt(args.snr_db),
-                fmt(snr_lin)
-            )))
-        })
-    }
 }
 
 // ----- link budget -----
@@ -206,8 +81,9 @@ impl Skill for RadioLinkBudget {
     }
     fn description(&self) -> &'static str {
         "Free-space link budget: received power = Tx_dBm + Tx_gain + Rx_gain − FSPL − other_loss. \
-        Reports received power and link margin vs. the receiver's sensitivity. Positive margin = \
-        link closes."
+        Reports EIRP, FSPL, received power, and the margin vs. the receiver's sensitivity \
+        (positive = link closes). For just the FSPL number use physics_formula \
+        name=\"friis_path_loss\"."
     }
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<LinkBudgetArgs>()
@@ -217,8 +93,7 @@ impl Skill for RadioLinkBudget {
             let (_, args) = ctx.parse::<LinkBudgetArgs>()?;
             freq_check(args.frequency_hz)?;
             dist_check(args.distance_m)?;
-            let lambda = C / args.frequency_hz;
-            let fspl = 20.0 * (4.0 * std::f64::consts::PI * args.distance_m / lambda).log10();
+            let fspl = fspl_db(args.frequency_hz, args.distance_m);
             let other = args.other_loss_db.unwrap_or(0.0);
             let rx_dbm = args.tx_power_dbm + args.tx_gain_dbi + args.rx_gain_dbi - fspl - other;
             let margin = rx_dbm - args.rx_sensitivity_dbm;
@@ -245,7 +120,7 @@ impl Skill for RadioLinkBudget {
     }
 }
 
-// ----- max range from a sensitivity -----
+// ----- max range -----
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct MaxRangeArgs {
@@ -265,8 +140,10 @@ impl Skill for RadioMaxRange {
         "radio_max_range"
     }
     fn description(&self) -> &'static str {
-        "Maximum free-space range for a link to close. Solves Friis for d given a known receiver \
-        sensitivity. Returns meters and kilometers."
+        "Maximum free-space range for a link to close. Solves Friis (physics_formula \
+        \"friis_path_loss\") for d given a known receiver sensitivity. Returns meters and \
+        kilometers. For a derived sensitivity from bandwidth + SNR, use \
+        radio_range_for_bandwidth."
     }
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<MaxRangeArgs>()
@@ -293,7 +170,7 @@ impl Skill for RadioMaxRange {
     }
 }
 
-// ----- range as a function of bandwidth (the user's question) -----
+// ----- range as a function of bandwidth -----
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct RangeForBwArgs {
@@ -322,10 +199,11 @@ impl Skill for RadioRangeForBandwidth {
         "radio_range_for_bandwidth"
     }
     fn description(&self) -> &'static str {
-        "How far a radio signal reaches as a function of BANDWIDTH: derives the receiver \
-        sensitivity from kTB + NF + required SNR margin, then solves Friis for max range. \
-        Doubling bandwidth raises the noise floor by 3 dB and halves the range (roughly). Set \
-        `bandwidth_hz`, `frequency_hz`, your Tx power + antenna gains, and a required SNR margin."
+        "How far a radio signal reaches as a function of BANDWIDTH: chains \
+        physics_formula \"thermal_noise_kTB\" → required Rx sensitivity (noise + SNR margin) → \
+        physics_formula \"friis_path_loss\" inverted for d. Doubling bandwidth raises the noise \
+        floor by 3 dB and roughly halves the range. Also reports Shannon capacity \
+        (physics_formula \"shannon_hartley\") at the link edge."
     }
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<RangeForBwArgs>()
@@ -341,14 +219,14 @@ impl Skill for RadioRangeForBandwidth {
             let t = args.temperature_k.unwrap_or(290.0);
             let snr = args.required_snr_db.unwrap_or(10.0);
             let other = args.other_loss_db.unwrap_or(0.0);
+            // Same math as physics_formula "thermal_noise_kTB" with NF folded in.
             let n0 = 10.0 * (1.380649e-23 * t).log10() + 30.0; // dBm/Hz
             let noise_dbm = n0 + 10.0 * args.bandwidth_hz.log10() + nf;
             let sens_dbm = noise_dbm + snr;
-            let budget =
-                args.tx_power_dbm + args.tx_gain_dbi + args.rx_gain_dbi - sens_dbm - other;
+            let budget = args.tx_power_dbm + args.tx_gain_dbi + args.rx_gain_dbi - sens_dbm - other;
             let lambda = C / args.frequency_hz;
             let d = lambda / (4.0 * std::f64::consts::PI) * 10f64.powf(budget / 20.0);
-            // Capacity at the link-edge (SNR = required_snr_db):
+            // Shannon capacity at the link-edge (SNR = required_snr_db).
             let snr_lin = 10f64.powf(snr / 10.0);
             let cap = args.bandwidth_hz * (1.0 + snr_lin).log2();
             Ok(text_result(format!(
@@ -372,9 +250,6 @@ impl Skill for RadioRangeForBandwidth {
 
 pub fn skills() -> Vec<Box<dyn Skill>> {
     vec![
-        Box::new(RadioFsplPath),
-        Box::new(RadioNoiseFloor),
-        Box::new(RadioShannon),
         Box::new(RadioLinkBudget),
         Box::new(RadioMaxRange),
         Box::new(RadioRangeForBandwidth),

@@ -97,6 +97,8 @@ static FORMULAS: LazyLock<Vec<Formula>> = LazyLock::new(|| {
         Formula { id: "photon_energy_frequency", category: "waves", summary: "Photon energy: E = h·f", inputs: vec![v("f","Hz")], out: v("E","J"), eval: |a| H*a["f"] },
         Formula { id: "photon_energy_wavelength", category: "waves", summary: "Photon energy: E = h·c/λ", inputs: vec![v("lambda","m")], out: v("E","J"), eval: |a| H*C/a["lambda"] },
         Formula { id: "de_broglie", category: "waves", summary: "de Broglie wavelength: λ = h/p", inputs: vec![v("p","kg·m/s")], out: v("lambda","m"), eval: |a| H/a["p"] },
+        Formula { id: "friis_path_loss", category: "waves", summary: "Free-space (Friis) path loss: FSPL = 20·log10(4·π·d·f/c)", inputs: vec![v("f","Hz"), v("d","m")], out: v("FSPL","dB"), eval: |a| 20.0 * (4.0*PI*a["d"]*a["f"]/C).log10() },
+        Formula { id: "shannon_hartley", category: "waves", summary: "Shannon-Hartley channel capacity: C = B·log2(1 + 10^(SNR_dB/10))", inputs: vec![v("B","Hz"), v("SNR_dB","dB")], out: v("C","bit/s"), eval: |a| a["B"] * (1.0 + 10f64.powf(a["SNR_dB"]/10.0)).log2() },
         Formula { id: "snells_law_angle", category: "optics", summary: "Snell's law: θ₂ = asin(n₁·sin(theta1°)/n₂)", inputs: vec![v("n1",""), v("n2",""), v("theta1","deg")], out: v("theta2","deg"), eval: |a| (a["n1"]*a["theta1"].to_radians().sin()/a["n2"]).asin().to_degrees() },
         Formula { id: "thin_lens_image_distance", category: "optics", summary: "Thin lens: 1/f = 1/do + 1/di → di", inputs: vec![v("f","m"), v("do","m")], out: v("di","m"), eval: |a| 1.0/(1.0/a["f"] - 1.0/a["do"]) },
         Formula { id: "magnification", category: "optics", summary: "Magnification: m = -di/do", inputs: vec![v("di","m"), v("do","m")], out: v("m",""), eval: |a| -a["di"]/a["do"] },
@@ -108,6 +110,7 @@ static FORMULAS: LazyLock<Vec<Formula>> = LazyLock::new(|| {
         Formula { id: "carnot_efficiency", category: "thermodynamics", summary: "Carnot efficiency: η = 1 - Tc/Th", inputs: vec![v("Tc","K"), v("Th","K")], out: v("eta",""), eval: |a| 1.0 - a["Tc"]/a["Th"] },
         Formula { id: "thermal_expansion_linear", category: "thermodynamics", summary: "Linear expansion: ΔL = α·L₀·ΔT", inputs: vec![v("alpha","1/K"), v("L0","m"), v("dT","K")], out: v("dL","m"), eval: |a| a["alpha"]*a["L0"]*a["dT"] },
         Formula { id: "stefan_boltzmann", category: "thermodynamics", summary: "Radiated power: P = ε·σ·A·T⁴ (eps optional, default 1)", inputs: vec![v("A","m²"), v("T","K")], out: v("P","W"), eval: |a| opt(a,"eps",1.0)*SIGMA_SB*a["A"]*a["T"].powi(4) },
+        Formula { id: "thermal_noise_kTB", category: "thermodynamics", summary: "Thermal noise power: N_dBm = 10·log10(k·T·B·1000) + NF (NF optional dB, default 0)", inputs: vec![v("T","K"), v("B","Hz")], out: v("N","dBm"), eval: |a| 10.0*(K_B*a["T"]*a["B"]*1000.0).log10() + opt(a,"NF",0.0) },
 
         // ---- Relativity ----
         Formula { id: "mass_energy", category: "relativity", summary: "Mass-energy: E = m·c²", inputs: vec![v("m","kg")], out: v("E","J"), eval: |a| a["m"]*C.powi(2) },
