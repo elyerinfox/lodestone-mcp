@@ -224,6 +224,7 @@ impl Skill for OsmOverpass {
                 .body(format!("data={}", url_encode(q)))
                 .header("Content-Type", "application/x-www-form-urlencoded")
                 .header("Accept", "application/json")
+                .header("User-Agent", crate::skills::grid::OVERPASS_UA)
                 .send()
                 .await
                 .and_then(|x| x.error_for_status())

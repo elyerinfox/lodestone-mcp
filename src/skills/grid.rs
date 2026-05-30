@@ -93,11 +93,14 @@ fn check_bbox(south: f64, west: f64, north: f64, east: f64) -> Result<(), McpErr
     Ok(())
 }
 
+/// Descriptive User-Agent for OSM/Overpass calls. **Required** — Apache at
+/// `overpass-api.de` returns 406 for browser-like UAs and for `curl/*`. OSM's
+/// UA policy asks third-party clients to identify themselves.
+pub(crate) const OVERPASS_UA: &str =
+    "lodestone-mcp/0.1.0 (+https://github.com/elyerinfox/lodestone-mcp)";
+
 async fn run_overpass(server: &crate::Lodestone, query: &str) -> Result<Value, McpError> {
-    let cache_key = format!(
-        "grid_overpass|{}",
-        crate::constellation::hash_key(query)
-    );
+    let cache_key = format!("grid_overpass|{}", crate::constellation::hash_key(query));
     if let Some(c) = server.retrieval_get(&cache_key).await {
         if let Ok(v) = serde_json::from_str::<Value>(&c) {
             return Ok(v);
@@ -109,6 +112,7 @@ async fn run_overpass(server: &crate::Lodestone, query: &str) -> Result<Value, M
         .body(format!("data={}", url_encode(query)))
         .header("Content-Type", "application/x-www-form-urlencoded")
         .header("Accept", "application/json")
+        .header("User-Agent", OVERPASS_UA)
         .send()
         .await
         .and_then(|x| x.error_for_status())
@@ -121,6 +125,83 @@ async fn run_overpass(server: &crate::Lodestone, query: &str) -> Result<Value, M
         server.retrieval_put(cache_key, &s);
     }
     Ok(v)
+}
+
+// ----- QL builders (extracted for unit tests) -----
+
+fn bbox_str(south: f64, west: f64, north: f64, east: f64) -> String {
+    format!("({south},{west},{north},{east})")
+}
+
+pub(crate) fn power_plant_ql(
+    south: f64,
+    west: f64,
+    north: f64,
+    east: f64,
+    source: Option<&str>,
+) -> String {
+    let bbox = bbox_str(south, west, north, east);
+    let s = source
+        .map(|x| format!(r#"["plant:source"="{}"]"#, x.trim().to_ascii_lowercase()))
+        .unwrap_or_default();
+    format!(
+        "[out:json][timeout:60];(node[\"power\"=\"plant\"]{s}{bbox};way[\"power\"=\"plant\"]{s}{bbox};relation[\"power\"=\"plant\"]{s}{bbox};);out center tags;"
+    )
+}
+
+pub(crate) fn substation_ql(south: f64, west: f64, north: f64, east: f64) -> String {
+    let bbox = bbox_str(south, west, north, east);
+    format!(
+        "[out:json][timeout:60];(node[\"power\"=\"substation\"]{bbox};way[\"power\"=\"substation\"]{bbox};relation[\"power\"=\"substation\"]{bbox};);out center tags;"
+    )
+}
+
+pub(crate) fn transmission_ql(south: f64, west: f64, north: f64, east: f64) -> String {
+    let bbox = bbox_str(south, west, north, east);
+    format!(
+        "[out:json][timeout:60];(way[\"power\"~\"^(line|minor_line)$\"]{bbox};);out center tags;"
+    )
+}
+
+pub(crate) fn data_center_ql(south: f64, west: f64, north: f64, east: f64) -> String {
+    let bbox = bbox_str(south, west, north, east);
+    format!(
+        "[out:json][timeout:60];(node[\"telecom\"=\"data_center\"]{bbox};way[\"telecom\"=\"data_center\"]{bbox};node[\"building\"=\"data_center\"]{bbox};way[\"building\"=\"data_center\"]{bbox};);out center tags;"
+    )
+}
+
+pub(crate) fn pipeline_ql(
+    south: f64,
+    west: f64,
+    north: f64,
+    east: f64,
+    substance: &str,
+) -> String {
+    let bbox = bbox_str(south, west, north, east);
+    format!(
+        "[out:json][timeout:60];(way[\"man_made\"=\"pipeline\"][\"substance\"=\"{substance}\"]{bbox};);out center tags;"
+    )
+}
+
+pub(crate) fn submarine_cable_ql(south: f64, west: f64, north: f64, east: f64) -> String {
+    let bbox = bbox_str(south, west, north, east);
+    format!(
+        "[out:json][timeout:60];(way[\"submarine\"=\"yes\"][\"communication\"=\"line\"]{bbox};way[\"submarine\"=\"yes\"][\"power\"=\"cable\"]{bbox};relation[\"route\"=\"submarine_cable\"]{bbox};);out center tags;"
+    )
+}
+
+pub(crate) fn flood_ql(south: f64, west: f64, north: f64, east: f64) -> String {
+    let bbox = bbox_str(south, west, north, east);
+    format!(
+        "[out:json][timeout:60];(way[\"natural\"=\"floodway\"]{bbox};relation[\"natural\"=\"floodway\"]{bbox};way[\"hazard\"=\"flood_prone\"]{bbox};relation[\"hazard\"=\"flood_prone\"]{bbox};way[\"hazard\"=\"flood\"]{bbox};way[\"hazard:type\"=\"flood\"]{bbox};way[\"landuse\"=\"basin\"][\"basin\"~\"detention|flood|retention\"]{bbox};relation[\"landuse\"=\"basin\"][\"basin\"~\"detention|flood|retention\"]{bbox};);out center tags;"
+    )
+}
+
+pub(crate) fn planned_lines_ql(south: f64, west: f64, north: f64, east: f64) -> String {
+    let bbox = bbox_str(south, west, north, east);
+    format!(
+        "[out:json][timeout:60];(way[\"proposed:power\"~\"^(line|minor_line)$\"]{bbox};way[\"construction:power\"~\"^(line|minor_line)$\"]{bbox};way[\"power\"~\"^(line|minor_line)$\"][\"construction\"=\"yes\"]{bbox};way[\"power\"~\"^(line|minor_line)$\"][\"proposed\"=\"yes\"]{bbox};);out center tags;"
+    )
 }
 
 fn url_encode(s: &str) -> String {
@@ -242,21 +323,12 @@ impl Skill for GridPowerPlants {
             let (server, args) = ctx.parse::<PowerPlantArgs>()?;
             check_bbox(args.south, args.west, args.north, args.east)?;
             let max = args.max.unwrap_or(100).clamp(1, 1000) as usize;
-            let source_filter = args
-                .source
-                .as_ref()
-                .map(|s| format!(r#"["plant:source"="{}"]"#, s.trim().to_ascii_lowercase()))
-                .unwrap_or_default();
-            let bbox = format!(
-                "({},{},{},{})",
-                args.south, args.west, args.north, args.east
-            );
-            let ql = format!(
-                "[out:json][timeout:60];\
-                 (node[\"power\"=\"plant\"]{source_filter}{bbox};\
-                  way[\"power\"=\"plant\"]{source_filter}{bbox};\
-                  relation[\"power\"=\"plant\"]{source_filter}{bbox};);\
-                 out center tags;"
+            let ql = power_plant_ql(
+                args.south,
+                args.west,
+                args.north,
+                args.east,
+                args.source.as_deref(),
             );
             let v = run_overpass(server, &ql).await?;
             let empty = Vec::new();
@@ -294,17 +366,7 @@ impl Skill for GridSubstations {
             let (server, args) = ctx.parse::<BboxArgs>()?;
             check_bbox(args.south, args.west, args.north, args.east)?;
             let max = args.max.unwrap_or(100).clamp(1, 1000) as usize;
-            let bbox = format!(
-                "({},{},{},{})",
-                args.south, args.west, args.north, args.east
-            );
-            let ql = format!(
-                "[out:json][timeout:60];\
-                 (node[\"power\"=\"substation\"]{bbox};\
-                  way[\"power\"=\"substation\"]{bbox};\
-                  relation[\"power\"=\"substation\"]{bbox};);\
-                 out center tags;"
-            );
+            let ql = substation_ql(args.south, args.west, args.north, args.east);
             let v = run_overpass(server, &ql).await?;
             let empty = Vec::new();
             let elements = v
@@ -342,15 +404,7 @@ impl Skill for GridTransmissionLines {
             let (server, args) = ctx.parse::<TransmissionArgs>()?;
             check_bbox(args.south, args.west, args.north, args.east)?;
             let max = args.max.unwrap_or(100).clamp(1, 1000) as usize;
-            let bbox = format!(
-                "({},{},{},{})",
-                args.south, args.west, args.north, args.east
-            );
-            let ql = format!(
-                "[out:json][timeout:60];\
-                 (way[\"power\"~\"^(line|minor_line)$\"]{bbox};);\
-                 out center tags;"
-            );
+            let ql = transmission_ql(args.south, args.west, args.north, args.east);
             let v = run_overpass(server, &ql).await?;
             let empty = Vec::new();
             let mut elements: Vec<&Value> = v
@@ -403,18 +457,7 @@ impl Skill for GridDataCenters {
             let (server, args) = ctx.parse::<BboxArgs>()?;
             check_bbox(args.south, args.west, args.north, args.east)?;
             let max = args.max.unwrap_or(100).clamp(1, 1000) as usize;
-            let bbox = format!(
-                "({},{},{},{})",
-                args.south, args.west, args.north, args.east
-            );
-            let ql = format!(
-                "[out:json][timeout:60];\
-                 (node[\"telecom\"=\"data_center\"]{bbox};\
-                  way[\"telecom\"=\"data_center\"]{bbox};\
-                  node[\"building\"=\"data_center\"]{bbox};\
-                  way[\"building\"=\"data_center\"]{bbox};);\
-                 out center tags;"
-            );
+            let ql = data_center_ql(args.south, args.west, args.north, args.east);
             let v = run_overpass(server, &ql).await?;
             let empty = Vec::new();
             let elements = v
@@ -457,15 +500,7 @@ impl Skill for GridPipelines {
                 .as_ref()
                 .map(|s| s.trim().to_ascii_lowercase())
                 .unwrap_or_else(|| "gas".to_string());
-            let bbox = format!(
-                "({},{},{},{})",
-                args.south, args.west, args.north, args.east
-            );
-            let ql = format!(
-                "[out:json][timeout:60];\
-                 (way[\"man_made\"=\"pipeline\"][\"substance\"=\"{substance}\"]{bbox};);\
-                 out center tags;"
-            );
+            let ql = pipeline_ql(args.south, args.west, args.north, args.east, &substance);
             let v = run_overpass(server, &ql).await?;
             let empty = Vec::new();
             let elements = v
@@ -503,17 +538,7 @@ impl Skill for GridSubmarineCables {
             let (server, args) = ctx.parse::<BboxArgs>()?;
             check_bbox(args.south, args.west, args.north, args.east)?;
             let max = args.max.unwrap_or(100).clamp(1, 1000) as usize;
-            let bbox = format!(
-                "({},{},{},{})",
-                args.south, args.west, args.north, args.east
-            );
-            let ql = format!(
-                "[out:json][timeout:60];\
-                 (way[\"submarine\"=\"yes\"][\"communication\"=\"line\"]{bbox};\
-                  way[\"submarine\"=\"yes\"][\"power\"=\"cable\"]{bbox};\
-                  relation[\"route\"=\"submarine_cable\"]{bbox};);\
-                 out center tags;"
-            );
+            let ql = submarine_cable_ql(args.south, args.west, args.north, args.east);
             let v = run_overpass(server, &ql).await?;
             let empty = Vec::new();
             let elements = v
@@ -552,22 +577,7 @@ impl Skill for GridFloodZones {
             let (server, args) = ctx.parse::<BboxArgs>()?;
             check_bbox(args.south, args.west, args.north, args.east)?;
             let max = args.max.unwrap_or(100).clamp(1, 1000) as usize;
-            let bbox = format!(
-                "({},{},{},{})",
-                args.south, args.west, args.north, args.east
-            );
-            let ql = format!(
-                "[out:json][timeout:60];\
-                 (way[\"natural\"=\"floodway\"]{bbox};\
-                  relation[\"natural\"=\"floodway\"]{bbox};\
-                  way[\"hazard\"=\"flood_prone\"]{bbox};\
-                  relation[\"hazard\"=\"flood_prone\"]{bbox};\
-                  way[\"hazard\"=\"flood\"]{bbox};\
-                  way[\"hazard:type\"=\"flood\"]{bbox};\
-                  way[\"landuse\"=\"basin\"][\"basin\"~\"detention|flood|retention\"]{bbox};\
-                  relation[\"landuse\"=\"basin\"][\"basin\"~\"detention|flood|retention\"]{bbox};);\
-                 out center tags;"
-            );
+            let ql = flood_ql(args.south, args.west, args.north, args.east);
             let v = run_overpass(server, &ql).await?;
             let empty = Vec::new();
             let elements = v
@@ -606,18 +616,7 @@ impl Skill for GridPlannedLines {
             let (server, args) = ctx.parse::<TransmissionArgs>()?;
             check_bbox(args.south, args.west, args.north, args.east)?;
             let max = args.max.unwrap_or(100).clamp(1, 1000) as usize;
-            let bbox = format!(
-                "({},{},{},{})",
-                args.south, args.west, args.north, args.east
-            );
-            let ql = format!(
-                "[out:json][timeout:60];\
-                 (way[\"proposed:power\"~\"^(line|minor_line)$\"]{bbox};\
-                  way[\"construction:power\"~\"^(line|minor_line)$\"]{bbox};\
-                  way[\"power\"~\"^(line|minor_line)$\"][\"construction\"=\"yes\"]{bbox};\
-                  way[\"power\"~\"^(line|minor_line)$\"][\"proposed\"=\"yes\"]{bbox};);\
-                 out center tags;"
-            );
+            let ql = planned_lines_ql(args.south, args.west, args.north, args.east);
             let v = run_overpass(server, &ql).await?;
             let empty = Vec::new();
             let mut elements: Vec<&Value> = v
@@ -668,4 +667,157 @@ pub fn skills() -> Vec<Box<dyn Skill>> {
         Box::new(GridFloodZones),
         Box::new(GridPlannedLines),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // A small bbox around Redmond, WA — gives the QL strings a stable shape.
+    const SOUTH: f64 = 47.5;
+    const WEST: f64 = -122.3;
+    const NORTH: f64 = 47.7;
+    const EAST: f64 = -122.1;
+
+    #[test]
+    fn ua_is_descriptive_and_not_browser_like() {
+        // overpass-api.de 406s requests whose User-Agent is browser-like or `curl/*`.
+        // The lodestone OVERPASS_UA must look like an application, not a browser or
+        // a CLI tool, to pass Apache's content negotiation.
+        assert!(
+            OVERPASS_UA.contains("lodestone-mcp"),
+            "UA must identify the application"
+        );
+        for forbidden in ["Mozilla", "Chrome", "AppleWebKit", "curl/"] {
+            assert!(
+                !OVERPASS_UA.contains(forbidden),
+                "UA must not look like `{forbidden}` (Apache will 406)"
+            );
+        }
+        // OSM UA policy: include a contact / URL.
+        assert!(
+            OVERPASS_UA.contains("http"),
+            "UA should embed a contact URL per OSM's UA policy"
+        );
+    }
+
+    #[test]
+    fn power_plant_ql_shape() {
+        let ql = power_plant_ql(SOUTH, WEST, NORTH, EAST, None);
+        assert!(ql.starts_with("[out:json]"));
+        assert!(ql.contains("[\"power\"=\"plant\"]"));
+        assert!(ql.contains("(47.5,-122.3,47.7,-122.1)"));
+        // All three element kinds queried so a single Overpass call covers a node-
+        // tagged plant, a way-tagged building, and a relation-tagged multi-unit site.
+        for kind in ["node", "way", "relation"] {
+            assert!(ql.contains(&format!("{kind}[\"power\"=\"plant\"]")));
+        }
+        assert!(ql.ends_with("out center tags;"));
+        // No backslash-continuation whitespace leaks (those broke QL syntax in
+        // earlier drafts).
+        assert!(
+            !ql.contains("  "),
+            "QL must not contain double spaces; got: {ql}"
+        );
+    }
+
+    #[test]
+    fn power_plant_ql_source_filter() {
+        let ql = power_plant_ql(SOUTH, WEST, NORTH, EAST, Some("nuclear"));
+        assert!(ql.contains("[\"plant:source\"=\"nuclear\"]"));
+        // Filter is lowercased.
+        let ql = power_plant_ql(SOUTH, WEST, NORTH, EAST, Some("  Solar  "));
+        assert!(ql.contains("[\"plant:source\"=\"solar\"]"));
+        // Without a filter, the predicate is absent.
+        let ql = power_plant_ql(SOUTH, WEST, NORTH, EAST, None);
+        assert!(!ql.contains("plant:source"));
+    }
+
+    #[test]
+    fn substation_and_transmission_ql_shape() {
+        let s = substation_ql(SOUTH, WEST, NORTH, EAST);
+        assert!(s.contains("[\"power\"=\"substation\"]"));
+        for kind in ["node", "way", "relation"] {
+            assert!(s.contains(kind));
+        }
+        let t = transmission_ql(SOUTH, WEST, NORTH, EAST);
+        assert!(t.contains("[\"power\"~\"^(line|minor_line)$\"]"));
+        // Transmission queries `way` only; nodes for a line don't make sense.
+        assert!(!t.contains("node["));
+    }
+
+    #[test]
+    fn pipeline_ql_carries_substance() {
+        let ql = pipeline_ql(SOUTH, WEST, NORTH, EAST, "hydrogen");
+        assert!(ql.contains("[\"man_made\"=\"pipeline\"]"));
+        assert!(ql.contains("[\"substance\"=\"hydrogen\"]"));
+    }
+
+    #[test]
+    fn submarine_cable_and_data_center_ql() {
+        let c = submarine_cable_ql(SOUTH, WEST, NORTH, EAST);
+        assert!(c.contains("[\"submarine\"=\"yes\"][\"communication\"=\"line\"]"));
+        assert!(c.contains("[\"route\"=\"submarine_cable\"]"));
+        let d = data_center_ql(SOUTH, WEST, NORTH, EAST);
+        assert!(d.contains("[\"telecom\"=\"data_center\"]"));
+        assert!(d.contains("[\"building\"=\"data_center\"]"));
+    }
+
+    #[test]
+    fn flood_and_planned_lines_ql() {
+        let f = flood_ql(SOUTH, WEST, NORTH, EAST);
+        for tag in [
+            "[\"natural\"=\"floodway\"]",
+            "[\"hazard\"=\"flood_prone\"]",
+            "[\"hazard\"=\"flood\"]",
+            "[\"hazard:type\"=\"flood\"]",
+            "[\"basin\"~\"detention|flood|retention\"]",
+        ] {
+            assert!(f.contains(tag), "missing {tag}");
+        }
+        let p = planned_lines_ql(SOUTH, WEST, NORTH, EAST);
+        assert!(p.contains("[\"proposed:power\"~\"^(line|minor_line)$\"]"));
+        assert!(p.contains("[\"construction:power\"~\"^(line|minor_line)$\"]"));
+    }
+
+    /// Live integration test against the public Overpass server — pinned to the
+    /// **smallest possible** query (one node, point bbox) so it returns fast and
+    /// doesn't hit the rate limiter. This is the test that catches the original
+    /// 406 bug: if the User-Agent or Accept header is wrong, `error_for_status`
+    /// fires and the test fails.
+    ///
+    /// Marked `#[ignore]` because it needs the network. Run explicitly with:
+    /// `cargo test --bin lodestone-mcp -- --ignored grid::tests::overpass_live`.
+    #[tokio::test]
+    #[ignore]
+    async fn overpass_live_returns_json_with_proper_ua() {
+        let http = reqwest::Client::builder()
+            // Deliberately mirror the production client's UA quirks.
+            .user_agent("lodestone-mcp/0.1.0 (+https://github.com/elyerinfox/lodestone-mcp)")
+            .build()
+            .unwrap();
+        // Tiny query: count Redmond's substations within a 0.02° box.
+        let ql = substation_ql(47.66, -122.13, 47.68, -122.11);
+        let body = format!("data={}", url_encode(&ql));
+        let resp = http
+            .post("https://overpass-api.de/api/interpreter")
+            .body(body)
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .header("Accept", "application/json")
+            .header("User-Agent", OVERPASS_UA)
+            .send()
+            .await
+            .expect("network failure");
+        assert!(
+            resp.status().is_success(),
+            "Overpass returned {} — UA/Accept rejection regression",
+            resp.status()
+        );
+        let json: Value = resp.json().await.expect("body wasn't JSON");
+        assert_eq!(
+            json.get("version").and_then(|v| v.as_f64()),
+            Some(0.6),
+            "expected Overpass JSON envelope"
+        );
+    }
 }
