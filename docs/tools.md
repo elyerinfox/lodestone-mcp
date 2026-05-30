@@ -371,6 +371,7 @@ client). Gated by `[tasks]`. Currently backgrounds searches.
 
 | Tool | Arguments | Purpose |
 | --- | --- | --- |
+| `features` | `name?` | Per-family enabled/disabled status plus every knob (allow_destructive, recall thresholds, retention policy, embedding endpoint, …) and live memory counts. With `name=<family>`, focused dump for one family. Use BEFORE assuming a family is reachable. |
 | `list_providers` | — | Show the active providers, strategy, and ranking. |
 | `constellation_status` | — | Show the peer-to-peer constellation graph (peers, machine ids, reputation, edges); says disabled when off. |
 | `constellation_peers` | — | List constellation nodes and how many **hops** away each is (direct = 1), with machine id/reputation. |

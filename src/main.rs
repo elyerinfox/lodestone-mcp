@@ -96,6 +96,16 @@ pub(crate) struct Lodestone {
     pub(crate) python: Arc<config::Python>,
     /// systemd skill settings.
     pub(crate) systemd: Arc<config::Systemd>,
+    /// Whole resolved server configuration, shared by `Arc`. Held so
+    /// introspection tools (the `features` skill) can report every gateable
+    /// family's on/off state and key knobs without dragging individual config
+    /// sections into the constructor signature one-by-one.
+    pub(crate) cfg: Arc<config::Config>,
+    /// The set of tool names the resolved config has gated off. Precomputed
+    /// at startup (the source of truth used to build the tool router) so the
+    /// `features` skill can map families to "any of these tools hidden?"
+    /// without re-running the resolution.
+    pub(crate) disabled_tools: Arc<Vec<String>>,
     // The filtered tool router; `#[tool_handler(router = self.tool_router)]`
     // uses it for both tool listing and dispatch.
     tool_router: ToolRouter<Lodestone>,
@@ -127,6 +137,7 @@ impl Lodestone {
         memory: skills::memory::Memory,
         python: config::Python,
         systemd: config::Systemd,
+        cfg: Arc<config::Config>,
         tools_enabled: &[String],
         tools_disabled: &[String],
     ) -> Self {
@@ -161,6 +172,8 @@ impl Lodestone {
             memory,
             python: Arc::new(python),
             systemd: Arc::new(systemd),
+            disabled_tools: Arc::new(tools_disabled.to_vec()),
+            cfg,
             tool_router,
         }
     }
@@ -494,6 +507,12 @@ async fn main() -> anyhow::Result<()> {
     if cfg.network.enabled && cfg.network.node_id.trim().is_empty() {
         cfg.network.node_id = constellation::default_node_id(&cfg.bind);
     }
+    // Wrap the resolved config in an Arc so it can be cheaply cloned into
+    // Lodestone (the `features` tool needs the full config for introspection)
+    // without forcing Clone derives across every sub-section. All downstream
+    // uses keep working via Deref (`cfg.memory.clone()` etc. read through the
+    // Arc transparently).
+    let cfg = Arc::new(cfg);
     providers::configure_code_sites(cfg.code.sites.clone());
     browser::configure(browser::BrowserOptions {
         chrome_path: cfg.google.chrome_path.clone(),
@@ -612,6 +631,7 @@ async fn main() -> anyhow::Result<()> {
         memory,
         cfg.python.clone(),
         cfg.systemd.clone(),
+        cfg.clone(),
         &cfg.tools.enabled,
         &tools_disabled,
     );

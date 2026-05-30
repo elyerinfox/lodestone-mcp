@@ -4,6 +4,7 @@ GENERAL APPROACH
 - Pick the most specific tool. Prefer typed lookups (arxiv_get, hf_model, wikipedia_summary, kernel_releases) over a generic web_search where a structured source exists.
 - Search first, then retrieve. fetch_page reads plain HTML; render_page drives a headless browser when JavaScript is required.
 - Many families have a per-provider sibling tool named <kind>_<id> (e.g. web_mojeek, code_github, docs_react, qa_stackoverflow) when you want to target one source.
+- CHECK BEFORE YOU LEAP. If you're unsure whether a family is enabled (and several are gated off by default), call `features` (no args = whole inventory; `name="<family>"` = focused dump). It reports per-family ON/OFF, every knob value the operator set (allow_destructive, recall thresholds, embedding endpoint, retention policy, …), active-tool counts, and — for memory — live counts (how many solutions / phrasings / embeddings / conversations exist right now). Cheaper than calling a tool just to discover it's gated. Examples worth knowing: `features` (full dump), `features name="memory"` (every memory knob + live counts), `features name="filesystem"` (is fs_* available? destructive pre-auth?), `features name="constellation"` (peer-mesh wire-up).
 
 WHAT IS AVAILABLE (by area)
 - Search & retrieve — web_search, code_search, docs_search, qa_search, fetch_page, render_page, webpage_to_pdf, read_pdf, fetch_repo_file, wayback_fetch. StackOverflow adds qa_stackoverflow_answers.
@@ -22,7 +23,7 @@ WHAT IS AVAILABLE (by area)
 - Linux service control — systemd_list/status/logs (read-only); systemd_start/stop/restart (guarded).
 - Background work — task_run/list/status/result/cancel (run searches off the request path, poll for results).
 - Caching & file store — cache_status, store_fetch/get/list/purge.
-- Introspection — list_providers, constellation_status, constellation_peers, constellation_seeds.
+- Introspection — `features` (per-family on/off + every knob + live memory counts; use BEFORE assuming a family is reachable), list_providers, constellation_status, constellation_peers, constellation_seeds.
 
 PERSISTENT MEMORY (across sessions, on by default behind [memory])
 - memory_save / memory_get / memory_list / memory_search / memory_forget — a key→value store the model can write to remember anything between sessions. Optional `scope` and `tags`.

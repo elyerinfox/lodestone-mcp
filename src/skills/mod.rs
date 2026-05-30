@@ -1,4 +1,4 @@
-﻿//! Skills (tools) — the uniform capability layer.
+//! Skills (tools) — the uniform capability layer.
 //!
 //! Every tool the server exposes is a **skill**: a self-contained module here that
 //! implements the [`Skill`] contract (`name` / `description` / `schema` / `call`).
@@ -405,6 +405,16 @@ pub fn all_routes(registry: &crate::provider::Registry) -> Vec<ToolRoute<Lodesto
     let mut routes: Vec<ToolRoute<Lodestone>> = all_skills().into_iter().map(route).collect();
     routes.extend(search::provider_routes(registry));
     routes
+}
+
+/// The flat list of every fixed skill's tool name (no per-provider tools).
+/// The `features` skill walks this to count "how many tools in this family
+/// are visible right now?" without dragging the full ToolRouter API in.
+pub fn registered_tool_names() -> Vec<String> {
+    all_skills()
+        .into_iter()
+        .map(|s| s.name().to_string())
+        .collect()
 }
 
 /// Tool names the current config gates off. A local-system family is hidden in

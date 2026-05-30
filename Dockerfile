@@ -3,6 +3,12 @@ FROM rust:1-bookworm AS build
 WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src
+# include_str!() pulls in docs/instructions.md and migrations/*.sql at compile
+# time -- they have to be present in the build context for the binary to
+# embed them. Once the binary is built they're baked in and not needed at
+# runtime; the runtime image below doesn't copy them.
+COPY docs ./docs
+COPY migrations ./migrations
 RUN cargo build --release
 
 # Runtime image with Chromium for headless rendering.

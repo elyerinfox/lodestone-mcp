@@ -8,6 +8,27 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`features` introspection tool** (in `src/skills/meta.rs`). Per-family
+  enabled/disabled status across every gateable family (memory, constellation,
+  filesystem, shell, git, docker, kubernetes, systemd, python, sysinfo,
+  databases, serial, printer, sdr, ffmpeg, signal, wave, binary, pcap,
+  disasm, notebook, store, tasks, stocks, nasa, eia, github, search), with
+  the resolved knob values that control each (`allow_destructive`,
+  `recall_threshold`, `embedding_endpoint`, retention policy, …) and live
+  counts from the memory store (memos, solutions, embedded ratios, links,
+  tags, phrasings, conversations, turns). `features` alone dumps everything;
+  `features name="<family>"` focuses on one. The model can ask "is X
+  available?" without having to try-and-fail a tool call. Implementation
+  needed propagating the full `Arc<config::Config>` onto `Lodestone` (and a
+  precomputed `disabled_tools` list) so the tool can answer authoritatively
+  without re-resolving config at call time.
+
+- **Dockerfile copies `docs/` and `migrations/` into the build context** so
+  the `include_str!` references for `docs/instructions.md` and
+  `migrations/*.sql` resolve at compile time. The runtime image still skips
+  them — once the bytes are baked into the binary they don't need to ship
+  alongside it.
+
 - **Auto-aliasing on semantic-only recall hits** (`[memory]`). When the top
   preamble hit fires only because the embedding cosine cleared the recall
   threshold (token-overlap path didn't), the dispatch wrapper now attaches

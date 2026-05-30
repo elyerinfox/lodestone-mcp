@@ -715,6 +715,61 @@ impl Memory {
         crate::provider::concept_tokens(query).len()
     }
 
+    /// Live counts across the memory store. Used by the `features` tool to
+    /// show operators / models what's actually been recorded; gracefully
+    /// returns zeros when memory is disabled or the DB is unreachable.
+    pub(crate) async fn stats(&self) -> MemoryStats {
+        if !self.cfg.enabled {
+            return MemoryStats::default();
+        }
+        async fn count(pool: &SqlitePool, sql: &str) -> i64 {
+            sqlx::query_as::<_, (i64,)>(sql)
+                .fetch_one(pool)
+                .await
+                .map(|r| r.0)
+                .unwrap_or(0)
+        }
+        async fn count_nonnull(pool: &SqlitePool, table: &str, col: &str) -> i64 {
+            let q = format!("SELECT COUNT(*) FROM {table} WHERE {col} IS NOT NULL");
+            sqlx::query_as::<_, (i64,)>(&q)
+                .fetch_one(pool)
+                .await
+                .map(|r| r.0)
+                .unwrap_or(0)
+        }
+        MemoryStats {
+            memos: count(&self.pool, "SELECT COUNT(*) FROM memory").await,
+            solutions: count(&self.pool, "SELECT COUNT(*) FROM solutions").await,
+            solution_revisions: count(&self.pool, "SELECT COUNT(*) FROM solution_revisions").await,
+            solution_links: count(&self.pool, "SELECT COUNT(*) FROM solution_links").await,
+            solution_tags: count(&self.pool, "SELECT COUNT(*) FROM solution_tags").await,
+            solution_phrasings: count(&self.pool, "SELECT COUNT(*) FROM solution_phrasings").await,
+            synonyms: count(&self.pool, "SELECT COUNT(*) FROM synonyms").await,
+            conversations: count(&self.pool, "SELECT COUNT(*) FROM conversations").await,
+            conversation_turns: count(&self.pool, "SELECT COUNT(*) FROM conversation_turns").await,
+            solutions_embedded: count_nonnull(&self.pool, "solutions", "embedding").await,
+            phrasings_embedded: count_nonnull(&self.pool, "solution_phrasings", "embedding").await,
+        }
+    }
+}
+
+/// Aggregate counts emitted by [`Memory::stats`].
+#[derive(Debug, Default, Clone)]
+pub(crate) struct MemoryStats {
+    pub memos: i64,
+    pub solutions: i64,
+    pub solution_revisions: i64,
+    pub solution_links: i64,
+    pub solution_tags: i64,
+    pub solution_phrasings: i64,
+    pub synonyms: i64,
+    pub conversations: i64,
+    pub conversation_turns: i64,
+    pub solutions_embedded: i64,
+    pub phrasings_embedded: i64,
+}
+
+impl Memory {
     /// Decide which conversation id to attribute the current tool call to.
     /// Idle-gap heuristic: if the previous call was within
     /// `[memory].conversation_idle_gap_secs`, reuse the same id; otherwise
