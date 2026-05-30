@@ -74,6 +74,10 @@ pub const TOOL_NAMES: &[&str] = &[
     "synonym_add",
     "synonym_remove",
     "synonym_list",
+    // Conversation traversal — read-only.
+    "conversation_list",
+    "conversation_show",
+    "solution_conversations",
 ];
 
 const DEFAULT_DIR: &str = ".lodestone-memory";
@@ -95,11 +99,18 @@ struct Migration {
     sql: &'static str,
 }
 
-const MIGRATIONS: &[Migration] = &[Migration {
-    version: 1,
-    name: "initial",
-    sql: include_str!("../../migrations/0001_initial.sql"),
-}];
+const MIGRATIONS: &[Migration] = &[
+    Migration {
+        version: 1,
+        name: "initial",
+        sql: include_str!("../../migrations/0001_initial.sql"),
+    },
+    Migration {
+        version: 2,
+        name: "conversations",
+        sql: include_str!("../../migrations/0002_conversations.sql"),
+    },
+];
 
 /// Apply every migration whose version is greater than the highest already
 /// recorded in `_schema_version`. Each migration runs in its own transaction
@@ -217,6 +228,34 @@ fn reciprocal_kind(kind: &str) -> String {
 // The shared store
 // ---------------------------------------------------------------------------
 
+/// Per-process tracker for the "active conversation." Set on the first turn
+/// after an idle gap; subsequent calls within `IDLE_GAP` keep extending the
+/// same conversation. Held in a `Mutex` because the dispatch wrapper writes
+/// from every concurrent tool call.
+#[derive(Debug, Clone)]
+struct ActiveConversation {
+    id: String,
+    /// Wall-clock seconds since UNIX_EPOCH of the last recorded turn. Compared
+    /// against `IDLE_GAP_SECS` to decide whether to rotate the id.
+    last_seen_secs: u64,
+}
+
+/// How many seconds of no tool calls before a fresh conversation id is minted.
+/// Conservative default (30 minutes) — long enough that bathroom breaks don't
+/// fragment a session, short enough that a next-morning return is clearly a
+/// new conversation.
+const IDLE_GAP_SECS: u64 = 30 * 60;
+
+/// Per-process monotonic counter that disambiguates same-second conversation
+/// ids. Combined with `now_secs()`, the id is unique within a process for the
+/// lifetime of the universe — and stays decipherable when traversing later.
+static CONV_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Max chars of a tool response we keep in `conversation_turns.response_excerpt`.
+/// Small enough that 100 turns is well under a page, large enough to be
+/// recognizable when traversing later.
+const TURN_EXCERPT_MAX_CHARS: usize = 240;
+
 /// The memory layer: a SQLite connection pool plus a fast in-memory mirror of
 /// the synonyms table (so `canonical_query` doesn't hit the disk on every
 /// search/recall token).
@@ -225,6 +264,9 @@ pub(crate) struct Memory {
     cfg: Arc<config::Memory>,
     pool: SqlitePool,
     synonyms: Arc<RwLock<HashMap<String, String>>>,
+    /// Active conversation tracker. `None` until the first tool call (or after
+    /// a long idle gap rotates the id).
+    active_conv: Arc<std::sync::Mutex<Option<ActiveConversation>>>,
 }
 
 /// One scored prior-solution hit returned by [`Memory::auto_recall`]. Used by
@@ -364,6 +406,111 @@ impl Memory {
         hits
     }
 
+    /// Decide which conversation id to attribute the current tool call to.
+    /// Idle-gap heuristic: if the previous call was within `IDLE_GAP_SECS`,
+    /// reuse the same id; otherwise mint a fresh one and INSERT the row.
+    ///
+    /// Returns `None` when memory is disabled — callers should treat that as
+    /// "no conversation context" and skip the bookkeeping entirely.
+    pub(crate) async fn current_conversation_id(&self) -> Option<String> {
+        if !self.cfg.enabled {
+            return None;
+        }
+        let now = now_secs();
+        // Decide under the lock whether to reuse or rotate. We don't hit the
+        // DB while holding the lock — only the in-memory tracker.
+        let (id, is_new) = {
+            let mut guard = self.active_conv.lock().ok()?;
+            match guard.as_mut() {
+                Some(active) if now.saturating_sub(active.last_seen_secs) <= IDLE_GAP_SECS => {
+                    active.last_seen_secs = now;
+                    (active.id.clone(), false)
+                }
+                _ => {
+                    let n = CONV_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    let id = format!("conv-{now}-{n:04x}");
+                    *guard = Some(ActiveConversation {
+                        id: id.clone(),
+                        last_seen_secs: now,
+                    });
+                    (id, true)
+                }
+            }
+        };
+        if is_new {
+            // Best-effort INSERT — if the DB is gone or read-only the recall
+            // path mustn't break; just return the in-memory id.
+            let _ = sqlx::query(
+                "INSERT OR IGNORE INTO conversations \
+                 (id, started_at, last_seen_at, turn_count) VALUES (?, ?, ?, 0)",
+            )
+            .bind(&id)
+            .bind(now as i64)
+            .bind(now as i64)
+            .execute(&self.pool)
+            .await;
+        }
+        Some(id)
+    }
+
+    /// Append one turn to the active conversation. Called by the dispatch
+    /// wrapper after every tool call when memory is enabled. Best-effort: a
+    /// DB error must not break the user-visible response.
+    pub(crate) async fn record_turn(
+        &self,
+        conv_id: &str,
+        tool_name: &str,
+        query: Option<&str>,
+        response_excerpt: &str,
+    ) {
+        if !self.cfg.enabled {
+            return;
+        }
+        let now = now_secs() as i64;
+        let excerpt: String = response_excerpt
+            .chars()
+            .take(TURN_EXCERPT_MAX_CHARS)
+            .collect();
+        // Try to compute the next seq + bump turn_count + last_seen_at +
+        // first_query (if NULL) atomically. Worst case the unique constraint
+        // fires and we drop this turn rather than corrupt the sequence.
+        let mut tx = match self.pool.begin().await {
+            Ok(t) => t,
+            Err(_) => return,
+        };
+        let next_seq: i64 = sqlx::query_as::<_, (i64,)>(
+            "SELECT COALESCE(MAX(seq), 0) + 1 FROM conversation_turns WHERE conversation_id = ?",
+        )
+        .bind(conv_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map(|r| r.0)
+        .unwrap_or(1);
+        let _ = sqlx::query(
+            "INSERT INTO conversation_turns \
+             (conversation_id, seq, ts, tool_name, query, response_excerpt) \
+             VALUES (?, ?, ?, ?, ?, ?)",
+        )
+        .bind(conv_id)
+        .bind(next_seq)
+        .bind(now)
+        .bind(tool_name)
+        .bind(query)
+        .bind(&excerpt)
+        .execute(&mut *tx)
+        .await;
+        let _ = sqlx::query(
+            "UPDATE conversations SET turn_count = turn_count + 1, last_seen_at = ?, \
+             first_query = COALESCE(first_query, ?) WHERE id = ?",
+        )
+        .bind(now)
+        .bind(query)
+        .bind(conv_id)
+        .execute(&mut *tx)
+        .await;
+        let _ = tx.commit().await;
+    }
+
     /// Follow `superseded-by` edges from `start` forward until none remain,
     /// returning the id of the final (head) solution. Returns `None` when
     /// nothing supersedes `start`. Bounded to `MAX_SUPERSEDE_HOPS` and uses a
@@ -447,6 +594,7 @@ impl Memory {
             cfg: Arc::new(cfg),
             pool,
             synonyms,
+            active_conv: Arc::new(std::sync::Mutex::new(None)),
         })
     }
 }
@@ -933,6 +1081,7 @@ struct RevisionRow {
     summary: String,
     content: String,
     notes: String,
+    conversation_id: Option<String>,
 }
 
 async fn load_solution_tags(pool: &SqlitePool, id: &str) -> Result<Vec<String>, McpError> {
@@ -1030,6 +1179,9 @@ impl Skill for SolutionRecord {
                 )));
             }
             let id = next_solution_id(&mut tx).await?;
+            // Stamp the active conversation on this revision so we can later
+            // answer "what conversation was this solution a part of?"
+            let conv_id = mem.current_conversation_id().await;
             sqlx::query(
                 "INSERT INTO solutions (id, problem, canon_key, concept_key, created_at, updated_at) \
                  VALUES (?, ?, ?, ?, ?, ?)",
@@ -1044,14 +1196,15 @@ impl Skill for SolutionRecord {
             .await
             .map_err(|e| internal(e.into()))?;
             sqlx::query(
-                "INSERT INTO solution_revisions (solution_id, rev, ts, summary, content, notes) \
-                 VALUES (?, 1, ?, ?, ?, ?)",
+                "INSERT INTO solution_revisions (solution_id, rev, ts, summary, content, notes, conversation_id) \
+                 VALUES (?, 1, ?, ?, ?, ?, ?)",
             )
             .bind(&id)
             .bind(now)
             .bind(&args.summary)
             .bind(&args.content)
             .bind(args.notes.unwrap_or_default())
+            .bind(conv_id.as_deref())
             .execute(&mut *tx)
             .await
             .map_err(|e| internal(e.into()))?;
@@ -1327,7 +1480,7 @@ impl Skill for SolutionShow {
                 return Err(invalid(format!("no solution \"{}\"", args.id)));
             };
             let revs: Vec<RevisionRow> = sqlx::query_as(
-                "SELECT rev, ts, summary, content, notes FROM solution_revisions \
+                "SELECT rev, ts, summary, content, notes, conversation_id FROM solution_revisions \
                  WHERE solution_id = ? ORDER BY rev ASC",
             )
             .bind(&sol.id)
@@ -1360,8 +1513,12 @@ impl Skill for SolutionShow {
                 }
             }
             for r in &revs {
+                let conv_tail = match r.conversation_id.as_deref() {
+                    Some(c) => format!(" · {c}"),
+                    None => String::new(),
+                };
                 out.push_str(&format!(
-                    "\n── rev {} · {} ──\nsummary: {}\n\n{}\n",
+                    "\n── rev {} · {}{conv_tail} ──\nsummary: {}\n\n{}\n",
                     r.rev,
                     fmt_ts(r.ts as u64),
                     r.summary,
@@ -1504,9 +1661,12 @@ impl Skill for SolutionUpdate {
             .fetch_one(&mut *tx)
             .await
             .map_err(|e| internal(e.into()))?;
+            // Stamp the active conversation so traversal can answer
+            // "which conversation produced rev N?"
+            let conv_id = mem.current_conversation_id().await;
             sqlx::query(
-                "INSERT INTO solution_revisions (solution_id, rev, ts, summary, content, notes) \
-                 VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT INTO solution_revisions (solution_id, rev, ts, summary, content, notes, conversation_id) \
+                 VALUES (?, ?, ?, ?, ?, ?, ?)",
             )
             .bind(&args.id)
             .bind(next_rev.0)
@@ -1514,6 +1674,7 @@ impl Skill for SolutionUpdate {
             .bind(&args.summary)
             .bind(&args.content)
             .bind(args.notes.unwrap_or_default())
+            .bind(conv_id.as_deref())
             .execute(&mut *tx)
             .await
             .map_err(|e| internal(e.into()))?;
@@ -2230,6 +2391,285 @@ impl Skill for SynonymList {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Conversations — `conversation_list` / `conversation_show` /
+// `solution_conversations`. All read-only; written by the dispatch wrapper and
+// by `solution_record` / `solution_update`. No destructive guard needed —
+// `solution_forget` cascades, and a future `conversation_forget` would.
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct ConversationListArgs {
+    /// Max conversations to return, most recently active first. Default 20, capped at 200.
+    #[serde(default)]
+    max: Option<u32>,
+}
+
+#[derive(FromRow)]
+struct ConversationRow {
+    id: String,
+    started_at: i64,
+    last_seen_at: i64,
+    turn_count: i64,
+    first_query: Option<String>,
+}
+
+pub struct ConversationList;
+impl Skill for ConversationList {
+    fn name(&self) -> &'static str {
+        "conversation_list"
+    }
+    fn description(&self) -> &'static str {
+        "List recorded conversations, most recently active first. Each row shows the id (use it \
+        with conversation_show), turn count, started/last-seen times, and the first query seen. \
+        Conversations are bounded by an idle gap (a long pause ends one and starts the next)."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<ConversationListArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (server, args) = ctx.parse::<ConversationListArgs>()?;
+            let mem = &server.memory;
+            let limit = args.max.unwrap_or(20).clamp(1, 200) as i64;
+            let rows: Vec<ConversationRow> = sqlx::query_as(
+                "SELECT id, started_at, last_seen_at, turn_count, first_query FROM conversations \
+                 ORDER BY last_seen_at DESC LIMIT ?",
+            )
+            .bind(limit)
+            .fetch_all(&mem.pool)
+            .await
+            .map_err(|e| internal(e.into()))?;
+            if rows.is_empty() {
+                return Ok(text_result("No recorded conversations yet.".to_string()));
+            }
+            let mut out = format!(
+                "{} conversation{}:\n",
+                rows.len(),
+                if rows.len() == 1 { "" } else { "s" }
+            );
+            for r in &rows {
+                let preview = r
+                    .first_query
+                    .as_deref()
+                    .map(|q| {
+                        let q: String = q.replace('\n', " ").chars().take(80).collect();
+                        format!(" — {q}")
+                    })
+                    .unwrap_or_default();
+                out.push_str(&format!(
+                    "  • {} · {} turn{} · {} → {}{preview}\n",
+                    r.id,
+                    r.turn_count,
+                    if r.turn_count == 1 { "" } else { "s" },
+                    fmt_ts(r.started_at as u64),
+                    fmt_ts(r.last_seen_at as u64),
+                ));
+            }
+            Ok(text_result(out))
+        })
+    }
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct ConversationShowArgs {
+    /// Conversation id (from `conversation_list` or a `solution_show` revision line).
+    id: String,
+    /// Max turns to return (oldest first). Default 100, capped at 1000.
+    #[serde(default)]
+    max: Option<u32>,
+}
+
+#[derive(FromRow)]
+struct TurnRow {
+    seq: i64,
+    ts: i64,
+    tool_name: String,
+    query: Option<String>,
+    response_excerpt: String,
+}
+
+pub struct ConversationShow;
+impl Skill for ConversationShow {
+    fn name(&self) -> &'static str {
+        "conversation_show"
+    }
+    fn description(&self) -> &'static str {
+        "Walk a conversation: every tool call in order, with query and a short response excerpt. \
+        Use this after solution_find / the recall preamble to see WHAT ELSE happened around the \
+        time a solution was recorded — adjacent searches, retrievals, and related work."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<ConversationShowArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (server, args) = ctx.parse::<ConversationShowArgs>()?;
+            let mem = &server.memory;
+            let limit = args.max.unwrap_or(100).clamp(1, 1000) as i64;
+            let conv: Option<ConversationRow> = sqlx::query_as(
+                "SELECT id, started_at, last_seen_at, turn_count, first_query \
+                 FROM conversations WHERE id = ?",
+            )
+            .bind(&args.id)
+            .fetch_optional(&mem.pool)
+            .await
+            .map_err(|e| internal(e.into()))?;
+            let Some(conv) = conv else {
+                return Err(invalid(format!("no conversation \"{}\"", args.id)));
+            };
+            let turns: Vec<TurnRow> = sqlx::query_as(
+                "SELECT seq, ts, tool_name, query, response_excerpt FROM conversation_turns \
+                 WHERE conversation_id = ? ORDER BY seq ASC LIMIT ?",
+            )
+            .bind(&args.id)
+            .bind(limit)
+            .fetch_all(&mem.pool)
+            .await
+            .map_err(|e| internal(e.into()))?;
+            let sols: Vec<(String, i64)> = sqlx::query_as(
+                "SELECT solution_id, rev FROM solution_revisions \
+                 WHERE conversation_id = ? ORDER BY ts ASC",
+            )
+            .bind(&args.id)
+            .fetch_all(&mem.pool)
+            .await
+            .unwrap_or_default();
+            let mut out = format!(
+                "{} · {} turn{} · {} → {}\n",
+                conv.id,
+                conv.turn_count,
+                if conv.turn_count == 1 { "" } else { "s" },
+                fmt_ts(conv.started_at as u64),
+                fmt_ts(conv.last_seen_at as u64),
+            );
+            if !sols.is_empty() {
+                out.push_str("Solutions touched in this conversation:\n");
+                for (sid, rev) in &sols {
+                    out.push_str(&format!("  • {sid} (rev {rev})\n"));
+                }
+            }
+            out.push_str("\nTurns:\n");
+            for t in &turns {
+                let q = t.query.as_deref().unwrap_or("");
+                let qline = if q.is_empty() {
+                    String::new()
+                } else {
+                    let q: String = q.replace('\n', " ").chars().take(160).collect();
+                    format!(" — query: {q}")
+                };
+                let excerpt: String = t
+                    .response_excerpt
+                    .replace('\n', " ")
+                    .chars()
+                    .take(160)
+                    .collect();
+                out.push_str(&format!(
+                    "  [{:>3}] {} · {}{qline}\n",
+                    t.seq,
+                    fmt_ts(t.ts as u64),
+                    t.tool_name
+                ));
+                if !excerpt.is_empty() {
+                    out.push_str(&format!("        ↳ {excerpt}\n"));
+                }
+            }
+            if (turns.len() as i64) >= limit && conv.turn_count > limit {
+                out.push_str(&format!(
+                    "\n(showing first {limit} of {} turns — pass max= to see more)\n",
+                    conv.turn_count
+                ));
+            }
+            Ok(text_result(out))
+        })
+    }
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct SolutionConversationsArgs {
+    /// Solution id (e.g. `sol-3`).
+    id: String,
+}
+
+pub struct SolutionConversations;
+impl Skill for SolutionConversations {
+    fn name(&self) -> &'static str {
+        "solution_conversations"
+    }
+    fn description(&self) -> &'static str {
+        "List the conversations that contributed revisions to a recorded solution — answering \
+        \"what conversation was this solution a part of?\" Each row gives the conversation id (use \
+        conversation_show next), which revisions it produced, and when. Solutions updated across \
+        sessions will list multiple conversations."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<SolutionConversationsArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (server, args) = ctx.parse::<SolutionConversationsArgs>()?;
+            let mem = &server.memory;
+            let rows: Vec<(Option<String>, i64, i64)> = sqlx::query_as(
+                "SELECT conversation_id, rev, ts FROM solution_revisions \
+                 WHERE solution_id = ? ORDER BY rev ASC",
+            )
+            .bind(&args.id)
+            .fetch_all(&mem.pool)
+            .await
+            .map_err(|e| internal(e.into()))?;
+            if rows.is_empty() {
+                return Err(invalid(format!("no solution \"{}\"", args.id)));
+            }
+            // Group rev numbers by conversation_id, preserving first-seen order.
+            let mut order: Vec<String> = Vec::new();
+            let mut by_conv: HashMap<String, (Vec<i64>, i64)> = HashMap::new();
+            let mut unknown: Vec<i64> = Vec::new();
+            for (conv, rev, ts) in rows {
+                match conv {
+                    Some(c) => {
+                        let entry = by_conv.entry(c.clone()).or_insert_with(|| (Vec::new(), ts));
+                        entry.0.push(rev);
+                        if !order.contains(&c) {
+                            order.push(c);
+                        }
+                    }
+                    None => unknown.push(rev),
+                }
+            }
+            let mut out = format!("Conversations for {}:\n", args.id);
+            if order.is_empty() && !unknown.is_empty() {
+                out.push_str("  (no conversation context recorded — predates conversation tracking or memory was off)\n");
+            }
+            for c in &order {
+                let (revs, ts) = by_conv.get(c).unwrap();
+                let revs_str = revs
+                    .iter()
+                    .map(|r| r.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                out.push_str(&format!(
+                    "  • {c} — rev{} {revs_str} · {}\n",
+                    if revs.len() == 1 { "" } else { "s" },
+                    fmt_ts(*ts as u64)
+                ));
+            }
+            if !unknown.is_empty() {
+                let revs_str = unknown
+                    .iter()
+                    .map(|r| r.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                out.push_str(&format!(
+                    "  • (no conversation) — rev{} {revs_str}\n",
+                    if unknown.len() == 1 { "" } else { "s" }
+                ));
+            }
+            out.push_str("\n↳ conversation_show id=\"<id>\" to walk the surrounding turns.\n");
+            Ok(text_result(out))
+        })
+    }
+}
+
 /// The skills this module contributes (gating happens in `disabled_by_config`).
 pub fn skills() -> Vec<Box<dyn Skill>> {
     vec![
@@ -2251,6 +2691,9 @@ pub fn skills() -> Vec<Box<dyn Skill>> {
         Box::new(SynonymAdd),
         Box::new(SynonymRemove),
         Box::new(SynonymList),
+        Box::new(ConversationList),
+        Box::new(ConversationShow),
+        Box::new(SolutionConversations),
     ]
 }
 
@@ -2283,7 +2726,7 @@ mod tests {
     #[tokio::test]
     async fn schema_and_version_recorded_on_fresh_db() {
         let mem = fresh_memory().await;
-        // Every table from migration v1 must exist.
+        // Every table from v1 + v2 must exist.
         for table in [
             "memory",
             "solutions",
@@ -2291,17 +2734,19 @@ mod tests {
             "solution_tags",
             "solution_links",
             "synonyms",
+            "conversations",
+            "conversation_turns",
             "_schema_version",
         ] {
             let q = format!("SELECT COUNT(*) FROM {table}");
             let _: (i64,) = sqlx::query_as(&q).fetch_one(&mem.pool).await.unwrap();
         }
-        // And the migration row is recorded.
+        // Both migrations applied.
         let v: (i64,) = sqlx::query_as("SELECT MAX(version) FROM _schema_version")
             .fetch_one(&mem.pool)
             .await
             .unwrap();
-        assert_eq!(v.0, 1, "migration v1 should be recorded");
+        assert_eq!(v.0, 2, "migrations v1 and v2 should both be recorded");
     }
 
     #[tokio::test]
@@ -2313,7 +2758,10 @@ mod tests {
             .fetch_one(&mem.pool)
             .await
             .unwrap();
-        assert_eq!(count.0, 1, "migration v1 should be recorded exactly once");
+        assert_eq!(
+            count.0, 2,
+            "migrations v1 and v2 should each be recorded exactly once"
+        );
     }
 
     #[tokio::test]
@@ -2449,5 +2897,123 @@ mod tests {
         let head = mem.walk_supersession_head("sol-x").await;
         assert!(head.is_some());
         assert!(matches!(head.as_deref(), Some("sol-y") | Some("sol-x")));
+    }
+
+    /// First `current_conversation_id()` call mints a new id and writes a
+    /// `conversations` row. Subsequent calls within the idle gap return the
+    /// same id without inserting a new row.
+    #[tokio::test]
+    async fn conversation_id_is_stable_within_idle_gap() {
+        let mem = fresh_memory().await;
+        let a = mem.current_conversation_id().await.unwrap();
+        let b = mem.current_conversation_id().await.unwrap();
+        let c = mem.current_conversation_id().await.unwrap();
+        assert_eq!(a, b);
+        assert_eq!(b, c);
+        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM conversations")
+            .fetch_one(&mem.pool)
+            .await
+            .unwrap();
+        assert_eq!(count.0, 1, "exactly one conversation row should exist");
+    }
+
+    /// When the in-memory `last_seen_secs` is rewound past the idle gap, the
+    /// next call mints a fresh id and writes a second `conversations` row.
+    #[tokio::test]
+    async fn conversation_id_rotates_after_idle_gap() {
+        let mem = fresh_memory().await;
+        let first = mem.current_conversation_id().await.unwrap();
+        // Forcibly age the active tracker beyond the gap.
+        {
+            let mut guard = mem.active_conv.lock().unwrap();
+            if let Some(active) = guard.as_mut() {
+                active.last_seen_secs = active.last_seen_secs.saturating_sub(IDLE_GAP_SECS + 60);
+            }
+        }
+        let second = mem.current_conversation_id().await.unwrap();
+        assert_ne!(first, second);
+        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM conversations")
+            .fetch_one(&mem.pool)
+            .await
+            .unwrap();
+        assert_eq!(count.0, 2, "two distinct conversations should be recorded");
+    }
+
+    /// `record_turn` writes one row per call, bumps `turn_count`, and stamps
+    /// `first_query` on the first non-null query.
+    #[tokio::test]
+    async fn record_turn_appends_and_updates_metadata() {
+        let mem = fresh_memory().await;
+        let conv = mem.current_conversation_id().await.unwrap();
+        mem.record_turn(&conv, "fs_read", None, "file contents")
+            .await;
+        mem.record_turn(&conv, "web_search", Some("first query"), "results...")
+            .await;
+        mem.record_turn(&conv, "wikipedia_search", Some("later query"), "more")
+            .await;
+        let row: ConversationRow = sqlx::query_as(
+            "SELECT id, started_at, last_seen_at, turn_count, first_query FROM conversations WHERE id = ?",
+        )
+        .bind(&conv)
+        .fetch_one(&mem.pool)
+        .await
+        .unwrap();
+        assert_eq!(row.turn_count, 3);
+        assert_eq!(row.first_query.as_deref(), Some("first query"));
+        // Turns must be ordered by seq.
+        let turns: Vec<(i64, String, Option<String>)> = sqlx::query_as(
+            "SELECT seq, tool_name, query FROM conversation_turns \
+             WHERE conversation_id = ? ORDER BY seq",
+        )
+        .bind(&conv)
+        .fetch_all(&mem.pool)
+        .await
+        .unwrap();
+        assert_eq!(turns.len(), 3);
+        assert_eq!(turns[0].1, "fs_read");
+        assert_eq!(turns[0].2, None);
+        assert_eq!(turns[1].1, "web_search");
+        assert_eq!(turns[1].2.as_deref(), Some("first query"));
+        assert_eq!(turns[2].1, "wikipedia_search");
+        // Sequence must be strictly increasing.
+        assert!(turns[0].0 < turns[1].0);
+        assert!(turns[1].0 < turns[2].0);
+    }
+
+    /// `solution_revisions.conversation_id` is populated when a revision is
+    /// written while an active conversation exists — which makes
+    /// `solution_conversations` and the conversation→solutions back-reference
+    /// work.
+    #[tokio::test]
+    async fn revision_carries_active_conversation_id() {
+        let mem = fresh_memory().await;
+        let conv = mem.current_conversation_id().await.unwrap();
+        let now = now_secs() as i64;
+        sqlx::query(
+            "INSERT INTO solutions (id, problem, canon_key, created_at, updated_at) \
+             VALUES ('sol-1', 'p', 'p', ?, ?)",
+        )
+        .bind(now)
+        .bind(now)
+        .execute(&mem.pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO solution_revisions \
+             (solution_id, rev, ts, summary, content, notes, conversation_id) \
+             VALUES ('sol-1', 1, ?, 's', 'c', '', ?)",
+        )
+        .bind(now)
+        .bind(&conv)
+        .execute(&mem.pool)
+        .await
+        .unwrap();
+        let row: (Option<String>,) = sqlx::query_as(
+            "SELECT conversation_id FROM solution_revisions WHERE solution_id = 'sol-1'",
+        )
+        .fetch_one(&mem.pool)
+        .await
+        .unwrap();
+        assert_eq!(row.0.as_deref(), Some(conv.as_str()));
     }
 }

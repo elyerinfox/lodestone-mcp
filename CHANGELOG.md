@@ -6,6 +6,24 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Conversation tracking** (when `[memory]` is on): the dispatch wrapper now
+  records one row per tool call into a new `conversation_turns` table, grouped
+  into `conversations` by a 30-minute idle-gap heuristic. `solution_record` /
+  `solution_update` stamp the active conversation id on each new revision.
+  Three read-only tools surface the layer:
+  - **`conversation_list`** — recent conversations, most-recently-active first.
+  - **`conversation_show { id }`** — every tool call in one conversation
+    (chronological), plus the solutions whose revisions came from it. Answers
+    "what else happened in this conversation?"
+  - **`solution_conversations { id }`** — the conversation(s) that contributed
+    revisions to a recorded solution. Answers "what conversation was this a
+    part of?" Many-to-many via the revisions table.
+  - `solution_show` now also displays the `conversation_id` per revision.
+  Migration `0002_conversations` adds the new tables + a nullable
+  `solution_revisions.conversation_id` column; legacy revisions remain NULL.
+
 ### Changed
 
 - **`[memory].enabled` now defaults to `true`.** The persistent memory layer is

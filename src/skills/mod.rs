@@ -157,6 +157,9 @@ fn intent_trigger(tool_name: &str, args: &JsonObject) -> Option<String> {
             | "synonym_add"
             | "synonym_remove"
             | "synonym_list"
+            | "conversation_list"
+            | "conversation_show"
+            | "solution_conversations"
     ) {
         return None;
     }
@@ -222,11 +225,20 @@ fn recall_preamble(hits: &[memory::RecallHit]) -> String {
     out
 }
 
-/// Turn one boxed skill into a dynamic tool route. The wrapper adds
-/// **intrinsic prior-solution recall**: if the tool's arguments carry a query
-/// and memory is enabled, recorded solutions matching that query are surfaced
-/// automatically as a preamble in the tool's response — no need for the model
-/// to call `solution_find`.
+/// Turn one boxed skill into a dynamic tool route. The wrapper adds two
+/// intrinsic behaviors when memory is enabled:
+///
+/// 1. **Prior-solution recall** — if the tool's arguments carry a query,
+///    matching prior solutions are prepended as a preamble. The model never
+///    has to call `solution_find` explicitly.
+/// 2. **Conversation recording** — every tool call writes one row to
+///    `conversation_turns` so the model can later traverse "what else
+///    happened in this conversation" via `conversation_show`, and solutions
+///    recorded mid-call back-link to their conversation.
+///
+/// Conversation-traversal tools (`conversation_*`, `solution_conversations`)
+/// are themselves recorded — that's intentional, traversal calls are part of
+/// the conversation too.
 fn route(skill: Box<dyn Skill>) -> ToolRoute<Lodestone> {
     let tool_name: &'static str = skill.name();
     let tool = Tool::new(
@@ -242,13 +254,31 @@ fn route(skill: Box<dyn Skill>) -> ToolRoute<Lodestone> {
         let fut = skill.call(sctx);
         Box::pin(async move {
             let mut result = fut.await?;
-            if let Some(q) = trigger {
-                if server.memory.enabled() {
-                    let hits = server.memory.auto_recall(&q, 3).await;
+            if server.memory.enabled() {
+                if let Some(q) = trigger.as_deref() {
+                    let hits = server.memory.auto_recall(q, 3).await;
                     if !hits.is_empty() {
                         let preamble = rmcp::model::Content::text(recall_preamble(&hits));
                         result.content.insert(0, preamble);
                     }
+                }
+                // Record one conversation turn per tool call. The active
+                // conversation id is decided by the idle-gap heuristic in
+                // `Memory::current_conversation_id`. Best-effort — DB errors
+                // must not break the user-visible response.
+                if let Some(conv_id) = server.memory.current_conversation_id().await {
+                    let excerpt = result
+                        .content
+                        .iter()
+                        .find_map(|c| match &c.raw {
+                            rmcp::model::RawContent::Text(t) => Some(t.text.as_str()),
+                            _ => None,
+                        })
+                        .unwrap_or("");
+                    server
+                        .memory
+                        .record_turn(&conv_id, tool_name, trigger.as_deref(), excerpt)
+                        .await;
                 }
             }
             Ok(result)

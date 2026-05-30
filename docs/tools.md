@@ -359,6 +359,9 @@ client). Gated by `[tasks]`. Currently backgrounds searches.
 | `solution_unlink` | `from`, `kind`, `to` | Remove a typed link; the reciprocal on the target is also removed. |
 | `solution_graph` | `id`, `depth?` | BFS subgraph around one solution (default 2 hops, max 5), showing typed edges to every reachable solution. |
 | `solution_related` | `id`, `max?` | Rank solutions related to one source, combining explicit links + shared tags + concept-token Jaccard overlap. |
+| `conversation_list` | `max?` | List recorded conversations, most recently active first; turn count, started/last-seen, first query preview. |
+| `conversation_show` | `id`, `max?` | Walk one conversation: every tool call (chronological), with query + a short response excerpt + the list of solutions whose revisions it produced. |
+| `solution_conversations` | `id` | List the conversation(s) a solution came from, grouped by which revisions each one produced (many-to-many via revisions). |
 
 ## Meta
 

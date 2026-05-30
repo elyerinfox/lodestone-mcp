@@ -213,6 +213,103 @@ transitively. Symmetric kinds stay at one hop in the preamble because
 "related-to-related-to" is just weaker relatedness — chasing it dilutes the
 signal.
 
+## Conversations — `conversation_*` / `solution_conversations`
+
+The dispatch wrapper writes one row to `conversation_turns` per tool call.
+Turns are grouped into `conversations` by an **idle-gap heuristic** — 30
+minutes of silence ends one conversation and starts the next. No client
+cooperation required; no session id is asked for. When `solution_record` or
+`solution_update` runs inside a conversation, the new revision is back-linked
+to it.
+
+A conversation is **has-many** to turns (`conversation_turns.conversation_id`)
+and **has-many** to solution revisions
+(`solution_revisions.conversation_id`). Because a single solution can be
+updated across multiple conversations (revisions 1, 2, 3 each from a different
+session), a solution is **many-to-many** to conversations via revisions.
+
+```mermaid
+erDiagram
+    conversations ||--o{ conversation_turns : "has many"
+    conversations ||--o{ solution_revisions : "produces"
+    solutions     ||--o{ solution_revisions : "has many"
+    conversations {
+        TEXT    id PK
+        INTEGER started_at
+        INTEGER last_seen_at
+        INTEGER turn_count
+        TEXT    first_query
+    }
+    conversation_turns {
+        TEXT    conversation_id FK
+        INTEGER seq PK
+        INTEGER ts
+        TEXT    tool_name
+        TEXT    query
+        TEXT    response_excerpt
+    }
+    solution_revisions {
+        TEXT    solution_id FK
+        INTEGER rev PK
+        INTEGER ts
+        TEXT    summary
+        TEXT    content
+        TEXT    conversation_id FK
+    }
+```
+
+The dispatch wrapper looks like this end-to-end:
+
+```mermaid
+sequenceDiagram
+    participant Model
+    participant Wrapper as Dispatch wrapper
+    participant Memory
+    participant Tool
+
+    Model->>Wrapper: call(tool, args)
+    Wrapper->>Memory: current_conversation_id()
+    Memory-->>Wrapper: conv-1717... (reused or freshly minted)
+    opt args carry a query
+        Wrapper->>Memory: auto_recall(query, 3)
+        Memory-->>Wrapper: hits[]
+        Wrapper->>Wrapper: prepend "💡 prior solutions" preamble
+    end
+    Wrapper->>Tool: run skill
+    Tool-->>Wrapper: result
+    Wrapper->>Memory: record_turn(conv_id, tool, query, excerpt)
+    Wrapper-->>Model: result (with preamble if any)
+```
+
+| Tool | Purpose |
+| --- | --- |
+| `conversation_list { max?=20 }` | Recent conversations, most-recently-active first. |
+| `conversation_show { id, max?=100 }` | Walk one conversation chronologically — every tool call, with query and a short response excerpt, plus the solutions whose revisions were produced. |
+| `solution_conversations { id }` | The conversation(s) a solution came from, grouped by which revisions each one produced. |
+
+`solution_show` also prints the `conversation_id` next to each revision. So
+the typical traversal flow is:
+
+```
+[recall preamble surfaces sol-3]
+  → solution_show id="sol-3"     (see its revisions and which conversation each came from)
+  → conversation_show id="conv-1717..."
+     (see "what else happened in that conversation": adjacent searches, fetches, the surrounding context)
+```
+
+### Limitations
+
+- **Identity is per-process, not per-client.** MCP doesn't hand the server a
+  stable per-user session id, so the wrapper uses one global "active
+  conversation." If one server is shared by multiple concurrent clients,
+  their turns will mix. The local-LLM-runner case (one client at a time) is
+  the design target.
+- **No `conversation_forget` yet.** Conversations are durable; deleting a
+  solution does not delete the conversations it touched. Adding a destructive
+  cleanup tool later is straightforward (CASCADE is already wired).
+- **The idle gap is hardcoded at 30 minutes.** Tunable later if it turns out
+  to be too aggressive or too lax.
+
 ## Synonyms — `synonym_*`
 
 A single-token alias map: `token` → `canonical`. The fold runs in both
