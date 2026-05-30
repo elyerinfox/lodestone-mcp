@@ -94,18 +94,33 @@ fn check_bbox(south: f64, west: f64, north: f64, east: f64) -> Result<(), McpErr
 }
 
 async fn run_overpass(server: &crate::Lodestone, query: &str) -> Result<Value, McpError> {
+    let cache_key = format!(
+        "grid_overpass|{}",
+        crate::constellation::hash_key(query)
+    );
+    if let Some(c) = server.retrieval_get(&cache_key).await {
+        if let Ok(v) = serde_json::from_str::<Value>(&c) {
+            return Ok(v);
+        }
+    }
     let r = server
         .http
         .post("https://overpass-api.de/api/interpreter")
         .body(format!("data={}", url_encode(query)))
         .header("Content-Type", "application/x-www-form-urlencoded")
+        .header("Accept", "application/json")
         .send()
         .await
         .and_then(|x| x.error_for_status())
         .map_err(|e| internal(anyhow::anyhow!("overpass: {e}")))?;
-    r.json()
+    let v: Value = r
+        .json()
         .await
-        .map_err(|e| internal(anyhow::anyhow!("overpass parse: {e}")))
+        .map_err(|e| internal(anyhow::anyhow!("overpass parse: {e}")))?;
+    if let Ok(s) = serde_json::to_string(&v) {
+        server.retrieval_put(cache_key, &s);
+    }
+    Ok(v)
 }
 
 fn url_encode(s: &str) -> String {

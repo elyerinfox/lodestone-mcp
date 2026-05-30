@@ -223,6 +223,7 @@ impl Skill for OsmOverpass {
                 .post("https://overpass-api.de/api/interpreter")
                 .body(format!("data={}", url_encode(q)))
                 .header("Content-Type", "application/x-www-form-urlencoded")
+                .header("Accept", "application/json")
                 .send()
                 .await
                 .and_then(|x| x.error_for_status())
