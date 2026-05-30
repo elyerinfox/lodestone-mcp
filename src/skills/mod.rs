@@ -24,6 +24,7 @@ pub mod datetime;
 pub mod disasm;
 pub mod docker;
 pub mod eia;
+pub mod fcc;
 pub mod ffmpeg;
 pub mod filesystem;
 pub mod finance;
@@ -352,6 +353,7 @@ fn all_skills() -> Vec<Box<dyn Skill>> {
     skills.extend(kubernetes::skills());
     skills.extend(filesystem::skills());
     skills.extend(ffmpeg::skills());
+    skills.extend(fcc::skills());
     skills.extend(spreadsheet::skills());
     skills.extend(shell::skills());
     skills.extend(git::skills());
@@ -437,6 +439,7 @@ pub fn disabled_by_config(cfg: &crate::config::Config) -> Vec<String> {
     hide_if_off(cfg.sysinfo.enabled, sysinfo::TOOL_NAMES);
     // FFmpeg conversion — off by default (needs a local ffmpeg).
     hide_if_off(cfg.ffmpeg.enabled, ffmpeg::TOOL_NAMES);
+    hide_if_off(cfg.fcc.enabled, fcc::TOOL_NAMES);
     // Spreadsheet read/query/write — off by default (file I/O).
     hide_if_off(cfg.spreadsheet.enabled, spreadsheet::TOOL_NAMES);
     // Database tools (ad-hoc connections, no preconfiguration) — off by default.

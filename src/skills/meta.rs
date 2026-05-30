@@ -388,6 +388,16 @@ fn families() -> Vec<Family> {
             extra: |_c| vec![],
         },
         Family {
+            key: "fcc",
+            section: "[fcc]",
+            description:
+                "FCC callsign lookup (live ULS API) + US amateur band plan + non-amateur radio \
+                 services (FRS/GMRS/MURS/CB) reference.",
+            tool_match: &["fcc_"],
+            enabled: |c| c.fcc.enabled,
+            extra: |_c| vec![],
+        },
+        Family {
             key: "signal",
             section: "[signal]",
             description: "Signal-processing (FFT, RMS, windowing).",

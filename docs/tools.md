@@ -372,6 +372,9 @@ client). Gated by `[tasks]`. Currently backgrounds searches.
 | Tool | Arguments | Purpose |
 | --- | --- | --- |
 | `features` | `name?` | Per-family enabled/disabled status plus every knob (allow_destructive, recall thresholds, retention policy, embedding endpoint, …) and live memory counts. With `name=<family>`, focused dump for one family. Use BEFORE assuming a family is reachable. |
+| `fcc_callsign` | `callsign` | US amateur callsign lookup via the keyless callook.info JSON API. Returns name, class, trustee, FRN, grant/expire dates, grid square. Non-amateur callsigns (GMRS / commercial) get a ULS web-search hint. |
+| `fcc_amateur_bands` | `band?`, `license_class?` | Full US amateur band plan (2200m → 1.25cm) with per-class privileges. `band` matches wavelength (`40m`), region (`HF`), or a frequency in MHz. |
+| `fcc_radio_service` | `service?`, `channel?` | FRS / GMRS / MURS / CB reference: license, power, channels, antenna rules, spectrum sharing. `service="compare"` for the side-by-side. |
 | `list_providers` | — | Show the active providers, strategy, and ranking. |
 | `constellation_status` | — | Show the peer-to-peer constellation graph (peers, machine ids, reputation, edges); says disabled when off. |
 | `constellation_peers` | — | List constellation nodes and how many **hops** away each is (direct = 1), with machine id/reputation. |

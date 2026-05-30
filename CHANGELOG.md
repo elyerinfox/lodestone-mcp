@@ -8,6 +8,28 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **FCC / amateur radio reference skills** (`src/skills/fcc.rs`, on by default
+  via `[fcc].enabled`). Three tools:
+  - **`fcc_callsign { callsign }`** — US amateur callsign lookup via the
+    keyless callook.info JSON API. Returns licensee, operator class
+    (Technician / General / Amateur Extra), trustee for club calls, grant /
+    expire / last-action dates, FRN, mailing address, and grid square.
+    Switched from data.fcc.gov ULS (HTTP/2-flaky from many networks) to
+    callook.info for reliability; non-amateur callsigns (GMRS WQ*/WR*,
+    commercial, broadcast) get a friendly ULS web-search hint.
+  - **`fcc_amateur_bands { band?, license_class? }`** — full US amateur
+    band plan from 2200m through 1.25cm (24 bands total) with
+    per-license-class privileges baked in. `band` matches wavelength
+    label (`40m`, `70cm`), region (`HF`, `VHF`), or a frequency in MHz
+    (`14.250` → 20m); `license_class` filters to Technician / General /
+    Amateur Extra.
+  - **`fcc_radio_service { service?, channel? }`** — non-amateur personal
+    radio services (FRS / GMRS / MURS / CB) regulatory and channel
+    reference. Channel maps with frequencies and power caps; how FRS and
+    GMRS share spectrum (14 shared channels with different power limits);
+    license / antenna / repeater rules per service. `service="compare"`
+    for the side-by-side table.
+
 - **`features` introspection tool** (in `src/skills/meta.rs`). Per-family
   enabled/disabled status across every gateable family (memory, constellation,
   filesystem, shell, git, docker, kubernetes, systemd, python, sysinfo,

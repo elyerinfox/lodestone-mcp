@@ -40,6 +40,7 @@ pub struct Config {
     pub git: Git,
     pub sysinfo: Sysinfo,
     pub ffmpeg: Ffmpeg,
+    pub fcc: Fcc,
     pub spreadsheet: Spreadsheet,
     pub sdr: Sdr,
     pub tasks: Tasks,
@@ -715,6 +716,24 @@ pub struct Ffmpeg {
     pub enabled: bool,
 }
 
+/// FCC / amateur-radio reference skills (`src/skills/fcc.rs`). **On by
+/// default** — every tool is read-only and either hits the public, keyless
+/// FCC ULS API (`fcc_callsign`) or returns baked-in regulatory reference
+/// data (`fcc_amateur_bands`, `fcc_radio_service`).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct Fcc {
+    /// Expose the `fcc_*` tools (callsign lookup + bandplan + radio-service
+    /// regulatory reference).
+    pub enabled: bool,
+}
+
+impl Default for Fcc {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
+}
+
 /// Spreadsheet skill (`src/skills/spreadsheet.rs`) — read/query/write CSV & XLSX.
 /// **Off by default**; paths are confined to `[filesystem].roots` and writes go
 /// through the confirmation guard.
@@ -991,6 +1010,7 @@ impl Default for Config {
             git: Git::default(),
             sysinfo: Sysinfo::default(),
             ffmpeg: Ffmpeg::default(),
+            fcc: Fcc::default(),
             spreadsheet: Spreadsheet::default(),
             sdr: Sdr::default(),
             tasks: Tasks::default(),
@@ -1365,6 +1385,9 @@ impl Config {
         }
         if let Ok(v) = std::env::var("LODESTONE_FFMPEG_ENABLED") {
             self.ffmpeg.enabled = is_truthy(&v);
+        }
+        if let Ok(v) = std::env::var("LODESTONE_FCC_ENABLED") {
+            self.fcc.enabled = is_truthy(&v);
         }
         if let Ok(v) = std::env::var("LODESTONE_SPREADSHEET_ENABLED") {
             self.spreadsheet.enabled = is_truthy(&v);
