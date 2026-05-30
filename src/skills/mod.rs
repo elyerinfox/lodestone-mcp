@@ -73,6 +73,7 @@ pub mod translate;
 pub mod trigonometry;
 pub mod units;
 pub mod wave;
+pub mod weather;
 pub mod wikipedia;
 pub mod yahoo;
 
@@ -186,6 +187,7 @@ fn all_skills() -> Vec<Box<dyn Skill>> {
     skills.extend(eia::skills());
     skills.extend(noaa::skills());
     skills.extend(peeringdb::skills());
+    skills.extend(weather::skills());
     skills.extend(datetime::skills());
     skills.extend(translate::skills());
     skills.extend(data::skills());
