@@ -247,6 +247,13 @@ pub(crate) struct RecallHit {
     /// these in the preamble is what makes the auto-recall *graph-aware*
     /// rather than per-solution-isolated.
     pub links: Vec<(String, String)>,
+    /// If this hit is part of a `superseded-by` chain, the id at the head of
+    /// the chain (the solution nothing has superseded). When `Some(head)` and
+    /// `head != id`, the recall preamble loudly tells the model to use the
+    /// head instead of this hit — the entire point of recording supersession
+    /// is that the older one is *obsolete*, and we should never quietly
+    /// surface obsolete prior work.
+    pub superseded_by_head: Option<String>,
 }
 
 impl Memory {
@@ -340,15 +347,58 @@ impl Memory {
             .fetch_all(&self.pool)
             .await
             .unwrap_or_default();
+            // Walk the `superseded-by` chain from this hit forward until
+            // nothing supersedes the current node. The head is the *current*
+            // accepted solution — surfacing an obsolete hit without pointing
+            // at the head would silently mislead the model.
+            let superseded_by_head = self.walk_supersession_head(&sol.id).await;
             hits.push(RecallHit {
                 id: sol.id,
                 problem: sol.problem,
                 score,
                 summary: summary.map(|s| s.0).unwrap_or_default(),
                 links,
+                superseded_by_head,
             });
         }
         hits
+    }
+
+    /// Follow `superseded-by` edges from `start` forward until none remain,
+    /// returning the id of the final (head) solution. Returns `None` when
+    /// nothing supersedes `start`. Bounded to `MAX_SUPERSEDE_HOPS` and uses a
+    /// visited set so cyclic data can't loop the recall path.
+    async fn walk_supersession_head(&self, start: &str) -> Option<String> {
+        const MAX_SUPERSEDE_HOPS: usize = 5;
+        let mut visited: HashSet<String> = HashSet::new();
+        visited.insert(start.to_string());
+        let mut current = start.to_string();
+        let mut found_any = false;
+        for _ in 0..MAX_SUPERSEDE_HOPS {
+            let next: Option<(String,)> = sqlx::query_as(
+                "SELECT to_id FROM solution_links \
+                 WHERE from_id = ? AND kind = 'superseded-by' \
+                 ORDER BY to_id LIMIT 1",
+            )
+            .bind(&current)
+            .fetch_optional(&self.pool)
+            .await
+            .ok()
+            .flatten();
+            match next {
+                Some((to,)) if !visited.contains(&to) => {
+                    visited.insert(to.clone());
+                    current = to;
+                    found_any = true;
+                }
+                _ => break,
+            }
+        }
+        if found_any {
+            Some(current)
+        } else {
+            None
+        }
     }
 
     /// Open the store: ensure the directory and SQLite file exist, run any
@@ -2334,5 +2384,70 @@ mod tests {
             .unwrap();
         assert_eq!(revs.0, 0, "CASCADE should drop revisions");
         assert_eq!(tags.0, 0, "CASCADE should drop tags");
+    }
+
+    /// Insert a no-revision solution row directly. Skips the
+    /// record/update API so tests can hand-build a graph cheaply.
+    async fn insert_sol(mem: &Memory, id: &str) {
+        let now = now_secs() as i64;
+        sqlx::query(
+            "INSERT INTO solutions (id, problem, canon_key, created_at, updated_at) \
+             VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(id)
+        .bind(format!("problem for {id}"))
+        .bind(format!("canon-{id}"))
+        .bind(now)
+        .bind(now)
+        .execute(&mem.pool)
+        .await
+        .unwrap();
+    }
+
+    async fn link(mem: &Memory, from: &str, kind: &str, to: &str) {
+        sqlx::query("INSERT INTO solution_links (from_id, kind, to_id, note) VALUES (?, ?, ?, '')")
+            .bind(from)
+            .bind(kind)
+            .bind(to)
+            .execute(&mem.pool)
+            .await
+            .unwrap();
+    }
+
+    /// Walk a → b → c → d via `superseded-by` and confirm the head returned
+    /// is `d`. This is the load-bearing property of supersession-aware
+    /// recall: hand the model the *current* head, not a stale intermediate.
+    #[tokio::test]
+    async fn supersession_walk_returns_chain_head() {
+        let mem = fresh_memory().await;
+        for id in ["sol-a", "sol-b", "sol-c", "sol-d"] {
+            insert_sol(&mem, id).await;
+        }
+        link(&mem, "sol-a", "superseded-by", "sol-b").await;
+        link(&mem, "sol-b", "superseded-by", "sol-c").await;
+        link(&mem, "sol-c", "superseded-by", "sol-d").await;
+        assert_eq!(
+            mem.walk_supersession_head("sol-a").await.as_deref(),
+            Some("sol-d")
+        );
+        // The head itself has no outgoing supersession — None.
+        assert_eq!(mem.walk_supersession_head("sol-d").await, None);
+    }
+
+    /// A `superseded-by` cycle (recorded incorrectly) must not lock the
+    /// recall path into a loop. The walk terminates at the first repeat.
+    #[tokio::test]
+    async fn supersession_walk_terminates_on_cycle() {
+        let mem = fresh_memory().await;
+        for id in ["sol-x", "sol-y"] {
+            insert_sol(&mem, id).await;
+        }
+        link(&mem, "sol-x", "superseded-by", "sol-y").await;
+        link(&mem, "sol-y", "superseded-by", "sol-x").await;
+        // Whichever stable id we land on, it's one of the two; what matters
+        // is the call returns at all (no infinite loop, no panic).
+        let head = mem.walk_supersession_head("sol-x").await;
+        assert!(head.is_some());
+        assert!(matches!(head.as_deref(), Some("sol-y") | Some("sol-x")));
     }
 }

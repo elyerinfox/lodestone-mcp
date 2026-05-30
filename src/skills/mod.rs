@@ -185,6 +185,16 @@ fn recall_preamble(hits: &[memory::RecallHit]) -> String {
     for h in hits {
         let problem: String = h.problem.replace('\n', " ").chars().take(120).collect();
         out.push_str(&format!("  • {} (score {:.1}): {problem}\n", h.id, h.score));
+        // If this hit has been superseded, point at the current head loudly
+        // *before* the summary — the model should reach for the head, not the
+        // obsolete record that happens to match the query.
+        if let Some(head) = h.superseded_by_head.as_deref() {
+            if head != h.id {
+                out.push_str(&format!(
+                    "    ⚠ superseded — current head is {head}; prefer it unless you specifically need the older approach\n"
+                ));
+            }
+        }
         if !h.summary.is_empty() {
             let s: String = h.summary.replace('\n', " ").chars().take(160).collect();
             out.push_str(&format!("    summary: {s}\n"));
@@ -443,6 +453,7 @@ mod tests {
             score: 78.0,
             summary: "Use a reverse proxy with Let's Encrypt".into(),
             links: vec![],
+            superseded_by_head: None,
         }];
         let s = recall_preamble(&hits);
         assert!(s.starts_with("💡"));
@@ -455,6 +466,8 @@ mod tests {
         assert!(s.contains("solution_show id=\"sol-3\""));
         // Must label as advisory so the model doesn't treat it as authoritative.
         assert!(s.contains("advisory"));
+        // No supersession data, no warning.
+        assert!(!s.contains("superseded"));
     }
 
     /// When the recalled hit has typed links, the preamble must surface them
@@ -473,6 +486,7 @@ mod tests {
                 ("depends-on".into(), "sol-7".into()),
                 ("related-to".into(), "sol-9".into()),
             ],
+            superseded_by_head: None,
         }];
         let s = recall_preamble(&hits);
         assert!(s.contains("─supersedes→ sol-1"));
@@ -481,5 +495,43 @@ mod tests {
         // With links we direct the model toward graph walkers, not just show.
         assert!(s.contains("solution_graph id=\"sol-3\""));
         assert!(s.contains("solution_related id=\"sol-3\""));
+    }
+
+    /// When the auto-recall walk found a head for a `superseded-by` chain
+    /// that's not the hit itself, the preamble must point the model at that
+    /// head loudly — surfacing the obsolete hit without the warning would
+    /// silently steer the model into stale prior work.
+    #[test]
+    fn recall_preamble_warns_when_hit_has_been_superseded() {
+        let hits = vec![memory::RecallHit {
+            id: "sol-3".into(),
+            problem: "Deploy lodestone behind nginx with TLS".into(),
+            score: 78.0,
+            summary: "Old approach using certbot".into(),
+            links: vec![("superseded-by".into(), "sol-5".into())],
+            superseded_by_head: Some("sol-9".into()),
+        }];
+        let s = recall_preamble(&hits);
+        assert!(s.contains("⚠ superseded"));
+        assert!(s.contains("sol-9"));
+        assert!(s.contains("prefer it"));
+    }
+
+    /// Edge case: head == hit. This happens when the head walk lands back on
+    /// the starting node (shouldn't happen in practice given the visited set,
+    /// but we still defend against it). No warning should fire.
+    #[test]
+    fn recall_preamble_does_not_warn_when_head_equals_hit() {
+        let hits = vec![memory::RecallHit {
+            id: "sol-3".into(),
+            problem: "p".into(),
+            score: 50.0,
+            summary: "".into(),
+            links: vec![],
+            superseded_by_head: Some("sol-3".into()),
+        }];
+        let s = recall_preamble(&hits);
+        assert!(!s.contains("⚠"));
+        assert!(!s.contains("superseded"));
     }
 }
