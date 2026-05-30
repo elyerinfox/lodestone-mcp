@@ -739,7 +739,6 @@ struct SolutionRow {
     problem: String,
     canon_key: String,
     concept_key: Option<String>,
-    #[allow(dead_code)]
     created_at: i64,
     updated_at: i64,
 }

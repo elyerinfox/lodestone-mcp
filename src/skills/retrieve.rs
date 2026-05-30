@@ -526,6 +526,9 @@ mod tests {
             .error_for_status()
             .unwrap();
         let body = r.text().await.unwrap();
-        assert!(body.contains("Rust"), "raw.githubusercontent.com schema drift");
+        assert!(
+            body.contains("Rust"),
+            "raw.githubusercontent.com schema drift"
+        );
     }
 }

@@ -271,7 +271,11 @@ mod tests {
         let r = http()
             .get("https://huggingface.co/api/models/gpt2")
             .header("Accept", "application/json")
-            .send().await.expect("network").error_for_status().unwrap();
+            .send()
+            .await
+            .expect("network")
+            .error_for_status()
+            .unwrap();
         let v: Value = r.json().await.unwrap();
         let id = v["id"].as_str().expect("id field missing");
         // HF reorganized many models under org namespaces; gpt2 now resolves to
@@ -288,9 +292,15 @@ mod tests {
     #[ignore]
     async fn hf_model_search_live() {
         let r = http()
-            .get("https://huggingface.co/api/models?search=bert&limit=3&sort=downloads&direction=-1")
+            .get(
+                "https://huggingface.co/api/models?search=bert&limit=3&sort=downloads&direction=-1",
+            )
             .header("Accept", "application/json")
-            .send().await.expect("network").error_for_status().unwrap();
+            .send()
+            .await
+            .expect("network")
+            .error_for_status()
+            .unwrap();
         let v: Value = r.json().await.unwrap();
         let arr = v.as_array().expect("expected JSON array");
         assert!(!arr.is_empty());

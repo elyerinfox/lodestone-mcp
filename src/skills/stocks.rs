@@ -147,7 +147,11 @@ mod live {
     async fn stooq_quote_live() {
         let r = http()
             .get("https://stooq.com/q/l/?s=aapl.us&i=d&f=sd2t2ohlcv&h&e=csv")
-            .send().await.expect("network").error_for_status().unwrap();
+            .send()
+            .await
+            .expect("network")
+            .error_for_status()
+            .unwrap();
         let body = r.text().await.unwrap();
         // First line is the CSV header; second line carries the quote.
         let mut lines = body.lines();
@@ -156,7 +160,10 @@ mod live {
             assert!(header.contains(col), "missing column {col}");
         }
         let row = lines.next().expect("no CSV row");
-        assert!(row.to_uppercase().contains("AAPL"), "row missing AAPL: {row}");
+        assert!(
+            row.to_uppercase().contains("AAPL"),
+            "row missing AAPL: {row}"
+        );
     }
 }
 

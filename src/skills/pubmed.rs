@@ -519,7 +519,9 @@ mod live {
             .get("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=crispr&retmax=3&retmode=json")
             .send().await.expect("network").error_for_status().unwrap();
         let v: serde_json::Value = r.json().await.unwrap();
-        let ids = v["esearchresult"]["idlist"].as_array().expect("missing idlist");
+        let ids = v["esearchresult"]["idlist"]
+            .as_array()
+            .expect("missing idlist");
         assert!(!ids.is_empty());
     }
 

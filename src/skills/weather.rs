@@ -503,7 +503,13 @@ mod tests {
     #[ignore]
     async fn open_meteo_forecast_live() {
         let url = "https://api.open-meteo.com/v1/forecast?latitude=47.67&longitude=-122.12&hourly=temperature_2m&forecast_days=1&timezone=UTC&models=best_match";
-        let r = http().get(url).send().await.expect("network").error_for_status().unwrap();
+        let r = http()
+            .get(url)
+            .send()
+            .await
+            .expect("network")
+            .error_for_status()
+            .unwrap();
         let v: Value = r.json().await.unwrap();
         assert!(v.get("hourly").is_some(), "no hourly block");
         assert!(v["hourly"]["time"].as_array().unwrap().len() >= 24);
@@ -515,7 +521,13 @@ mod tests {
     #[ignore]
     async fn open_meteo_archive_live() {
         let url = "https://archive-api.open-meteo.com/v1/archive?latitude=47.67&longitude=-122.12&start_date=2024-01-01&end_date=2024-01-01&hourly=temperature_2m&timezone=UTC";
-        let r = http().get(url).send().await.expect("network").error_for_status().unwrap();
+        let r = http()
+            .get(url)
+            .send()
+            .await
+            .expect("network")
+            .error_for_status()
+            .unwrap();
         let v: Value = r.json().await.unwrap();
         assert_eq!(v["hourly"]["time"].as_array().unwrap().len(), 24);
     }
@@ -525,7 +537,13 @@ mod tests {
     async fn open_meteo_marine_live() {
         // Open ocean coordinates so we definitely get wave data.
         let url = "https://marine-api.open-meteo.com/v1/marine?latitude=36.7&longitude=-122.3&hourly=wave_height";
-        let r = http().get(url).send().await.expect("network").error_for_status().unwrap();
+        let r = http()
+            .get(url)
+            .send()
+            .await
+            .expect("network")
+            .error_for_status()
+            .unwrap();
         let v: Value = r.json().await.unwrap();
         assert!(v["hourly"]["wave_height"].is_array());
     }
@@ -534,7 +552,13 @@ mod tests {
     #[ignore]
     async fn open_meteo_air_quality_live() {
         let url = "https://air-quality-api.open-meteo.com/v1/air-quality?latitude=47.67&longitude=-122.12&hourly=pm2_5";
-        let r = http().get(url).send().await.expect("network").error_for_status().unwrap();
+        let r = http()
+            .get(url)
+            .send()
+            .await
+            .expect("network")
+            .error_for_status()
+            .unwrap();
         let v: Value = r.json().await.unwrap();
         assert!(v["hourly"]["pm2_5"].is_array());
     }

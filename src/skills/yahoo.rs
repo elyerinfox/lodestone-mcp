@@ -417,7 +417,9 @@ mod live {
     async fn yahoo_quote_live() {
         let r = http()
             .get("https://query1.finance.yahoo.com/v7/finance/quote?symbols=AAPL")
-            .send().await.expect("network");
+            .send()
+            .await
+            .expect("network");
         // 401/429 = Yahoo tightened things; surface that as a skip so it
         // doesn't block CI but we still see it in stdout.
         if matches!(r.status().as_u16(), 401 | 403 | 429) {
@@ -435,7 +437,9 @@ mod live {
     async fn yahoo_search_live() {
         let r = http()
             .get("https://query1.finance.yahoo.com/v1/finance/search?q=apple&quotesCount=3")
-            .send().await.expect("network");
+            .send()
+            .await
+            .expect("network");
         if matches!(r.status().as_u16(), 401 | 403 | 429) {
             eprintln!("skipping yahoo_search_live: status {}", r.status());
             return;

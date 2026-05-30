@@ -272,7 +272,9 @@ mod live {
             .get("https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=Rust+programming+language&format=json&utf8=1&srlimit=3")
             .send().await.expect("network").error_for_status().unwrap();
         let v: serde_json::Value = r.json().await.unwrap();
-        let items = v["query"]["search"].as_array().expect("missing search array");
+        let items = v["query"]["search"]
+            .as_array()
+            .expect("missing search array");
         assert!(!items.is_empty());
         for k in ["title", "pageid", "snippet"] {
             assert!(items[0].get(k).is_some(), "missing field {k}");

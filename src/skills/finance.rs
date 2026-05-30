@@ -233,7 +233,11 @@ mod live {
     async fn ecb_reference_rates_live() {
         let r = http()
             .get("https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml")
-            .send().await.expect("network").error_for_status().unwrap();
+            .send()
+            .await
+            .expect("network")
+            .error_for_status()
+            .unwrap();
         let body = r.text().await.unwrap();
         assert!(body.contains("<gesmes:Envelope") || body.contains("Envelope"));
         // Major-currency entries we expect.

@@ -239,11 +239,17 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn nasa_neo_live() {
-        let Some(key) = nasa_key_or_skip() else { return; };
+        let Some(key) = nasa_key_or_skip() else {
+            return;
+        };
         let url = format!("https://api.nasa.gov/neo/rest/v1/feed?api_key={key}");
         let r = http()
             .get(&url)
-            .send().await.expect("network").error_for_status().unwrap();
+            .send()
+            .await
+            .expect("network")
+            .error_for_status()
+            .unwrap();
         let v: serde_json::Value = r.json().await.unwrap();
         assert!(v.get("element_count").is_some());
         assert!(v.get("near_earth_objects").is_some());
@@ -258,7 +264,9 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn nasa_mars_photos_currently_down() {
-        let Some(key) = nasa_key_or_skip() else { return; };
+        let Some(key) = nasa_key_or_skip() else {
+            return;
+        };
         let url = format!("https://api.nasa.gov/mars-photos/api/v1/rovers/curiosity/photos?sol=1000&api_key={key}");
         let r = http().get(&url).send().await.expect("network");
         // When NASA restores the service the status will flip away from 404

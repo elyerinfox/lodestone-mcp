@@ -237,7 +237,11 @@ mod live {
         let r = http()
             .get("https://artifacthub.io/api/v1/packages/search?ts_query_web=nginx&limit=3")
             .header("Accept", "application/json")
-            .send().await.expect("network").error_for_status().unwrap();
+            .send()
+            .await
+            .expect("network")
+            .error_for_status()
+            .unwrap();
         let v: serde_json::Value = r.json().await.unwrap();
         let pkgs = v["packages"].as_array().expect("missing packages");
         assert!(!pkgs.is_empty());

@@ -192,7 +192,11 @@ mod live {
     async fn crossref_standards_search_live() {
         let r = http()
             .get("https://api.crossref.org/works?query.bibliographic=IEEE%20802.11&rows=3")
-            .send().await.expect("network").error_for_status().unwrap();
+            .send()
+            .await
+            .expect("network")
+            .error_for_status()
+            .unwrap();
         let v: serde_json::Value = r.json().await.unwrap();
         assert_eq!(v["status"].as_str(), Some("ok"));
         let items = v["message"]["items"].as_array().expect("missing items");

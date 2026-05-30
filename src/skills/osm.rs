@@ -648,7 +648,11 @@ mod live {
     async fn nominatim_geocode_live() {
         let r = http()
             .get("https://nominatim.openstreetmap.org/search?q=Redmond%2C+WA&format=json&limit=1")
-            .send().await.expect("network").error_for_status().unwrap();
+            .send()
+            .await
+            .expect("network")
+            .error_for_status()
+            .unwrap();
         let v: serde_json::Value = r.json().await.unwrap();
         let arr = v.as_array().expect("expected JSON array");
         assert!(!arr.is_empty());
@@ -682,7 +686,11 @@ mod live {
             .body(body)
             .header("Content-Type", "application/x-www-form-urlencoded")
             .header("Accept", "application/json")
-            .send().await.expect("network").error_for_status().unwrap();
+            .send()
+            .await
+            .expect("network")
+            .error_for_status()
+            .unwrap();
         let v: serde_json::Value = r.json().await.unwrap();
         assert_eq!(v["version"].as_f64(), Some(0.6));
     }
@@ -694,7 +702,11 @@ mod live {
         let r = http()
             .post("https://api.open-elevation.com/api/v1/lookup")
             .json(&body)
-            .send().await.expect("network").error_for_status().unwrap();
+            .send()
+            .await
+            .expect("network")
+            .error_for_status()
+            .unwrap();
         let v: serde_json::Value = r.json().await.unwrap();
         let results = v["results"].as_array().expect("missing results");
         assert!(!results.is_empty());

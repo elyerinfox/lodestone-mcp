@@ -154,7 +154,10 @@ mod tests {
     #[test]
     fn url_enc_round_trips_safe_and_percent_encodes_special() {
         assert_eq!(url_enc("annual"), "annual");
-        assert_eq!(url_enc("electricity/retail-sales/data"), "electricity%2Fretail-sales%2Fdata");
+        assert_eq!(
+            url_enc("electricity/retail-sales/data"),
+            "electricity%2Fretail-sales%2Fdata"
+        );
         assert_eq!(url_enc("stateid=WA"), "stateid%3DWA");
     }
 
@@ -170,7 +173,8 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn eia_v2_live() {
-        let key = match std::env::var("LODESTONE_EIA_KEY").or_else(|_| std::env::var("EIA_API_KEY")) {
+        let key = match std::env::var("LODESTONE_EIA_KEY").or_else(|_| std::env::var("EIA_API_KEY"))
+        {
             Ok(k) if !k.trim().is_empty() => k,
             _ => {
                 eprintln!("skipping eia live: no LODESTONE_EIA_KEY/EIA_API_KEY");
@@ -178,7 +182,13 @@ mod tests {
             }
         };
         let url = format!("https://api.eia.gov/v2/electricity/retail-sales/data/?api_key={key}&frequency=annual&data[]=price&length=3");
-        let r = http().get(&url).send().await.expect("network").error_for_status().unwrap();
+        let r = http()
+            .get(&url)
+            .send()
+            .await
+            .expect("network")
+            .error_for_status()
+            .unwrap();
         let v: Value = r.json().await.unwrap();
         assert!(v.get("response").is_some(), "missing response envelope");
         let data = v["response"]["data"].as_array().expect("no data array");

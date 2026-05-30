@@ -385,9 +385,15 @@ mod live {
     #[tokio::test]
     #[ignore]
     async fn github_releases_live() {
-        let r = auth_header(http().get("https://api.github.com/repos/rust-lang/rust/releases?per_page=3"))
-            .header("Accept", "application/vnd.github+json")
-            .send().await.expect("network").error_for_status().unwrap();
+        let r = auth_header(
+            http().get("https://api.github.com/repos/rust-lang/rust/releases?per_page=3"),
+        )
+        .header("Accept", "application/vnd.github+json")
+        .send()
+        .await
+        .expect("network")
+        .error_for_status()
+        .unwrap();
         let v: serde_json::Value = r.json().await.unwrap();
         let arr = v.as_array().expect("expected array");
         assert!(!arr.is_empty());
@@ -401,7 +407,11 @@ mod live {
     async fn github_user_live() {
         let r = auth_header(http().get("https://api.github.com/users/torvalds"))
             .header("Accept", "application/vnd.github+json")
-            .send().await.expect("network").error_for_status().unwrap();
+            .send()
+            .await
+            .expect("network")
+            .error_for_status()
+            .unwrap();
         let v: serde_json::Value = r.json().await.unwrap();
         for k in ["login", "id", "public_repos", "followers"] {
             assert!(v.get(k).is_some(), "missing field {k}");
@@ -413,7 +423,11 @@ mod live {
     async fn github_repo_live() {
         let r = auth_header(http().get("https://api.github.com/repos/rust-lang/rust"))
             .header("Accept", "application/vnd.github+json")
-            .send().await.expect("network").error_for_status().unwrap();
+            .send()
+            .await
+            .expect("network")
+            .error_for_status()
+            .unwrap();
         let v: serde_json::Value = r.json().await.unwrap();
         for k in ["full_name", "stargazers_count", "forks_count", "language"] {
             assert!(v.get(k).is_some(), "missing field {k}");

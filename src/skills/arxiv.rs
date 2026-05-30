@@ -279,8 +279,10 @@ mod live {
     #[tokio::test]
     #[ignore]
     async fn arxiv_search_live() {
-        let Some(body) =
-            fetch_or_skip("https://export.arxiv.org/api/query?search_query=ti:transformer&max_results=1").await
+        let Some(body) = fetch_or_skip(
+            "https://export.arxiv.org/api/query?search_query=ti:transformer&max_results=1",
+        )
+        .await
         else {
             return;
         };

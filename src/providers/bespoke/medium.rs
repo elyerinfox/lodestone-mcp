@@ -147,7 +147,11 @@ mod live {
     async fn medium_tag_rss_live() {
         let r = http()
             .get("https://medium.com/feed/tag/programming")
-            .send().await.expect("network").error_for_status().unwrap();
+            .send()
+            .await
+            .expect("network")
+            .error_for_status()
+            .unwrap();
         let body = r.text().await.unwrap();
         assert!(body.contains("<rss"));
         assert!(body.contains("<item"));

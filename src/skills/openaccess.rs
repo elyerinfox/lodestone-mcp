@@ -399,7 +399,13 @@ mod live {
         };
         // 10.1038/s41586-020-2649-2 = the Nature 2020 paper on Array Programming (NumPy).
         let url = format!("https://api.unpaywall.org/v2/10.1038/s41586-020-2649-2?email={email}");
-        let r = http().get(&url).send().await.expect("network").error_for_status().unwrap();
+        let r = http()
+            .get(&url)
+            .send()
+            .await
+            .expect("network")
+            .error_for_status()
+            .unwrap();
         let v: serde_json::Value = r.json().await.unwrap();
         for k in ["doi", "title", "is_oa"] {
             assert!(v.get(k).is_some(), "missing field {k}");
@@ -412,7 +418,11 @@ mod live {
     async fn openalex_search_live() {
         let r = http()
             .get("https://api.openalex.org/works?search=transformer+attention&per_page=3")
-            .send().await.expect("network").error_for_status().unwrap();
+            .send()
+            .await
+            .expect("network")
+            .error_for_status()
+            .unwrap();
         let v: serde_json::Value = r.json().await.unwrap();
         let results = v["results"].as_array().expect("missing results");
         assert!(!results.is_empty());
@@ -426,7 +436,11 @@ mod live {
     async fn openalex_work_live() {
         let r = http()
             .get("https://api.openalex.org/works/doi:10.1038/s41586-020-2649-2")
-            .send().await.expect("network").error_for_status().unwrap();
+            .send()
+            .await
+            .expect("network")
+            .error_for_status()
+            .unwrap();
         let v: serde_json::Value = r.json().await.unwrap();
         assert!(v.get("title").is_some());
         assert!(v.get("publication_year").is_some());

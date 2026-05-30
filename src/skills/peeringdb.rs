@@ -327,7 +327,13 @@ mod tests {
         assert!(!data.is_empty(), "AS13335 should always be present");
         assert_eq!(data[0]["asn"].as_i64(), Some(13335));
         // Schema sanity for fields the skill renders.
-        for k in ["name", "info_type", "info_traffic", "info_prefixes4", "info_prefixes6"] {
+        for k in [
+            "name",
+            "info_type",
+            "info_traffic",
+            "info_prefixes4",
+            "info_prefixes6",
+        ] {
             assert!(data[0].get(k).is_some(), "missing field {k}");
         }
     }
@@ -345,7 +351,15 @@ mod tests {
             .unwrap();
         let v: Value = r.json().await.unwrap();
         assert!(v["data"].as_array().is_some_and(|a| !a.is_empty()));
-        for k in ["id", "name", "name_long", "city", "country", "org_id", "net_count"] {
+        for k in [
+            "id",
+            "name",
+            "name_long",
+            "city",
+            "country",
+            "org_id",
+            "net_count",
+        ] {
             assert!(v["data"][0].get(k).is_some(), "missing field {k}");
         }
     }
@@ -364,7 +378,15 @@ mod tests {
         let v: Value = r.json().await.unwrap();
         let data = v["data"].as_array().expect("no data array");
         assert!(!data.is_empty());
-        for k in ["id", "name", "city", "country", "org_id", "net_count", "ix_count"] {
+        for k in [
+            "id",
+            "name",
+            "city",
+            "country",
+            "org_id",
+            "net_count",
+            "ix_count",
+        ] {
             assert!(data[0].get(k).is_some(), "missing field {k}");
         }
     }

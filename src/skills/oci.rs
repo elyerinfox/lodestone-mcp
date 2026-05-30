@@ -759,7 +759,11 @@ mod live {
     async fn docker_hub_search_live() {
         let r = http()
             .get("https://hub.docker.com/v2/search/repositories/?query=nginx&page_size=3")
-            .send().await.expect("network").error_for_status().unwrap();
+            .send()
+            .await
+            .expect("network")
+            .error_for_status()
+            .unwrap();
         let v: serde_json::Value = r.json().await.unwrap();
         let results = v["results"].as_array().expect("missing results");
         assert!(!results.is_empty());
@@ -774,7 +778,11 @@ mod live {
     async fn docker_hub_image_live() {
         let r = http()
             .get("https://hub.docker.com/v2/repositories/library/nginx/")
-            .send().await.expect("network").error_for_status().unwrap();
+            .send()
+            .await
+            .expect("network")
+            .error_for_status()
+            .unwrap();
         let v: serde_json::Value = r.json().await.unwrap();
         for k in ["name", "namespace", "pull_count", "star_count"] {
             assert!(v.get(k).is_some(), "missing field {k}");
@@ -789,7 +797,9 @@ mod live {
         // for it via WWW-Authenticate. Mirror that two-step.
         let auth = http()
             .get("https://ghcr.io/token?scope=repository:nginxinc/nginx-unprivileged:pull")
-            .send().await.expect("network");
+            .send()
+            .await
+            .expect("network");
         if !auth.status().is_success() {
             eprintln!("skipping ghcr: token endpoint {}", auth.status());
             return;
@@ -802,7 +812,9 @@ mod live {
         let r = http()
             .get("https://ghcr.io/v2/nginxinc/nginx-unprivileged/tags/list")
             .bearer_auth(tok)
-            .send().await.expect("network");
+            .send()
+            .await
+            .expect("network");
         if !r.status().is_success() {
             eprintln!("skipping ghcr tag list: {}", r.status());
             return;

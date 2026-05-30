@@ -728,11 +728,22 @@ mod live {
     async fn celestrak_iss_tle_live() {
         let r = http()
             .get("https://celestrak.org/NORAD/elements/gp.php?CATNR=25544&FORMAT=tle")
-            .send().await.expect("network").error_for_status().unwrap();
+            .send()
+            .await
+            .expect("network")
+            .error_for_status()
+            .unwrap();
         let body = r.text().await.unwrap();
         let lines: Vec<&str> = body.lines().filter(|l| !l.trim().is_empty()).collect();
-        assert!(lines.len() >= 3, "expected 3-line TLE block, got {} lines", lines.len());
-        assert!(lines[0].to_uppercase().contains("ISS"), "name line missing ISS");
+        assert!(
+            lines.len() >= 3,
+            "expected 3-line TLE block, got {} lines",
+            lines.len()
+        );
+        assert!(
+            lines[0].to_uppercase().contains("ISS"),
+            "name line missing ISS"
+        );
         assert!(lines[1].starts_with("1 "));
         assert!(lines[2].starts_with("2 "));
     }
@@ -742,11 +753,19 @@ mod live {
     async fn celestrak_starlink_group_live() {
         let r = http()
             .get("https://celestrak.org/NORAD/elements/gp.php?GROUP=stations&FORMAT=tle")
-            .send().await.expect("network").error_for_status().unwrap();
+            .send()
+            .await
+            .expect("network")
+            .error_for_status()
+            .unwrap();
         let body = r.text().await.unwrap();
         // 'stations' is a small, stable group (ISS + a handful of others).
         let lines: Vec<&str> = body.lines().filter(|l| !l.trim().is_empty()).collect();
-        assert!(lines.len() >= 6, "expected ≥ 6 lines (≥ 2 sats); got {}", lines.len());
+        assert!(
+            lines.len() >= 6,
+            "expected ≥ 6 lines (≥ 2 sats); got {}",
+            lines.len()
+        );
         assert!(lines[1].starts_with("1 "));
         assert!(lines[2].starts_with("2 "));
     }

@@ -170,13 +170,7 @@ pub(crate) fn data_center_ql(south: f64, west: f64, north: f64, east: f64) -> St
     )
 }
 
-pub(crate) fn pipeline_ql(
-    south: f64,
-    west: f64,
-    north: f64,
-    east: f64,
-    substance: &str,
-) -> String {
+pub(crate) fn pipeline_ql(south: f64, west: f64, north: f64, east: f64, substance: &str) -> String {
     let bbox = bbox_str(south, west, north, east);
     format!(
         "[out:json][timeout:60];(way[\"man_made\"=\"pipeline\"][\"substance\"=\"{substance}\"]{bbox};);out center tags;"

@@ -192,7 +192,11 @@ mod live {
         let body = r.text().await.unwrap();
         // Response is a JSON array; first inner translation chunk should hold
         // the Spanish for "hello".
-        assert!(body.to_ascii_lowercase().contains("hola"), "got: {}", &body[..body.len().min(200)]);
+        assert!(
+            body.to_ascii_lowercase().contains("hola"),
+            "got: {}",
+            &body[..body.len().min(200)]
+        );
     }
 }
 

@@ -245,10 +245,20 @@ mod live {
     async fn news_lobsters_rss_live() {
         let r = http()
             .get("https://lobste.rs/rss")
-            .send().await.expect("network").error_for_status().unwrap();
+            .send()
+            .await
+            .expect("network")
+            .error_for_status()
+            .unwrap();
         let body = r.text().await.unwrap();
-        assert!(body.contains("<rss") || body.contains("<feed"), "no RSS/Atom envelope");
-        assert!(body.contains("<item") || body.contains("<entry"), "no items");
+        assert!(
+            body.contains("<rss") || body.contains("<feed"),
+            "no RSS/Atom envelope"
+        );
+        assert!(
+            body.contains("<item") || body.contains("<entry"),
+            "no items"
+        );
     }
 
     #[tokio::test]
@@ -256,7 +266,11 @@ mod live {
     async fn news_bbc_rss_live() {
         let r = http()
             .get("https://feeds.bbci.co.uk/news/world/rss.xml")
-            .send().await.expect("network").error_for_status().unwrap();
+            .send()
+            .await
+            .expect("network")
+            .error_for_status()
+            .unwrap();
         let body = r.text().await.unwrap();
         assert!(body.contains("<rss"));
         assert!(body.contains("<item"));

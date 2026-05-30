@@ -126,7 +126,9 @@ mod live {
     async fn grep_app_search_live() {
         let r = http()
             .get("https://grep.app/api/search?q=tokio::spawn")
-            .send().await.expect("network");
+            .send()
+            .await
+            .expect("network");
         // grep.app sometimes drops to a bot challenge page (200 HTML); both
         // 200-HTML and 200-JSON are acceptable — the parser handles both.
         if !r.status().is_success() {

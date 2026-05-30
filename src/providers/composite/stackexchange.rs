@@ -282,7 +282,11 @@ mod live {
     #[ignore]
     async fn stackexchange_search_live() {
         let key = std::env::var("LODESTONE_STACKEXCHANGE_KEY").unwrap_or_default();
-        let key_q = if key.is_empty() { String::new() } else { format!("&key={key}") };
+        let key_q = if key.is_empty() {
+            String::new()
+        } else {
+            format!("&key={key}")
+        };
         let url = format!("https://api.stackexchange.com/2.3/search?order=desc&sort=relevance&intitle=rust&site=stackoverflow&pagesize=3{key_q}");
         let r = http().get(&url).send().await.expect("network");
         if matches!(r.status().as_u16(), 429 | 503) {

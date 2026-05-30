@@ -180,9 +180,16 @@ mod live {
     async fn rfc_get_live() {
         let r = http()
             .get("https://www.rfc-editor.org/rfc/rfc2616.txt")
-            .send().await.expect("network").error_for_status().unwrap();
+            .send()
+            .await
+            .expect("network")
+            .error_for_status()
+            .unwrap();
         let body = r.text().await.unwrap();
-        assert!(body.contains("Hypertext Transfer Protocol"), "got non-RFC body");
+        assert!(
+            body.contains("Hypertext Transfer Protocol"),
+            "got non-RFC body"
+        );
     }
 
     /// IETF Datatracker search-by-title — JSON envelope.

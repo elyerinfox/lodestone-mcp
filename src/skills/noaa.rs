@@ -256,8 +256,17 @@ mod tests {
         let fv: Value = fc.json().await.unwrap();
         // Each period carries the keys our renderer relies on.
         let p0 = &fv["properties"]["periods"][0];
-        for k in ["startTime", "temperature", "temperatureUnit", "windSpeed", "shortForecast"] {
-            assert!(p0.get(k).is_some(), "missing key {k} in /forecast/hourly period");
+        for k in [
+            "startTime",
+            "temperature",
+            "temperatureUnit",
+            "windSpeed",
+            "shortForecast",
+        ] {
+            assert!(
+                p0.get(k).is_some(),
+                "missing key {k} in /forecast/hourly period"
+            );
         }
     }
 }

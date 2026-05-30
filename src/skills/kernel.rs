@@ -102,7 +102,11 @@ mod tests {
     async fn kernel_releases_live() {
         let r = http()
             .get("https://www.kernel.org/releases.json")
-            .send().await.expect("network").error_for_status().unwrap();
+            .send()
+            .await
+            .expect("network")
+            .error_for_status()
+            .unwrap();
         let v: serde_json::Value = r.json().await.unwrap();
         let releases = v["releases"].as_array().expect("missing releases array");
         assert!(!releases.is_empty());
