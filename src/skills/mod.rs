@@ -1,4 +1,4 @@
-//! Skills (tools) — the uniform capability layer.
+﻿//! Skills (tools) — the uniform capability layer.
 //!
 //! Every tool the server exposes is a **skill**: a self-contained module here that
 //! implements the [`Skill`] contract (`name` / `description` / `schema` / `call`).
@@ -206,6 +206,15 @@ fn recall_preamble(hits: &[memory::RecallHit]) -> String {
             let s: String = h.summary.replace('\n', " ").chars().take(160).collect();
             out.push_str(&format!("    summary: {s}\n"));
         }
+        // When the dispatch wrapper auto-attached the query as a phrasing,
+        // surface that visibly so the model knows the system is *learning*
+        // from this interaction — and so a future operator audit of
+        // solution_show can trace where each phrasing came from.
+        if h.auto_attached_as_phrasing {
+            out.push_str(
+                "    ✎ noted this phrasing on the solution for next time (auto-aliased)\n",
+            );
+        }
         if !h.links.is_empty() {
             let mut edges: Vec<String> = h
                 .links
@@ -262,10 +271,34 @@ fn route(skill: Box<dyn Skill>) -> ToolRoute<Lodestone> {
                 let cfg = server.memory.config();
                 if cfg.auto_recall {
                     if let Some(q) = trigger.as_deref() {
-                        let hits = server
+                        let mut hits = server
                             .memory
                             .auto_recall(&server.http, q, cfg.recall_max_hits.max(1))
                             .await;
+                        // Auto-aliasing: when the top hit fired only via the
+                        // semantic path AND the query carries enough
+                        // structure, attach the query to that solution as a
+                        // new phrasing. Future token-shaped recall finds it
+                        // without re-running embeddings, and the recall
+                        // layer's hit rate grows with use rather than
+                        // ossifying around whatever wording the model
+                        // happened to use first.
+                        if cfg.auto_alias_on_semantic_recall
+                            && !cfg.embedding_endpoint.trim().is_empty()
+                            && !hits.is_empty()
+                            && hits[0].was_semantic_only(cfg.recall_threshold)
+                            && server.memory.query_concept_token_count(q)
+                                >= cfg.auto_alias_min_query_tokens
+                        {
+                            let top_id = hits[0].id.clone();
+                            let attached = server
+                                .memory
+                                .auto_attach_phrasing(&server.http, &top_id, q)
+                                .await;
+                            if attached {
+                                hits[0].auto_attached_as_phrasing = true;
+                            }
+                        }
                         if !hits.is_empty() {
                             let preamble = rmcp::model::Content::text(recall_preamble(&hits));
                             result.content.insert(0, preamble);
@@ -492,9 +525,12 @@ mod tests {
             id: "sol-3".into(),
             problem: "Deploy lodestone behind nginx with TLS".into(),
             score: 78.0,
+            token_score: 78.0,
+            semantic_score: 0.0,
             summary: "Use a reverse proxy with Let's Encrypt".into(),
             links: vec![],
             superseded_by_head: None,
+            auto_attached_as_phrasing: false,
         }];
         let s = recall_preamble(&hits);
         assert!(s.starts_with("💡"));
@@ -521,6 +557,8 @@ mod tests {
             id: "sol-3".into(),
             problem: "Deploy lodestone behind nginx with TLS".into(),
             score: 78.0,
+            token_score: 78.0,
+            semantic_score: 0.0,
             summary: "Use a reverse proxy with ACME".into(),
             links: vec![
                 ("supersedes".into(), "sol-1".into()),
@@ -528,6 +566,7 @@ mod tests {
                 ("related-to".into(), "sol-9".into()),
             ],
             superseded_by_head: None,
+            auto_attached_as_phrasing: false,
         }];
         let s = recall_preamble(&hits);
         assert!(s.contains("─supersedes→ sol-1"));
@@ -548,9 +587,12 @@ mod tests {
             id: "sol-3".into(),
             problem: "Deploy lodestone behind nginx with TLS".into(),
             score: 78.0,
+            token_score: 78.0,
+            semantic_score: 0.0,
             summary: "Old approach using certbot".into(),
             links: vec![("superseded-by".into(), "sol-5".into())],
             superseded_by_head: Some("sol-9".into()),
+            auto_attached_as_phrasing: false,
         }];
         let s = recall_preamble(&hits);
         assert!(s.contains("⚠ superseded"));
@@ -567,9 +609,12 @@ mod tests {
             id: "sol-3".into(),
             problem: "p".into(),
             score: 50.0,
+            token_score: 50.0,
+            semantic_score: 0.0,
             summary: "".into(),
             links: vec![],
             superseded_by_head: Some("sol-3".into()),
+            auto_attached_as_phrasing: false,
         }];
         let s = recall_preamble(&hits);
         assert!(!s.contains("⚠"));

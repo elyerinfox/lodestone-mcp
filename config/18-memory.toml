@@ -80,3 +80,12 @@ prune_on_startup = false           # apply the two rules above at boot; verify w
 embedding_endpoint = ""            # e.g. "http://127.0.0.1:1234/v1/embeddings" for LM Studio
 embedding_model = "text-embedding-nomic-embed-text-v1.5"
 embedding_threshold = 0.55         # cosine floor; tighten to 0.65+ for stricter matches
+
+# --- Auto-aliasing on semantic-only hits -----------------------------------
+# When the top recall hit fires *only* via the semantic path (token score
+# below recall_threshold), attach the query as a new phrasing on that
+# solution so future token-shaped recall finds it too. Closes the
+# "we never solved this in these words" loop without the model having to
+# remember to call solution_alias_add.
+auto_alias_on_semantic_recall = true   # only effective when embedding_endpoint is set
+auto_alias_min_query_tokens   = 3      # noise guard: skip 1-2 token queries like "campus"

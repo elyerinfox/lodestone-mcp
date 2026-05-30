@@ -379,7 +379,16 @@ pub(crate) struct Memory {
 pub(crate) struct RecallHit {
     pub id: String,
     pub problem: String,
+    /// Final score used for ranking: `max(token_score, semantic_score)`.
     pub score: f64,
+    /// Token-overlap path score (canonical / concept / fuzzy / substring +
+    /// tag overlap). `0.0` if no token signal was present.
+    pub token_score: f64,
+    /// Semantic-cosine path score mapped onto a token-comparable range.
+    /// `0.0` when the embedding endpoint is off, the query couldn't be
+    /// embedded, or the cosine similarity was below
+    /// `[memory].embedding_threshold`.
+    pub semantic_score: f64,
     pub summary: String,
     /// Outgoing typed edges (kind, target id) up to a small cap. Surfacing
     /// these in the preamble is what makes the auto-recall *graph-aware*
@@ -392,6 +401,23 @@ pub(crate) struct RecallHit {
     /// is that the older one is *obsolete*, and we should never quietly
     /// surface obsolete prior work.
     pub superseded_by_head: Option<String>,
+    /// Set by the dispatch wrapper when this hit was semantic-only and the
+    /// query was auto-attached as a new phrasing on the solution. The
+    /// preamble renders a small "(noted this phrasing for next time)"
+    /// annotation so the model can see the system is learning from the
+    /// interaction rather than the attach happening invisibly.
+    pub auto_attached_as_phrasing: bool,
+}
+
+impl RecallHit {
+    /// True when the hit's token-overlap score by itself wouldn't have
+    /// cleared the recall threshold, but the embedding cosine *did* — i.e.
+    /// the query was worded so differently from the solution's stored text
+    /// that only semantic matching saved it. The dispatch wrapper uses this
+    /// signal to decide whether to auto-attach the query as a phrasing.
+    pub fn was_semantic_only(&self, recall_threshold: f64) -> bool {
+        self.token_score < recall_threshold && self.semantic_score >= recall_threshold
+    }
 }
 
 impl Memory {
@@ -489,7 +515,7 @@ impl Memory {
         let q_emb = self.embed(http, query).await;
 
         let empty_set: HashSet<String> = HashSet::new();
-        let mut scored: Vec<(SolutionRow, f64)> = rows
+        let mut scored: Vec<(SolutionRow, f64, f64, f64)> = rows
             .into_iter()
             .filter_map(|row| {
                 let tags = tags_by_sol.get(&row.id).unwrap_or(&empty_set);
@@ -502,7 +528,7 @@ impl Memory {
                     updated_at: row.updated_at,
                 };
                 // Token score against the solution's own problem first.
-                let mut best = score_solution_row(
+                let mut token_score = score_solution_row(
                     &sol,
                     tags,
                     &qcanon,
@@ -534,14 +560,15 @@ impl Memory {
                             &needle,
                             &filter_tags_lc,
                         ) {
-                            if s > best {
-                                best = s;
+                            if s > token_score {
+                                token_score = s;
                             }
                         }
                     }
                 }
                 // Semantic path: cosine similarity against the solution's
                 // own embedding AND each phrasing's embedding, take the max.
+                let mut semantic_score = 0.0_f64;
                 if let Some(qv) = q_emb.as_ref() {
                     let mut sim_best = 0.0_f32;
                     if let Some(blob) = row.embedding.as_ref() {
@@ -567,18 +594,16 @@ impl Memory {
                         // on the configured threshold so operators can
                         // tighten or loosen without touching this formula.
                         let span = (1.0_f32 - self.cfg.embedding_threshold).max(1e-3);
-                        let sem_score =
+                        let s =
                             40.0 + 60.0 * ((sim_best - self.cfg.embedding_threshold) / span) as f64;
-                        let sem_score = sem_score.clamp(40.0, 100.0);
-                        if sem_score > best {
-                            best = sem_score;
-                        }
+                        semantic_score = s.clamp(40.0, 100.0);
                     }
                 }
+                let best = token_score.max(semantic_score);
                 if best < self.cfg.recall_threshold {
                     None
                 } else {
-                    Some((sol, best))
+                    Some((sol, best, token_score, semantic_score))
                 }
             })
             .collect();
@@ -588,7 +613,7 @@ impl Memory {
                 .then(b.0.updated_at.cmp(&a.0.updated_at))
         });
         let mut hits = Vec::with_capacity(max);
-        for (sol, score) in scored.into_iter().take(max) {
+        for (sol, score, token_score, semantic_score) in scored.into_iter().take(max) {
             let summary: Option<(String,)> = sqlx::query_as(
                 "SELECT summary FROM solution_revisions \
                  WHERE solution_id = ? ORDER BY rev DESC LIMIT 1",
@@ -617,12 +642,77 @@ impl Memory {
                 id: sol.id,
                 problem: sol.problem,
                 score,
+                token_score,
+                semantic_score,
                 summary: summary.map(|s| s.0).unwrap_or_default(),
                 links,
                 superseded_by_head,
+                auto_attached_as_phrasing: false,
             });
         }
         hits
+    }
+
+    /// Attach a query as a new phrasing on `sol_id` and best-effort embed it
+    /// so future semantic *and* token recall can find it. Returns `true`
+    /// when a fresh row was inserted, `false` when the same phrasing was
+    /// already attached (FNV-1a hash dedup). Errors are swallowed — this is
+    /// invoked from the dispatch wrapper and must never break a tool call.
+    pub(crate) async fn auto_attach_phrasing(
+        &self,
+        http: &reqwest::Client,
+        sol_id: &str,
+        phrasing: &str,
+    ) -> bool {
+        let trimmed = phrasing.trim();
+        if trimmed.is_empty() {
+            return false;
+        }
+        let canon = crate::provider::canonical_query(trimmed);
+        if canon.is_empty() {
+            return false;
+        }
+        let concept = concept_key_of(trimmed);
+        let hash = phrasing_hash(&canon);
+        let now = now_secs() as i64;
+        let res = sqlx::query(
+            "INSERT OR IGNORE INTO solution_phrasings \
+             (solution_id, hash, phrasing, canon_key, concept_key, created_at) \
+             VALUES (?, ?, ?, ?, ?, ?)",
+        )
+        .bind(sol_id)
+        .bind(&hash)
+        .bind(trimmed)
+        .bind(&canon)
+        .bind(&concept)
+        .bind(now)
+        .execute(&self.pool)
+        .await;
+        let inserted = matches!(&res, Ok(r) if r.rows_affected() > 0);
+        if inserted && !self.cfg.embedding_endpoint.trim().is_empty() {
+            if let Some(vec) = self.embed(http, trimmed).await {
+                let blob = embedding_to_blob(&vec);
+                let _ = sqlx::query(
+                    "UPDATE solution_phrasings SET embedding = ? \
+                     WHERE solution_id = ? AND hash = ?",
+                )
+                .bind(blob)
+                .bind(sol_id)
+                .bind(&hash)
+                .execute(&self.pool)
+                .await;
+            }
+        }
+        inserted
+    }
+
+    /// How many concept tokens does this query carry after stop-wording /
+    /// synonym folding? The dispatch wrapper uses this to gate
+    /// `auto_alias_on_semantic_recall` against `auto_alias_min_query_tokens`
+    /// so a single common noun ("campus") doesn't get attached as a phrasing
+    /// on whichever solution it semantically lands on.
+    pub(crate) fn query_concept_token_count(&self, query: &str) -> usize {
+        crate::provider::concept_tokens(query).len()
     }
 
     /// Decide which conversation id to attribute the current tool call to.
@@ -3997,6 +4087,70 @@ mod tests {
         assert!(blob_to_embedding(&blob[..blob.len() - 2]).is_none());
         // Too-short for the prefix → None.
         assert!(blob_to_embedding(&[0]).is_none());
+    }
+
+    /// `was_semantic_only` is true exactly when token scoring fell below the
+    /// recall threshold but the semantic path cleared it — the signal the
+    /// dispatch wrapper uses to decide whether to auto-attach the query as a
+    /// phrasing.
+    #[test]
+    fn was_semantic_only_classification() {
+        let mut h = RecallHit {
+            id: "sol-x".into(),
+            problem: "p".into(),
+            score: 0.0,
+            token_score: 0.0,
+            semantic_score: 0.0,
+            summary: String::new(),
+            links: vec![],
+            superseded_by_head: None,
+            auto_attached_as_phrasing: false,
+        };
+        // Token cleared the bar on its own → NOT semantic-only.
+        h.token_score = 50.0;
+        h.semantic_score = 0.0;
+        assert!(!h.was_semantic_only(30.0));
+        // Both cleared → NOT semantic-only (token did the work).
+        h.token_score = 50.0;
+        h.semantic_score = 70.0;
+        assert!(!h.was_semantic_only(30.0));
+        // Only semantic cleared → IS semantic-only.
+        h.token_score = 20.0;
+        h.semantic_score = 60.0;
+        assert!(h.was_semantic_only(30.0));
+        // Neither cleared (this hit shouldn't have been returned at all,
+        // but the predicate still has to behave) → NOT semantic-only.
+        h.token_score = 0.0;
+        h.semantic_score = 0.0;
+        assert!(!h.was_semantic_only(30.0));
+    }
+
+    /// `auto_attach_phrasing` is idempotent: attaching the same phrasing
+    /// twice inserts on the first call and silently no-ops on the second
+    /// (FNV-1a hash dedup in the table PK).
+    #[tokio::test]
+    async fn auto_attach_phrasing_is_idempotent() {
+        let mem = fresh_memory().await;
+        let now = now_secs() as i64;
+        sqlx::query(
+            "INSERT INTO solutions (id, problem, canon_key, created_at, updated_at) \
+             VALUES ('sol-q', 'p', 'p', ?, ?)",
+        )
+        .bind(now)
+        .bind(now)
+        .execute(&mem.pool)
+        .await
+        .unwrap();
+        let http = reqwest::Client::new();
+        let q = "How far is Microsoft headquarters from downtown Seattle";
+        assert!(mem.auto_attach_phrasing(&http, "sol-q", q).await);
+        assert!(!mem.auto_attach_phrasing(&http, "sol-q", q).await);
+        let n: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM solution_phrasings WHERE solution_id = 'sol-q'")
+                .fetch_one(&mem.pool)
+                .await
+                .unwrap();
+        assert_eq!(n.0, 1);
     }
 
     /// An attached phrasing makes auto_recall fire on queries that share NO

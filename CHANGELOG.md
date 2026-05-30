@@ -8,6 +8,19 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Auto-aliasing on semantic-only recall hits** (`[memory]`). When the top
+  preamble hit fires only because the embedding cosine cleared the recall
+  threshold (token-overlap path didn't), the dispatch wrapper now attaches
+  the query as a new phrasing on that solution automatically. Result:
+  future token-shaped recall finds the same solution without re-running
+  embeddings, and the recall layer's hit rate grows with use. The preamble
+  shows a visible `✎ noted this phrasing on the solution for next time` so
+  the model can see the system is learning. Guarded by
+  `auto_alias_min_query_tokens` (default 3) to stop a single common noun
+  from attaching itself to whichever solution it semantically lands on.
+  Set `auto_alias_on_semantic_recall = false` to require every alias to be
+  attached by explicit `solution_alias_add` call.
+
 - **Semantic recall via OpenAI-compatible embeddings** (`[memory]`). When
   `embedding_endpoint` is set (LM Studio serves one at
   `http://127.0.0.1:1234/v1/embeddings`), every recorded solution and every

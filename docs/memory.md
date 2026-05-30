@@ -389,6 +389,27 @@ flowchart LR
 | `solution_alias_add { id, phrasing }` | Attach an alternate phrasing of the same underlying question. Best-effort embedded for semantic recall. |
 | `solution_alias_remove { id, phrasing }` | Detach a previously-added phrasing. Match is by canonical form. |
 
+### Auto-aliasing
+
+When the dispatch wrapper sees that the **top recall hit** fired *only* via
+the semantic path (its token-overlap score didn't clear `recall_threshold`,
+but the embedding cosine did) and the query carries at least
+`auto_alias_min_query_tokens` concept tokens, it **automatically attaches
+the query as a new phrasing** on that solution. The preamble adds a small
+visible note:
+
+```
+✎ noted this phrasing on the solution for next time (auto-aliased)
+```
+
+Result: future token-shaped recall finds the same solution without
+re-running embeddings, and the recall layer's hit rate **grows with use**
+rather than ossifying around whatever wording the model happened to use
+first. The noise guard (`auto_alias_min_query_tokens`, default 3) stops a
+single common noun (e.g. "campus") from attaching itself to whichever
+solution it semantically lands on. Set `auto_alias_on_semantic_recall =
+false` to disable.
+
 ## Synonyms — `synonym_*`
 
 A single-token alias map: `token` → `canonical`. The fold runs in both
@@ -446,6 +467,10 @@ prune_on_startup            = false   # apply the two above at boot
 embedding_endpoint  = ""              # set to enable; e.g. http://127.0.0.1:1234/v1/embeddings
 embedding_model     = "text-embedding-nomic-embed-text-v1.5"
 embedding_threshold = 0.55            # cosine floor; tighten for stricter matches
+
+# --- Auto-aliasing on semantic-only hits ------------------------------------
+auto_alias_on_semantic_recall = true  # learn from semantic-only hits automatically
+auto_alias_min_query_tokens   = 3     # noise guard against attaching 1-2 token queries
 ```
 
 Every key has a `LODESTONE_MEMORY_<UPPER_SNAKE>` environment override
@@ -470,6 +495,8 @@ Every key has a `LODESTONE_MEMORY_<UPPER_SNAKE>` environment override
 | `allow_destructive` | Skips the confirm-token handshake on `*_forget` and `conversation_prune`. |
 | `embedding_endpoint` | Empty = semantic recall off (no network dep). Set to enable. |
 | `embedding_threshold` | Cosine floor for semantic-only hits; 0.55 is permissive, 0.65+ is strict. |
+| `auto_alias_on_semantic_recall` | Off = no automatic attachment; on = system learns from every semantic-only hit. |
+| `auto_alias_min_query_tokens` | Higher = more conservative about attaching short queries as phrasings. |
 
 ## Destructive tools
 

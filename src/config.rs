@@ -221,6 +221,19 @@ pub struct Memory {
     /// Conservative default — nomic-embed maps even loosely-related text into
     /// the 0.4-0.6 range, so a 0.55 floor excludes genuinely unrelated hits.
     pub embedding_threshold: f32,
+    /// When the recall preamble fires *only* via the semantic path (the
+    /// query's token score against the solution didn't clear
+    /// `recall_threshold`, but the embedding cosine did), automatically
+    /// attach the query as a new `solution_phrasings` row on the top hit so
+    /// future token-shaped recall can find it without re-running embeddings.
+    /// Quietly closes the "we'll only ever recall this in the original
+    /// wording" loop. Default: true (only effective when embeddings are on).
+    pub auto_alias_on_semantic_recall: bool,
+    /// Minimum number of concept tokens the query must carry before
+    /// `auto_alias_on_semantic_recall` will fire — guards against attaching
+    /// noise like a single common noun ("campus") as a phrasing on the top
+    /// hit it happens to match. Default: 3.
+    pub auto_alias_min_query_tokens: usize,
 }
 
 impl Default for Memory {
@@ -245,6 +258,8 @@ impl Default for Memory {
             embedding_endpoint: String::new(),
             embedding_model: "text-embedding-nomic-embed-text-v1.5".to_string(),
             embedding_threshold: 0.55,
+            auto_alias_on_semantic_recall: true,
+            auto_alias_min_query_tokens: 3,
         }
     }
 }
@@ -1429,6 +1444,14 @@ impl Config {
         if let Ok(v) = std::env::var("LODESTONE_MEMORY_EMBEDDING_THRESHOLD") {
             if let Ok(n) = v.parse::<f32>() {
                 self.memory.embedding_threshold = n;
+            }
+        }
+        if let Ok(v) = std::env::var("LODESTONE_MEMORY_AUTO_ALIAS_ON_SEMANTIC_RECALL") {
+            self.memory.auto_alias_on_semantic_recall = is_truthy(&v);
+        }
+        if let Ok(v) = std::env::var("LODESTONE_MEMORY_AUTO_ALIAS_MIN_QUERY_TOKENS") {
+            if let Ok(n) = v.parse::<usize>() {
+                self.memory.auto_alias_min_query_tokens = n;
             }
         }
         if let Ok(v) = std::env::var("LODESTONE_SIGNAL_ENABLED") {
