@@ -249,8 +249,8 @@ required), served over Streamable HTTP at `/mcp`.
   always exposed and gated at *call time* (rather than hidden); each family's
   `allow_destructive` pre-authorizes the action and skips the prompt. Tokens are
   single-use and expire after 5 minutes.
-- **Space, markets & science skills** (keyless): `nasa_apod` / `nasa_neo` /
-  `nasa_mars_photos` (api.nasa.gov, `DEMO_KEY` by default, optional `[nasa].key`);
+- **Space, markets & science skills** (keyless): `nasa_neo` / `nasa_mars_photos`
+  (api.nasa.gov, `DEMO_KEY` by default, optional `[nasa].key`);
   `stock_quote` (delayed quotes via Stooq CSV); `sat_tle` / `sat_position` /
   `sat_observe` (SGP4 orbital propagation — fetch a TLE from CelesTrak, then compute
   the ground sub-point or observer azimuth/elevation/range).

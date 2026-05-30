@@ -132,8 +132,8 @@ and plug into ~85 named formulas across fields (`physics_formula`, `geometry_for
   the current TLE from CelesTrak) → `sat_observe` from your coordinates for
   **azimuth / elevation / range**, or `sat_position` for the live **ground sub-point**
   (lat/lon/alt/speed) via SGP4 propagation.
-- **NASA open data** — astronomy picture of the day (`nasa_apod`), **near-Earth
-  objects** with miss-distance/velocity/hazard flags (`nasa_neo`), and **Mars-rover**
+- **NASA open data** — **near-Earth objects** with miss-distance/velocity/hazard
+  flags (`nasa_neo`), and **Mars-rover**
   imagery (`nasa_mars_photos`).
 - **Radio & signals** — convert **frequency ↔ wavelength ↔ period** (`wave_frequency`,
   e.g. antenna sizing, Doppler); with hardware, scan the RF spectrum (`sdr_scan`).

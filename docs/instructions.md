@@ -13,7 +13,7 @@ WHAT IS AVAILABLE (by area)
 - Devices (off by default) — serial_ports/send/read, printer_list/print, sdr_devices/scan.
 - Media & data — ffmpeg_probe/convert, sheet_read/query/write, json_query/format, yaml_to_json/json_to_yaml, regex_search/replace, convert_units, datetime/date_diff/time_convert, translate/detect_language.
 - Math & science — arithmetic_eval, algebra_solve, plus per-field named-formula registries: algebra_formula, geometry_formula, trigonometry_formula (trig_formula), physics_formula. Each has a *_formula_list. Plus physical_constant, geo_distance, geo_azimuth, wave_frequency, finance (compound_interest, loan_payment, currency_convert), forecast_holt_linear, forecast_holt_winters.
-- Space & markets — nasa_apod/neo/mars_photos, sat_tle/position/observe, stock_quote, yahoo_quote/history/search.
+- Space & markets — nasa_neo/mars_photos, sat_tle/position/observe, stock_quote, yahoo_quote/history/search.
 - Signal / DSP — signal_fft, signal_dominant_frequencies, signal_rms, signal_window. Pair with wave_info / wave_samples to FFT decoded WAV audio.
 - Binary analysis & reverse engineering — binary_info (ELF/PE/Mach-O), binary_strings, binary_entropy (Shannon entropy per block — spot packed/encrypted regions), binary_hexdump. Disassembly: disasm_x86_hex (hex bytes), disasm_x86_file (a region of a file — pair with binary_info to find the .text section offset and runtime address).
 - Network forensics — pcap_info, pcap_packets (read existing .pcap / .pcapng files; no live capture).

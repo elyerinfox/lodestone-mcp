@@ -119,7 +119,7 @@ matching `*_formula_list`) plus the expression evaluator and equation solver.
 
 | Skill | Tools | What |
 | --- | --- | --- |
-| [nasa](skills/nasa.md) | `nasa_apod`, `nasa_neo`, `nasa_mars_photos` | NASA open data (DEMO_KEY; optional `[nasa].key`). |
+| [nasa](skills/nasa.md) | `nasa_neo`, `nasa_mars_photos` | NASA open data (DEMO_KEY; optional `[nasa].key`). |
 | [satellite](skills/satellite.md) | `sat_tle`, `sat_position`, `sat_observe` | SGP4 orbit propagation: sub-point + observer look-angles. |
 
 ## Introspection

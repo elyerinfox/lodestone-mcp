@@ -236,7 +236,7 @@ compression. Files: `src/skills/memory.rs`, `src/provider.rs`,
   auto-suffixed `.us`, indices/forex pass through). Cached; documented as delayed
   reference data. (A keyed provider for richer/history data remains a future option.)
 
-- [x] **NASA API skills.** Done: `src/skills/nasa.rs` — `nasa_apod`, `nasa_neo`,
+- [x] **NASA API skills.** Done: `src/skills/nasa.rs` — `nasa_neo`,
   `nasa_mars_photos` against api.nasa.gov (keyless via `DEMO_KEY`; optional
   `[nasa].key`/`LODESTONE_NASA_KEY` raises the limit). Cached. (DONKI/Exoplanet and an
   ESA per-service skill remain future options — ESA has no single unified API.)

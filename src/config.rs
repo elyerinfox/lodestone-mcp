@@ -206,7 +206,7 @@ pub struct Tools {
     /// wikipedia_summary, kernel_releases, json_query, json_format, yaml_to_json,
     /// json_to_yaml, regex_search, regex_replace, math_eval, math_solve,
     /// geo_distance, geo_azimuth, wave_frequency, compound_interest, loan_payment,
-    /// currency_convert, convert_units, nasa_apod, nasa_neo, nasa_mars_photos,
+    /// currency_convert, convert_units, nasa_neo, nasa_mars_photos,
     /// stock_quote, sat_tle, sat_position, sat_observe, list_providers, constellation_status,
     /// constellation_peers, constellation_seeds. Serial (gated by [serial], off): serial_ports,
     /// serial_send, serial_read. Printer (gated by [printer], off): printer_list,

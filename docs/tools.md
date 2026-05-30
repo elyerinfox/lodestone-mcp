@@ -321,7 +321,6 @@ the rate limit.
 
 | Tool | Arguments | Purpose |
 | --- | --- | --- |
-| `nasa_apod` | `date?` | NASA Astronomy Picture of the Day (title, image/video URL, explanation). |
 | `nasa_neo` | `date?` | Near-Earth objects for a day (diameter, hazardous flag, miss distance, velocity). |
 | `nasa_mars_photos` | `rover?`, `sol?`, `earth_date?`, `max_results?` | Mars rover photo URLs (camera + date). |
 | `sat_tle` | `query` | Fetch a satellite's current TLE from CelesTrak (by NORAD id or name). |

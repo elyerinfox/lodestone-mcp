@@ -1,7 +1,7 @@
 //! NASA open-data skills (keyless-friendly): the api.nasa.gov endpoints. Works with
 //! no key via `DEMO_KEY` (low rate limit); an optional free `[nasa].key` raises it.
-//! Results are cached. `nasa_apod` (Astronomy Picture of the Day), `nasa_neo`
-//! (near-Earth objects for a day), `nasa_mars_photos` (rover imagery).
+//! Results are cached. `nasa_neo` (near-Earth objects for a day),
+//! `nasa_mars_photos` (rover imagery).
 //!
 //! ⚠ **`nasa_mars_photos` is currently broken upstream.** The Mars Rover Photos
 //! API was hosted on a Heroku free dyno that NASA never migrated; the endpoint
@@ -47,13 +47,6 @@ async fn get_json(http: &Client, url: &str) -> Result<Value> {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
-struct ApodArgs {
-    /// Date as YYYY-MM-DD. Omit for today's picture.
-    #[serde(default)]
-    date: Option<String>,
-}
-
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct NeoArgs {
     /// Day as YYYY-MM-DD to list near-Earth objects with close approaches. Omit for today.
     #[serde(default)]
@@ -74,54 +67,6 @@ struct MarsArgs {
     /// Max photos to list. Default 10, capped 25.
     #[serde(default)]
     max_results: Option<u32>,
-}
-
-pub struct NasaApod;
-impl Skill for NasaApod {
-    fn name(&self) -> &'static str {
-        "nasa_apod"
-    }
-    fn description(&self) -> &'static str {
-        "NASA Astronomy Picture of the Day (keyless via DEMO_KEY): title, date, the image/video URL, \
-        and the explanation. Optional date (YYYY-MM-DD)."
-    }
-    fn schema(&self) -> Arc<JsonObject> {
-        schema_for::<ApodArgs>()
-    }
-    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
-        Box::pin(async move {
-            let (server, args) = ctx.parse::<ApodArgs>()?;
-            let date = args.date.as_deref().map(str::trim).unwrap_or("");
-            let key = format!("nasa_apod|{date}");
-            if let Some(c) = server.retrieval_get(&key).await {
-                return Ok(text_result(c));
-            }
-            let mut url = format!(
-                "https://api.nasa.gov/planetary/apod?api_key={}",
-                api_key(server)
-            );
-            if !date.is_empty() {
-                url.push_str(&format!("&date={date}"));
-            }
-            let v = get_json(&server.http, &url).await.map_err(internal)?;
-            let s = |k: &str| v.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string();
-            let out = format!(
-                "{} ({})\n  {}\n  {}\n\n{}",
-                s("title"),
-                s("date"),
-                s("media_type"),
-                if s("hdurl").is_empty() {
-                    s("url")
-                } else {
-                    s("hdurl")
-                },
-                s("explanation"),
-            );
-            let out = truncate_chars(&out, server.max_chars);
-            server.retrieval_put(key, &out);
-            Ok(text_result(out))
-        })
-    }
 }
 
 pub struct NasaNeo;
@@ -266,11 +211,7 @@ impl Skill for NasaMarsPhotos {
 
 /// The skills this module contributes.
 pub fn skills() -> Vec<Box<dyn Skill>> {
-    vec![
-        Box::new(NasaApod),
-        Box::new(NasaNeo),
-        Box::new(NasaMarsPhotos),
-    ]
+    vec![Box::new(NasaNeo), Box::new(NasaMarsPhotos)]
 }
 
 #[cfg(test)]
@@ -292,20 +233,6 @@ mod tests {
                 eprintln!("skipping nasa live: no LODESTONE_NASA_KEY/NASA_API_KEY (DEMO_KEY rate-limits at 30/hr)");
                 None
             }
-        }
-    }
-
-    #[tokio::test]
-    #[ignore]
-    async fn nasa_apod_live() {
-        let Some(key) = nasa_key_or_skip() else { return; };
-        let url = format!("https://api.nasa.gov/planetary/apod?api_key={key}");
-        let r = http()
-            .get(&url)
-            .send().await.expect("network").error_for_status().unwrap();
-        let v: serde_json::Value = r.json().await.unwrap();
-        for k in ["date", "title", "url", "explanation"] {
-            assert!(v.get(k).is_some(), "missing field {k}");
         }
     }
 
