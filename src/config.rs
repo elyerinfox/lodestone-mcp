@@ -64,6 +64,62 @@ pub struct Config {
     /// default. When on, key/value memories and proposed solutions are persisted under
     /// `[memory].dir` and recalled across sessions/restarts.
     pub memory: Memory,
+    /// Signal-processing skills (FFT, RMS, windowing). Off by default.
+    pub signal: ToggleOnly,
+    /// WAV file probe + decode (off by default).
+    pub wave: ToggleOnly,
+    /// Binary analysis (file detect, strings, entropy, hexdump, ELF/PE/Mach-O). Off by default.
+    pub binary: ToggleOnly,
+    /// Pcap file reader (off by default).
+    pub pcap: ToggleOnly,
+    /// x86/x64 disassembler (off by default).
+    pub disasm: ToggleOnly,
+    /// Jupyter notebook parser (off by default).
+    pub notebook: ToggleOnly,
+    /// Python runner (subprocess to system interpreter). Off by default; every run is guarded.
+    pub python: Python,
+    /// Linux systemd skills (off by default).
+    pub systemd: Systemd,
+}
+
+/// A skill family whose only knob is on/off (no extra parameters).
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct ToggleOnly {
+    pub enabled: bool,
+}
+
+/// Python runner settings.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct Python {
+    pub enabled: bool,
+    /// Interpreter to invoke. Default `python3` (Unix) / `python` (Windows).
+    pub interpreter: String,
+    /// Default per-call timeout in seconds (1–600). Default 30.
+    pub timeout_secs: u64,
+    /// `true` skips the per-run confirmation prompt (still cap-bound).
+    pub allow_destructive: bool,
+}
+
+impl Default for Python {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            interpreter: String::new(),
+            timeout_secs: 30,
+            allow_destructive: false,
+        }
+    }
+}
+
+/// systemd skill settings.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct Systemd {
+    pub enabled: bool,
+    /// `true` pre-authorizes start/stop/restart (skip the prompt).
+    pub allow_destructive: bool,
 }
 
 /// Persistent memory & solution-history skills. Local on-disk JSONL store under
@@ -828,6 +884,14 @@ impl Default for Config {
             docsites: HashMap::new(),
             databases: Databases::default(),
             memory: Memory::default(),
+            signal: ToggleOnly::default(),
+            wave: ToggleOnly::default(),
+            binary: ToggleOnly::default(),
+            pcap: ToggleOnly::default(),
+            disasm: ToggleOnly::default(),
+            notebook: ToggleOnly::default(),
+            python: Python::default(),
+            systemd: Systemd::default(),
         }
     }
 }
@@ -1200,6 +1264,33 @@ impl Config {
         }
         if let Ok(v) = std::env::var("LODESTONE_MEMORY_ALLOW_DESTRUCTIVE") {
             self.memory.allow_destructive = is_truthy(&v);
+        }
+        if let Ok(v) = std::env::var("LODESTONE_SIGNAL_ENABLED") {
+            self.signal.enabled = is_truthy(&v);
+        }
+        if let Ok(v) = std::env::var("LODESTONE_WAVE_ENABLED") {
+            self.wave.enabled = is_truthy(&v);
+        }
+        if let Ok(v) = std::env::var("LODESTONE_BINARY_ENABLED") {
+            self.binary.enabled = is_truthy(&v);
+        }
+        if let Ok(v) = std::env::var("LODESTONE_PCAP_ENABLED") {
+            self.pcap.enabled = is_truthy(&v);
+        }
+        if let Ok(v) = std::env::var("LODESTONE_DISASM_ENABLED") {
+            self.disasm.enabled = is_truthy(&v);
+        }
+        if let Ok(v) = std::env::var("LODESTONE_NOTEBOOK_ENABLED") {
+            self.notebook.enabled = is_truthy(&v);
+        }
+        if let Ok(v) = std::env::var("LODESTONE_PYTHON_ENABLED") {
+            self.python.enabled = is_truthy(&v);
+        }
+        if let Ok(v) = std::env::var("LODESTONE_SYSTEMD_ENABLED") {
+            self.systemd.enabled = is_truthy(&v);
+        }
+        if let Ok(v) = std::env::var("LODESTONE_SYSTEMD_ALLOW_DESTRUCTIVE") {
+            self.systemd.allow_destructive = is_truthy(&v);
         }
         if let Ok(v) = std::env::var("LODESTONE_SERIAL_ENABLED") {
             self.serial.enabled = is_truthy(&v);

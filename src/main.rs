@@ -90,6 +90,10 @@ pub(crate) struct Lodestone {
     /// Persistent memory & solution-history store (the `memory_*` / `solution_*`
     /// tools). On-disk JSONL under `[memory].dir`. Shared across cloned handles.
     pub(crate) memory: skills::memory::Memory,
+    /// Python runner settings (`python_run`).
+    pub(crate) python: Arc<config::Python>,
+    /// systemd skill settings.
+    pub(crate) systemd: Arc<config::Systemd>,
     // The filtered tool router; `#[tool_handler(router = self.tool_router)]`
     // uses it for both tool listing and dispatch.
     tool_router: ToolRouter<Lodestone>,
@@ -118,6 +122,8 @@ impl Lodestone {
         databases: config::Databases,
         store: Option<Arc<store::FileStore>>,
         memory: skills::memory::Memory,
+        python: config::Python,
+        systemd: config::Systemd,
         tools_enabled: &[String],
         tools_disabled: &[String],
     ) -> Self {
@@ -149,6 +155,8 @@ impl Lodestone {
             guard: skills::guard::Guard::default(),
             tasks: skills::tasks::Tasks::new(),
             memory,
+            python: Arc::new(python),
+            systemd: Arc::new(systemd),
             tool_router,
         }
     }
@@ -646,6 +654,8 @@ async fn main() -> anyhow::Result<()> {
         cfg.databases.clone(),
         store,
         memory,
+        cfg.python.clone(),
+        cfg.systemd.clone(),
         &cfg.tools.enabled,
         &tools_disabled,
     );

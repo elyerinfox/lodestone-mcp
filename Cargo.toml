@@ -78,3 +78,15 @@ sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio",
 csv = "1"
 calamine = "0.26"
 rust_xlsxwriter = "0.79"
+# Signal-processing skill (off by default): FFT, dominant frequencies, RMS.
+rustfft = "6"
+# WAV file decoding for the `wave_*` skill (off by default).
+hound = "3"
+# Binary analysis skill (off by default): ELF/PE/Mach-O metadata, strings,
+# entropy, hexdump. `object` is pure Rust, no native deps.
+object = { version = "0.36", default-features = false, features = ["read", "std"] }
+# Pcap-file parsing for the `pcap_*` skill (off by default). Reads existing
+# .pcap / .pcapng files; no native libpcap needed.
+pcap-file = "2"
+# x86/x64 disassembly for the `disasm_*` skill (off by default).
+iced-x86 = { version = "1", default-features = false, features = ["std", "decoder", "nasm", "fast_fmt"] }

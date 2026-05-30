@@ -32,8 +32,16 @@ pub mod guard;
 pub mod huggingface;
 pub mod kernel;
 pub mod kubernetes;
+pub mod binary;
+pub mod disasm;
 pub mod memory;
 pub mod meta;
+pub mod notebook;
+pub mod pcap;
+pub mod python;
+pub mod signal;
+pub mod systemd;
+pub mod wave;
 pub mod nasa;
 pub mod news;
 pub mod oci;
@@ -156,6 +164,14 @@ fn all_skills() -> Vec<Box<dyn Skill>> {
     skills.extend(store::skills());
     skills.extend(tasks::skills());
     skills.extend(memory::skills());
+    skills.extend(signal::skills());
+    skills.extend(wave::skills());
+    skills.extend(binary::skills());
+    skills.extend(pcap::skills());
+    skills.extend(disasm::skills());
+    skills.extend(notebook::skills());
+    skills.extend(python::skills());
+    skills.extend(systemd::skills());
     skills.extend(datetime::skills());
     skills.extend(translate::skills());
     skills.extend(data::skills());
@@ -221,6 +237,14 @@ pub fn disabled_by_config(cfg: &crate::config::Config) -> Vec<String> {
     hide_if_off(cfg.tasks.enabled, tasks::TOOL_NAMES);
     // Memory & solution-history skills — off by default.
     hide_if_off(cfg.memory.enabled, memory::TOOL_NAMES);
+    hide_if_off(cfg.signal.enabled, signal::TOOL_NAMES);
+    hide_if_off(cfg.wave.enabled, wave::TOOL_NAMES);
+    hide_if_off(cfg.binary.enabled, binary::TOOL_NAMES);
+    hide_if_off(cfg.pcap.enabled, pcap::TOOL_NAMES);
+    hide_if_off(cfg.disasm.enabled, disasm::TOOL_NAMES);
+    hide_if_off(cfg.notebook.enabled, notebook::TOOL_NAMES);
+    hide_if_off(cfg.python.enabled, python::TOOL_NAMES);
+    hide_if_off(cfg.systemd.enabled, systemd::TOOL_NAMES);
     // Stock quotes — on by default, but gateable. Yahoo Finance shares the gate.
     hide_if_off(cfg.stocks.enabled, stocks::TOOL_NAMES);
     hide_if_off(cfg.stocks.enabled, yahoo::TOOL_NAMES);

@@ -8,6 +8,27 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Signal-processing skills** (off by default, `[signal]`): `signal_fft`,
+  `signal_dominant_frequencies`, `signal_rms`, `signal_window` (Hann / Hamming
+  / Blackman / rectangular). Pure compute via `rustfft` (runtime SIMD).
+- **WAV file skills** (off by default, `[wave]`): `wave_info`, `wave_samples`
+  via `hound`. Pair with the signal skills to FFT decoded audio.
+- **Binary analysis skills** (off by default, `[binary]`): `binary_info` (ELF/
+  PE/Mach-O via `object`), `binary_strings` (printable-string extraction),
+  `binary_entropy` (Shannon entropy per block — spot packed/encrypted
+  regions), `binary_hexdump`. Read-only.
+- **Pcap reader skills** (off by default, `[pcap]`): `pcap_info`,
+  `pcap_packets` via the pure-Rust `pcap-file` crate (no native libpcap).
+- **x86/x64 disassembly skills** (off by default, `[disasm]`):
+  `disasm_x86_hex`, `disasm_x86_file` via `iced-x86` (NASM-flavored output).
+- **Jupyter notebook skills** (off by default, `[notebook]`): `notebook_info`,
+  `notebook_cells`. Read-only `.ipynb` parser.
+- **Python runner skill** (off by default, `[python]`): `python_run`
+  subprocess to system interpreter; every call confirms first (guarded).
+- **Linux systemd skills** (off by default, `[systemd]`): `systemd_list`,
+  `systemd_status`, `systemd_logs` (read-only), plus guarded
+  `systemd_start` / `stop` / `restart`.
+
 - **Persistent memory & solution-history skills** (off by default, `[memory]`).
   Two related on-disk tool families share one local JSONL store under
   `[memory].dir` (default `.lodestone-memory/`):
