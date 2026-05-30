@@ -60,6 +60,42 @@ pub struct Config {
     /// is no stored connection — the caller passes a connection URL in each call (the
     /// user hands it to the model in conversation). Off by default.
     pub databases: Databases,
+    /// Persistent memory & solution-history skills (`memory_*` / `solution_*`). Off by
+    /// default. When on, key/value memories and proposed solutions are persisted under
+    /// `[memory].dir` and recalled across sessions/restarts.
+    pub memory: Memory,
+}
+
+/// Persistent memory & solution-history skills. Local on-disk JSONL store under
+/// `dir`; never advertised to the constellation. Off by default. Destructive
+/// `memory_forget` / `solution_forget` confirm at call time unless
+/// `allow_destructive` pre-authorizes.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct Memory {
+    /// Expose the `memory_*` and `solution_*` tools. Off by default.
+    pub enabled: bool,
+    /// Directory for the JSONL stores (`memory.jsonl`, `solutions.jsonl`).
+    /// Default: `.lodestone-memory` (relative to the server's working directory).
+    pub dir: String,
+    /// Pre-authorize `memory_forget` / `solution_forget` — skip the per-call confirm.
+    pub allow_destructive: bool,
+    /// Soft cap on each store (memories or solutions). Saves beyond it return an error.
+    pub max_entries: usize,
+    /// Per-value character cap (memory value or solution content). Larger inputs are rejected.
+    pub max_value_chars: usize,
+}
+
+impl Default for Memory {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            dir: ".lodestone-memory".to_string(),
+            allow_destructive: false,
+            max_entries: 10_000,
+            max_value_chars: 64_000,
+        }
+    }
 }
 
 /// Global settings for the database skills. Connections are always ad-hoc (passed per
@@ -791,6 +827,7 @@ impl Default for Config {
             forges: HashMap::new(),
             docsites: HashMap::new(),
             databases: Databases::default(),
+            memory: Memory::default(),
         }
     }
 }
@@ -1152,6 +1189,17 @@ impl Config {
         }
         if let Ok(v) = std::env::var("LODESTONE_TASKS_ENABLED") {
             self.tasks.enabled = is_truthy(&v);
+        }
+        if let Ok(v) = std::env::var("LODESTONE_MEMORY_ENABLED") {
+            self.memory.enabled = is_truthy(&v);
+        }
+        if let Ok(v) = std::env::var("LODESTONE_MEMORY_DIR") {
+            if !v.trim().is_empty() {
+                self.memory.dir = v;
+            }
+        }
+        if let Ok(v) = std::env::var("LODESTONE_MEMORY_ALLOW_DESTRUCTIVE") {
+            self.memory.allow_destructive = is_truthy(&v);
         }
         if let Ok(v) = std::env::var("LODESTONE_SERIAL_ENABLED") {
             self.serial.enabled = is_truthy(&v);

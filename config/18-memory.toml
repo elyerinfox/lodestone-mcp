@@ -1,0 +1,34 @@
+# =============================================================================
+# config/18-memory.toml — persistent memory & solution-history skills (off by default)
+# =============================================================================
+#
+# Two tool families share one on-disk store under `dir`:
+#   * memory_*    a simple key→value store the model can write to remember things
+#                 between sessions (memory_save / memory_get / memory_list /
+#                 memory_search / memory_forget). Optional `scope` groups and `tags`.
+#   * solution_*  proposed solutions to past problems, with full revision history
+#                 (solution_record / solution_find / solution_show / solution_list /
+#                 solution_update / solution_forget). solution_find surfaces prior
+#                 entries as ADVISORY suggestions on similar questions — it ranks
+#                 exact canonical key > exact concept match > fuzzy concept-token
+#                 overlap (Jaccard) > substring, plus a boost for shared `tags`.
+#                 solution_update appends a new revision; prior revisions stay
+#                 queryable via solution_show.
+#
+# Entries are LOCAL ONLY — never advertised in the constellation digest.
+#
+# memory_forget / solution_forget are DESTRUCTIVE: the first call returns a
+# confirmation token and does nothing; call again with confirm=<token> (or
+# confirm + trust=true to whitelist for the session). `allow_destructive = true`
+# pre-authorizes (skips the prompt).
+#
+# Env: LODESTONE_MEMORY_ENABLED, LODESTONE_MEMORY_DIR,
+#      LODESTONE_MEMORY_ALLOW_DESTRUCTIVE
+# -----------------------------------------------------------------------------
+
+[memory]
+enabled = false                # OFF by default — set true to expose memory_* / solution_*
+dir = ".lodestone-memory"      # JSONL store (memory.jsonl, solutions.jsonl) lives here
+allow_destructive = false      # true = skip the memory_forget / solution_forget prompt
+max_entries = 10000            # soft cap on each store (memories or solutions)
+max_value_chars = 64000        # per-value cap on memory `value` / solution `content`

@@ -1,0 +1,2206 @@
+//! Memory, solutions, and learned synonyms — persisted across sessions in a
+//! local SQLite database (`{dir}/store.db`, default `.lodestone-memory/`).
+//!
+//! Three related tool families share one database:
+//!
+//! * **`memory_*`** — a key→value store the model can write to remember
+//!   anything across sessions (`save`/`get`/`list`/`search`/`forget`). Optional
+//!   `scope` namespaces and `tags`.
+//! * **`solution_*`** — proposed solutions to past problems, with full revision
+//!   history, **typed relation graph** (`supersedes`/`depends-on`/`related-to`
+//!   etc. — `link`/`unlink`/`graph`/`related`), and tag-aware fuzzy recall
+//!   (`record`/`find`/`show`/`list`/`update`/`forget`). `solution_find` is
+//!   **advisory**, never prescriptive — it surfaces matching prior entries as
+//!   suggestions ranked by exact canonical > exact concept > fuzzy Jaccard >
+//!   substring, plus a tag boost.
+//! * **`synonym_*`** — single-token aliases the model accumulates as it learns
+//!   (`add`/`remove`/`list`). Loaded into a shared in-memory map at startup and
+//!   read by `canonical_query` / `concept_tokens` in `src/provider.rs`, so
+//!   *both* the search cache and the memory recall benefit. Empty out of the
+//!   box — no hardcoded table.
+//!
+//! Storage is **proper indexed SQLite** (via `sqlx`), so the layer scales to
+//! millions of rows with bounded per-page partitioning, ACID writes, and
+//! transactional deletes (CASCADE removes a solution's revisions/tags/links;
+//! dangling incoming edges are cleaned in the same transaction). Schema
+//! changes are versioned via a **migration system**: each migration is a SQL
+//! file in `migrations/`, compiled into the binary at build time and applied
+//! transactionally at startup if its version is greater than the highest
+//! already-applied one (tracked in a `_schema_version` table).
+//!
+//! Off by default (`[memory].enabled`). Entries live **only on this host** —
+//! never advertised in the constellation digest. `*_forget` are routed through
+//! the confirmation [`guard`](super::guard).
+
+use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
+use std::str::FromStr;
+use std::sync::{Arc, RwLock};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use anyhow::Context;
+use futures::future::BoxFuture;
+use rmcp::model::{CallToolResult, JsonObject};
+use rmcp::ErrorData as McpError;
+use serde::Deserialize;
+use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePool};
+use sqlx::FromRow;
+
+use crate::skills::guard::Decision;
+use crate::skills::{schema_for, Skill, SkillCtx};
+use crate::{config, internal, invalid, text_result};
+
+/// Tool names (gated by `[memory].enabled` in `disabled_by_config`).
+pub const TOOL_NAMES: &[&str] = &[
+    // Memory
+    "memory_save",
+    "memory_get",
+    "memory_list",
+    "memory_search",
+    "memory_forget",
+    // Solutions
+    "solution_record",
+    "solution_find",
+    "solution_show",
+    "solution_list",
+    "solution_update",
+    "solution_forget",
+    // Solution graph
+    "solution_link",
+    "solution_unlink",
+    "solution_graph",
+    "solution_related",
+    // Learned synonyms
+    "synonym_add",
+    "synonym_remove",
+    "synonym_list",
+];
+
+const DEFAULT_DIR: &str = ".lodestone-memory";
+const DB_FILE: &str = "store.db";
+
+// ---------------------------------------------------------------------------
+// Schema migrations
+// ---------------------------------------------------------------------------
+
+/// One ordered, idempotent schema change. The SQL is embedded at build time so
+/// the running binary is fully self-contained — there's no separate
+/// `migrations/` directory to ship next to it. To add a migration: write
+/// `migrations/000N_<name>.sql` and append a `Migration { version: N, … }`
+/// entry to `MIGRATIONS`. The runner applies it inside a transaction and
+/// records `N` in `_schema_version`.
+struct Migration {
+    version: u32,
+    name: &'static str,
+    sql: &'static str,
+}
+
+const MIGRATIONS: &[Migration] = &[Migration {
+    version: 1,
+    name: "initial",
+    sql: include_str!("../../migrations/0001_initial.sql"),
+}];
+
+/// Apply every migration whose version is greater than the highest already
+/// recorded in `_schema_version`. Each migration runs in its own transaction
+/// so a partial failure doesn't leave the database half-migrated.
+async fn apply_migrations(pool: &SqlitePool) -> anyhow::Result<()> {
+    sqlx::raw_sql(
+        "CREATE TABLE IF NOT EXISTS _schema_version (\
+            version    INTEGER NOT NULL PRIMARY KEY,\
+            applied_at INTEGER NOT NULL,\
+            name       TEXT    NOT NULL\
+        )",
+    )
+    .execute(pool)
+    .await
+    .context("create _schema_version")?;
+    let current: Option<(i64,)> =
+        sqlx::query_as("SELECT COALESCE(MAX(version), 0) FROM _schema_version")
+            .fetch_optional(pool)
+            .await
+            .context("read current schema version")?;
+    let current_v = current.map(|c| c.0 as u32).unwrap_or(0);
+    for m in MIGRATIONS {
+        if m.version > current_v {
+            tracing::info!("memory: applying migration v{} ({})", m.version, m.name);
+            let mut tx = pool
+                .begin()
+                .await
+                .with_context(|| format!("begin tx for migration v{}", m.version))?;
+            sqlx::raw_sql(m.sql)
+                .execute(&mut *tx)
+                .await
+                .with_context(|| format!("apply migration v{} ({})", m.version, m.name))?;
+            sqlx::query("INSERT INTO _schema_version (version, applied_at, name) VALUES (?, ?, ?)")
+                .bind(m.version as i64)
+                .bind(now_secs() as i64)
+                .bind(m.name)
+                .execute(&mut *tx)
+                .await
+                .with_context(|| format!("record migration v{}", m.version))?;
+            tx.commit()
+                .await
+                .with_context(|| format!("commit migration v{}", m.version))?;
+        }
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+fn now_secs() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+fn fmt_ts(ts: u64) -> String {
+    use chrono::{TimeZone, Utc};
+    Utc.timestamp_opt(ts as i64, 0)
+        .single()
+        .map(|d| d.format("%Y-%m-%d %H:%M UTC").to_string())
+        .unwrap_or_else(|| ts.to_string())
+}
+
+fn truncate(s: &str, n: usize) -> String {
+    let mut out: String = s.chars().take(n).collect();
+    if s.chars().count() > n {
+        out.push('…');
+    }
+    out
+}
+
+/// Normalize a tag list: trim, drop empties, dedupe case-insensitively while
+/// preserving the first-seen casing.
+fn clean_tags(raw: Vec<String>) -> Vec<String> {
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut out: Vec<String> = Vec::new();
+    for t in raw {
+        let trimmed = t.trim().to_string();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let lc = trimmed.to_ascii_lowercase();
+        if seen.insert(lc) {
+            out.push(trimmed);
+        }
+    }
+    out
+}
+
+fn concept_key_of(text: &str) -> Option<String> {
+    let toks = crate::provider::concept_tokens(text);
+    if toks.is_empty() {
+        None
+    } else {
+        Some(toks.join(" "))
+    }
+}
+
+/// Reciprocal relation kind. Known directional pairs flip; everything else is
+/// treated as symmetric (same kind on both ends).
+fn reciprocal_kind(kind: &str) -> String {
+    match kind {
+        "supersedes" => "superseded-by".to_string(),
+        "superseded-by" => "supersedes".to_string(),
+        "depends-on" => "dependency-of".to_string(),
+        "dependency-of" => "depends-on".to_string(),
+        other => other.to_string(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The shared store
+// ---------------------------------------------------------------------------
+
+/// The memory layer: a SQLite connection pool plus a fast in-memory mirror of
+/// the synonyms table (so `canonical_query` doesn't hit the disk on every
+/// search/recall token).
+#[derive(Clone)]
+pub(crate) struct Memory {
+    cfg: Arc<config::Memory>,
+    pool: SqlitePool,
+    synonyms: Arc<RwLock<HashMap<String, String>>>,
+}
+
+impl Memory {
+    /// Open the store: ensure the directory and SQLite file exist, run any
+    /// pending migrations, load the synonyms table into a shared map, and
+    /// install that map for `crate::provider`'s canonicalization to use.
+    pub(crate) async fn new(cfg: config::Memory) -> anyhow::Result<Self> {
+        let dir_str = if cfg.dir.trim().is_empty() {
+            DEFAULT_DIR.to_string()
+        } else {
+            cfg.dir.clone()
+        };
+        let dir = PathBuf::from(&dir_str);
+        tokio::fs::create_dir_all(&dir)
+            .await
+            .with_context(|| format!("create memory dir {}", dir.display()))?;
+        let db_path = dir.join(DB_FILE);
+        let opts = SqliteConnectOptions::from_str(&format!("sqlite://{}", db_path.display()))
+            .with_context(|| format!("invalid sqlite path {}", db_path.display()))?
+            .create_if_missing(true)
+            .journal_mode(SqliteJournalMode::Wal)
+            .foreign_keys(true);
+        let pool = SqlitePool::connect_with(opts)
+            .await
+            .with_context(|| format!("open sqlite {}", db_path.display()))?;
+        apply_migrations(&pool).await?;
+
+        let rows: Vec<(String, String)> = sqlx::query_as("SELECT token, canonical FROM synonyms")
+            .fetch_all(&pool)
+            .await
+            .context("load synonyms")?;
+        let map: HashMap<String, String> = rows.into_iter().collect();
+        let synonyms = Arc::new(RwLock::new(map));
+        crate::provider::install_synonym_store(synonyms.clone());
+
+        Ok(Self {
+            cfg: Arc::new(cfg),
+            pool,
+            synonyms,
+        })
+    }
+}
+
+// ---------------------------------------------------------------------------
+// memory_* tools
+// ---------------------------------------------------------------------------
+
+#[derive(FromRow)]
+struct MemoryRow {
+    key: String,
+    scope: String,
+    value: String,
+    tags_json: String,
+    created_at: i64,
+    updated_at: i64,
+}
+
+impl MemoryRow {
+    fn tags(&self) -> Vec<String> {
+        serde_json::from_str(&self.tags_json).unwrap_or_default()
+    }
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct MemorySaveArgs {
+    /// Unique key (within `scope`) for this memory.
+    key: String,
+    /// The text to remember (free-form; markdown OK).
+    value: String,
+    /// Optional grouping namespace (default ""). Same key in different scopes are distinct entries.
+    #[serde(default)]
+    scope: Option<String>,
+    /// Optional tags (free-form; used by memory_search).
+    #[serde(default)]
+    tags: Option<Vec<String>>,
+}
+
+pub struct MemorySave;
+impl Skill for MemorySave {
+    fn name(&self) -> &'static str {
+        "memory_save"
+    }
+    fn description(&self) -> &'static str {
+        "Save a key→value memory that survives restarts and is reachable from future sessions. \
+        Optional `scope` namespaces a group (e.g. \"user-prefs\") and optional `tags` make it \
+        searchable via memory_search. Upserts if the key+scope already exists."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<MemorySaveArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (server, args) = ctx.parse::<MemorySaveArgs>()?;
+            let mem = &server.memory;
+            let key = args.key.trim();
+            if key.is_empty() {
+                return Err(invalid("key must not be empty"));
+            }
+            let cap = mem.cfg.max_value_chars.max(1);
+            if args.value.chars().count() > cap {
+                return Err(invalid(format!(
+                    "value too long: {} chars (max {cap})",
+                    args.value.chars().count()
+                )));
+            }
+            let scope = args.scope.unwrap_or_default();
+            let tags = clean_tags(args.tags.unwrap_or_default());
+            let tags_json = serde_json::to_string(&tags).unwrap_or_else(|_| "[]".to_string());
+            let now = now_secs() as i64;
+            let prior: Option<(i64,)> =
+                sqlx::query_as("SELECT created_at FROM memory WHERE scope = ? AND key = ?")
+                    .bind(&scope)
+                    .bind(key)
+                    .fetch_optional(&mem.pool)
+                    .await
+                    .map_err(|e| internal(e.into()))?;
+            if prior.is_none() {
+                let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM memory")
+                    .fetch_one(&mem.pool)
+                    .await
+                    .map_err(|e| internal(e.into()))?;
+                if (count.0 as usize) >= mem.cfg.max_entries.max(1) {
+                    return Err(invalid(format!(
+                        "memory full: max_entries = {} (forget some to make room)",
+                        mem.cfg.max_entries
+                    )));
+                }
+            }
+            sqlx::query(
+                "INSERT INTO memory (scope, key, value, tags_json, created_at, updated_at) \
+                 VALUES (?, ?, ?, ?, ?, ?) \
+                 ON CONFLICT(scope, key) DO UPDATE SET value = excluded.value, \
+                     tags_json = excluded.tags_json, updated_at = excluded.updated_at",
+            )
+            .bind(&scope)
+            .bind(key)
+            .bind(&args.value)
+            .bind(&tags_json)
+            .bind(prior.map(|p| p.0).unwrap_or(now))
+            .bind(now)
+            .execute(&mem.pool)
+            .await
+            .map_err(|e| internal(e.into()))?;
+            let action = if prior.is_some() { "Updated" } else { "Saved" };
+            Ok(text_result(format!(
+                "{action} key=\"{key}\"{} at {}.",
+                if scope.is_empty() {
+                    String::new()
+                } else {
+                    format!(" scope=\"{scope}\"")
+                },
+                fmt_ts(now as u64)
+            )))
+        })
+    }
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct MemoryGetArgs {
+    /// The key to fetch.
+    key: String,
+    /// Optional scope (default "").
+    #[serde(default)]
+    scope: Option<String>,
+}
+
+pub struct MemoryGet;
+impl Skill for MemoryGet {
+    fn name(&self) -> &'static str {
+        "memory_get"
+    }
+    fn description(&self) -> &'static str {
+        "Look up one saved memory by exact key (and optional scope). Returns the value with its \
+        tags and timestamps, or a 'no such key' message."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<MemoryGetArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (server, args) = ctx.parse::<MemoryGetArgs>()?;
+            let scope = args.scope.unwrap_or_default();
+            let row: Option<MemoryRow> = sqlx::query_as(
+                "SELECT key, scope, value, tags_json, created_at, updated_at \
+                 FROM memory WHERE scope = ? AND key = ?",
+            )
+            .bind(&scope)
+            .bind(&args.key)
+            .fetch_optional(&server.memory.pool)
+            .await
+            .map_err(|e| internal(e.into()))?;
+            let out = match row {
+                None => format!(
+                    "No memory for key=\"{}\"{}.",
+                    args.key,
+                    if scope.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" scope=\"{scope}\"")
+                    }
+                ),
+                Some(e) => {
+                    let tags = e.tags();
+                    let mut s = format!(
+                        "{}{}\n  saved {} · updated {}",
+                        e.key,
+                        if e.scope.is_empty() {
+                            String::new()
+                        } else {
+                            format!(" [scope: {}]", e.scope)
+                        },
+                        fmt_ts(e.created_at as u64),
+                        fmt_ts(e.updated_at as u64)
+                    );
+                    if !tags.is_empty() {
+                        s.push_str(&format!("\n  tags: {}", tags.join(", ")));
+                    }
+                    s.push_str("\n\n");
+                    s.push_str(&e.value);
+                    s
+                }
+            };
+            Ok(text_result(out))
+        })
+    }
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct MemoryListArgs {
+    /// Optional scope filter (default: all scopes).
+    #[serde(default)]
+    scope: Option<String>,
+    /// Only show keys starting with this prefix.
+    #[serde(default)]
+    prefix: Option<String>,
+    /// Max entries to show (default 25, capped at 200).
+    #[serde(default)]
+    max: Option<u32>,
+}
+
+pub struct MemoryList;
+impl Skill for MemoryList {
+    fn name(&self) -> &'static str {
+        "memory_list"
+    }
+    fn description(&self) -> &'static str {
+        "List saved memories — key, scope, tags, age, and a value preview. Optional `scope` and \
+        `prefix` filters."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<MemoryListArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (server, args) = ctx.parse::<MemoryListArgs>()?;
+            let max = args.max.unwrap_or(25).clamp(1, 200) as i64;
+            let prefix_pat = args.prefix.as_ref().map(|p| format!("{p}%"));
+            let q = match (&args.scope, &prefix_pat) {
+                (Some(_), Some(_)) => {
+                    "SELECT key, scope, value, tags_json, created_at, updated_at \
+                                        FROM memory WHERE scope = ? AND key LIKE ? \
+                                        ORDER BY updated_at DESC LIMIT ?"
+                }
+                (Some(_), None) => {
+                    "SELECT key, scope, value, tags_json, created_at, updated_at \
+                                    FROM memory WHERE scope = ? ORDER BY updated_at DESC LIMIT ?"
+                }
+                (None, Some(_)) => {
+                    "SELECT key, scope, value, tags_json, created_at, updated_at \
+                                    FROM memory WHERE key LIKE ? ORDER BY updated_at DESC LIMIT ?"
+                }
+                (None, None) => {
+                    "SELECT key, scope, value, tags_json, created_at, updated_at \
+                                 FROM memory ORDER BY updated_at DESC LIMIT ?"
+                }
+            };
+            let mut query = sqlx::query_as::<_, MemoryRow>(q);
+            if let Some(s) = &args.scope {
+                query = query.bind(s);
+            }
+            if let Some(p) = &prefix_pat {
+                query = query.bind(p);
+            }
+            query = query.bind(max);
+            let rows = query
+                .fetch_all(&server.memory.pool)
+                .await
+                .map_err(|e| internal(e.into()))?;
+            if rows.is_empty() {
+                return Ok(text_result("No memories match.".to_string()));
+            }
+            let total: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM memory")
+                .fetch_one(&server.memory.pool)
+                .await
+                .map_err(|e| internal(e.into()))?;
+            let mut out = format!(
+                "{} memor{} ({} shown):\n",
+                total.0,
+                if total.0 == 1 { "y" } else { "ies" },
+                rows.len()
+            );
+            for e in &rows {
+                let tags = e.tags();
+                let scope_tag = if e.scope.is_empty() {
+                    String::new()
+                } else {
+                    format!(" [{}]", e.scope)
+                };
+                let tag_tag = if tags.is_empty() {
+                    String::new()
+                } else {
+                    format!(" #{}", tags.join(" #"))
+                };
+                out.push_str(&format!(
+                    "\n  {}{}{}\n    updated {} · {}\n",
+                    e.key,
+                    scope_tag,
+                    tag_tag,
+                    fmt_ts(e.updated_at as u64),
+                    truncate(&e.value.replace('\n', " "), 100)
+                ));
+            }
+            Ok(text_result(out))
+        })
+    }
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct MemorySearchArgs {
+    /// Substring to look for in key, tags, or value (case-insensitive).
+    query: String,
+    /// Optional scope filter.
+    #[serde(default)]
+    scope: Option<String>,
+    /// Optional single tag the entry must carry.
+    #[serde(default)]
+    tag: Option<String>,
+    /// Max entries to show (default 10, capped at 50).
+    #[serde(default)]
+    max: Option<u32>,
+}
+
+pub struct MemorySearch;
+impl Skill for MemorySearch {
+    fn name(&self) -> &'static str {
+        "memory_search"
+    }
+    fn description(&self) -> &'static str {
+        "Search saved memories by substring (case-insensitive across key, tags, and value), with \
+        optional `scope` and `tag` filters."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<MemorySearchArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (server, args) = ctx.parse::<MemorySearchArgs>()?;
+            let max = args.max.unwrap_or(10).clamp(1, 50) as i64;
+            let needle_raw = args.query.trim();
+            if needle_raw.is_empty() {
+                return Err(invalid("empty query"));
+            }
+            let like_pat = format!("%{}%", needle_raw.to_ascii_lowercase());
+            let q = "SELECT key, scope, value, tags_json, created_at, updated_at \
+                     FROM memory \
+                     WHERE (LOWER(key) LIKE ? OR LOWER(value) LIKE ? OR LOWER(tags_json) LIKE ?) \
+                     ORDER BY updated_at DESC LIMIT ?";
+            let rows: Vec<MemoryRow> = sqlx::query_as(q)
+                .bind(&like_pat)
+                .bind(&like_pat)
+                .bind(&like_pat)
+                .bind(max * 4) // overshoot, filter in Rust below
+                .fetch_all(&server.memory.pool)
+                .await
+                .map_err(|e| internal(e.into()))?;
+            let scope_filter = args.scope.as_deref();
+            let tag_filter_lc = args.tag.as_ref().map(|t| t.to_ascii_lowercase());
+            let filtered: Vec<&MemoryRow> = rows
+                .iter()
+                .filter(|e| scope_filter.is_none_or(|s| e.scope == s))
+                .filter(|e| match &tag_filter_lc {
+                    Some(t) => e.tags().iter().any(|x| x.to_ascii_lowercase() == *t),
+                    None => true,
+                })
+                .take(max as usize)
+                .collect();
+            if filtered.is_empty() {
+                return Ok(text_result(format!(
+                    "No memories match \"{}\".",
+                    args.query
+                )));
+            }
+            let mut out = format!(
+                "{} memor{} match:\n",
+                filtered.len(),
+                if filtered.len() == 1 { "y" } else { "ies" }
+            );
+            for e in filtered {
+                let scope_tag = if e.scope.is_empty() {
+                    String::new()
+                } else {
+                    format!(" [{}]", e.scope)
+                };
+                out.push_str(&format!(
+                    "\n  {}{}\n    updated {}\n    {}\n",
+                    e.key,
+                    scope_tag,
+                    fmt_ts(e.updated_at as u64),
+                    truncate(&e.value.replace('\n', " "), 140)
+                ));
+            }
+            Ok(text_result(out))
+        })
+    }
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct MemoryForgetArgs {
+    /// The key to forget.
+    key: String,
+    /// Optional scope (default "").
+    #[serde(default)]
+    scope: Option<String>,
+    /// Confirmation token returned by the first call.
+    #[serde(default)]
+    confirm: Option<String>,
+    /// Whitelist `memory_forget` for the rest of the session (use with `confirm`).
+    #[serde(default)]
+    trust: Option<bool>,
+}
+
+pub struct MemoryForget;
+impl Skill for MemoryForget {
+    fn name(&self) -> &'static str {
+        "memory_forget"
+    }
+    fn description(&self) -> &'static str {
+        "Delete one saved memory by key+scope. Destructive — the first call returns a confirm token; \
+        call again with confirm=<token> (or confirm + trust=true to whitelist for the session). \
+        `[memory].allow_destructive=true` pre-authorizes."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<MemoryForgetArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (server, args) = ctx.parse::<MemoryForgetArgs>()?;
+            let mem = &server.memory;
+            let scope = args.scope.clone().unwrap_or_default();
+            let exists: Option<(i64,)> =
+                sqlx::query_as("SELECT created_at FROM memory WHERE scope = ? AND key = ?")
+                    .bind(&scope)
+                    .bind(&args.key)
+                    .fetch_optional(&mem.pool)
+                    .await
+                    .map_err(|e| internal(e.into()))?;
+            if exists.is_none() {
+                return Ok(text_result(format!(
+                    "No memory for key=\"{}\"{} — nothing to forget.",
+                    args.key,
+                    if scope.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" scope=\"{scope}\"")
+                    }
+                )));
+            }
+            if let Decision::Challenge(msg) = server.guard.check(
+                &format!("memory_forget|{}|{}", scope, args.key),
+                "memory_forget",
+                mem.cfg.allow_destructive,
+                &format!(
+                    "delete memory key=\"{}\"{}",
+                    args.key,
+                    if scope.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" scope=\"{scope}\"")
+                    }
+                ),
+                args.confirm.as_deref(),
+                args.trust.unwrap_or(false),
+            ) {
+                return Ok(text_result(msg));
+            }
+            sqlx::query("DELETE FROM memory WHERE scope = ? AND key = ?")
+                .bind(&scope)
+                .bind(&args.key)
+                .execute(&mem.pool)
+                .await
+                .map_err(|e| internal(e.into()))?;
+            Ok(text_result(format!(
+                "Forgot key=\"{}\"{}.",
+                args.key,
+                if scope.is_empty() {
+                    String::new()
+                } else {
+                    format!(" scope=\"{scope}\"")
+                }
+            )))
+        })
+    }
+}
+
+// ---------------------------------------------------------------------------
+// solution_* tools
+// ---------------------------------------------------------------------------
+
+#[derive(FromRow, Clone)]
+struct SolutionRow {
+    id: String,
+    problem: String,
+    canon_key: String,
+    concept_key: Option<String>,
+    #[allow(dead_code)]
+    created_at: i64,
+    updated_at: i64,
+}
+
+#[derive(FromRow)]
+struct RevisionRow {
+    rev: i64,
+    ts: i64,
+    summary: String,
+    content: String,
+    notes: String,
+}
+
+async fn load_solution_tags(pool: &SqlitePool, id: &str) -> Result<Vec<String>, McpError> {
+    let rows: Vec<(String,)> =
+        sqlx::query_as("SELECT label FROM solution_tags WHERE solution_id = ? ORDER BY tag")
+            .bind(id)
+            .fetch_all(pool)
+            .await
+            .map_err(|e| internal(e.into()))?;
+    Ok(rows.into_iter().map(|t| t.0).collect())
+}
+
+#[derive(FromRow)]
+struct LinkRow {
+    kind: String,
+    to_id: String,
+    note: String,
+}
+
+async fn load_solution_links(pool: &SqlitePool, id: &str) -> Result<Vec<LinkRow>, McpError> {
+    sqlx::query_as(
+        "SELECT kind, to_id, note FROM solution_links \
+         WHERE from_id = ? ORDER BY kind, to_id",
+    )
+    .bind(id)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| internal(e.into()))
+}
+
+async fn next_solution_id(pool: &mut sqlx::SqliteConnection) -> Result<String, McpError> {
+    let n: (i64,) = sqlx::query_as(
+        "SELECT COALESCE(MAX(CAST(SUBSTR(id, 5) AS INTEGER)), 0) + 1 \
+         FROM solutions WHERE id GLOB 'sol-*'",
+    )
+    .fetch_one(&mut *pool)
+    .await
+    .map_err(|e| internal(e.into()))?;
+    Ok(format!("sol-{}", n.0))
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct SolutionRecordArgs {
+    /// The problem / question this solution addresses (free text).
+    problem: String,
+    /// A one-line summary of the approach.
+    summary: String,
+    /// The full proposed solution (steps, code, links — markdown OK).
+    content: String,
+    /// Optional caveats, follow-ups, or what didn't work.
+    #[serde(default)]
+    notes: Option<String>,
+    /// Optional free-form tags (e.g. ["deployment", "nginx", "tls"]).
+    #[serde(default)]
+    tags: Option<Vec<String>>,
+}
+
+pub struct SolutionRecord;
+impl Skill for SolutionRecord {
+    fn name(&self) -> &'static str {
+        "solution_record"
+    }
+    fn description(&self) -> &'static str {
+        "Record a proposed SOLUTION to a problem, persisted across sessions. Returns a solution id. \
+        Later, solution_find will surface this entry as a SUGGESTION on similar questions (never \
+        prescriptive). Use solution_update to append a revision when the approach changes."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<SolutionRecordArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (server, args) = ctx.parse::<SolutionRecordArgs>()?;
+            let mem = &server.memory;
+            let cap = mem.cfg.max_value_chars.max(1);
+            if args.content.chars().count() > cap {
+                return Err(invalid(format!(
+                    "content too long: {} chars (max {cap})",
+                    args.content.chars().count()
+                )));
+            }
+            let now = now_secs() as i64;
+            let canon = crate::provider::canonical_query(&args.problem);
+            let concept = concept_key_of(&args.problem);
+            let tags = clean_tags(args.tags.unwrap_or_default());
+            let mut tx = mem.pool.begin().await.map_err(|e| internal(e.into()))?;
+            let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM solutions")
+                .fetch_one(&mut *tx)
+                .await
+                .map_err(|e| internal(e.into()))?;
+            if (count.0 as usize) >= mem.cfg.max_entries.max(1) {
+                return Err(invalid(format!(
+                    "solution store full: max_entries = {}",
+                    mem.cfg.max_entries
+                )));
+            }
+            let id = next_solution_id(&mut tx).await?;
+            sqlx::query(
+                "INSERT INTO solutions (id, problem, canon_key, concept_key, created_at, updated_at) \
+                 VALUES (?, ?, ?, ?, ?, ?)",
+            )
+            .bind(&id)
+            .bind(&args.problem)
+            .bind(&canon)
+            .bind(&concept)
+            .bind(now)
+            .bind(now)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| internal(e.into()))?;
+            sqlx::query(
+                "INSERT INTO solution_revisions (solution_id, rev, ts, summary, content, notes) \
+                 VALUES (?, 1, ?, ?, ?, ?)",
+            )
+            .bind(&id)
+            .bind(now)
+            .bind(&args.summary)
+            .bind(&args.content)
+            .bind(args.notes.unwrap_or_default())
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| internal(e.into()))?;
+            for tag in &tags {
+                sqlx::query("INSERT INTO solution_tags (solution_id, tag, label) VALUES (?, ?, ?)")
+                    .bind(&id)
+                    .bind(tag.to_ascii_lowercase())
+                    .bind(tag)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(|e| internal(e.into()))?;
+            }
+            tx.commit().await.map_err(|e| internal(e.into()))?;
+            let tag_tail = if tags.is_empty() {
+                String::new()
+            } else {
+                format!(" Tags: {}.", tags.join(", "))
+            };
+            Ok(text_result(format!(
+                "Recorded {id} at {} (rev 1).{tag_tail} solution_find will surface it on similar questions.",
+                fmt_ts(now as u64)
+            )))
+        })
+    }
+}
+
+/// Score one stored solution row against a parsed query. Higher is better.
+fn score_solution_row(
+    sol: &SolutionRow,
+    sol_tags_lc: &HashSet<String>,
+    qcanon: &str,
+    qconcept_str: Option<&str>,
+    q_concept_toks: &[String],
+    needle: &str,
+    filter_tags_lc: &HashSet<String>,
+) -> Option<(f64, &'static str)> {
+    let mut best: Option<(f64, &'static str)> = None;
+    let mut consider = |score: f64, label: &'static str| {
+        if best.as_ref().is_none_or(|(b, _)| score > *b) {
+            best = Some((score, label));
+        }
+    };
+    if !qcanon.is_empty() && sol.canon_key == qcanon {
+        consider(100.0, "exact canonical");
+    }
+    if let (Some(qc), Some(sc)) = (qconcept_str, sol.concept_key.as_deref()) {
+        if qc == sc {
+            consider(80.0, "concept exact");
+        }
+    }
+    if !q_concept_toks.is_empty() {
+        if let Some(sc) = &sol.concept_key {
+            let s_toks: HashSet<&str> = sc.split_whitespace().collect();
+            let q_toks: HashSet<&str> = q_concept_toks.iter().map(|s| s.as_str()).collect();
+            let inter = s_toks.intersection(&q_toks).count();
+            if inter > 0 {
+                let union = s_toks.union(&q_toks).count().max(1);
+                let jaccard = inter as f64 / union as f64;
+                if jaccard < 1.0 {
+                    consider(20.0 + 40.0 * jaccard, "fuzzy overlap");
+                }
+            }
+        }
+    }
+    if !needle.is_empty() && sol.problem.to_ascii_lowercase().contains(needle) {
+        consider(15.0, "substring");
+    }
+    let tag_overlap = if filter_tags_lc.is_empty() {
+        0
+    } else {
+        sol_tags_lc
+            .iter()
+            .filter(|t| filter_tags_lc.contains(*t))
+            .count()
+    };
+    if let Some((score, label)) = best.as_mut() {
+        if tag_overlap > 0 {
+            *score += 5.0 * tag_overlap as f64;
+        }
+        Some((*score, *label))
+    } else if tag_overlap > 0 {
+        Some((10.0 + 5.0 * tag_overlap as f64, "tag"))
+    } else {
+        None
+    }
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct SolutionFindArgs {
+    /// A question or problem description; matched against recorded problems. Optional
+    /// if `tags` is given (then it's a tag-only browse).
+    #[serde(default)]
+    query: Option<String>,
+    /// Optional tag filter — solutions carrying *any* of these tags surface as well
+    /// (case-insensitive). Pure tag lookups (no query) are supported.
+    #[serde(default)]
+    tags: Option<Vec<String>>,
+    /// Max suggestions to surface (default 5, capped at 20).
+    #[serde(default)]
+    max: Option<u32>,
+}
+
+pub struct SolutionFind;
+impl Skill for SolutionFind {
+    fn name(&self) -> &'static str {
+        "solution_find"
+    }
+    fn description(&self) -> &'static str {
+        "Find prior recorded solutions whose problem is similar to `query`. Returns each as a \
+        SUGGESTION (advisory, NOT prescriptive — verify it still applies, then revise via \
+        solution_update). Ranks by: exact canonical match > exact concept match > FUZZY concept \
+        overlap (Jaccard over stemmed token sets) > substring; plus a boost for shared `tags`. \
+        Either `query` or `tags` is required."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<SolutionFindArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (server, args) = ctx.parse::<SolutionFindArgs>()?;
+            let mem = &server.memory;
+            let max = args.max.unwrap_or(5).clamp(1, 20) as usize;
+            let query = args.query.unwrap_or_default();
+            let filter_tags = args.tags.unwrap_or_default();
+            if query.trim().is_empty() && filter_tags.is_empty() {
+                return Err(invalid("supply at least one of `query` or `tags`"));
+            }
+            let qcanon = if query.trim().is_empty() {
+                String::new()
+            } else {
+                crate::provider::canonical_query(&query)
+            };
+            let qconcept_str = concept_key_of(&query);
+            let q_concept_toks: Vec<String> = if query.trim().is_empty() {
+                Vec::new()
+            } else {
+                crate::provider::concept_tokens(&query)
+            };
+            let needle = query.trim().to_ascii_lowercase();
+            let filter_tags_lc: HashSet<String> = filter_tags
+                .iter()
+                .map(|t| t.trim().to_ascii_lowercase())
+                .filter(|t| !t.is_empty())
+                .collect();
+            let rows: Vec<SolutionRow> = sqlx::query_as(
+                "SELECT id, problem, canon_key, concept_key, created_at, updated_at FROM solutions",
+            )
+            .fetch_all(&mem.pool)
+            .await
+            .map_err(|e| internal(e.into()))?;
+            let all_tags: Vec<(String, String)> =
+                sqlx::query_as("SELECT solution_id, tag FROM solution_tags")
+                    .fetch_all(&mem.pool)
+                    .await
+                    .map_err(|e| internal(e.into()))?;
+            let mut tags_by_sol: HashMap<String, HashSet<String>> = HashMap::new();
+            for (sid, tag) in all_tags {
+                tags_by_sol.entry(sid).or_default().insert(tag);
+            }
+            let empty_set: HashSet<String> = HashSet::new();
+            let mut ranked: Vec<(SolutionRow, f64, &'static str)> = rows
+                .into_iter()
+                .filter_map(|sol| {
+                    let sol_tags = tags_by_sol.get(&sol.id).unwrap_or(&empty_set);
+                    score_solution_row(
+                        &sol,
+                        sol_tags,
+                        &qcanon,
+                        qconcept_str.as_deref(),
+                        &q_concept_toks,
+                        &needle,
+                        &filter_tags_lc,
+                    )
+                    .map(|(score, label)| (sol, score, label))
+                })
+                .collect();
+            if ranked.is_empty() {
+                return Ok(text_result(format!(
+                    "No prior solutions match{}{}. (Record one with solution_record once you've worked it out.)",
+                    if query.trim().is_empty() {
+                        String::new()
+                    } else {
+                        format!(" \"{}\"", query.trim())
+                    },
+                    if filter_tags_lc.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" with tags [{}]", filter_tags.join(", "))
+                    },
+                )));
+            }
+            ranked.sort_by(|a, b| {
+                b.1.partial_cmp(&a.1)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .then(b.0.updated_at.cmp(&a.0.updated_at))
+            });
+            let total = ranked.len();
+            let mut out = format!(
+                "{} SUGGESTED prior solution{} (advisory — may be stale; verify before reusing):\n",
+                total,
+                if total == 1 { "" } else { "s" }
+            );
+            for (i, (sol, score, label)) in ranked.iter().take(max).enumerate() {
+                let last: Option<(i64, String)> = sqlx::query_as(
+                    "SELECT rev, summary FROM solution_revisions \
+                     WHERE solution_id = ? ORDER BY rev DESC LIMIT 1",
+                )
+                .bind(&sol.id)
+                .fetch_optional(&mem.pool)
+                .await
+                .map_err(|e| internal(e.into()))?;
+                let sol_tags = load_solution_tags(&mem.pool, &sol.id).await?;
+                let tags_line = if sol_tags.is_empty() {
+                    String::new()
+                } else {
+                    format!("   Tags: {}\n", sol_tags.join(", "))
+                };
+                out.push_str(&format!(
+                    "\n{}. {}  (rev {}, updated {})\n   Problem: {}\n   Match: {} (score {:.1})\n{}",
+                    i + 1,
+                    sol.id,
+                    last.as_ref().map(|r| r.0).unwrap_or(0),
+                    fmt_ts(sol.updated_at as u64),
+                    truncate(&sol.problem.replace('\n', " "), 140),
+                    label,
+                    score,
+                    tags_line,
+                ));
+                if let Some(r) = &last {
+                    out.push_str(&format!("   Latest summary: {}\n", truncate(&r.1, 200)));
+                }
+                out.push_str(&format!(
+                    "   (solution_show id=\"{}\" for the full history)\n",
+                    sol.id
+                ));
+            }
+            Ok(text_result(out))
+        })
+    }
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct SolutionShowArgs {
+    /// Solution id (e.g. "sol-3").
+    id: String,
+}
+
+pub struct SolutionShow;
+impl Skill for SolutionShow {
+    fn name(&self) -> &'static str {
+        "solution_show"
+    }
+    fn description(&self) -> &'static str {
+        "Show one recorded solution by id, with its full revision history (oldest to newest), \
+        its tags, and its outbound links."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<SolutionShowArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (server, args) = ctx.parse::<SolutionShowArgs>()?;
+            let mem = &server.memory;
+            let sol: Option<SolutionRow> = sqlx::query_as(
+                "SELECT id, problem, canon_key, concept_key, created_at, updated_at \
+                 FROM solutions WHERE id = ?",
+            )
+            .bind(&args.id)
+            .fetch_optional(&mem.pool)
+            .await
+            .map_err(|e| internal(e.into()))?;
+            let Some(sol) = sol else {
+                return Err(invalid(format!("no solution \"{}\"", args.id)));
+            };
+            let revs: Vec<RevisionRow> = sqlx::query_as(
+                "SELECT rev, ts, summary, content, notes FROM solution_revisions \
+                 WHERE solution_id = ? ORDER BY rev ASC",
+            )
+            .bind(&sol.id)
+            .fetch_all(&mem.pool)
+            .await
+            .map_err(|e| internal(e.into()))?;
+            let tags = load_solution_tags(&mem.pool, &sol.id).await?;
+            let links = load_solution_links(&mem.pool, &sol.id).await?;
+            let mut out = format!(
+                "{} — {} revision{}\nProblem: {}\nFirst recorded: {}\nLast updated: {}\n",
+                sol.id,
+                revs.len(),
+                if revs.len() == 1 { "" } else { "s" },
+                sol.problem,
+                fmt_ts(sol.created_at as u64),
+                fmt_ts(sol.updated_at as u64),
+            );
+            if !tags.is_empty() {
+                out.push_str(&format!("Tags: {}\n", tags.join(", ")));
+            }
+            if !links.is_empty() {
+                out.push_str("Links:\n");
+                for l in &links {
+                    let note = if l.note.is_empty() {
+                        String::new()
+                    } else {
+                        format!("  — {}", l.note)
+                    };
+                    out.push_str(&format!("  ─{}→ {}{}\n", l.kind, l.to_id, note));
+                }
+            }
+            for r in &revs {
+                out.push_str(&format!(
+                    "\n── rev {} · {} ──\nsummary: {}\n\n{}\n",
+                    r.rev,
+                    fmt_ts(r.ts as u64),
+                    r.summary,
+                    r.content
+                ));
+                if !r.notes.is_empty() {
+                    out.push_str(&format!("\nnotes: {}\n", r.notes));
+                }
+            }
+            Ok(text_result(out))
+        })
+    }
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct SolutionListArgs {
+    /// Max solutions to show (default 25, capped at 200).
+    #[serde(default)]
+    max: Option<u32>,
+}
+
+pub struct SolutionList;
+impl Skill for SolutionList {
+    fn name(&self) -> &'static str {
+        "solution_list"
+    }
+    fn description(&self) -> &'static str {
+        "List recorded solutions (id, problem, rev count, last updated, tags), most recently updated first."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<SolutionListArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (server, args) = ctx.parse::<SolutionListArgs>()?;
+            let mem = &server.memory;
+            let max = args.max.unwrap_or(25).clamp(1, 200) as i64;
+            let rows: Vec<SolutionRow> = sqlx::query_as(
+                "SELECT id, problem, canon_key, concept_key, created_at, updated_at \
+                 FROM solutions ORDER BY updated_at DESC LIMIT ?",
+            )
+            .bind(max)
+            .fetch_all(&mem.pool)
+            .await
+            .map_err(|e| internal(e.into()))?;
+            if rows.is_empty() {
+                return Ok(text_result("No recorded solutions.".to_string()));
+            }
+            let total: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM solutions")
+                .fetch_one(&mem.pool)
+                .await
+                .map_err(|e| internal(e.into()))?;
+            let mut out = format!(
+                "{} solution{} ({} shown):\n",
+                total.0,
+                if total.0 == 1 { "" } else { "s" },
+                rows.len()
+            );
+            for sol in &rows {
+                let last: Option<(i64,)> =
+                    sqlx::query_as("SELECT MAX(rev) FROM solution_revisions WHERE solution_id = ?")
+                        .bind(&sol.id)
+                        .fetch_optional(&mem.pool)
+                        .await
+                        .map_err(|e| internal(e.into()))?;
+                let tags = load_solution_tags(&mem.pool, &sol.id).await?;
+                let tag_line = if tags.is_empty() {
+                    String::new()
+                } else {
+                    format!("    tags: {}\n", tags.join(", "))
+                };
+                out.push_str(&format!(
+                    "\n  {}  rev {} · updated {}\n    {}\n{}",
+                    sol.id,
+                    last.map(|r| r.0).unwrap_or(0),
+                    fmt_ts(sol.updated_at as u64),
+                    truncate(&sol.problem.replace('\n', " "), 140),
+                    tag_line,
+                ));
+            }
+            Ok(text_result(out))
+        })
+    }
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct SolutionUpdateArgs {
+    /// Solution id to revise.
+    id: String,
+    /// New one-line summary for this revision.
+    summary: String,
+    /// New full content for this revision.
+    content: String,
+    /// Optional caveats / notes about what changed.
+    #[serde(default)]
+    notes: Option<String>,
+    /// Optional replacement tag list. Omit to leave tags unchanged; pass `[]` to clear them.
+    #[serde(default)]
+    tags: Option<Vec<String>>,
+}
+
+pub struct SolutionUpdate;
+impl Skill for SolutionUpdate {
+    fn name(&self) -> &'static str {
+        "solution_update"
+    }
+    fn description(&self) -> &'static str {
+        "Append a new revision to an existing solution. Prior revisions are kept and visible via \
+        solution_show — so the change history is preserved. Pass `tags` to replace the tag list \
+        (use `[]` to clear); omit to leave tags unchanged."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<SolutionUpdateArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (server, args) = ctx.parse::<SolutionUpdateArgs>()?;
+            let mem = &server.memory;
+            let cap = mem.cfg.max_value_chars.max(1);
+            if args.content.chars().count() > cap {
+                return Err(invalid(format!(
+                    "content too long: {} chars (max {cap})",
+                    args.content.chars().count()
+                )));
+            }
+            let mut tx = mem.pool.begin().await.map_err(|e| internal(e.into()))?;
+            let exists: Option<(String,)> = sqlx::query_as("SELECT id FROM solutions WHERE id = ?")
+                .bind(&args.id)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(|e| internal(e.into()))?;
+            if exists.is_none() {
+                return Err(invalid(format!("no solution \"{}\"", args.id)));
+            }
+            let now = now_secs() as i64;
+            let next_rev: (i64,) = sqlx::query_as(
+                "SELECT COALESCE(MAX(rev), 0) + 1 FROM solution_revisions WHERE solution_id = ?",
+            )
+            .bind(&args.id)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(|e| internal(e.into()))?;
+            sqlx::query(
+                "INSERT INTO solution_revisions (solution_id, rev, ts, summary, content, notes) \
+                 VALUES (?, ?, ?, ?, ?, ?)",
+            )
+            .bind(&args.id)
+            .bind(next_rev.0)
+            .bind(now)
+            .bind(&args.summary)
+            .bind(&args.content)
+            .bind(args.notes.unwrap_or_default())
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| internal(e.into()))?;
+            sqlx::query("UPDATE solutions SET updated_at = ? WHERE id = ?")
+                .bind(now)
+                .bind(&args.id)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| internal(e.into()))?;
+            if let Some(new_tags) = args.tags {
+                let cleaned = clean_tags(new_tags);
+                sqlx::query("DELETE FROM solution_tags WHERE solution_id = ?")
+                    .bind(&args.id)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(|e| internal(e.into()))?;
+                for tag in &cleaned {
+                    sqlx::query(
+                        "INSERT INTO solution_tags (solution_id, tag, label) VALUES (?, ?, ?)",
+                    )
+                    .bind(&args.id)
+                    .bind(tag.to_ascii_lowercase())
+                    .bind(tag)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(|e| internal(e.into()))?;
+                }
+            }
+            tx.commit().await.map_err(|e| internal(e.into()))?;
+            Ok(text_result(format!(
+                "Updated {} (now at rev {}) at {}.",
+                args.id,
+                next_rev.0,
+                fmt_ts(now as u64)
+            )))
+        })
+    }
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct SolutionForgetArgs {
+    /// Solution id to delete (drops all revisions, tags, and links).
+    id: String,
+    /// Confirmation token returned by the first call.
+    #[serde(default)]
+    confirm: Option<String>,
+    /// Whitelist `solution_forget` for the rest of the session.
+    #[serde(default)]
+    trust: Option<bool>,
+}
+
+pub struct SolutionForget;
+impl Skill for SolutionForget {
+    fn name(&self) -> &'static str {
+        "solution_forget"
+    }
+    fn description(&self) -> &'static str {
+        "Delete a recorded solution and its full revision history. Destructive — first call \
+        returns a confirm token; call again with confirm=<token> (or trust=true to whitelist for \
+        the session). `[memory].allow_destructive=true` pre-authorizes. Also strips dangling \
+        incoming links from other solutions."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<SolutionForgetArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (server, args) = ctx.parse::<SolutionForgetArgs>()?;
+            let mem = &server.memory;
+            let exists: Option<(String,)> = sqlx::query_as("SELECT id FROM solutions WHERE id = ?")
+                .bind(&args.id)
+                .fetch_optional(&mem.pool)
+                .await
+                .map_err(|e| internal(e.into()))?;
+            if exists.is_none() {
+                return Ok(text_result(format!(
+                    "No solution \"{}\" — nothing to forget.",
+                    args.id
+                )));
+            }
+            if let Decision::Challenge(msg) = server.guard.check(
+                &format!("solution_forget|{}", args.id),
+                "solution_forget",
+                mem.cfg.allow_destructive,
+                &format!("delete solution {} (drops all revisions)", args.id),
+                args.confirm.as_deref(),
+                args.trust.unwrap_or(false),
+            ) {
+                return Ok(text_result(msg));
+            }
+            let mut tx = mem.pool.begin().await.map_err(|e| internal(e.into()))?;
+            let dangling: (i64,) = sqlx::query_as(
+                "SELECT COUNT(*) FROM solution_links WHERE to_id = ? AND from_id != ?",
+            )
+            .bind(&args.id)
+            .bind(&args.id)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(|e| internal(e.into()))?;
+            sqlx::query("DELETE FROM solution_links WHERE to_id = ?")
+                .bind(&args.id)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| internal(e.into()))?;
+            // CASCADE removes this solution's own revisions, tags, and outbound links.
+            sqlx::query("DELETE FROM solutions WHERE id = ?")
+                .bind(&args.id)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| internal(e.into()))?;
+            tx.commit().await.map_err(|e| internal(e.into()))?;
+            let cleaned = if dangling.0 > 0 {
+                format!(
+                    " Cleaned {} incoming link{} from other solution{}.",
+                    dangling.0,
+                    if dangling.0 == 1 { "" } else { "s" },
+                    if dangling.0 == 1 { "" } else { "s" }
+                )
+            } else {
+                String::new()
+            };
+            Ok(text_result(format!(
+                "Forgot solution {}.{}",
+                args.id, cleaned
+            )))
+        })
+    }
+}
+
+// ---------------------------------------------------------------------------
+// solution_link / unlink / graph / related
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct SolutionLinkArgs {
+    /// Source solution id.
+    from: String,
+    /// Relation kind. Recommended: `supersedes`/`superseded-by`,
+    /// `depends-on`/`dependency-of`, `alternative-to`, `related-to`, `see-also`.
+    /// Any free-form kind is accepted; unknown kinds are treated as symmetric.
+    kind: String,
+    /// Target solution id.
+    to: String,
+    /// Optional note explaining the relation.
+    #[serde(default)]
+    note: Option<String>,
+}
+
+pub struct SolutionLink;
+impl Skill for SolutionLink {
+    fn name(&self) -> &'static str {
+        "solution_link"
+    }
+    fn description(&self) -> &'static str {
+        "Declare a typed relation FROM one solution TO another (e.g. supersedes, depends-on, \
+        related-to, see-also). The reciprocal is added automatically on the target (supersedes \
+        → superseded-by); free-form kinds are symmetric. Use solution_graph to walk these edges \
+        and solution_related to rank by combined explicit + tag + concept signal."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<SolutionLinkArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (server, args) = ctx.parse::<SolutionLinkArgs>()?;
+            let mem = &server.memory;
+            let kind = args.kind.trim().to_string();
+            if kind.is_empty() {
+                return Err(invalid("kind must not be empty"));
+            }
+            if args.from == args.to {
+                return Err(invalid("from and to must be different solutions"));
+            }
+            let note = args.note.unwrap_or_default();
+            let recip = reciprocal_kind(&kind);
+            // Verify both solutions exist before opening the write transaction.
+            for id in [&args.from, &args.to] {
+                let r: Option<(String,)> = sqlx::query_as("SELECT id FROM solutions WHERE id = ?")
+                    .bind(id)
+                    .fetch_optional(&mem.pool)
+                    .await
+                    .map_err(|e| internal(e.into()))?;
+                if r.is_none() {
+                    return Err(invalid(format!("no solution \"{id}\"")));
+                }
+            }
+            let mut tx = mem.pool.begin().await.map_err(|e| internal(e.into()))?;
+            sqlx::query(
+                "INSERT OR IGNORE INTO solution_links (from_id, kind, to_id, note) \
+                 VALUES (?, ?, ?, ?)",
+            )
+            .bind(&args.from)
+            .bind(&kind)
+            .bind(&args.to)
+            .bind(&note)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| internal(e.into()))?;
+            sqlx::query(
+                "INSERT OR IGNORE INTO solution_links (from_id, kind, to_id, note) \
+                 VALUES (?, ?, ?, ?)",
+            )
+            .bind(&args.to)
+            .bind(&recip)
+            .bind(&args.from)
+            .bind(&note)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| internal(e.into()))?;
+            let now = now_secs() as i64;
+            sqlx::query("UPDATE solutions SET updated_at = ? WHERE id IN (?, ?)")
+                .bind(now)
+                .bind(&args.from)
+                .bind(&args.to)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| internal(e.into()))?;
+            tx.commit().await.map_err(|e| internal(e.into()))?;
+            Ok(text_result(format!(
+                "Linked {} ─{kind}→ {} (reciprocal {} ─{recip}→ {} added).",
+                args.from, args.to, args.to, args.from
+            )))
+        })
+    }
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct SolutionUnlinkArgs {
+    /// Source solution id (the side that originally held the link).
+    from: String,
+    /// Kind of the link to remove.
+    kind: String,
+    /// Target solution id.
+    to: String,
+}
+
+pub struct SolutionUnlink;
+impl Skill for SolutionUnlink {
+    fn name(&self) -> &'static str {
+        "solution_unlink"
+    }
+    fn description(&self) -> &'static str {
+        "Remove a typed link from one solution to another. The reciprocal link on the target is \
+        also removed automatically. The solutions themselves stay."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<SolutionUnlinkArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (server, args) = ctx.parse::<SolutionUnlinkArgs>()?;
+            let mem = &server.memory;
+            let recip = reciprocal_kind(&args.kind);
+            let mut tx = mem.pool.begin().await.map_err(|e| internal(e.into()))?;
+            let r1 = sqlx::query(
+                "DELETE FROM solution_links WHERE from_id = ? AND kind = ? AND to_id = ?",
+            )
+            .bind(&args.from)
+            .bind(&args.kind)
+            .bind(&args.to)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| internal(e.into()))?;
+            let r2 = sqlx::query(
+                "DELETE FROM solution_links WHERE from_id = ? AND kind = ? AND to_id = ?",
+            )
+            .bind(&args.to)
+            .bind(&recip)
+            .bind(&args.from)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| internal(e.into()))?;
+            tx.commit().await.map_err(|e| internal(e.into()))?;
+            if r1.rows_affected() == 0 && r2.rows_affected() == 0 {
+                return Ok(text_result(format!(
+                    "No link {} ─{}→ {} was present; nothing to remove.",
+                    args.from, args.kind, args.to
+                )));
+            }
+            Ok(text_result(format!(
+                "Unlinked {} ─{}→ {} (and removed the reciprocal {} ─{}→ {}).",
+                args.from, args.kind, args.to, args.to, recip, args.from
+            )))
+        })
+    }
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct SolutionGraphArgs {
+    /// Solution id at the center of the subgraph.
+    id: String,
+    /// How many hops to walk outward (default 2, max 5).
+    #[serde(default)]
+    depth: Option<u32>,
+}
+
+pub struct SolutionGraph;
+impl Skill for SolutionGraph {
+    fn name(&self) -> &'static str {
+        "solution_graph"
+    }
+    fn description(&self) -> &'static str {
+        "Render the EXPLICIT-link subgraph around one solution: BFS outward to `depth` hops \
+        (default 2, max 5), showing typed edges (supersedes, depends-on, related-to, …) to \
+        every reachable solution. Use solution_related for an implicit-similarity ranking that \
+        also weighs shared tags and concept-token overlap."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<SolutionGraphArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (server, args) = ctx.parse::<SolutionGraphArgs>()?;
+            let mem = &server.memory;
+            let depth = args.depth.unwrap_or(2).min(5);
+            let exists: Option<(String,)> = sqlx::query_as("SELECT id FROM solutions WHERE id = ?")
+                .bind(&args.id)
+                .fetch_optional(&mem.pool)
+                .await
+                .map_err(|e| internal(e.into()))?;
+            if exists.is_none() {
+                return Err(invalid(format!("no solution \"{}\"", args.id)));
+            }
+            let all_links: Vec<(String, String, String)> =
+                sqlx::query_as("SELECT from_id, kind, to_id FROM solution_links")
+                    .fetch_all(&mem.pool)
+                    .await
+                    .map_err(|e| internal(e.into()))?;
+            let mut out_edges: HashMap<String, Vec<(String, String)>> = HashMap::new();
+            for (from, kind, to) in all_links {
+                out_edges.entry(from).or_default().push((kind, to));
+            }
+            let mut seen: HashSet<String> = HashSet::new();
+            let mut layers: Vec<Vec<(String, String, String)>> = Vec::new();
+            seen.insert(args.id.clone());
+            layers.push(vec![(args.id.clone(), String::new(), String::new())]);
+            for _ in 0..depth {
+                let mut next_layer: Vec<(String, String, String)> = Vec::new();
+                let prev = layers.last().unwrap();
+                for (node, _, _) in prev {
+                    if let Some(edges) = out_edges.get(node) {
+                        for (kind, to) in edges {
+                            if seen.insert(to.clone()) {
+                                next_layer.push((to.clone(), kind.clone(), node.clone()));
+                            }
+                        }
+                    }
+                }
+                if next_layer.is_empty() {
+                    break;
+                }
+                layers.push(next_layer);
+            }
+            let visited_ids: Vec<String> = seen.iter().cloned().collect();
+            let mut problems: HashMap<String, String> = HashMap::new();
+            for id in &visited_ids {
+                let p: Option<(String,)> =
+                    sqlx::query_as("SELECT problem FROM solutions WHERE id = ?")
+                        .bind(id)
+                        .fetch_optional(&mem.pool)
+                        .await
+                        .map_err(|e| internal(e.into()))?;
+                if let Some(p) = p {
+                    problems.insert(id.clone(), p.0);
+                }
+            }
+            let mut out = format!("Graph around {} (depth {}):\n", args.id, depth);
+            for (d, layer) in layers.iter().enumerate() {
+                for (node, kind, parent) in layer {
+                    let problem = problems
+                        .get(node)
+                        .map(|p| truncate(&p.replace('\n', " "), 100))
+                        .unwrap_or_else(|| "?".into());
+                    let indent = "  ".repeat(d);
+                    if d == 0 {
+                        out.push_str(&format!("{indent}{node}: {problem}\n"));
+                    } else {
+                        out.push_str(&format!(
+                            "{indent}─{kind}→ {node} (from {parent}): {problem}\n"
+                        ));
+                    }
+                }
+            }
+            let reachable = seen.len() - 1;
+            out.push_str(&format!("\n{} solution(s) reachable.\n", reachable));
+            Ok(text_result(out))
+        })
+    }
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct SolutionRelatedArgs {
+    /// Solution id to find neighbors for.
+    id: String,
+    /// Max related solutions to return (default 5, capped at 20).
+    #[serde(default)]
+    max: Option<u32>,
+}
+
+pub struct SolutionRelated;
+impl Skill for SolutionRelated {
+    fn name(&self) -> &'static str {
+        "solution_related"
+    }
+    fn description(&self) -> &'static str {
+        "Rank solutions related to one source, combining EXPLICIT links (weight 30 per link) + \
+        shared TAGS (2 per tag) + concept-token JACCARD overlap (20 × overlap). Returns the top \
+        `max` as advisory suggestions, with the contributing signals shown."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<SolutionRelatedArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (server, args) = ctx.parse::<SolutionRelatedArgs>()?;
+            let mem = &server.memory;
+            let max = args.max.unwrap_or(5).clamp(1, 20) as usize;
+            let src: Option<SolutionRow> = sqlx::query_as(
+                "SELECT id, problem, canon_key, concept_key, created_at, updated_at \
+                 FROM solutions WHERE id = ?",
+            )
+            .bind(&args.id)
+            .fetch_optional(&mem.pool)
+            .await
+            .map_err(|e| internal(e.into()))?;
+            let Some(src) = src else {
+                return Err(invalid(format!("no solution \"{}\"", args.id)));
+            };
+            let src_tags = load_solution_tags(&mem.pool, &src.id).await?;
+            let src_tag_set: HashSet<String> =
+                src_tags.iter().map(|t| t.to_ascii_lowercase()).collect();
+            let src_tokens: HashSet<String> = src
+                .concept_key
+                .as_deref()
+                .map(|k| k.split_whitespace().map(|s| s.to_string()).collect())
+                .unwrap_or_default();
+            let outgoing_rows: Vec<(String, String)> =
+                sqlx::query_as("SELECT to_id, kind FROM solution_links WHERE from_id = ?")
+                    .bind(&src.id)
+                    .fetch_all(&mem.pool)
+                    .await
+                    .map_err(|e| internal(e.into()))?;
+            let mut outgoing: HashMap<String, Vec<String>> = HashMap::new();
+            for (to, kind) in outgoing_rows {
+                outgoing.entry(to).or_default().push(kind);
+            }
+            let all_others: Vec<SolutionRow> = sqlx::query_as(
+                "SELECT id, problem, canon_key, concept_key, created_at, updated_at \
+                 FROM solutions WHERE id != ?",
+            )
+            .bind(&src.id)
+            .fetch_all(&mem.pool)
+            .await
+            .map_err(|e| internal(e.into()))?;
+            // Pull all tags once and group by solution_id.
+            let all_tags: Vec<(String, String)> =
+                sqlx::query_as("SELECT solution_id, tag FROM solution_tags")
+                    .fetch_all(&mem.pool)
+                    .await
+                    .map_err(|e| internal(e.into()))?;
+            let mut tags_by_sol: HashMap<String, HashSet<String>> = HashMap::new();
+            for (sid, tag) in all_tags {
+                tags_by_sol.entry(sid).or_default().insert(tag);
+            }
+            #[derive(Default)]
+            struct Score {
+                total: f64,
+                signals: Vec<String>,
+            }
+            let mut scored: Vec<(SolutionRow, Score)> = Vec::new();
+            let empty_set: HashSet<String> = HashSet::new();
+            for sol in all_others {
+                let mut s = Score::default();
+                if let Some(kinds) = outgoing.get(&sol.id) {
+                    s.total += 30.0 * kinds.len() as f64;
+                    s.signals
+                        .push(format!("explicit link: {}", kinds.join(", ")));
+                }
+                let other_tags = tags_by_sol.get(&sol.id).unwrap_or(&empty_set);
+                let tag_overlap = other_tags
+                    .iter()
+                    .filter(|t| src_tag_set.contains(*t))
+                    .count();
+                if tag_overlap > 0 {
+                    s.total += 2.0 * tag_overlap as f64;
+                    s.signals.push(format!("{tag_overlap} shared tag(s)"));
+                }
+                if !src_tokens.is_empty() {
+                    if let Some(other_key) = &sol.concept_key {
+                        let other: HashSet<&str> = other_key.split_whitespace().collect();
+                        let src_refs: HashSet<&str> =
+                            src_tokens.iter().map(|s| s.as_str()).collect();
+                        let inter = other.intersection(&src_refs).count();
+                        if inter > 0 {
+                            let union = other.union(&src_refs).count().max(1);
+                            let jaccard = inter as f64 / union as f64;
+                            s.total += 20.0 * jaccard;
+                            s.signals.push(format!("concept overlap {:.2}", jaccard));
+                        }
+                    }
+                }
+                if s.total > 0.0 {
+                    scored.push((sol, s));
+                }
+            }
+            if scored.is_empty() {
+                return Ok(text_result(format!(
+                    "No related solutions found for {}.",
+                    args.id
+                )));
+            }
+            scored.sort_by(|a, b| {
+                b.1.total
+                    .partial_cmp(&a.1.total)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .then(b.0.updated_at.cmp(&a.0.updated_at))
+            });
+            let total = scored.len();
+            let mut out = format!(
+                "{} related solution{} to {} (advisory — verify before reusing):\n",
+                total,
+                if total == 1 { "" } else { "s" },
+                args.id
+            );
+            for (i, (sol, s)) in scored.iter().take(max).enumerate() {
+                out.push_str(&format!(
+                    "\n{}. {}  (score {:.1}, updated {})\n   Problem: {}\n   Signals: {}\n",
+                    i + 1,
+                    sol.id,
+                    s.total,
+                    fmt_ts(sol.updated_at as u64),
+                    truncate(&sol.problem.replace('\n', " "), 140),
+                    s.signals.join(" · "),
+                ));
+            }
+            Ok(text_result(out))
+        })
+    }
+}
+
+// ---------------------------------------------------------------------------
+// synonym_* tools — learned single-token aliases
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct SynonymAddArgs {
+    /// The token to alias (lowercased automatically).
+    token: String,
+    /// What to fold the token to (lowercased automatically).
+    canonical: String,
+    /// Optional note ("learned 2026-05-30 from the k8s docs", etc.).
+    #[serde(default)]
+    note: Option<String>,
+}
+
+pub struct SynonymAdd;
+impl Skill for SynonymAdd {
+    fn name(&self) -> &'static str {
+        "synonym_add"
+    }
+    fn description(&self) -> &'static str {
+        "Teach the server a single-token synonym: occurrences of `token` are folded to \
+        `canonical` everywhere queries are normalized — for both the search cache AND the \
+        memory/solution recall. Persisted across restarts. Use this to absorb domain \
+        terminology (e.g. token=\"k8s\", canonical=\"kubernetes\") as you learn it; the system \
+        ships with NO built-in synonyms."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<SynonymAddArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (server, args) = ctx.parse::<SynonymAddArgs>()?;
+            let mem = &server.memory;
+            let token = args.token.trim().to_ascii_lowercase();
+            let canonical = args.canonical.trim().to_ascii_lowercase();
+            if token.is_empty() || canonical.is_empty() {
+                return Err(invalid("token and canonical must be non-empty"));
+            }
+            if token == canonical {
+                return Err(invalid(
+                    "token equals canonical — that fold would be a no-op",
+                ));
+            }
+            if token.contains(char::is_whitespace) || canonical.contains(char::is_whitespace) {
+                return Err(invalid(
+                    "synonyms are single tokens only — no whitespace allowed",
+                ));
+            }
+            let note = args.note.unwrap_or_default();
+            let now = now_secs() as i64;
+            sqlx::query(
+                "INSERT INTO synonyms (token, canonical, note, created_at) \
+                 VALUES (?, ?, ?, ?) \
+                 ON CONFLICT(token) DO UPDATE SET canonical = excluded.canonical, \
+                     note = excluded.note",
+            )
+            .bind(&token)
+            .bind(&canonical)
+            .bind(&note)
+            .bind(now)
+            .execute(&mem.pool)
+            .await
+            .map_err(|e| internal(e.into()))?;
+            if let Ok(mut map) = mem.synonyms.write() {
+                map.insert(token.clone(), canonical.clone());
+            }
+            Ok(text_result(format!(
+                "Synonym learned: {token} → {canonical}."
+            )))
+        })
+    }
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct SynonymRemoveArgs {
+    /// The token whose alias should be removed.
+    token: String,
+}
+
+pub struct SynonymRemove;
+impl Skill for SynonymRemove {
+    fn name(&self) -> &'static str {
+        "synonym_remove"
+    }
+    fn description(&self) -> &'static str {
+        "Remove a learned synonym so the token stops folding to its canonical form."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<SynonymRemoveArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (server, args) = ctx.parse::<SynonymRemoveArgs>()?;
+            let mem = &server.memory;
+            let token = args.token.trim().to_ascii_lowercase();
+            let r = sqlx::query("DELETE FROM synonyms WHERE token = ?")
+                .bind(&token)
+                .execute(&mem.pool)
+                .await
+                .map_err(|e| internal(e.into()))?;
+            if r.rows_affected() == 0 {
+                return Ok(text_result(format!(
+                    "No synonym for token=\"{token}\" — nothing to remove."
+                )));
+            }
+            if let Ok(mut map) = mem.synonyms.write() {
+                map.remove(&token);
+            }
+            Ok(text_result(format!(
+                "Removed synonym for token=\"{token}\"."
+            )))
+        })
+    }
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct SynonymListArgs {
+    /// Max synonyms to show (default 50, capped at 500).
+    #[serde(default)]
+    max: Option<u32>,
+}
+
+pub struct SynonymList;
+impl Skill for SynonymList {
+    fn name(&self) -> &'static str {
+        "synonym_list"
+    }
+    fn description(&self) -> &'static str {
+        "List all learned synonyms (token → canonical) with any attached notes, newest first."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<SynonymListArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (server, args) = ctx.parse::<SynonymListArgs>()?;
+            let mem = &server.memory;
+            let max = args.max.unwrap_or(50).clamp(1, 500) as i64;
+            let rows: Vec<(String, String, String, i64)> = sqlx::query_as(
+                "SELECT token, canonical, note, created_at FROM synonyms \
+                 ORDER BY created_at DESC LIMIT ?",
+            )
+            .bind(max)
+            .fetch_all(&mem.pool)
+            .await
+            .map_err(|e| internal(e.into()))?;
+            if rows.is_empty() {
+                return Ok(text_result(
+                    "No synonyms learned yet. Add one with synonym_add { token, canonical }."
+                        .to_string(),
+                ));
+            }
+            let total: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM synonyms")
+                .fetch_one(&mem.pool)
+                .await
+                .map_err(|e| internal(e.into()))?;
+            let mut out = format!(
+                "{} synonym{} ({} shown):\n",
+                total.0,
+                if total.0 == 1 { "" } else { "s" },
+                rows.len()
+            );
+            for (token, canonical, note, _ts) in rows {
+                let note_tail = if note.is_empty() {
+                    String::new()
+                } else {
+                    format!("  ({note})")
+                };
+                out.push_str(&format!("  {token} → {canonical}{note_tail}\n"));
+            }
+            Ok(text_result(out))
+        })
+    }
+}
+
+/// The skills this module contributes (gating happens in `disabled_by_config`).
+pub fn skills() -> Vec<Box<dyn Skill>> {
+    vec![
+        Box::new(MemorySave),
+        Box::new(MemoryGet),
+        Box::new(MemoryList),
+        Box::new(MemorySearch),
+        Box::new(MemoryForget),
+        Box::new(SolutionRecord),
+        Box::new(SolutionFind),
+        Box::new(SolutionShow),
+        Box::new(SolutionList),
+        Box::new(SolutionUpdate),
+        Box::new(SolutionForget),
+        Box::new(SolutionLink),
+        Box::new(SolutionUnlink),
+        Box::new(SolutionGraph),
+        Box::new(SolutionRelated),
+        Box::new(SynonymAdd),
+        Box::new(SynonymRemove),
+        Box::new(SynonymList),
+    ]
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    static SEQ: AtomicU32 = AtomicU32::new(0);
+
+    async fn fresh_memory() -> Memory {
+        let n = SEQ.fetch_add(1, Ordering::Relaxed);
+        let dir =
+            std::env::temp_dir().join(format!("lodestone-memory-test-{n}-{}", std::process::id()));
+        let _ = tokio::fs::remove_dir_all(&dir).await;
+        let cfg = config::Memory {
+            enabled: true,
+            dir: dir.to_string_lossy().to_string(),
+            max_entries: 1000,
+            max_value_chars: 1_000_000,
+            ..Default::default()
+        };
+        Memory::new(cfg).await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn schema_and_version_recorded_on_fresh_db() {
+        let mem = fresh_memory().await;
+        // Every table from migration v1 must exist.
+        for table in [
+            "memory",
+            "solutions",
+            "solution_revisions",
+            "solution_tags",
+            "solution_links",
+            "synonyms",
+            "_schema_version",
+        ] {
+            let q = format!("SELECT COUNT(*) FROM {table}");
+            let _: (i64,) = sqlx::query_as(&q).fetch_one(&mem.pool).await.unwrap();
+        }
+        // And the migration row is recorded.
+        let v: (i64,) = sqlx::query_as("SELECT MAX(version) FROM _schema_version")
+            .fetch_one(&mem.pool)
+            .await
+            .unwrap();
+        assert_eq!(v.0, 1, "migration v1 should be recorded");
+    }
+
+    #[tokio::test]
+    async fn rerunning_migrations_is_idempotent() {
+        let mem = fresh_memory().await;
+        // Apply again on the same connection — must not error or duplicate.
+        apply_migrations(&mem.pool).await.unwrap();
+        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM _schema_version")
+            .fetch_one(&mem.pool)
+            .await
+            .unwrap();
+        assert_eq!(count.0, 1, "migration v1 should be recorded exactly once");
+    }
+
+    #[tokio::test]
+    async fn synonym_add_writes_through_to_shared_map() {
+        let mem = fresh_memory().await;
+        sqlx::query(
+            "INSERT INTO synonyms (token, canonical, note, created_at) VALUES (?, ?, '', ?)",
+        )
+        .bind("k8s")
+        .bind("kubernetes")
+        .bind(now_secs() as i64)
+        .execute(&mem.pool)
+        .await
+        .unwrap();
+        mem.synonyms
+            .write()
+            .unwrap()
+            .insert("k8s".into(), "kubernetes".into());
+        let with_alias = crate::provider::canonical_query("k8s deploy");
+        let without_alias = crate::provider::canonical_query("kubernetes deploy");
+        assert_eq!(with_alias, without_alias);
+    }
+
+    #[tokio::test]
+    async fn reciprocal_kind_known_pairs_flip() {
+        assert_eq!(reciprocal_kind("supersedes"), "superseded-by");
+        assert_eq!(reciprocal_kind("depends-on"), "dependency-of");
+        assert_eq!(reciprocal_kind("see-also"), "see-also");
+        assert_eq!(reciprocal_kind("custom"), "custom");
+    }
+
+    #[tokio::test]
+    async fn cascade_drops_revisions_and_tags() {
+        let mem = fresh_memory().await;
+        let now = now_secs() as i64;
+        sqlx::query(
+            "INSERT INTO solutions (id, problem, canon_key, created_at, updated_at) \
+             VALUES ('sol-1', 'p', 'p', ?, ?)",
+        )
+        .bind(now)
+        .bind(now)
+        .execute(&mem.pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO solution_revisions (solution_id, rev, ts, summary, content) \
+             VALUES ('sol-1', 1, ?, 's', 'c')",
+        )
+        .bind(now)
+        .execute(&mem.pool)
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO solution_tags (solution_id, tag, label) VALUES ('sol-1','t','t')")
+            .execute(&mem.pool)
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM solutions WHERE id = 'sol-1'")
+            .execute(&mem.pool)
+            .await
+            .unwrap();
+        let revs: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM solution_revisions")
+            .fetch_one(&mem.pool)
+            .await
+            .unwrap();
+        let tags: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM solution_tags")
+            .fetch_one(&mem.pool)
+            .await
+            .unwrap();
+        assert_eq!(revs.0, 0, "CASCADE should drop revisions");
+        assert_eq!(tags.0, 0, "CASCADE should drop tags");
+    }
+}

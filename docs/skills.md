@@ -82,6 +82,7 @@ behind the search tools see [providers.md](providers.md).
 | --- | --- | --- |
 | [store](skills/store.md) | `cache_status`, `store_fetch`, `store_get`, `store_list`, `store_purge` | On-disk file store (`[store]`, off by default) + cache stats; shared over the [constellation](constellation.md). |
 | [tasks](skills/tasks.md) | `task_run`, `task_list`, `task_status`, `task_result`, `task_cancel` | Background jobs (off by default `[tasks]`): run a search off the request path, poll for results. |
+| [memory](skills/memory.md) | `memory_save`/`get`/`list`/`search`/`forget`, `solution_record`/`find`/`show`/`list`/`update`/`forget`/`link`/`unlink`/`graph`/`related` | Persistent memos + advisory recall of prior **solutions** across sessions; revisions tracked, fuzzy + synonym + tag matching, typed relation graph between solutions. Off by default `[memory]`. |
 
 ## Utilities (local; translate/currency keyless)
 

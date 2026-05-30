@@ -87,6 +87,9 @@ pub(crate) struct Lodestone {
     /// Background-job registry (model-polled): `task_*` tools spawn long work and
     /// poll for results here. Shared across cloned handles.
     pub(crate) tasks: skills::tasks::Tasks,
+    /// Persistent memory & solution-history store (the `memory_*` / `solution_*`
+    /// tools). On-disk JSONL under `[memory].dir`. Shared across cloned handles.
+    pub(crate) memory: skills::memory::Memory,
     // The filtered tool router; `#[tool_handler(router = self.tool_router)]`
     // uses it for both tool listing and dispatch.
     tool_router: ToolRouter<Lodestone>,
@@ -114,6 +117,7 @@ impl Lodestone {
         git: config::Git,
         databases: config::Databases,
         store: Option<Arc<store::FileStore>>,
+        memory: skills::memory::Memory,
         tools_enabled: &[String],
         tools_disabled: &[String],
     ) -> Self {
@@ -144,6 +148,7 @@ impl Lodestone {
             store,
             guard: skills::guard::Guard::default(),
             tasks: skills::tasks::Tasks::new(),
+            memory,
             tool_router,
         }
     }
@@ -614,6 +619,13 @@ async fn main() -> anyhow::Result<()> {
     // denylist before the router is built, so the gating reuses the same filtering path.
     let tools_disabled = effective_disabled(&cfg);
 
+    let memory = skills::memory::Memory::new(cfg.memory.clone())
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to initialize memory store: {e:#}"))?;
+    if cfg.memory.enabled {
+        tracing::info!("memory store enabled dir={}", cfg.memory.dir);
+    }
+
     let server = Lodestone::new(
         registry,
         cfg.stackexchange.default_site.clone(),
@@ -633,6 +645,7 @@ async fn main() -> anyhow::Result<()> {
         cfg.git.clone(),
         cfg.databases.clone(),
         store,
+        memory,
         &cfg.tools.enabled,
         &tools_disabled,
     );

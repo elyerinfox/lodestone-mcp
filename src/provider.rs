@@ -919,15 +919,52 @@ fn clean_token(raw: &str) -> String {
         .to_string()
 }
 
+/// The shared, runtime-learned single-token alias map. Read on every
+/// `canonical_query`/`concept_tokens` token; written by the `synonym_*` tools
+/// in `crate::skills::memory`. Out of the box it is **empty** — no hardcoded
+/// table — and the model/user grows it as they learn (`synonym_add`).
+///
+/// Stored as `OnceLock<Arc<RwLock<HashMap<…>>>>` so it can be installed once at
+/// startup (after the on-disk store is loaded) and shared across threads. Reads
+/// take a read-lock and clone the matched value (RwLock allows concurrent
+/// reads, so frequent canonicalization isn't serialized).
+static SYNONYMS: std::sync::OnceLock<std::sync::Arc<std::sync::RwLock<HashMap<String, String>>>> =
+    std::sync::OnceLock::new();
+
+/// Install (or recover) the shared synonym store. The first caller wins; later
+/// callers get the previously-installed `Arc` back. This way every `Memory`
+/// instance ends up holding **the same `Arc`** as the global, so writes through
+/// `mem.synonyms.write()` are visible to `canonical_query`/`concept_tokens`.
+pub(crate) fn install_synonym_store(
+    store: std::sync::Arc<std::sync::RwLock<HashMap<String, String>>>,
+) -> std::sync::Arc<std::sync::RwLock<HashMap<String, String>>> {
+    SYNONYMS.get_or_init(|| store).clone()
+}
+
+/// Look up `t` in the runtime synonym map. Returns `t` unchanged if no map is
+/// installed (server started without `[memory]`) or no alias matches. Lowercase
+/// keys/values are expected (the `synonym_add` tool enforces this).
+fn fold_synonym(t: &str) -> String {
+    if let Some(store) = SYNONYMS.get() {
+        if let Ok(map) = store.read() {
+            if let Some(v) = map.get(t) {
+                return v.clone();
+            }
+        }
+    }
+    t.to_string()
+}
+
 /// Order-preserving canonical form of a query: lowercased, de-punctuated, with
 /// stop-words and excess whitespace removed. Word order is **kept**, so
 /// direction-sensitive phrasings stay distinct (e.g. "json to yaml" ≠ "yaml to
 /// json"). Falls back to a whitespace-normalized lowercasing if every token was a
 /// stop-word, so the key is never empty.
-fn canonical_query(text: &str) -> String {
+pub(crate) fn canonical_query(text: &str) -> String {
     let toks: Vec<String> = text
         .split_whitespace()
         .map(clean_token)
+        .map(|t| fold_synonym(&t))
         .filter(|t| !t.is_empty() && !is_stopword(t))
         .collect();
     if toks.is_empty() {
@@ -955,10 +992,11 @@ fn stem(t: &str) -> String {
 /// The order-independent concept token set of a query: cleaned, stop-worded,
 /// stemmed, sorted, de-duplicated. Two differently-ordered or differently-inflected
 /// phrasings of the same content words produce the same set.
-fn concept_tokens(text: &str) -> Vec<String> {
+pub(crate) fn concept_tokens(text: &str) -> Vec<String> {
     let mut toks: Vec<String> = text
         .split_whitespace()
         .map(clean_token)
+        .map(|t| fold_synonym(&t))
         .filter(|t| !t.is_empty() && !is_stopword(t))
         .map(|t| stem(&t))
         .collect();
@@ -1468,6 +1506,33 @@ mod tests {
         assert_eq!(concept_tokens("files"), concept_tokens("file"));
         // Sorted + de-duped.
         assert_eq!(concept_tokens("rust rust json"), vec!["json", "rust"]);
+    }
+
+    #[test]
+    fn synonym_store_folds_when_installed() {
+        // Out of the box the runtime store is empty — fold_synonym returns the
+        // token unchanged. The test installs a seed map (the OnceLock keeps the
+        // first store, so this is idempotent across the test process) and then
+        // checks reworded queries collapse to the same canonical form.
+        let map: std::sync::Arc<std::sync::RwLock<HashMap<String, String>>> =
+            std::sync::Arc::new(std::sync::RwLock::new(HashMap::from([
+                ("k8s".to_string(), "kubernetes".to_string()),
+                ("ssl".to_string(), "tls".to_string()),
+                ("gh".to_string(), "github".to_string()),
+            ])));
+        install_synonym_store(map);
+        assert_eq!(
+            canonical_query("k8s deployment"),
+            canonical_query("kubernetes deployment")
+        );
+        assert_eq!(canonical_query("nginx ssl"), canonical_query("nginx tls"));
+        assert_eq!(canonical_query("gh repo"), canonical_query("github repo"));
+        assert_eq!(
+            concept_tokens("k8s deploy"),
+            concept_tokens("kubernetes deploy")
+        );
+        // Non-aliased tokens pass through untouched.
+        assert_eq!(canonical_query("plain rust query"), "plain rust query");
     }
 
     #[test]

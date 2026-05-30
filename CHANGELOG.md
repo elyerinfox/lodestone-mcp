@@ -8,6 +8,41 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Persistent memory & solution-history skills** (off by default, `[memory]`).
+  Two related on-disk tool families share one local JSONL store under
+  `[memory].dir` (default `.lodestone-memory/`):
+  - **`memory_*`** (`save`/`get`/`list`/`search`/`forget`) — a simple key→value
+    store the model can write to remember anything across sessions and restarts.
+    Optional `scope` namespaces and `tags`.
+  - **`solution_*`** (`record`/`find`/`show`/`list`/`update`/`forget`) — a
+    record of proposed solutions to past problems, with full revision history.
+    `solution_find` surfaces matching prior entries as **advisory suggestions
+    only** — never prescriptive — ranking by *exact canonical key* > *exact
+    concept tokens* > *fuzzy Jaccard concept-overlap* > *substring*, plus a
+    boost for shared `tags`. `solution_update` appends a new revision (prior
+    revisions stay queryable via `solution_show`).
+  - **Typed relation graph** (`solution_link` / `solution_unlink` /
+    `solution_graph` / `solution_related`) — declare auto-reciprocal edges
+    between solutions (`supersedes`↔`superseded-by`,
+    `depends-on`↔`dependency-of`, plus symmetric `related-to` / `see-also` /
+    `alternative-to` / any free-form kind). `solution_graph` walks the explicit
+    subgraph around an id (BFS, default 2 hops, max 5); `solution_related`
+    returns a combined ranking that also weighs shared tags and concept-token
+    overlap. `solution_forget` cleans dangling incoming edges.
+
+  The journals are append-only; on startup the server replays them and
+  atomically rewrites each file with the current snapshot, so size stays
+  bounded. Entries are **local only** — never advertised in the constellation
+  digest. `*_forget` are destructive (guarded; `[memory].allow_destructive` pre-
+  authorizes). Reuses the canonical/concept-token normalization the search
+  cache uses, so a reworded later question still finds the prior entry.
+- **Single-token synonym fold** in `canonical_query` / `concept_tokens`
+  (`src/provider.rs`): a small alias table (`k8s`↔`kubernetes`, `ssl`↔`tls`,
+  `gh`↔`github`, `js`↔`javascript`, `ts`↔`typescript`, `py`↔`python`,
+  `rb`↔`ruby`, `go`↔`golang`, `sh`↔`shell`, `db`↔`database`,
+  `config`/`conf`/`setup`↔`configure`) is applied before stop-wording. Affects
+  both the search cache and the memory/solution recall — a query for
+  `"k8s deploy"` now reuses a cached/recorded `"kubernetes deploy"` result.
 - **Scientific formula library, organized by field.** A shared formula-registry
   engine (`src/skills/formula.rs`) backs per-field named-formula tools: **physics**
   (`physics_formula`/`physics_formula_list` — ~70 formulas across mechanics,

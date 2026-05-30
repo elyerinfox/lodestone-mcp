@@ -341,6 +341,26 @@ client). Gated by `[tasks]`. Currently backgrounds searches.
 | `task_result` | `id` | A task's result (or still-running / error). |
 | `task_cancel` | `id` | Cancel a running task. |
 
+## Persistent memory & solutions (off by default `[memory]`)
+
+| Tool | Arguments | Purpose |
+| --- | --- | --- |
+| `memory_save` | `key`, `value`, `scope?`, `tags?` | Save/upsert a key→value memory persisted across sessions. |
+| `memory_get` | `key`, `scope?` | Exact lookup by key (and optional scope). |
+| `memory_list` | `scope?`, `prefix?`, `max?` | List memories with previews, newest-updated first. |
+| `memory_search` | `query`, `scope?`, `tag?`, `max?` | Substring search across key/value/tags. |
+| `memory_forget` | `key`, `scope?`, `confirm?`, `trust?` | Delete a memory. **Destructive — guarded.** |
+| `solution_record` | `problem`, `summary`, `content`, `notes?`, `tags?` | Record a proposed solution; returns its id. |
+| `solution_find` | `query?`, `tags?`, `max?` | Surface SUGGESTED prior solutions (advisory). Exact canonical > exact concept > fuzzy Jaccard > substring, plus tag boost. |
+| `solution_show` | `id` | Show one solution with its full revision history. |
+| `solution_list` | `max?` | List recorded solutions, newest-updated first. |
+| `solution_update` | `id`, `summary`, `content`, `notes?`, `tags?` | Append a new revision; prior revisions are kept. Pass `tags` to replace, `[]` to clear. |
+| `solution_forget` | `id`, `confirm?`, `trust?` | Delete a solution (drops all revisions). **Destructive — guarded.** |
+| `solution_link` | `from`, `kind`, `to`, `note?` | Declare a typed relation between two solutions; reciprocal is auto-added (e.g. `supersedes`→`superseded-by`). |
+| `solution_unlink` | `from`, `kind`, `to` | Remove a typed link; the reciprocal on the target is also removed. |
+| `solution_graph` | `id`, `depth?` | BFS subgraph around one solution (default 2 hops, max 5), showing typed edges to every reachable solution. |
+| `solution_related` | `id`, `max?` | Rank solutions related to one source, combining explicit links + shared tags + concept-token Jaccard overlap. |
+
 ## Meta
 
 | Tool | Arguments | Purpose |

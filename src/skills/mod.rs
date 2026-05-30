@@ -32,6 +32,7 @@ pub mod guard;
 pub mod huggingface;
 pub mod kernel;
 pub mod kubernetes;
+pub mod memory;
 pub mod meta;
 pub mod nasa;
 pub mod news;
@@ -154,6 +155,7 @@ fn all_skills() -> Vec<Box<dyn Skill>> {
     skills.extend(databases::skills());
     skills.extend(store::skills());
     skills.extend(tasks::skills());
+    skills.extend(memory::skills());
     skills.extend(datetime::skills());
     skills.extend(translate::skills());
     skills.extend(data::skills());
@@ -217,6 +219,8 @@ pub fn disabled_by_config(cfg: &crate::config::Config) -> Vec<String> {
     hide_if_off(cfg.sdr.enabled, sdr::TOOL_NAMES);
     // Background tasks — off by default.
     hide_if_off(cfg.tasks.enabled, tasks::TOOL_NAMES);
+    // Memory & solution-history skills — off by default.
+    hide_if_off(cfg.memory.enabled, memory::TOOL_NAMES);
     // Stock quotes — on by default, but gateable. Yahoo Finance shares the gate.
     hide_if_off(cfg.stocks.enabled, stocks::TOOL_NAMES);
     hide_if_off(cfg.stocks.enabled, yahoo::TOOL_NAMES);

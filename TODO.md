@@ -6,6 +6,89 @@ likely involved). Checked items are done; unchecked are open.
 
 ---
 
+## Active workstream: memory + solutions + synonyms + graph
+
+This section captures the in-flight session work so it survives any context
+compression. Files: `src/skills/memory.rs`, `src/provider.rs`,
+`src/config.rs`, `src/main.rs`, `Cargo.toml`, `migrations/`,
+`docs/skills/memory.md`, `docs/skills.md`, `docs/tools.md`,
+`config/18-memory.toml`, `lodestone.toml`, `CHANGELOG.md`.
+
+### Status snapshot
+- [x] **Memory + solutions module shipped (JSONL phase).** `src/skills/memory.rs`
+  with 11 tools: `memory_save`/`get`/`list`/`search`/`forget`,
+  `solution_record`/`find`/`show`/`list`/`update`/`forget`. Off by default
+  (`[memory]`); local on-disk; never advertised to the constellation. Restart
+  guarded, tags, fuzzy concept overlap (Jaccard), recall is **advisory** —
+  output is explicitly labeled SUGGESTED prior solutions. Tests pass. Server
+  was restarted on :8001 with these tools live (PID was 69812; may now be
+  stopped).
+- [x] **Typed relation graph between solutions.** Four new tools
+  `solution_link`/`unlink`/`graph`/`related`. Auto-reciprocal kinds
+  (`supersedes`↔`superseded-by`, `depends-on`↔`dependency-of`); unknown kinds
+  treated as symmetric. `solution_graph` is BFS over explicit edges;
+  `solution_related` ranks by explicit-link weight + shared tags + concept
+  Jaccard. `solution_forget` strips dangling incoming edges. Tests pass.
+- [x] **Synonym fold in `canonical_query` / `concept_tokens`.** Originally a
+  small hardcoded table; **user directed this be replaced by a learned store**
+  — now lives behind a runtime `OnceLock<Arc<RwLock<HashMap<String,String>>>>`
+  installed via `provider::install_synonym_store`. Fold is empty out of the box.
+- [ ] **(In progress) SQLite migration of the whole store.** User directive:
+  "all data storage should be a proper scalable partition means." Plan: replace
+  the three JSONL journals (memory, solutions, synonyms) with one indexed
+  SQLite database via `sqlx`'s `sqlite` feature (already added to `Cargo.toml`).
+  Tables: `memory`, `solutions`, `solution_revisions`, `solution_tags`,
+  `solution_links`, `synonyms`, plus a `_schema_version` row for migrations.
+  Foreign-key CASCADE handles `solution_forget`; transactions wrap multi-row
+  edits (`solution_link`, `solution_update`, `solution_forget`).
+- [ ] **(In progress, paired with above) Migration system.** User directive:
+  "implement a migration system so we can incrementally add changes to the
+  database." Plan: `migrations/000N_<name>.sql` files compiled into the binary
+  via `include_str!`; `_schema_version` table tracks the highest applied
+  version; on startup, apply every migration > current_version in a
+  transaction. Migration v1 is the initial schema.
+- [ ] **(In progress) Three synonym tools** as part of the SQLite phase:
+  `synonym_add { token, canonical, note? }`, `synonym_remove { token }`,
+  `synonym_list { max? }`. `synonym_add` upserts to the `synonyms` table AND
+  mirrors to the in-memory `RwLock<HashMap>` for fast canonicalization.
+
+### Still pending after SQLite + migrations land
+- [ ] Rebuild release, restart server on `:8001`, verify all 18 memory tools
+  appear in the active-tools log line.
+- [ ] Update docs (`docs/skills/memory.md`, `docs/tools.md`, `docs/skills.md`)
+  to reflect the SQLite backing store, the migration system, and the three
+  synonym tools. The earlier write described JSONL; rewrite that section.
+- [ ] CHANGELOG entry under `[Unreleased]` covering the entire workstream
+  (JSONL pivot → SQLite, graph layer, learned synonyms, migration system).
+- [ ] Commit + push (no co-author trailer — user removed it earlier and
+  asked me to keep omitting it).
+
+### Next request the user has queued (NOT YET STARTED)
+- [ ] **Signal / waveform / packet / RE skills.** User asked for: FFT-based
+  signal analysis, WAV file parsing, packet capture, reverse engineering. Plan:
+  separate modules — `src/skills/signal.rs` (FFT, windowing, dominant
+  frequencies via `rustfft`), `src/skills/wave.rs` (WAV decode via `hound`),
+  `src/skills/pcap.rs` (read existing `.pcap` files via `pcap-file` — pure
+  Rust, no native libpcap dep), `src/skills/binary.rs` (file-type detect,
+  strings, entropy, hexdump, ELF/PE/Mach-O metadata via `object`),
+  `src/skills/disasm.rs` (x86/x64 via `iced-x86`). All read-only; many narrow
+  tools per golden rule 9. Defer until SQLite is in.
+
+### Earlier session beats (just for context; all committed/pushed already)
+- Forecast split (golden rule 9): `forecast_holt_linear` + `forecast_holt_winters`.
+- Golden rule 9 added ("one tool per method"); `hf_search` split into
+  `hf_model_search` + `hf_dataset_search` per the same rule.
+- Constellation doc: added Terminology section.
+- README: rewrote the "thesis" section in plain English with 4 inline citations.
+- User removed the `Co-Authored-By: Claude` trailer from the last two commits
+  (force-pushed). Going forward I omit it from commit messages.
+- Server is launched manually by the user with `LODESTONE_BIND=127.0.0.1:8001`
+  set in the env (the lodestone.toml says `:8000`, the running instance was
+  overridden). I restart it by stopping the process, `cargo build --release`,
+  and `Start-Process` with that env var.
+
+---
+
 ## Testing & CI
 
 - [x] **Fixture-based parser tests.** Done: hermetic `#[cfg(test)]` tests with

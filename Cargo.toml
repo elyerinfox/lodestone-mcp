@@ -72,7 +72,7 @@ sgp4 = "2"
 serialport = { version = "4", default-features = false }
 # Database client skills: PostgreSQL + MySQL via sqlx (Redis reuses the `redis`
 # crate above). Only used when a [databases.*] instance is configured.
-sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "mysql", "chrono"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "mysql", "sqlite", "chrono", "macros"] }
 # Spreadsheet skill (off by default): CSV/TSV via `csv`, XLSX/XLS/ODS reads via
 # `calamine`, XLSX writes via `rust_xlsxwriter`. Only used by the sheet_* tools.
 csv = "1"
