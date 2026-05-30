@@ -6,6 +6,15 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **`[memory].enabled` now defaults to `true`.** The persistent memory layer is
+  local (SQLite under `[memory].dir`, no network), so there's no privacy or
+  security cost to having it on; the value it adds — intrinsic recall surfacing
+  prior solutions as a preamble on every query-bearing tool call — is what
+  gives the model an "I solved this before" surface that's hard to get any
+  other way. Set `enabled = false` to silence the family entirely.
+
 ### Added
 
 - **Signal-processing skills** (off by default, `[signal]`): `signal_fft`,
@@ -29,7 +38,7 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `systemd_status`, `systemd_logs` (read-only), plus guarded
   `systemd_start` / `stop` / `restart`.
 
-- **Persistent memory & solution-history skills** (off by default, `[memory]`).
+- **Persistent memory & solution-history skills** (on by default, `[memory]`).
   Two related on-disk tool families share one local JSONL store under
   `[memory].dir` (default `.lodestone-memory/`):
   - **`memory_*`** (`save`/`get`/`list`/`search`/`forget`) — a simple key→value

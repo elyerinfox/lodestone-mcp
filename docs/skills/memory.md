@@ -5,7 +5,7 @@
 | **Module** | [`src/skills/memory.rs`](../../src/skills/memory.rs) |
 | **Tools** | `memory_save`, `memory_get`, `memory_list`, `memory_search`, `memory_forget`, `solution_record`, `solution_find`, `solution_show`, `solution_list`, `solution_update`, `solution_forget`, `solution_link`, `solution_unlink`, `solution_graph`, `solution_related` |
 | **Network** | none (purely local on-disk store) |
-| **Default** | **off** (`[memory].enabled`) |
+| **Default** | **on** (`[memory].enabled`) |
 | **Config** | [`config/18-memory.toml`](../../config/18-memory.toml) |
 
 ## What it does

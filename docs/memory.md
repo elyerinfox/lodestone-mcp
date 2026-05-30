@@ -1,8 +1,8 @@
 # Persistent memory
 
-Lodestone has an optional, SQLite-backed memory layer that survives across
-sessions. It is **off by default** — turn it on by setting `[memory].enabled =
-true` in `config/18-memory.toml`. When off, none of the tools below exist and the
+Lodestone has a SQLite-backed memory layer that survives across sessions. It
+is **on by default** — to silence it, set `[memory].enabled = false` in
+`config/18-memory.toml`. When disabled, none of the tools below exist and the
 intrinsic recall wrapper is inert; the rest of the server is unaffected.
 
 The layer has three discrete responsibilities, deliberately separated so the

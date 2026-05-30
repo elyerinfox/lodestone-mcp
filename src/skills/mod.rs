@@ -365,7 +365,7 @@ pub fn disabled_by_config(cfg: &crate::config::Config) -> Vec<String> {
     hide_if_off(cfg.sdr.enabled, sdr::TOOL_NAMES);
     // Background tasks — off by default.
     hide_if_off(cfg.tasks.enabled, tasks::TOOL_NAMES);
-    // Memory & solution-history skills — off by default.
+    // Memory & solution-history skills — on by default; gateable.
     hide_if_off(cfg.memory.enabled, memory::TOOL_NAMES);
     hide_if_off(cfg.signal.enabled, signal::TOOL_NAMES);
     hide_if_off(cfg.wave.enabled, wave::TOOL_NAMES);

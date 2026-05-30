@@ -28,9 +28,9 @@
 //! transactionally at startup if its version is greater than the highest
 //! already-applied one (tracked in a `_schema_version` table).
 //!
-//! Off by default (`[memory].enabled`). Entries live **only on this host** —
-//! never advertised in the constellation digest. `*_forget` are routed through
-//! the confirmation [`guard`](super::guard).
+//! On by default (`[memory].enabled = true`). Entries live **only on this
+//! host** — never advertised in the constellation digest. `*_forget` are
+//! routed through the confirmation [`guard`](super::guard).
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;

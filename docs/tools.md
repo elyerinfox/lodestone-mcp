@@ -340,7 +340,7 @@ client). Gated by `[tasks]`. Currently backgrounds searches.
 | `task_result` | `id` | A task's result (or still-running / error). |
 | `task_cancel` | `id` | Cancel a running task. |
 
-## Persistent memory & solutions (off by default `[memory]`)
+## Persistent memory & solutions (on by default `[memory]`)
 
 | Tool | Arguments | Purpose |
 | --- | --- | --- |

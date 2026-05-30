@@ -62,9 +62,10 @@ pub struct Config {
     /// is no stored connection — the caller passes a connection URL in each call (the
     /// user hands it to the model in conversation). Off by default.
     pub databases: Databases,
-    /// Persistent memory & solution-history skills (`memory_*` / `solution_*`). Off by
-    /// default. When on, key/value memories and proposed solutions are persisted under
-    /// `[memory].dir` and recalled across sessions/restarts.
+    /// Persistent memory & solution-history skills (`memory_*` / `solution_*` /
+    /// `synonym_*`). **On by default.** Key/value memories and recorded solutions
+    /// persist under `[memory].dir` and are recalled across sessions; recall fires
+    /// intrinsically as a preamble on every query-bearing tool call.
     pub memory: Memory,
     /// Signal-processing skills (FFT, RMS, windowing). Off by default.
     pub signal: ToggleOnly,
@@ -135,7 +136,12 @@ pub struct Systemd {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct Memory {
-    /// Expose the `memory_*` and `solution_*` tools. Off by default.
+    /// Expose the `memory_*`, `solution_*`, and `synonym_*` tools and arm
+    /// the dispatch-wrapper that auto-prepends prior-solution recall to
+    /// every query-bearing tool call. **On by default** — the layer is local
+    /// (SQLite under `dir`), has no external dependencies, and the recall
+    /// preamble is what gives the model the "I solved this before" surface.
+    /// Set to false to silence the family entirely.
     pub enabled: bool,
     /// Directory for the JSONL stores (`memory.jsonl`, `solutions.jsonl`).
     /// Default: `.lodestone-memory` (relative to the server's working directory).
@@ -151,7 +157,7 @@ pub struct Memory {
 impl Default for Memory {
     fn default() -> Self {
         Self {
-            enabled: false,
+            enabled: true,
             dir: ".lodestone-memory".to_string(),
             allow_destructive: false,
             max_entries: 10_000,

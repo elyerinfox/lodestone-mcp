@@ -24,7 +24,7 @@ WHAT IS AVAILABLE (by area)
 - Caching & file store — cache_status, store_fetch/get/list/purge.
 - Introspection — list_providers, constellation_status, constellation_peers, constellation_seeds.
 
-PERSISTENT MEMORY (across sessions, off by default behind [memory])
+PERSISTENT MEMORY (across sessions, on by default behind [memory])
 - memory_save / memory_get / memory_list / memory_search / memory_forget — a key→value store the model can write to remember anything between sessions. Optional `scope` and `tags`.
 - solution_record / solution_find / solution_show / solution_list / solution_update / solution_forget — record proposed solutions with full revision history. solution_find surfaces matching prior entries as ADVISORY suggestions on similar questions — they may be stale; verify before reusing, and call solution_update if you learn a better approach. Rank order is exact canonical > exact concept > fuzzy Jaccard > substring, plus a boost for shared tags.
 - solution_link / solution_unlink / solution_graph / solution_related — typed, auto-reciprocal edges between solutions (`supersedes` ↔ `superseded-by`, `depends-on` ↔ `dependency-of`, plus symmetric `alternative-to`, `related-to`, `see-also`, or any free-form kind). solution_graph BFS-walks explicit edges; solution_related combines explicit links + shared tags + concept-token Jaccard into one ranked list.
