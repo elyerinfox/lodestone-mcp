@@ -268,3 +268,33 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod live {
+    fn http() -> reqwest::Client {
+        reqwest::Client::builder()
+            .user_agent("lodestone-mcp/0.1.0 (+https://github.com/elyerinfox/lodestone-mcp)")
+            .build()
+            .unwrap()
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn stackexchange_search_live() {
+        let key = std::env::var("LODESTONE_STACKEXCHANGE_KEY").unwrap_or_default();
+        let key_q = if key.is_empty() { String::new() } else { format!("&key={key}") };
+        let url = format!("https://api.stackexchange.com/2.3/search?order=desc&sort=relevance&intitle=rust&site=stackoverflow&pagesize=3{key_q}");
+        let r = http().get(&url).send().await.expect("network");
+        if matches!(r.status().as_u16(), 429 | 503) {
+            eprintln!("stackexchange rate-limited: {}", r.status());
+            return;
+        }
+        let r = r.error_for_status().unwrap();
+        let v: serde_json::Value = r.json().await.unwrap();
+        let items = v["items"].as_array().expect("missing items");
+        assert!(!items.is_empty());
+        for k in ["title", "link", "score", "answer_count"] {
+            assert!(items[0].get(k).is_some(), "missing field {k}");
+        }
+    }
+}

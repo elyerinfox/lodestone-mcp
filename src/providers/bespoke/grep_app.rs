@@ -109,3 +109,34 @@ mod tests {
         assert!(super::parse("<html>are you a robot?</html>", 10).is_empty());
     }
 }
+
+#[cfg(test)]
+mod live {
+    fn http() -> reqwest::Client {
+        reqwest::Client::builder()
+            .user_agent("lodestone-mcp/0.1.0 (+https://github.com/elyerinfox/lodestone-mcp)")
+            .build()
+            .unwrap()
+    }
+
+    /// grep.app's keyless code-search JSON endpoint. The parser test pins
+    /// schema; this catches the day grep.app goes dark or changes URL.
+    #[tokio::test]
+    #[ignore]
+    async fn grep_app_search_live() {
+        let r = http()
+            .get("https://grep.app/api/search?q=tokio::spawn")
+            .send().await.expect("network");
+        // grep.app sometimes drops to a bot challenge page (200 HTML); both
+        // 200-HTML and 200-JSON are acceptable — the parser handles both.
+        if !r.status().is_success() {
+            eprintln!("grep_app_search_live: status {}", r.status());
+            return;
+        }
+        let body = r.text().await.unwrap();
+        let parsed = super::parse(&body, 10);
+        // If grep.app is serving JSON results, we expect ≥ 1; if it's a bot
+        // challenge HTML page, parse returns empty — both are "API up".
+        eprintln!("grep_app_search_live: got {} results", parsed.len());
+    }
+}

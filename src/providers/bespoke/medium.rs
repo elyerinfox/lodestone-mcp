@@ -132,3 +132,24 @@ mod tests {
         assert!(out[0].snippet.contains("Body text here"));
     }
 }
+
+#[cfg(test)]
+mod live {
+    fn http() -> reqwest::Client {
+        reqwest::Client::builder()
+            .user_agent("lodestone-mcp/0.1.0 (+https://github.com/elyerinfox/lodestone-mcp)")
+            .build()
+            .unwrap()
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn medium_tag_rss_live() {
+        let r = http()
+            .get("https://medium.com/feed/tag/programming")
+            .send().await.expect("network").error_for_status().unwrap();
+        let body = r.text().await.unwrap();
+        assert!(body.contains("<rss"));
+        assert!(body.contains("<item"));
+    }
+}
