@@ -57,6 +57,8 @@ pub(crate) struct Lodestone {
     pub(crate) github_token: Arc<str>,
     /// Optional NASA api.nasa.gov key (empty → `DEMO_KEY`) for the `nasa_*` tools.
     pub(crate) nasa_key: Arc<str>,
+    /// Optional EIA Open Data API key for `eia_*` tools.
+    pub(crate) eia_key: Arc<str>,
     /// Serial-port policy (baud/timeout) for the `serial_*` tools.
     pub(crate) serial: Arc<config::Serial>,
     /// Caches retrieval-tool output (page text, files, answers) keyed by request.
@@ -109,6 +111,7 @@ impl Lodestone {
         se_allowed: Vec<String>,
         github_token: String,
         nasa_key: String,
+        eia_key: String,
         serial: config::Serial,
         timeout_secs: u64,
         retrieval_cache: Option<Arc<cache::TtlCache>>,
@@ -141,6 +144,7 @@ impl Lodestone {
             se_allowed: se_allowed.into(),
             github_token: github_token.into(),
             nasa_key: nasa_key.into(),
+            eia_key: eia_key.into(),
             serial: Arc::new(serial),
             retrieval_cache,
             default_chars: default_chars.max(1),
@@ -564,6 +568,7 @@ async fn main() -> anyhow::Result<()> {
         cfg.stackexchange.allowed_sites.clone(),
         cfg.github.token.clone(),
         cfg.nasa.key.clone(),
+        cfg.eia.key.clone(),
         cfg.serial.clone(),
         cfg.search.timeout_secs,
         retrieval_cache,

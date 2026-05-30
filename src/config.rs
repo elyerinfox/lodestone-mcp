@@ -46,6 +46,8 @@ pub struct Config {
     pub serial: Serial,
     pub printer: Printer,
     pub nasa: Nasa,
+    /// EIA Open Data API key (free at eia.gov/opendata/register.php).
+    pub eia: Eia,
     pub stocks: Stocks,
     /// User-defined self-hosted forges, keyed by provider id. Each entry becomes
     /// a keyless code provider (and a `code_<id>` tool) once its id is listed in
@@ -681,6 +683,14 @@ pub struct Nasa {
     pub key: String,
 }
 
+/// EIA Open Data v2 API key for the `eia_*` tools.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct Eia {
+    /// API key from https://www.eia.gov/opendata/register.php. Empty = `eia_*` tools error.
+    pub key: String,
+}
+
 /// Stock-quote skill (`src/skills/stocks.rs`) — delayed quotes via the keyless
 /// Stooq CSV endpoint. On by default; no key.
 #[derive(Debug, Clone, Deserialize)]
@@ -883,6 +893,7 @@ impl Default for Config {
             serial: Serial::default(),
             printer: Printer::default(),
             nasa: Nasa::default(),
+            eia: Eia::default(),
             stocks: Stocks::default(),
             forges: HashMap::new(),
             docsites: HashMap::new(),
@@ -1319,6 +1330,10 @@ impl Config {
             std::env::var("LODESTONE_NASA_KEY").or_else(|_| std::env::var("NASA_API_KEY"))
         {
             self.nasa.key = v;
+        }
+        if let Ok(v) = std::env::var("LODESTONE_EIA_KEY").or_else(|_| std::env::var("EIA_API_KEY"))
+        {
+            self.eia.key = v;
         }
         if let Ok(v) = std::env::var("LODESTONE_STOCKS_ENABLED") {
             self.stocks.enabled = is_truthy(&v);

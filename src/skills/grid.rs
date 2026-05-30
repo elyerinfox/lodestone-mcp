@@ -516,6 +516,132 @@ impl Skill for GridSubmarineCables {
     }
 }
 
+// ----- grid_flood_zones -----
+
+pub struct GridFloodZones;
+impl Skill for GridFloodZones {
+    fn name(&self) -> &'static str {
+        "grid_flood_zones"
+    }
+    fn description(&self) -> &'static str {
+        "Find tagged flood hazard / floodway / detention features in a bounding box (OSM \
+        `natural=floodway`, `hazard=flood`/`flood_prone`, `landuse=basin`+`basin=detention`/\
+        `flood`). OSM coverage is uneven outside well-mapped regions — for authoritative \
+        US floodplains use FEMA NFHL separately; this is the openly tagged subset."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<BboxArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (server, args) = ctx.parse::<BboxArgs>()?;
+            check_bbox(args.south, args.west, args.north, args.east)?;
+            let max = args.max.unwrap_or(100).clamp(1, 1000) as usize;
+            let bbox = format!(
+                "({},{},{},{})",
+                args.south, args.west, args.north, args.east
+            );
+            let ql = format!(
+                "[out:json][timeout:60];\
+                 (way[\"natural\"=\"floodway\"]{bbox};\
+                  relation[\"natural\"=\"floodway\"]{bbox};\
+                  way[\"hazard\"=\"flood_prone\"]{bbox};\
+                  relation[\"hazard\"=\"flood_prone\"]{bbox};\
+                  way[\"hazard\"=\"flood\"]{bbox};\
+                  way[\"hazard:type\"=\"flood\"]{bbox};\
+                  way[\"landuse\"=\"basin\"][\"basin\"~\"detention|flood|retention\"]{bbox};\
+                  relation[\"landuse\"=\"basin\"][\"basin\"~\"detention|flood|retention\"]{bbox};);\
+                 out center tags;"
+            );
+            let v = run_overpass(server, &ql).await?;
+            let empty = Vec::new();
+            let elements = v
+                .get("elements")
+                .and_then(|x| x.as_array())
+                .unwrap_or(&empty);
+            Ok(text_result(render_elements(
+                elements,
+                "Flood hazard / detention features",
+                max,
+                args.name_filter.as_deref(),
+                &["natural", "hazard", "hazard:type", "basin", "landuse"],
+            )))
+        })
+    }
+}
+
+// ----- grid_planned_lines -----
+
+pub struct GridPlannedLines;
+impl Skill for GridPlannedLines {
+    fn name(&self) -> &'static str {
+        "grid_planned_lines"
+    }
+    fn description(&self) -> &'static str {
+        "Find PLANNED / UNDER-CONSTRUCTION transmission lines in a bounding box (OSM \
+        `proposed:power=line`/`minor_line` and `construction:power=line`/`minor_line`). For \
+        authoritative European TYNDP projects, ENTSO-E publishes separately (not covered here \
+        because their API needs a key)."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<TransmissionArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (server, args) = ctx.parse::<TransmissionArgs>()?;
+            check_bbox(args.south, args.west, args.north, args.east)?;
+            let max = args.max.unwrap_or(100).clamp(1, 1000) as usize;
+            let bbox = format!(
+                "({},{},{},{})",
+                args.south, args.west, args.north, args.east
+            );
+            let ql = format!(
+                "[out:json][timeout:60];\
+                 (way[\"proposed:power\"~\"^(line|minor_line)$\"]{bbox};\
+                  way[\"construction:power\"~\"^(line|minor_line)$\"]{bbox};\
+                  way[\"power\"~\"^(line|minor_line)$\"][\"construction\"=\"yes\"]{bbox};\
+                  way[\"power\"~\"^(line|minor_line)$\"][\"proposed\"=\"yes\"]{bbox};);\
+                 out center tags;"
+            );
+            let v = run_overpass(server, &ql).await?;
+            let empty = Vec::new();
+            let mut elements: Vec<&Value> = v
+                .get("elements")
+                .and_then(|x| x.as_array())
+                .unwrap_or(&empty)
+                .iter()
+                .collect();
+            if let Some(min_v) = args.min_voltage_v {
+                elements.retain(|el| {
+                    el.get("tags")
+                        .and_then(|t| t.get("voltage"))
+                        .and_then(|x| x.as_str())
+                        .and_then(|s| {
+                            s.split(';')
+                                .filter_map(|p| p.trim().parse::<u64>().ok())
+                                .max()
+                        })
+                        .is_some_and(|v| v >= min_v)
+                });
+            }
+            let owned: Vec<Value> = elements.into_iter().cloned().collect();
+            Ok(text_result(render_elements(
+                &owned,
+                "Planned / under-construction transmission lines",
+                max,
+                args.name_filter.as_deref(),
+                &[
+                    "voltage",
+                    "circuits",
+                    "operator",
+                    "construction",
+                    "proposed",
+                ],
+            )))
+        })
+    }
+}
+
 pub fn skills() -> Vec<Box<dyn Skill>> {
     vec![
         Box::new(GridPowerPlants),
@@ -524,5 +650,7 @@ pub fn skills() -> Vec<Box<dyn Skill>> {
         Box::new(GridDataCenters),
         Box::new(GridPipelines),
         Box::new(GridSubmarineCables),
+        Box::new(GridFloodZones),
+        Box::new(GridPlannedLines),
     ]
 }
