@@ -10,3 +10,9 @@
 # On-disk file store ([store]) and any test store dirs — runtime data, not source.
 /.lodestone-store/
 /.store-test/
+
+# Memory/solution SQLite store ([memory]) — runtime data, never source.
+/.lodestone-memory/
+
+# Claude Code session state.
+/.claude/
