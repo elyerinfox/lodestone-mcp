@@ -230,6 +230,7 @@ strategies, caching, forges/doc-sites: **[docs/configuration.md](docs/configurat
 | [ranking.md](docs/ranking.md) | The composite ranker: signals, formulas, tuning. |
 | [containers.md](docs/containers.md) | Docker Hub / OCI / Artifact Hub lookups. |
 | [constellation.md](docs/constellation.md) | The opt-in peer-to-peer layer (results + blob sharing). |
+| [memory.md](docs/memory.md) | Persistent memory: notes, recorded solutions (with a typed graph), synonyms, and the **intrinsic recall** that fires on every query-bearing tool. |
 | [golden-rules.md](docs/golden-rules.md) | The project's invariants. |
 | [comparison.md](docs/comparison.md) | How Lodestone compares; limitations. |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Architecture and how to add a skill/provider. |
