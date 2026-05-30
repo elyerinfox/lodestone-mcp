@@ -1627,7 +1627,7 @@ impl Skill for SolutionShow {
                     } else {
                         format!("  — {}", l.note)
                     };
-                    out.push_str(&format!("  â”€{}→ {}{}\n", l.kind, l.to_id, note));
+                    out.push_str(&format!("  ─{}→ {}{}\n", l.kind, l.to_id, note));
                 }
             }
             for r in &revs {
@@ -1636,7 +1636,7 @@ impl Skill for SolutionShow {
                     None => String::new(),
                 };
                 out.push_str(&format!(
-                    "\nâ”€â”€ rev {} · {}{conv_tail} â”€â”€\nsummary: {}\n\n{}\n",
+                    "\n── rev {} · {}{conv_tail} ──\nsummary: {}\n\n{}\n",
                     r.rev,
                     fmt_ts(r.ts as u64),
                     r.summary,
@@ -2012,7 +2012,7 @@ impl Skill for SolutionLink {
                 .map_err(|e| internal(e.into()))?;
             tx.commit().await.map_err(|e| internal(e.into()))?;
             Ok(text_result(format!(
-                "Linked {} â”€{kind}→ {} (reciprocal {} â”€{recip}→ {} added).",
+                "Linked {} ─{kind}→ {} (reciprocal {} ─{recip}→ {} added).",
                 args.from, args.to, args.to, args.from
             )))
         })
@@ -2068,12 +2068,12 @@ impl Skill for SolutionUnlink {
             tx.commit().await.map_err(|e| internal(e.into()))?;
             if r1.rows_affected() == 0 && r2.rows_affected() == 0 {
                 return Ok(text_result(format!(
-                    "No link {} â”€{}→ {} was present; nothing to remove.",
+                    "No link {} ─{}→ {} was present; nothing to remove.",
                     args.from, args.kind, args.to
                 )));
             }
             Ok(text_result(format!(
-                "Unlinked {} â”€{}→ {} (and removed the reciprocal {} â”€{}→ {}).",
+                "Unlinked {} ─{}→ {} (and removed the reciprocal {} ─{}→ {}).",
                 args.from, args.kind, args.to, args.to, recip, args.from
             )))
         })
@@ -2171,7 +2171,7 @@ impl Skill for SolutionGraph {
                         out.push_str(&format!("{indent}{node}: {problem}\n"));
                     } else {
                         out.push_str(&format!(
-                            "{indent}â”€{kind}→ {node} (from {parent}): {problem}\n"
+                            "{indent}─{kind}→ {node} (from {parent}): {problem}\n"
                         ));
                     }
                 }
