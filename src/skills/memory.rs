@@ -227,7 +227,130 @@ pub(crate) struct Memory {
     synonyms: Arc<RwLock<HashMap<String, String>>>,
 }
 
+/// One scored prior-solution hit returned by [`Memory::auto_recall`]. Used by
+/// the dispatch wrapper to prepend "💡 Prior solutions" preambles to tool
+/// results — the model doesn't have to call `solution_find` explicitly to
+/// benefit from recorded prior work.
+///
+/// Carries the hit's outgoing typed links too, so the recall preamble exposes
+/// the **local subgraph** (supersedes / depends-on / related-to chains) — not
+/// just the single solution. The model can then decide to walk further with
+/// `solution_graph` / `solution_related`, or chain solutions transitively when
+/// deciding what to do next.
+#[derive(Debug, Clone)]
+pub(crate) struct RecallHit {
+    pub id: String,
+    pub problem: String,
+    pub score: f64,
+    pub summary: String,
+    /// Outgoing typed edges (kind, target id) up to a small cap. Surfacing
+    /// these in the preamble is what makes the auto-recall *graph-aware*
+    /// rather than per-solution-isolated.
+    pub links: Vec<(String, String)>,
+}
+
 impl Memory {
+    /// `true` if the `memory_*` / `solution_*` / `synonym_*` family is enabled —
+    /// the dispatch wrapper checks this before running auto-recall so the cost
+    /// is zero when memory is off.
+    pub(crate) fn enabled(&self) -> bool {
+        self.cfg.enabled
+    }
+
+    /// Run the same scoring path `solution_find` uses, but return the top
+    /// matches above a threshold as plain data (no rendering). Called from the
+    /// dispatch wrapper on every query-bearing tool so prior solutions are
+    /// surfaced **intrinsically** — the model never has to remember to look.
+    ///
+    /// Returns at most `max` hits with `score ≥ 30`. Threshold avoids drowning
+    /// the response in marginal substring matches.
+    pub(crate) async fn auto_recall(&self, query: &str, max: usize) -> Vec<RecallHit> {
+        if !self.cfg.enabled || query.trim().is_empty() || max == 0 {
+            return Vec::new();
+        }
+        let qcanon = crate::provider::canonical_query(query);
+        let qconcept_str = concept_key_of(query);
+        let q_concept_toks = crate::provider::concept_tokens(query);
+        let needle = query.trim().to_ascii_lowercase();
+        let filter_tags_lc: HashSet<String> = HashSet::new();
+
+        let rows: Vec<SolutionRow> = match sqlx::query_as(
+            "SELECT id, problem, canon_key, concept_key, created_at, updated_at FROM solutions",
+        )
+        .fetch_all(&self.pool)
+        .await
+        {
+            Ok(r) => r,
+            Err(_) => return Vec::new(),
+        };
+        let all_tags: Vec<(String, String)> =
+            sqlx::query_as("SELECT solution_id, tag FROM solution_tags")
+                .fetch_all(&self.pool)
+                .await
+                .unwrap_or_default();
+        let mut tags_by_sol: HashMap<String, HashSet<String>> = HashMap::new();
+        for (sid, tag) in all_tags {
+            tags_by_sol.entry(sid).or_default().insert(tag);
+        }
+        let empty_set: HashSet<String> = HashSet::new();
+        let mut scored: Vec<(SolutionRow, f64)> = rows
+            .into_iter()
+            .filter_map(|sol| {
+                let tags = tags_by_sol.get(&sol.id).unwrap_or(&empty_set);
+                let (score, _) = score_solution_row(
+                    &sol,
+                    tags,
+                    &qcanon,
+                    qconcept_str.as_deref(),
+                    &q_concept_toks,
+                    &needle,
+                    &filter_tags_lc,
+                )?;
+                // Threshold: only surface meaningful matches automatically.
+                if score < 30.0 {
+                    None
+                } else {
+                    Some((sol, score))
+                }
+            })
+            .collect();
+        scored.sort_by(|a, b| {
+            b.1.partial_cmp(&a.1)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then(b.0.updated_at.cmp(&a.0.updated_at))
+        });
+        let mut hits = Vec::with_capacity(max);
+        for (sol, score) in scored.into_iter().take(max) {
+            let summary: Option<(String,)> = sqlx::query_as(
+                "SELECT summary FROM solution_revisions \
+                 WHERE solution_id = ? ORDER BY rev DESC LIMIT 1",
+            )
+            .bind(&sol.id)
+            .fetch_optional(&self.pool)
+            .await
+            .ok()
+            .flatten();
+            // Pull the hit's outgoing typed links so the preamble shows
+            // chained / related prior work, not just the isolated hit.
+            let links: Vec<(String, String)> = sqlx::query_as(
+                "SELECT kind, to_id FROM solution_links \
+                 WHERE from_id = ? ORDER BY kind, to_id LIMIT 8",
+            )
+            .bind(&sol.id)
+            .fetch_all(&self.pool)
+            .await
+            .unwrap_or_default();
+            hits.push(RecallHit {
+                id: sol.id,
+                problem: sol.problem,
+                score,
+                summary: summary.map(|s| s.0).unwrap_or_default(),
+                links,
+            });
+        }
+        hits
+    }
+
     /// Open the store: ensure the directory and SQLite file exist, run any
     /// pending migrations, load the synonyms table into a shared map, and
     /// install that map for `crate::provider`'s canonicalization to use.
@@ -257,8 +380,18 @@ impl Memory {
             .await
             .context("load synonyms")?;
         let map: HashMap<String, String> = rows.into_iter().collect();
-        let synonyms = Arc::new(RwLock::new(map));
-        crate::provider::install_synonym_store(synonyms.clone());
+        // The global synonym store is install-once: if another `Memory` (or a
+        // test) installed first, our fresh Arc would be orphaned and writes
+        // through `mem.synonyms` would never reach `canonical_query`. Instead,
+        // hand a candidate to `install_synonym_store`, take back the Arc that's
+        // actually live, and merge our loaded rows into it so this DB's
+        // synonyms are visible regardless of install order.
+        let synonyms = crate::provider::install_synonym_store(Arc::new(RwLock::new(map.clone())));
+        if let Ok(mut live) = synonyms.write() {
+            for (k, v) in map {
+                live.entry(k).or_insert(v);
+            }
+        }
 
         Ok(Self {
             cfg: Arc::new(cfg),

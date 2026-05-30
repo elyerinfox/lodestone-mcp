@@ -126,19 +126,123 @@ pub(crate) fn schema_for<T: JsonSchema + 'static>() -> Arc<JsonObject> {
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub(crate) struct NoArgs {}
 
-/// Turn one boxed skill into a dynamic tool route.
+/// Extract a "what is the user trying to do" signal from a tool call. Returns
+/// `Some(query)` for tools whose arguments naturally carry a free-text question
+/// — every search-shaped tool — and `None` for everything else (system
+/// operations, math, file paths, …).
+///
+/// The dispatch wrapper uses this to look up prior recorded solutions
+/// intrinsically, so the model gets relevant past work surfaced as preamble
+/// without having to call `solution_find` explicitly.
+fn intent_trigger(tool_name: &str, args: &JsonObject) -> Option<String> {
+    // Skip self-referential / admin tools so we don't recurse or surface
+    // recall on a recall.
+    if matches!(
+        tool_name,
+        "solution_find"
+            | "solution_record"
+            | "solution_show"
+            | "solution_list"
+            | "solution_update"
+            | "solution_forget"
+            | "solution_link"
+            | "solution_unlink"
+            | "solution_graph"
+            | "solution_related"
+            | "memory_save"
+            | "memory_get"
+            | "memory_list"
+            | "memory_search"
+            | "memory_forget"
+            | "synonym_add"
+            | "synonym_remove"
+            | "synonym_list"
+    ) {
+        return None;
+    }
+    // Any tool whose arguments carry a free-text "query" gets recall — this
+    // catches the entire search family (web/code/docs/qa/per-provider),
+    // wikipedia/arxiv/pubmed/openalex/hf/standards/rfc/news, osm_geocode/
+    // osm_overpass, task_run, etc.
+    args.get("query")
+        .and_then(|x| x.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
+/// Render a list of [`memory::RecallHit`] as a compact preamble. When a hit
+/// has typed links to other solutions (`supersedes`, `depends-on`,
+/// `related-to`, …) those are listed inline so the model can see the local
+/// **subgraph** of prior work and decide whether to walk further with
+/// `solution_graph` / `solution_related`.
+fn recall_preamble(hits: &[memory::RecallHit]) -> String {
+    let mut out = format!(
+        "💡 {} prior solution{} matching this (advisory — verify before reusing):\n",
+        hits.len(),
+        if hits.len() == 1 { "" } else { "s" }
+    );
+    for h in hits {
+        let problem: String = h.problem.replace('\n', " ").chars().take(120).collect();
+        out.push_str(&format!("  • {} (score {:.1}): {problem}\n", h.id, h.score));
+        if !h.summary.is_empty() {
+            let s: String = h.summary.replace('\n', " ").chars().take(160).collect();
+            out.push_str(&format!("    summary: {s}\n"));
+        }
+        if !h.links.is_empty() {
+            let mut edges: Vec<String> = h
+                .links
+                .iter()
+                .map(|(kind, to)| format!("─{kind}→ {to}"))
+                .collect();
+            edges.dedup();
+            out.push_str(&format!("    links: {}\n", edges.join("  ")));
+            out.push_str(&format!(
+                "    ↳ solution_graph id=\"{}\" to walk further, solution_related id=\"{}\" for ranked neighbors\n",
+                h.id, h.id
+            ));
+        } else {
+            out.push_str(&format!(
+                "    ↳ solution_show id=\"{}\" for full history\n",
+                h.id
+            ));
+        }
+    }
+    out.push_str("───\n");
+    out
+}
+
+/// Turn one boxed skill into a dynamic tool route. The wrapper adds
+/// **intrinsic prior-solution recall**: if the tool's arguments carry a query
+/// and memory is enabled, recorded solutions matching that query are surfaced
+/// automatically as a preamble in the tool's response — no need for the model
+/// to call `solution_find`.
 fn route(skill: Box<dyn Skill>) -> ToolRoute<Lodestone> {
+    let tool_name: &'static str = skill.name();
     let tool = Tool::new(
-        skill.name().to_string(),
+        tool_name.to_string(),
         skill.description().to_string(),
         skill.schema(),
     );
     ToolRoute::new_dyn(tool, move |ctx: ToolCallContext<'_, Lodestone>| {
-        let sctx = SkillCtx {
-            server: ctx.service,
-            args: ctx.arguments.unwrap_or_default(),
-        };
-        skill.call(sctx)
+        let server = ctx.service;
+        let args = ctx.arguments.unwrap_or_default();
+        let trigger = intent_trigger(tool_name, &args);
+        let sctx = SkillCtx { server, args };
+        let fut = skill.call(sctx);
+        Box::pin(async move {
+            let mut result = fut.await?;
+            if let Some(q) = trigger {
+                if server.memory.enabled() {
+                    let hits = server.memory.auto_recall(&q, 3).await;
+                    if !hits.is_empty() {
+                        let preamble = rmcp::model::Content::text(recall_preamble(&hits));
+                        result.content.insert(0, preamble);
+                    }
+                }
+            }
+            Ok(result)
+        })
     })
 }
 
@@ -267,4 +371,115 @@ pub fn disabled_by_config(cfg: &crate::config::Config) -> Vec<String> {
     hide_if_off(cfg.stocks.enabled, stocks::TOOL_NAMES);
     hide_if_off(cfg.stocks.enabled, yahoo::TOOL_NAMES);
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn args(map: serde_json::Value) -> JsonObject {
+        map.as_object().unwrap().clone()
+    }
+
+    #[test]
+    fn intent_trigger_fires_on_query_carrying_tools() {
+        let a = args(json!({"query": "deploy lodestone behind nginx"}));
+        for tool in [
+            "web_search",
+            "arxiv_search",
+            "osm_overpass",
+            "hf_model_search",
+        ] {
+            assert_eq!(
+                intent_trigger(tool, &a).as_deref(),
+                Some("deploy lodestone behind nginx"),
+                "tool {tool} should trigger"
+            );
+        }
+    }
+
+    #[test]
+    fn intent_trigger_skips_self_and_admin() {
+        let a = args(json!({"query": "anything"}));
+        for tool in [
+            "solution_find",
+            "solution_record",
+            "memory_save",
+            "memory_search",
+            "synonym_add",
+        ] {
+            assert!(
+                intent_trigger(tool, &a).is_none(),
+                "tool {tool} must not trigger"
+            );
+        }
+    }
+
+    #[test]
+    fn intent_trigger_returns_none_when_no_query_field() {
+        let no_query = args(json!({"path": "/some/file", "max": 10}));
+        for tool in ["fs_read", "weather_forecast", "docker_ps"] {
+            assert!(intent_trigger(tool, &no_query).is_none(), "{tool}");
+        }
+    }
+
+    #[test]
+    fn intent_trigger_trims_and_drops_empties() {
+        let blank = args(json!({"query": "   "}));
+        assert!(intent_trigger("web_search", &blank).is_none());
+        let padded = args(json!({"query": "  hello world  "}));
+        assert_eq!(
+            intent_trigger("web_search", &padded).as_deref(),
+            Some("hello world")
+        );
+    }
+
+    #[test]
+    fn recall_preamble_contains_id_score_and_navigation_hint() {
+        let hits = vec![memory::RecallHit {
+            id: "sol-3".into(),
+            problem: "Deploy lodestone behind nginx with TLS".into(),
+            score: 78.0,
+            summary: "Use a reverse proxy with Let's Encrypt".into(),
+            links: vec![],
+        }];
+        let s = recall_preamble(&hits);
+        assert!(s.starts_with("💡"));
+        assert!(s.contains("1 prior solution"));
+        assert!(s.contains("sol-3"));
+        assert!(s.contains("78.0"));
+        assert!(s.contains("Deploy lodestone behind nginx with TLS"));
+        assert!(s.contains("Let's Encrypt"));
+        // Without links we point to solution_show.
+        assert!(s.contains("solution_show id=\"sol-3\""));
+        // Must label as advisory so the model doesn't treat it as authoritative.
+        assert!(s.contains("advisory"));
+    }
+
+    /// When the recalled hit has typed links, the preamble must surface them
+    /// so the model sees the subgraph, not just the isolated solution. This
+    /// is the difference between "explicit" and "intrinsic" relationship
+    /// awareness.
+    #[test]
+    fn recall_preamble_surfaces_subgraph_when_links_exist() {
+        let hits = vec![memory::RecallHit {
+            id: "sol-3".into(),
+            problem: "Deploy lodestone behind nginx with TLS".into(),
+            score: 78.0,
+            summary: "Use a reverse proxy with ACME".into(),
+            links: vec![
+                ("supersedes".into(), "sol-1".into()),
+                ("depends-on".into(), "sol-7".into()),
+                ("related-to".into(), "sol-9".into()),
+            ],
+        }];
+        let s = recall_preamble(&hits);
+        assert!(s.contains("─supersedes→ sol-1"));
+        assert!(s.contains("─depends-on→ sol-7"));
+        assert!(s.contains("─related-to→ sol-9"));
+        // With links we direct the model toward graph walkers, not just show.
+        assert!(s.contains("solution_graph id=\"sol-3\""));
+        assert!(s.contains("solution_related id=\"sol-3\""));
+    }
 }
