@@ -31,6 +31,7 @@ pub mod formula;
 pub mod geometry;
 pub mod git;
 pub mod github;
+pub mod grid;
 pub mod guard;
 pub mod huggingface;
 pub mod kernel;
@@ -178,6 +179,7 @@ fn all_skills() -> Vec<Box<dyn Skill>> {
     skills.extend(astro::skills());
     skills.extend(radio::skills());
     skills.extend(osm::skills());
+    skills.extend(grid::skills());
     skills.extend(datetime::skills());
     skills.extend(translate::skills());
     skills.extend(data::skills());
