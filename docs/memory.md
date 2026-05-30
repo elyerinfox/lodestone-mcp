@@ -297,18 +297,34 @@ the typical traversal flow is:
      (see "what else happened in that conversation": adjacent searches, fetches, the surrounding context)
 ```
 
-### Limitations
+### Cleanup
+
+- **`conversation_forget { id, confirm?, trust? }`** — delete one
+  conversation. CASCADE drops its `conversation_turns`; the
+  `solution_revisions.conversation_id` back-pointer is set to NULL on every
+  revision that referenced it (revision content is preserved — only the
+  back-link to the now-gone conversation is dropped). The active in-process
+  conversation tracker is also cleared when the deleted id was the one in
+  use, so the next tool call starts a fresh conversation. Destructive,
+  goes through the confirm-token guard; `[memory].allow_destructive = true`
+  pre-authorizes.
+- **`conversation_prune { older_than_days?, keep_newest?, dry_run?, confirm?, trust? }`** —
+  bulk delete by retention policy. Falls back to the configured
+  `[memory].conversation_retention_days` / `max_conversations` when neither
+  argument is set. `dry_run = true` reports the count without deleting (and
+  without asking for a confirm token) — use this to validate the policy
+  before flipping a live prune.
+- **Startup pruning** — when `[memory].prune_on_startup = true`, the
+  configured retention rules are applied once at boot. Off by default so a
+  misconfigured policy doesn't surprise-delete history on first upgrade.
+
+### Known limitations
 
 - **Identity is per-process, not per-client.** MCP doesn't hand the server a
   stable per-user session id, so the wrapper uses one global "active
   conversation." If one server is shared by multiple concurrent clients,
   their turns will mix. The local-LLM-runner case (one client at a time) is
   the design target.
-- **No `conversation_forget` yet.** Conversations are durable; deleting a
-  solution does not delete the conversations it touched. Adding a destructive
-  cleanup tool later is straightforward (CASCADE is already wired).
-- **The idle gap is hardcoded at 30 minutes.** Tunable later if it turns out
-  to be too aggressive or too lax.
 
 ## Semantic recall — embeddings + phrasings
 

@@ -3064,10 +3064,11 @@ impl Skill for SynonymList {
 }
 
 // ---------------------------------------------------------------------------
-// Conversations — `conversation_list` / `conversation_show` /
-// `solution_conversations`. All read-only; written by the dispatch wrapper and
-// by `solution_record` / `solution_update`. No destructive guard needed —
-// `solution_forget` cascades, and a future `conversation_forget` would.
+// Conversations — read-only traversal (`conversation_list` /
+// `conversation_show` / `solution_conversations`) plus destructive cleanup
+// (`conversation_forget` / `conversation_prune`, defined further below).
+// Conversation rows are written by the dispatch wrapper and by
+// `solution_record` / `solution_update`.
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
