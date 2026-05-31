@@ -15,8 +15,8 @@ use rmcp::ErrorData as McpError;
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::skills::{schema_for, Skill, SkillCtx};
-use crate::{internal, text_result};
+use crate::skills::{schema_for, send_json_ctx, Skill, SkillCtx};
+use crate::text_result;
 
 fn url_enc(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
@@ -32,17 +32,11 @@ fn url_enc(s: &str) -> String {
 }
 
 async fn fetch(server: &crate::Lodestone, url: &str) -> Result<Value, McpError> {
-    let r = server
-        .http
-        .get(url)
-        .header("Accept", "application/json")
-        .send()
-        .await
-        .and_then(|x| x.error_for_status())
-        .map_err(|e| internal(anyhow::anyhow!("open-meteo: {e}")))?;
-    r.json()
-        .await
-        .map_err(|e| internal(anyhow::anyhow!("open-meteo parse: {e}")))
+    send_json_ctx(
+        server.http.get(url).header("Accept", "application/json"),
+        "open-meteo",
+    )
+    .await
 }
 
 /// Render an Open-Meteo hourly block as a fixed-width table, capped at `max`

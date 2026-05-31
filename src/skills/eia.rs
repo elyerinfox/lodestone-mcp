@@ -13,8 +13,8 @@ use rmcp::ErrorData as McpError;
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::skills::{schema_for, Skill, SkillCtx};
-use crate::{internal, invalid, text_result};
+use crate::skills::{schema_for, send_json_ctx, Skill, SkillCtx};
+use crate::{invalid, text_result};
 
 fn url_enc(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
@@ -109,18 +109,11 @@ impl Skill for EiaSeries {
             if let Some(e) = &args.end {
                 url.push_str(&format!("&end={}", url_enc(e.trim())));
             }
-            let r = server
-                .http
-                .get(&url)
-                .header("Accept", "application/json")
-                .send()
-                .await
-                .and_then(|x| x.error_for_status())
-                .map_err(|e| internal(anyhow::anyhow!("eia: {e}")))?;
-            let v: Value = r
-                .json()
-                .await
-                .map_err(|e| internal(anyhow::anyhow!("eia parse: {e}")))?;
+            let v: Value = send_json_ctx(
+                server.http.get(&url).header("Accept", "application/json"),
+                "eia",
+            )
+            .await?;
             let response = v.get("response").unwrap_or(&v);
             let total = response.get("total").and_then(|x| x.as_i64()).unwrap_or(-1);
             let empty = Vec::new();

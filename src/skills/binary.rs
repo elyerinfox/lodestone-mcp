@@ -11,9 +11,8 @@ use rmcp::model::{CallToolResult, JsonObject};
 use rmcp::ErrorData as McpError;
 use serde::Deserialize;
 
-use crate::skills::filesystem;
-use crate::skills::{schema_for, Skill, SkillCtx};
-use crate::{internal, invalid, text_result};
+use crate::skills::{fs_read_bytes, schema_for, Skill, SkillCtx};
+use crate::{invalid, text_result};
 
 pub const TOOL_NAMES: &[&str] = &[
     "binary_info",
@@ -21,16 +20,6 @@ pub const TOOL_NAMES: &[&str] = &[
     "binary_entropy",
     "binary_hexdump",
 ];
-
-fn read_file(
-    server: &crate::Lodestone,
-    path: &str,
-) -> Result<(std::path::PathBuf, Vec<u8>), McpError> {
-    let p = filesystem::resolve(&server.fs, path)?;
-    let bytes =
-        std::fs::read(&p).map_err(|e| internal(anyhow::anyhow!("read {}: {e}", p.display())))?;
-    Ok((p, bytes))
-}
 
 // ----- binary_info -----
 
@@ -55,7 +44,7 @@ impl Skill for BinaryInfo {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (server, args) = ctx.parse::<PathArgs>()?;
-            let (p, bytes) = read_file(server, &args.path)?;
+            let (p, bytes) = fs_read_bytes(server, &args.path)?;
             use object::read::Object;
             let file = match object::File::parse(&*bytes) {
                 Ok(f) => f,
@@ -131,7 +120,7 @@ impl Skill for BinaryStrings {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (server, args) = ctx.parse::<StringsArgs>()?;
-            let (p, bytes) = read_file(server, &args.path)?;
+            let (p, bytes) = fs_read_bytes(server, &args.path)?;
             let min = args.min_length.unwrap_or(4).clamp(1, 1024) as usize;
             let max = args.max.unwrap_or(200).clamp(1, 5000) as usize;
             let mut out_strings: Vec<(usize, String)> = Vec::new();
@@ -201,7 +190,7 @@ impl Skill for BinaryEntropy {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (server, args) = ctx.parse::<EntropyArgs>()?;
-            let (p, bytes) = read_file(server, &args.path)?;
+            let (p, bytes) = fs_read_bytes(server, &args.path)?;
             let block = args.block_size.unwrap_or(4096).clamp(64, 1_048_576) as usize;
             let max_blocks = args.max_blocks.unwrap_or(32).clamp(1, 1024) as usize;
             let total_blocks = bytes.len().div_ceil(block);
@@ -284,7 +273,7 @@ impl Skill for BinaryHexdump {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (server, args) = ctx.parse::<HexdumpArgs>()?;
-            let (p, bytes) = read_file(server, &args.path)?;
+            let (p, bytes) = fs_read_bytes(server, &args.path)?;
             let off = args.offset.unwrap_or(0) as usize;
             let len = args.length.unwrap_or(256).clamp(1, 8192) as usize;
             if off >= bytes.len() {

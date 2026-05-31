@@ -17,8 +17,8 @@ use rmcp::ErrorData as McpError;
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::skills::{schema_for, Skill, SkillCtx};
-use crate::{internal, invalid, text_result};
+use crate::skills::{schema_for, send_json_ctx, Skill, SkillCtx};
+use crate::{invalid, text_result};
 
 // Not gated by config — keyless public APIs, always on (like wikipedia/arxiv).
 
@@ -36,17 +36,11 @@ fn url_encode(s: &str) -> String {
 }
 
 async fn http_json(server: &crate::Lodestone, url: &str) -> Result<Value, McpError> {
-    let r = server
-        .http
-        .get(url)
-        .header("Accept", "application/json")
-        .send()
-        .await
-        .and_then(|x| x.error_for_status())
-        .map_err(|e| internal(anyhow::anyhow!("HTTP {url}: {e}")))?;
-    r.json::<Value>()
-        .await
-        .map_err(|e| internal(anyhow::anyhow!("parse {url}: {e}")))
+    send_json_ctx(
+        server.http.get(url).header("Accept", "application/json"),
+        &format!("HTTP {url}"),
+    )
+    .await
 }
 
 // ----- osm_geocode -----
@@ -218,21 +212,17 @@ impl Skill for OsmOverpass {
             if let Some(c) = server.retrieval_get(&cache).await {
                 return Ok(text_result(c));
             }
-            let r = server
-                .http
-                .post("https://overpass-api.de/api/interpreter")
-                .body(format!("data={}", url_encode(q)))
-                .header("Content-Type", "application/x-www-form-urlencoded")
-                .header("Accept", "application/json")
-                .header("User-Agent", crate::skills::grid::OVERPASS_UA)
-                .send()
-                .await
-                .and_then(|x| x.error_for_status())
-                .map_err(|e| internal(anyhow::anyhow!("overpass: {e}")))?;
-            let v: Value = r
-                .json()
-                .await
-                .map_err(|e| internal(anyhow::anyhow!("overpass parse: {e}")))?;
+            let v: Value = send_json_ctx(
+                server
+                    .http
+                    .post("https://overpass-api.de/api/interpreter")
+                    .body(format!("data={}", url_encode(q)))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("Accept", "application/json")
+                    .header("User-Agent", crate::skills::grid::OVERPASS_UA),
+                "overpass",
+            )
+            .await?;
             let empty = Vec::new();
             let elements = v
                 .get("elements")
@@ -300,18 +290,14 @@ impl Skill for OsmElevation {
             let body = serde_json::json!({
                 "locations": args.points.iter().map(|(lat, lon)| serde_json::json!({"latitude": lat, "longitude": lon})).collect::<Vec<_>>()
             });
-            let r = server
-                .http
-                .post("https://api.open-elevation.com/api/v1/lookup")
-                .json(&body)
-                .send()
-                .await
-                .and_then(|x| x.error_for_status())
-                .map_err(|e| internal(anyhow::anyhow!("open-elevation: {e}")))?;
-            let v: Value = r
-                .json()
-                .await
-                .map_err(|e| internal(anyhow::anyhow!("open-elevation parse: {e}")))?;
+            let v: Value = send_json_ctx(
+                server
+                    .http
+                    .post("https://api.open-elevation.com/api/v1/lookup")
+                    .json(&body),
+                "open-elevation",
+            )
+            .await?;
             let empty = Vec::new();
             let results = v
                 .get("results")

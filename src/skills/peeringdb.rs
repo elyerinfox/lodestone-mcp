@@ -11,8 +11,8 @@ use rmcp::ErrorData as McpError;
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::skills::{schema_for, Skill, SkillCtx};
-use crate::{internal, invalid, text_result};
+use crate::skills::{schema_for, send_json_ctx, Skill, SkillCtx};
+use crate::{invalid, text_result};
 
 fn url_enc(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
@@ -28,17 +28,11 @@ fn url_enc(s: &str) -> String {
 }
 
 async fn pdb_get(server: &crate::Lodestone, url: &str) -> Result<Value, McpError> {
-    let r = server
-        .http
-        .get(url)
-        .header("Accept", "application/json")
-        .send()
-        .await
-        .and_then(|x| x.error_for_status())
-        .map_err(|e| internal(anyhow::anyhow!("peeringdb: {e}")))?;
-    r.json()
-        .await
-        .map_err(|e| internal(anyhow::anyhow!("peeringdb parse: {e}")))
+    send_json_ctx(
+        server.http.get(url).header("Accept", "application/json"),
+        "peeringdb",
+    )
+    .await
 }
 
 // ----- peeringdb_network -----

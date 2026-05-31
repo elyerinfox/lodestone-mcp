@@ -12,21 +12,18 @@ use rmcp::ErrorData as McpError;
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::skills::{schema_for, Skill, SkillCtx};
-use crate::{internal, invalid, text_result};
+use crate::skills::{schema_for, send_json_ctx, Skill, SkillCtx};
+use crate::{invalid, text_result};
 
 async fn fetch(server: &crate::Lodestone, url: &str) -> Result<Value, McpError> {
-    let r = server
-        .http
-        .get(url)
-        .header("Accept", "application/geo+json")
-        .send()
-        .await
-        .and_then(|x| x.error_for_status())
-        .map_err(|e| internal(anyhow::anyhow!("nws {url}: {e}")))?;
-    r.json()
-        .await
-        .map_err(|e| internal(anyhow::anyhow!("nws parse: {e}")))
+    send_json_ctx(
+        server
+            .http
+            .get(url)
+            .header("Accept", "application/geo+json"),
+        &format!("nws {url}"),
+    )
+    .await
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]

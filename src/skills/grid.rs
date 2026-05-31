@@ -14,8 +14,8 @@ use rmcp::ErrorData as McpError;
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::skills::{schema_for, Skill, SkillCtx};
-use crate::{internal, invalid, text_result};
+use crate::skills::{schema_for, send_json_ctx, Skill, SkillCtx};
+use crate::{invalid, text_result};
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct BboxArgs {
@@ -105,21 +105,17 @@ async fn run_overpass(server: &crate::Lodestone, query: &str) -> Result<Value, M
             return Ok(v);
         }
     }
-    let r = server
-        .http
-        .post("https://overpass-api.de/api/interpreter")
-        .body(format!("data={}", url_encode(query)))
-        .header("Content-Type", "application/x-www-form-urlencoded")
-        .header("Accept", "application/json")
-        .header("User-Agent", OVERPASS_UA)
-        .send()
-        .await
-        .and_then(|x| x.error_for_status())
-        .map_err(|e| internal(anyhow::anyhow!("overpass: {e}")))?;
-    let v: Value = r
-        .json()
-        .await
-        .map_err(|e| internal(anyhow::anyhow!("overpass parse: {e}")))?;
+    let v: Value = send_json_ctx(
+        server
+            .http
+            .post("https://overpass-api.de/api/interpreter")
+            .body(format!("data={}", url_encode(query)))
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .header("Accept", "application/json")
+            .header("User-Agent", OVERPASS_UA),
+        "overpass",
+    )
+    .await?;
     if let Ok(s) = serde_json::to_string(&v) {
         server.retrieval_put(cache_key, &s);
     }

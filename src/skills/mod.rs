@@ -177,6 +177,48 @@ pub(crate) fn live_http() -> reqwest::Client {
         .unwrap()
 }
 
+/// Send a prepared `reqwest::RequestBuilder`, check the HTTP status, and
+/// deserialize the body as JSON into `T`. Centralizes the 7-line
+/// `.send().await.map_err(internal)?.error_for_status().map_err(internal)?
+/// .json().await.map_err(internal)?` ritual that skill modules used to
+/// copy at every API call site. Each network / status / parse error is
+/// surfaced via [`crate::internal`] with the raw reqwest error message.
+///
+/// Callers that need special status-code handling (e.g. treating 404 as
+/// "not found" rather than an error) should keep their own pipeline —
+/// this helper is for the plain "fetch JSON or fail" case. For uniform
+/// error prefixing across send/status/decode use [`send_json_ctx`].
+#[allow(dead_code)]
+pub(crate) async fn send_json<T: serde::de::DeserializeOwned>(
+    req: reqwest::RequestBuilder,
+) -> Result<T, McpError> {
+    let resp = req.send().await.map_err(|e| crate::internal(e.into()))?;
+    let resp = resp
+        .error_for_status()
+        .map_err(|e| crate::internal(e.into()))?;
+    resp.json().await.map_err(|e| crate::internal(e.into()))
+}
+
+/// Like [`send_json`] but prefixes every error message with `ctx` — useful
+/// when callers want a uniform "open-meteo: ...", "nws ...: ..." label
+/// across network, status, and decode failures (one `ctx` value, three
+/// possible failure sites). Replaces the per-skill `fetch` helpers that
+/// duplicated `and_then(error_for_status).map_err(|e| internal(anyhow!("…: {e}")))?`
+/// in `noaa::fetch`, `weather::fetch`, and friends.
+pub(crate) async fn send_json_ctx<T: serde::de::DeserializeOwned>(
+    req: reqwest::RequestBuilder,
+    ctx: &str,
+) -> Result<T, McpError> {
+    let resp = req
+        .send()
+        .await
+        .and_then(|r| r.error_for_status())
+        .map_err(|e| crate::internal(anyhow::anyhow!("{ctx}: {e}")))?;
+    resp.json()
+        .await
+        .map_err(|e| crate::internal(anyhow::anyhow!("{ctx}: {e}")))
+}
+
 /// Extract a "what is the user trying to do" signal from a tool call. Returns
 /// `Some(query)` for tools whose arguments naturally carry a free-text question
 /// — every search-shaped tool — and `None` for everything else (system
