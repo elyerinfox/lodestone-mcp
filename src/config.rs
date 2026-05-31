@@ -1194,18 +1194,17 @@ impl Config {
     }
 
     fn apply_env(&mut self) {
-        if let Ok(bind) = std::env::var("LODESTONE_BIND") {
-            self.bind = bind;
-        }
-        if let Ok(token) = std::env::var("LODESTONE_AUTH_TOKEN") {
-            self.auth_token = token;
-        }
+        // ---- top-level binary settings ----
+        env_apply_str(&mut self.bind, "LODESTONE_BIND");
+        env_apply_str(&mut self.auth_token, "LODESTONE_AUTH_TOKEN");
         if let Some(list) = env_list("LODESTONE_TOOLS_ENABLED") {
             self.tools.enabled = list;
         }
         if let Some(list) = env_list("LODESTONE_TOOLS_DISABLED") {
             self.tools.disabled = list;
         }
+
+        // ---- search providers ----
         if let Some(list) = env_list("LODESTONE_WEB_PROVIDERS") {
             self.providers.web = list;
         }
@@ -1218,380 +1217,259 @@ impl Config {
         if let Some(list) = env_list("LODESTONE_DOCS_PROVIDERS") {
             self.providers.docs = list;
         }
-        if let Ok(site) = std::env::var("LODESTONE_STACKEXCHANGE_SITE") {
-            self.stackexchange.default_site = site;
-        }
-        if let Ok(key) = std::env::var("LODESTONE_STACKEXCHANGE_KEY") {
-            self.stackexchange.key = key;
-        }
+        env_apply_str(
+            &mut self.stackexchange.default_site,
+            "LODESTONE_STACKEXCHANGE_SITE",
+        );
+        env_apply_str(&mut self.stackexchange.key, "LODESTONE_STACKEXCHANGE_KEY");
         if let Some(sites) = env_list("LODESTONE_STACKEXCHANGE_ALLOWED_SITES") {
             self.stackexchange.allowed_sites = sites;
         }
-        if let Ok(strategy) = std::env::var("LODESTONE_SEARCH_STRATEGY") {
-            self.search.strategy = strategy;
-        }
-        if let Ok(ranking) = std::env::var("LODESTONE_SEARCH_RANKING") {
-            self.search.ranking = ranking;
-        }
-        if let Ok(secs) = std::env::var("LODESTONE_SEARCH_TIMEOUT_SECS") {
-            if let Ok(n) = secs.trim().parse::<u64>() {
-                self.search.timeout_secs = n;
-            }
-        }
-        if let Ok(n) = std::env::var("LODESTONE_SEARCH_MAX_CONCURRENCY") {
-            if let Ok(n) = n.trim().parse::<usize>() {
-                self.search.max_concurrency = n;
-            }
-        }
-        if let Ok(n) = std::env::var("LODESTONE_SEARCH_PROVIDER_TIMEOUT_SECS") {
-            if let Ok(n) = n.trim().parse::<u64>() {
-                self.search.provider_timeout_secs = n;
-            }
-        }
-        if let Ok(n) = std::env::var("LODESTONE_SEARCH_BREAKER_THRESHOLD") {
-            if let Ok(n) = n.trim().parse::<u32>() {
-                self.search.breaker_threshold = n;
-            }
-        }
-        if let Ok(n) = std::env::var("LODESTONE_SEARCH_BREAKER_COOLDOWN_SECS") {
-            if let Ok(n) = n.trim().parse::<u64>() {
-                self.search.breaker_cooldown_secs = n;
-            }
-        }
-        if let Ok(v) = std::env::var("LODESTONE_SEARCH_FUZZY_MATCH") {
-            self.search.fuzzy_match = is_truthy(&v);
-        }
-        if let Ok(v) = std::env::var("LODESTONE_SEARCH_PROXY") {
-            self.search.proxy = v;
-        }
-        if let Ok(v) = std::env::var("LODESTONE_SEARCH_RENDER_FALLBACK") {
-            self.search.render_fallback = is_truthy(&v);
-        }
+
+        // ---- search engine ----
+        env_apply_str(&mut self.search.strategy, "LODESTONE_SEARCH_STRATEGY");
+        env_apply_str(&mut self.search.ranking, "LODESTONE_SEARCH_RANKING");
+        env_apply_parse(
+            &mut self.search.timeout_secs,
+            "LODESTONE_SEARCH_TIMEOUT_SECS",
+        );
+        env_apply_parse(
+            &mut self.search.max_concurrency,
+            "LODESTONE_SEARCH_MAX_CONCURRENCY",
+        );
+        env_apply_parse(
+            &mut self.search.provider_timeout_secs,
+            "LODESTONE_SEARCH_PROVIDER_TIMEOUT_SECS",
+        );
+        env_apply_parse(
+            &mut self.search.breaker_threshold,
+            "LODESTONE_SEARCH_BREAKER_THRESHOLD",
+        );
+        env_apply_parse(
+            &mut self.search.breaker_cooldown_secs,
+            "LODESTONE_SEARCH_BREAKER_COOLDOWN_SECS",
+        );
+        env_apply_bool(&mut self.search.fuzzy_match, "LODESTONE_SEARCH_FUZZY_MATCH");
+        env_apply_str(&mut self.search.proxy, "LODESTONE_SEARCH_PROXY");
+        env_apply_bool(
+            &mut self.search.render_fallback,
+            "LODESTONE_SEARCH_RENDER_FALLBACK",
+        );
         if let Some(sites) = env_list("LODESTONE_CODE_SITES") {
             self.code.sites = sites;
         }
-        if let Ok(path) = std::env::var("LODESTONE_CHROME_PATH") {
-            self.google.chrome_path = path;
-        }
-        if let Ok(v) = std::env::var("LODESTONE_CHROME_NO_SANDBOX") {
-            self.google.no_sandbox = is_truthy(&v);
-        }
+
+        // ---- chromium / google ----
+        env_apply_str(&mut self.google.chrome_path, "LODESTONE_CHROME_PATH");
+        env_apply_bool(&mut self.google.no_sandbox, "LODESTONE_CHROME_NO_SANDBOX");
         if let Some(args) = env_list("LODESTONE_CHROME_ARGS") {
             self.google.args = args;
         }
-        if let Ok(n) = std::env::var("LODESTONE_RENDER_CONCURRENCY") {
-            if let Ok(n) = n.trim().parse::<usize>() {
-                self.google.render_concurrency = n;
-            }
-        }
-        if let Ok(url) = std::env::var("LODESTONE_SEARXNG_URL") {
-            self.searxng.url = url;
-        }
-        if let Ok(key) = std::env::var("LODESTONE_BRAVE_KEY") {
-            self.brave.key = key;
-        }
-        if let Ok(key) = std::env::var("LODESTONE_GOOGLE_CSE_KEY") {
-            self.google_cse.key = key;
-        }
-        if let Ok(cx) = std::env::var("LODESTONE_GOOGLE_CSE_CX") {
-            self.google_cse.cx = cx;
-        }
-        if let Ok(n) = std::env::var("LODESTONE_RETRIEVAL_DEFAULT_CHARS") {
-            if let Ok(n) = n.trim().parse::<usize>() {
-                self.retrieval.default_chars = n;
-            }
-        }
-        if let Ok(n) = std::env::var("LODESTONE_RETRIEVAL_MAX_CHARS") {
-            if let Ok(n) = n.trim().parse::<usize>() {
-                self.retrieval.max_chars = n;
-            }
-        }
-        if let Ok(v) = std::env::var("LODESTONE_CACHE_ENABLED") {
-            self.cache.enabled = is_truthy(&v);
-        }
-        if let Ok(secs) = std::env::var("LODESTONE_CACHE_TTL_SECS") {
-            if let Ok(n) = secs.trim().parse::<u64>() {
-                self.cache.ttl_secs = n;
-            }
-        }
-        if let Ok(n) = std::env::var("LODESTONE_CACHE_MAX_ENTRIES") {
-            if let Ok(n) = n.trim().parse::<usize>() {
-                self.cache.max_entries = n;
-            }
-        }
-        if let Ok(v) = std::env::var("LODESTONE_CACHE_BACKEND") {
-            self.cache.backend = v;
-        }
-        if let Ok(v) = std::env::var("LODESTONE_CACHE_REDIS_URL") {
-            self.cache.redis_url = v;
-        }
-        if let Ok(v) = std::env::var("LODESTONE_STORE_ENABLED") {
-            self.store.enabled = is_truthy(&v);
-        }
-        if let Ok(v) = std::env::var("LODESTONE_STORE_DIR") {
-            self.store.dir = v;
-        }
-        if let Ok(n) = std::env::var("LODESTONE_STORE_TTL_SECS") {
-            if let Ok(n) = n.trim().parse::<u64>() {
-                self.store.ttl_secs = n;
-            }
-        }
-        if let Ok(n) = std::env::var("LODESTONE_STORE_MAX_BYTES") {
-            if let Ok(n) = n.trim().parse::<u64>() {
-                self.store.max_bytes = n;
-            }
-        }
-        if let Ok(v) = std::env::var("LODESTONE_NETWORK_BIND") {
-            self.network.bind = v;
-        }
-        if let Ok(v) = std::env::var("LODESTONE_NETWORK_ENABLED") {
-            self.network.enabled = is_truthy(&v);
-        }
+        env_apply_parse(
+            &mut self.google.render_concurrency,
+            "LODESTONE_RENDER_CONCURRENCY",
+        );
+        env_apply_str(&mut self.searxng.url, "LODESTONE_SEARXNG_URL");
+        env_apply_str(&mut self.brave.key, "LODESTONE_BRAVE_KEY");
+        env_apply_str(&mut self.google_cse.key, "LODESTONE_GOOGLE_CSE_KEY");
+        env_apply_str(&mut self.google_cse.cx, "LODESTONE_GOOGLE_CSE_CX");
+
+        // ---- retrieval / cache / store ----
+        env_apply_parse(
+            &mut self.retrieval.default_chars,
+            "LODESTONE_RETRIEVAL_DEFAULT_CHARS",
+        );
+        env_apply_parse(
+            &mut self.retrieval.max_chars,
+            "LODESTONE_RETRIEVAL_MAX_CHARS",
+        );
+        env_apply_bool(&mut self.cache.enabled, "LODESTONE_CACHE_ENABLED");
+        env_apply_parse(&mut self.cache.ttl_secs, "LODESTONE_CACHE_TTL_SECS");
+        env_apply_parse(&mut self.cache.max_entries, "LODESTONE_CACHE_MAX_ENTRIES");
+        env_apply_str(&mut self.cache.backend, "LODESTONE_CACHE_BACKEND");
+        env_apply_str(&mut self.cache.redis_url, "LODESTONE_CACHE_REDIS_URL");
+        env_apply_bool(&mut self.store.enabled, "LODESTONE_STORE_ENABLED");
+        env_apply_str(&mut self.store.dir, "LODESTONE_STORE_DIR");
+        env_apply_parse(&mut self.store.ttl_secs, "LODESTONE_STORE_TTL_SECS");
+        env_apply_parse(&mut self.store.max_bytes, "LODESTONE_STORE_MAX_BYTES");
+
+        // ---- constellation network / galaxy ----
+        env_apply_str(&mut self.network.bind, "LODESTONE_NETWORK_BIND");
+        env_apply_bool(&mut self.network.enabled, "LODESTONE_NETWORK_ENABLED");
         if let Some(peers) = env_list("LODESTONE_NETWORK_PEERS") {
             self.network.peers = peers;
         }
-        if let Ok(v) = std::env::var("LODESTONE_NETWORK_MDNS") {
-            self.network.mdns = is_truthy(&v);
-        }
-        if let Ok(t) = std::env::var("LODESTONE_NETWORK_TOKEN") {
-            self.network.token = t;
-        }
-        if let Ok(id) = std::env::var("LODESTONE_NETWORK_ID") {
-            self.network.id = id;
-        }
-        if let Ok(id) = std::env::var("LODESTONE_NETWORK_NODE_ID") {
-            self.network.node_id = id;
-        }
-        if let Ok(path) = std::env::var("LODESTONE_NETWORK_STATE_FILE") {
-            self.network.state_file = path;
-        }
+        env_apply_bool(&mut self.network.mdns, "LODESTONE_NETWORK_MDNS");
+        env_apply_str(&mut self.network.token, "LODESTONE_NETWORK_TOKEN");
+        env_apply_str(&mut self.network.id, "LODESTONE_NETWORK_ID");
+        env_apply_str(&mut self.network.node_id, "LODESTONE_NETWORK_NODE_ID");
+        env_apply_str(&mut self.network.state_file, "LODESTONE_NETWORK_STATE_FILE");
         if let Some(servers) = env_list("LODESTONE_GALAXY_SERVERS") {
             self.galaxy.servers = servers;
         }
-        if let Ok(v) = std::env::var("LODESTONE_GALAXY_ID") {
-            self.galaxy.id = v;
-        }
+        env_apply_str(&mut self.galaxy.id, "LODESTONE_GALAXY_ID");
         if let Some(ingress) = env_list("LODESTONE_GALAXY_INGRESS") {
             self.galaxy.ingress = ingress;
         }
-        if let Ok(v) = std::env::var("LODESTONE_GALAXY_TOKEN") {
-            self.galaxy.token = v;
-        }
-        if let Ok(v) = std::env::var("LODESTONE_DOCKER_ENABLED") {
-            self.docker.enabled = is_truthy(&v);
-        }
-        if let Ok(v) = std::env::var("LODESTONE_DOCKER_ALLOW_DESTRUCTIVE") {
-            self.docker.allow_destructive = is_truthy(&v);
-        }
-        if let Ok(v) = std::env::var("LODESTONE_KUBERNETES_ENABLED") {
-            self.kubernetes.enabled = is_truthy(&v);
-        }
-        if let Ok(v) = std::env::var("LODESTONE_KUBERNETES_ALLOW_DESTRUCTIVE") {
-            self.kubernetes.allow_destructive = is_truthy(&v);
-        }
-        if let Ok(v) = std::env::var("LODESTONE_KUBECONFIG") {
-            self.kubernetes.kubeconfig = v;
-        }
-        if let Ok(v) = std::env::var("LODESTONE_KUBE_CONTEXT") {
-            self.kubernetes.context = v;
-        }
-        if let Ok(v) = std::env::var("LODESTONE_KUBE_NAMESPACE") {
-            self.kubernetes.namespace = v;
-        }
-        if let Ok(v) = std::env::var("LODESTONE_FS_ENABLED") {
-            self.filesystem.enabled = is_truthy(&v);
-        }
-        if let Ok(v) = std::env::var("LODESTONE_FS_ALLOW_DESTRUCTIVE") {
-            self.filesystem.allow_destructive = is_truthy(&v);
-        }
+        env_apply_str(&mut self.galaxy.token, "LODESTONE_GALAXY_TOKEN");
+
+        // ---- container / kubernetes / shell / git ----
+        env_apply_bool(&mut self.docker.enabled, "LODESTONE_DOCKER_ENABLED");
+        env_apply_bool(
+            &mut self.docker.allow_destructive,
+            "LODESTONE_DOCKER_ALLOW_DESTRUCTIVE",
+        );
+        env_apply_bool(&mut self.kubernetes.enabled, "LODESTONE_KUBERNETES_ENABLED");
+        env_apply_bool(
+            &mut self.kubernetes.allow_destructive,
+            "LODESTONE_KUBERNETES_ALLOW_DESTRUCTIVE",
+        );
+        env_apply_str(&mut self.kubernetes.kubeconfig, "LODESTONE_KUBECONFIG");
+        env_apply_str(&mut self.kubernetes.context, "LODESTONE_KUBE_CONTEXT");
+        env_apply_str(&mut self.kubernetes.namespace, "LODESTONE_KUBE_NAMESPACE");
+        env_apply_bool(&mut self.filesystem.enabled, "LODESTONE_FS_ENABLED");
+        env_apply_bool(
+            &mut self.filesystem.allow_destructive,
+            "LODESTONE_FS_ALLOW_DESTRUCTIVE",
+        );
         if let Some(roots) = env_list("LODESTONE_FS_ROOTS") {
             self.filesystem.roots = roots;
         }
-        if let Ok(v) = std::env::var("LODESTONE_SHELL_ENABLED") {
-            self.shell.enabled = is_truthy(&v);
-        }
-        if let Ok(v) = std::env::var("LODESTONE_SHELL_ALLOW_DESTRUCTIVE") {
-            self.shell.allow_destructive = is_truthy(&v);
-        }
-        if let Ok(v) = std::env::var("LODESTONE_SHELL_ALLOW_UNRESTRICTED") {
-            self.shell.allow_unrestricted = is_truthy(&v);
-        }
+        env_apply_bool(&mut self.shell.enabled, "LODESTONE_SHELL_ENABLED");
+        env_apply_bool(
+            &mut self.shell.allow_destructive,
+            "LODESTONE_SHELL_ALLOW_DESTRUCTIVE",
+        );
+        env_apply_bool(
+            &mut self.shell.allow_unrestricted,
+            "LODESTONE_SHELL_ALLOW_UNRESTRICTED",
+        );
         if let Some(allow) = env_list("LODESTONE_SHELL_ALLOW") {
             self.shell.allow = allow;
         }
-        if let Ok(v) = std::env::var("LODESTONE_SHELL_WORKDIR") {
-            self.shell.workdir = v;
-        }
-        if let Ok(n) = std::env::var("LODESTONE_SHELL_TIMEOUT_SECS") {
-            if let Ok(n) = n.trim().parse::<u64>() {
-                self.shell.timeout_secs = n;
-            }
-        }
-        if let Ok(v) = std::env::var("LODESTONE_DATABASES_ENABLED") {
-            self.databases.enabled = is_truthy(&v);
-        }
-        if let Ok(v) = std::env::var("LODESTONE_DATABASES_ALLOW_DESTRUCTIVE") {
-            self.databases.allow_destructive = is_truthy(&v);
-        }
-        if let Ok(v) = std::env::var("LODESTONE_GIT_ENABLED") {
-            self.git.enabled = is_truthy(&v);
-        }
-        if let Ok(v) = std::env::var("LODESTONE_GIT_ALLOW_DESTRUCTIVE") {
-            self.git.allow_destructive = is_truthy(&v);
-        }
-        if let Ok(v) = std::env::var("LODESTONE_GIT_REPO") {
-            self.git.repo = v;
-        }
-        if let Ok(v) = std::env::var("LODESTONE_SYSINFO_ENABLED") {
-            self.sysinfo.enabled = is_truthy(&v);
-        }
-        if let Ok(v) = std::env::var("LODESTONE_FFMPEG_ENABLED") {
-            self.ffmpeg.enabled = is_truthy(&v);
-        }
-        if let Ok(v) = std::env::var("LODESTONE_FCC_ENABLED") {
-            self.fcc.enabled = is_truthy(&v);
-        }
-        if let Ok(v) = std::env::var("LODESTONE_CHART_ENABLED") {
-            self.chart.enabled = is_truthy(&v);
-        }
-        if let Ok(v) = std::env::var("LODESTONE_IMAGE_ENABLED") {
-            self.image.enabled = is_truthy(&v);
-        }
-        if let Ok(v) = std::env::var("LODESTONE_HTML_ENABLED") {
-            self.html.enabled = is_truthy(&v);
-        }
-        if let Ok(v) = std::env::var("LODESTONE_SPREADSHEET_ENABLED") {
-            self.spreadsheet.enabled = is_truthy(&v);
-        }
-        if let Ok(v) = std::env::var("LODESTONE_SDR_ENABLED") {
-            self.sdr.enabled = is_truthy(&v);
-        }
-        if let Ok(v) = std::env::var("LODESTONE_TASKS_ENABLED") {
-            self.tasks.enabled = is_truthy(&v);
-        }
-        if let Ok(v) = std::env::var("LODESTONE_MEMORY_ENABLED") {
-            self.memory.enabled = is_truthy(&v);
-        }
+        env_apply_str(&mut self.shell.workdir, "LODESTONE_SHELL_WORKDIR");
+        env_apply_parse(&mut self.shell.timeout_secs, "LODESTONE_SHELL_TIMEOUT_SECS");
+        env_apply_bool(&mut self.databases.enabled, "LODESTONE_DATABASES_ENABLED");
+        env_apply_bool(
+            &mut self.databases.allow_destructive,
+            "LODESTONE_DATABASES_ALLOW_DESTRUCTIVE",
+        );
+        env_apply_bool(&mut self.git.enabled, "LODESTONE_GIT_ENABLED");
+        env_apply_bool(
+            &mut self.git.allow_destructive,
+            "LODESTONE_GIT_ALLOW_DESTRUCTIVE",
+        );
+        env_apply_str(&mut self.git.repo, "LODESTONE_GIT_REPO");
+
+        // ---- diagnostic / media / analysis skills ----
+        env_apply_bool(&mut self.sysinfo.enabled, "LODESTONE_SYSINFO_ENABLED");
+        env_apply_bool(&mut self.ffmpeg.enabled, "LODESTONE_FFMPEG_ENABLED");
+        env_apply_bool(&mut self.fcc.enabled, "LODESTONE_FCC_ENABLED");
+        env_apply_bool(&mut self.chart.enabled, "LODESTONE_CHART_ENABLED");
+        env_apply_bool(&mut self.image.enabled, "LODESTONE_IMAGE_ENABLED");
+        env_apply_bool(&mut self.html.enabled, "LODESTONE_HTML_ENABLED");
+        env_apply_bool(&mut self.spreadsheet.enabled, "LODESTONE_SPREADSHEET_ENABLED");
+        env_apply_bool(&mut self.sdr.enabled, "LODESTONE_SDR_ENABLED");
+        env_apply_bool(&mut self.tasks.enabled, "LODESTONE_TASKS_ENABLED");
+
+        // ---- memory family (lots of knobs) ----
+        env_apply_bool(&mut self.memory.enabled, "LODESTONE_MEMORY_ENABLED");
         if let Ok(v) = std::env::var("LODESTONE_MEMORY_DIR") {
+            // Tolerate empty / whitespace-only override — keep default `dir`.
             if !v.trim().is_empty() {
                 self.memory.dir = v;
             }
         }
-        if let Ok(v) = std::env::var("LODESTONE_MEMORY_ALLOW_DESTRUCTIVE") {
-            self.memory.allow_destructive = is_truthy(&v);
-        }
-        if let Ok(v) = std::env::var("LODESTONE_MEMORY_AUTO_RECALL") {
-            self.memory.auto_recall = is_truthy(&v);
-        }
-        if let Ok(v) = std::env::var("LODESTONE_MEMORY_RECALL_THRESHOLD") {
-            if let Ok(n) = v.parse::<f64>() {
-                self.memory.recall_threshold = n;
-            }
-        }
-        if let Ok(v) = std::env::var("LODESTONE_MEMORY_RECALL_MAX_HITS") {
-            if let Ok(n) = v.parse::<usize>() {
-                self.memory.recall_max_hits = n;
-            }
-        }
-        if let Ok(v) = std::env::var("LODESTONE_MEMORY_SUPERSEDED_WALK_MAX_HOPS") {
-            if let Ok(n) = v.parse::<usize>() {
-                self.memory.superseded_walk_max_hops = n;
-            }
-        }
-        if let Ok(v) = std::env::var("LODESTONE_MEMORY_RECORD_CONVERSATIONS") {
-            self.memory.record_conversations = is_truthy(&v);
-        }
-        if let Ok(v) = std::env::var("LODESTONE_MEMORY_CONVERSATION_IDLE_GAP_SECS") {
-            if let Ok(n) = v.parse::<u64>() {
-                self.memory.conversation_idle_gap_secs = n;
-            }
-        }
-        if let Ok(v) = std::env::var("LODESTONE_MEMORY_CONVERSATION_TURN_EXCERPT_MAX_CHARS") {
-            if let Ok(n) = v.parse::<usize>() {
-                self.memory.conversation_turn_excerpt_max_chars = n;
-            }
-        }
-        if let Ok(v) = std::env::var("LODESTONE_MEMORY_RECORD_ONLY_QUERY_CALLS") {
-            self.memory.record_only_query_calls = is_truthy(&v);
-        }
-        if let Ok(v) = std::env::var("LODESTONE_MEMORY_CONVERSATION_RETENTION_DAYS") {
-            if let Ok(n) = v.parse::<u32>() {
-                self.memory.conversation_retention_days = n;
-            }
-        }
-        if let Ok(v) = std::env::var("LODESTONE_MEMORY_MAX_CONVERSATIONS") {
-            if let Ok(n) = v.parse::<usize>() {
-                self.memory.max_conversations = n;
-            }
-        }
-        if let Ok(v) = std::env::var("LODESTONE_MEMORY_PRUNE_ON_STARTUP") {
-            self.memory.prune_on_startup = is_truthy(&v);
-        }
-        if let Ok(v) = std::env::var("LODESTONE_MEMORY_EMBEDDING_ENDPOINT") {
-            self.memory.embedding_endpoint = v;
-        }
+        env_apply_bool(
+            &mut self.memory.allow_destructive,
+            "LODESTONE_MEMORY_ALLOW_DESTRUCTIVE",
+        );
+        env_apply_bool(&mut self.memory.auto_recall, "LODESTONE_MEMORY_AUTO_RECALL");
+        env_apply_parse(
+            &mut self.memory.recall_threshold,
+            "LODESTONE_MEMORY_RECALL_THRESHOLD",
+        );
+        env_apply_parse(
+            &mut self.memory.recall_max_hits,
+            "LODESTONE_MEMORY_RECALL_MAX_HITS",
+        );
+        env_apply_parse(
+            &mut self.memory.superseded_walk_max_hops,
+            "LODESTONE_MEMORY_SUPERSEDED_WALK_MAX_HOPS",
+        );
+        env_apply_bool(
+            &mut self.memory.record_conversations,
+            "LODESTONE_MEMORY_RECORD_CONVERSATIONS",
+        );
+        env_apply_parse(
+            &mut self.memory.conversation_idle_gap_secs,
+            "LODESTONE_MEMORY_CONVERSATION_IDLE_GAP_SECS",
+        );
+        env_apply_parse(
+            &mut self.memory.conversation_turn_excerpt_max_chars,
+            "LODESTONE_MEMORY_CONVERSATION_TURN_EXCERPT_MAX_CHARS",
+        );
+        env_apply_bool(
+            &mut self.memory.record_only_query_calls,
+            "LODESTONE_MEMORY_RECORD_ONLY_QUERY_CALLS",
+        );
+        env_apply_parse(
+            &mut self.memory.conversation_retention_days,
+            "LODESTONE_MEMORY_CONVERSATION_RETENTION_DAYS",
+        );
+        env_apply_parse(
+            &mut self.memory.max_conversations,
+            "LODESTONE_MEMORY_MAX_CONVERSATIONS",
+        );
+        env_apply_bool(
+            &mut self.memory.prune_on_startup,
+            "LODESTONE_MEMORY_PRUNE_ON_STARTUP",
+        );
+        env_apply_str(
+            &mut self.memory.embedding_endpoint,
+            "LODESTONE_MEMORY_EMBEDDING_ENDPOINT",
+        );
         if let Ok(v) = std::env::var("LODESTONE_MEMORY_EMBEDDING_MODEL") {
+            // Same empty-string tolerance as MEMORY_DIR.
             if !v.trim().is_empty() {
                 self.memory.embedding_model = v;
             }
         }
-        if let Ok(v) = std::env::var("LODESTONE_MEMORY_EMBEDDING_THRESHOLD") {
-            if let Ok(n) = v.parse::<f32>() {
-                self.memory.embedding_threshold = n;
-            }
-        }
-        if let Ok(v) = std::env::var("LODESTONE_MEMORY_AUTO_ALIAS_ON_SEMANTIC_RECALL") {
-            self.memory.auto_alias_on_semantic_recall = is_truthy(&v);
-        }
-        if let Ok(v) = std::env::var("LODESTONE_MEMORY_AUTO_ALIAS_MIN_QUERY_TOKENS") {
-            if let Ok(n) = v.parse::<usize>() {
-                self.memory.auto_alias_min_query_tokens = n;
-            }
-        }
-        if let Ok(v) = std::env::var("LODESTONE_SIGNAL_ENABLED") {
-            self.signal.enabled = is_truthy(&v);
-        }
-        if let Ok(v) = std::env::var("LODESTONE_WAVE_ENABLED") {
-            self.wave.enabled = is_truthy(&v);
-        }
-        if let Ok(v) = std::env::var("LODESTONE_BINARY_ENABLED") {
-            self.binary.enabled = is_truthy(&v);
-        }
-        if let Ok(v) = std::env::var("LODESTONE_PCAP_ENABLED") {
-            self.pcap.enabled = is_truthy(&v);
-        }
-        if let Ok(v) = std::env::var("LODESTONE_DISASM_ENABLED") {
-            self.disasm.enabled = is_truthy(&v);
-        }
-        if let Ok(v) = std::env::var("LODESTONE_NOTEBOOK_ENABLED") {
-            self.notebook.enabled = is_truthy(&v);
-        }
-        if let Ok(v) = std::env::var("LODESTONE_PYTHON_ENABLED") {
-            self.python.enabled = is_truthy(&v);
-        }
-        if let Ok(v) = std::env::var("LODESTONE_SYSTEMD_ENABLED") {
-            self.systemd.enabled = is_truthy(&v);
-        }
-        if let Ok(v) = std::env::var("LODESTONE_SYSTEMD_ALLOW_DESTRUCTIVE") {
-            self.systemd.allow_destructive = is_truthy(&v);
-        }
-        if let Ok(v) = std::env::var("LODESTONE_ASTRO_ENABLED") {
-            self.astro.enabled = is_truthy(&v);
-        }
-        if let Ok(v) = std::env::var("LODESTONE_RADIO_ENABLED") {
-            self.radio.enabled = is_truthy(&v);
-        }
-        if let Ok(v) = std::env::var("LODESTONE_SERIAL_ENABLED") {
-            self.serial.enabled = is_truthy(&v);
-        }
-        if let Ok(n) = std::env::var("LODESTONE_SERIAL_BAUD") {
-            if let Ok(n) = n.trim().parse::<u32>() {
-                self.serial.baud = n;
-            }
-        }
-        if let Ok(v) = std::env::var("LODESTONE_PRINTER_ENABLED") {
-            self.printer.enabled = is_truthy(&v);
-        }
+        env_apply_parse(
+            &mut self.memory.embedding_threshold,
+            "LODESTONE_MEMORY_EMBEDDING_THRESHOLD",
+        );
+        env_apply_bool(
+            &mut self.memory.auto_alias_on_semantic_recall,
+            "LODESTONE_MEMORY_AUTO_ALIAS_ON_SEMANTIC_RECALL",
+        );
+        env_apply_parse(
+            &mut self.memory.auto_alias_min_query_tokens,
+            "LODESTONE_MEMORY_AUTO_ALIAS_MIN_QUERY_TOKENS",
+        );
+
+        // ---- signal / wave / binary / pcap / disasm / notebook ----
+        env_apply_bool(&mut self.signal.enabled, "LODESTONE_SIGNAL_ENABLED");
+        env_apply_bool(&mut self.wave.enabled, "LODESTONE_WAVE_ENABLED");
+        env_apply_bool(&mut self.binary.enabled, "LODESTONE_BINARY_ENABLED");
+        env_apply_bool(&mut self.pcap.enabled, "LODESTONE_PCAP_ENABLED");
+        env_apply_bool(&mut self.disasm.enabled, "LODESTONE_DISASM_ENABLED");
+        env_apply_bool(&mut self.notebook.enabled, "LODESTONE_NOTEBOOK_ENABLED");
+
+        // ---- python / systemd / astro / radio / serial / printer ----
+        env_apply_bool(&mut self.python.enabled, "LODESTONE_PYTHON_ENABLED");
+        env_apply_bool(&mut self.systemd.enabled, "LODESTONE_SYSTEMD_ENABLED");
+        env_apply_bool(
+            &mut self.systemd.allow_destructive,
+            "LODESTONE_SYSTEMD_ALLOW_DESTRUCTIVE",
+        );
+        env_apply_bool(&mut self.astro.enabled, "LODESTONE_ASTRO_ENABLED");
+        env_apply_bool(&mut self.radio.enabled, "LODESTONE_RADIO_ENABLED");
+        env_apply_bool(&mut self.serial.enabled, "LODESTONE_SERIAL_ENABLED");
+        env_apply_parse(&mut self.serial.baud, "LODESTONE_SERIAL_BAUD");
+        env_apply_bool(&mut self.printer.enabled, "LODESTONE_PRINTER_ENABLED");
+
+        // ---- API-key-bearing skills (accept the conventional vars too) ----
         if let Ok(v) =
             std::env::var("LODESTONE_NASA_KEY").or_else(|_| std::env::var("NASA_API_KEY"))
         {
@@ -1601,10 +1479,7 @@ impl Config {
         {
             self.eia.key = v;
         }
-        if let Ok(v) = std::env::var("LODESTONE_STOCKS_ENABLED") {
-            self.stocks.enabled = is_truthy(&v);
-        }
-        // Accept the conventional GITHUB_TOKEN as well as our namespaced var.
+        env_apply_bool(&mut self.stocks.enabled, "LODESTONE_STOCKS_ENABLED");
         if let Ok(token) =
             std::env::var("LODESTONE_GITHUB_TOKEN").or_else(|_| std::env::var("GITHUB_TOKEN"))
         {
@@ -1703,6 +1578,40 @@ fn env_list(key: &str) -> Option<Vec<String>> {
         None
     } else {
         Some(list)
+    }
+}
+
+/// Overwrite `field` with `LODESTONE_…` if set. Collapses the
+/// `if let Ok(v) = std::env::var("…") { self.foo = v; }` three-liner
+/// that `apply_env` used to repeat for every string-shaped setting.
+fn env_apply_str(field: &mut String, key: &str) {
+    if let Ok(v) = std::env::var(key) {
+        *field = v;
+    }
+}
+
+/// Overwrite `field` with the parsed boolean (`is_truthy`) of
+/// `LODESTONE_…` if set. Mirror of [`env_apply_str`] for bool-shaped
+/// settings.
+fn env_apply_bool(field: &mut bool, key: &str) {
+    if let Ok(v) = std::env::var(key) {
+        *field = is_truthy(&v);
+    }
+}
+
+/// Overwrite `field` with the parsed `T` of `LODESTONE_…` if set and
+/// parseable; leave the field alone on missing-var, empty-value, or
+/// parse failure (matches the prior nested-`if let Ok(...) =
+/// s.trim().parse::<T>()` pattern). Generic over every integer / float
+/// width used in [`Config`] (`u32`, `u64`, `usize`, `f32`, `f64`, …).
+fn env_apply_parse<T>(field: &mut T, key: &str)
+where
+    T: std::str::FromStr,
+{
+    if let Ok(s) = std::env::var(key) {
+        if let Ok(n) = s.trim().parse::<T>() {
+            *field = n;
+        }
     }
 }
 
