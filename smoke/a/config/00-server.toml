@@ -22,7 +22,7 @@ enabled = true
 [network]
 enabled = true
 bind = ""
-peers = ["http://127.0.0.1:18102"]
+peers = ["http://127.0.0.1:18102", "http://127.0.0.1:18103", "http://127.0.0.1:18104"]
 mdns = false
 token = ""
 sync_secs = 5

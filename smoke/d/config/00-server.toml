@@ -1,4 +1,4 @@
-bind = "127.0.0.1:18102"
+bind = "127.0.0.1:18104"
 auth_token = ""
 
 [tools]
@@ -31,10 +31,14 @@ max_peers = 4
 max_results_per_peer = 5
 min_agreement = 1
 relay_hops = 0
-node_id = "node-b"
+node_id = "node-d"
 id = "smoke"
 state_file = ""
-delegation_enabled = true
+
+# Delegation deliberately OFF on this node so the topology graph shows
+# both colors — node-d renders blue (reachable but won't accept delegated
+# fetches) while a/b/c render green (reachable + delegation_enabled).
+delegation_enabled = false
 delegation_max_jobs_per_peer_per_hour = 5
 delegation_max_bytes_per_job = 1048576
 delegation_total_bytes_per_hour = 10485760
