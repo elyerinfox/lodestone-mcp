@@ -24,13 +24,16 @@
 # Master switch. Env: LODESTONE_NETWORK_ENABLED
 enabled = true
 
-# Optional SEPARATE host:port for the /constellation/* endpoints. Empty = share the
-# main MCP `bind` (top of config). Set this to expose ONLY the constellation — e.g.
-# forward this port publicly as a galaxy `ingress` — without publishing the MCP
-# server itself. Peers advertise this port (see advertise_port below).
-#   bind = "0.0.0.0:8801"
+# SEPARATE host:port for the /constellation/* endpoints. The MCP endpoint stays
+# private on `bind` (default 127.0.0.1:8000 — local clients only); the constellation
+# is what other lodestone-mcp instances reach over the LAN, so it gets its own
+# externally-bindable listener here. Default 0.0.0.0:8801 — LAN-reachable so mDNS
+# auto-discovery and direct peer fetches both work without further config.
+# Set to "" to share the MCP `bind` (localhost-only, peers can only connect from
+# the same host); set to "127.0.0.1:8801" to keep it loopback-only without
+# exposing the MCP port too.
 # Env: LODESTONE_NETWORK_BIND
-bind = ""
+bind = "0.0.0.0:8801"
 
 # Static peer base URLs (no trailing /). Env: LODESTONE_NETWORK_PEERS (comma-sep)
 #   peers = ["http://10.0.0.2:8000", "http://10.0.0.3:8000"]
