@@ -237,6 +237,15 @@ pub(crate) struct Constellation {
     /// `[network].delegation_enabled = true`; the limiter itself is built
     /// regardless so its `Disabled` reason is the consistent rejection path.
     delegation: delegation::DelegationLimiter,
+    /// URLs that *resolve to this very node* — populated at startup with
+    /// `http://localhost:<port>` / `http://127.0.0.1:<port>` (and the IPv6
+    /// equivalent), then extended dynamically when mDNS resolves our own
+    /// service announcement so we learn every LAN-interface address mDNS
+    /// advertised us on. `add_peer` checks this set before inserting so a
+    /// peer that gossips our address back, an mDNS self-resolution that
+    /// slips past the node-id dedup, or a misconfigured static peer entry
+    /// can't accidentally make us our own peer.
+    local_urls: Mutex<HashSet<String>>,
 }
 
 impl Constellation {
@@ -295,6 +304,7 @@ impl Constellation {
             recent_relays: Mutex::new(HashMap::new()),
             loaded_reps,
             delegation,
+            local_urls: Mutex::new(HashSet::new()),
         })
     }
 
@@ -838,6 +848,14 @@ impl Constellation {
         if u.is_empty() {
             return;
         }
+        // Refuse to add ourselves. Covers every discovery path: mDNS
+        // self-resolution that slips past the node-id dedup, gossip that
+        // carries our address back, or a misconfigured static peer entry.
+        // `local_urls` is seeded with localhost variants at startup and
+        // extended with each LAN-interface address as mDNS resolves us.
+        if self.local_urls.lock().unwrap().contains(&u) {
+            return;
+        }
         let mut peers = self.peers.lock().unwrap();
         if peers.contains_key(&u) || peers.len() >= MAX_GOSSIP_PEERS {
             return;
@@ -1323,10 +1341,39 @@ impl Constellation {
     /// Start background tasks (digest sync + mDNS discovery). `bind_port` is the
     /// local HTTP port, used when advertising via mDNS.
     pub(crate) fn start(self: Arc<Self>, bind_port: u16) {
+        // Seed the self-URL set with the loopback addresses our
+        // advertised port resolves through. mDNS will add the LAN
+        // addresses dynamically as it resolves our own service.
+        let port = self.advertise_port(bind_port);
+        {
+            let mut set = self.local_urls.lock().unwrap();
+            for url in [
+                format!("http://localhost:{port}"),
+                format!("http://127.0.0.1:{port}"),
+                format!("http://[::1]:{port}"),
+            ] {
+                let n = normalize_base(&url);
+                if !n.is_empty() {
+                    set.insert(n);
+                }
+            }
+        }
         if self.cfg.mdns {
             mdns::spawn(self.clone(), bind_port);
         }
         self.spawn_sync();
+    }
+
+    /// Record a URL that resolves to this node so future `add_peer` calls
+    /// skip it. Called from the mDNS resolution loop when our own service
+    /// announcement comes back — every LAN-interface address mDNS chose
+    /// to advertise us on lands here, so a peer that gossips any of
+    /// those addresses back can't accidentally make us our own peer.
+    pub(crate) fn mark_local_url(&self, url: &str) {
+        let n = normalize_base(url);
+        if !n.is_empty() {
+            self.local_urls.lock().unwrap().insert(n);
+        }
     }
 }
 

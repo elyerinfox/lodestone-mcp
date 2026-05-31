@@ -40,11 +40,16 @@ async fn run(constellation: Arc<Constellation>, port: u16) -> anyhow::Result<()>
     let receiver = daemon.browse(SERVICE_TYPE)?;
     while let Ok(event) = receiver.recv_async().await {
         if let ServiceEvent::ServiceResolved(svc) = event {
-            // Skip ourselves (matched by the node-id TXT record).
+            let peer_port = svc.get_port();
+            // Self-resolution: record every LAN address mDNS saw us on
+            // so add_peer can refuse them later if a peer gossips one
+            // back. Then skip the peer add.
             if svc.get_property_val_str("id") == Some(node_id.as_str()) {
+                for ip in svc.get_addresses_v4() {
+                    constellation.mark_local_url(&format!("http://{ip}:{peer_port}"));
+                }
                 continue;
             }
-            let peer_port = svc.get_port();
             for ip in svc.get_addresses_v4() {
                 constellation.add_peer(&format!("http://{ip}:{peer_port}"));
             }
