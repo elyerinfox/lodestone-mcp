@@ -1545,11 +1545,33 @@ fn load_layered() -> toml::Table {
 
     // 1) The committed config directory — granular, per-provider files. Walked
     //    recursively and merged in sorted path order (so `00-*.toml` precede
-    //    `providers/*.toml`, etc.).
-    let dir = std::env::var("LODESTONE_CONFIG_DIR").unwrap_or_else(|_| "config".into());
+    //    `providers/*.toml`, etc.). When `LODESTONE_CONFIG_DIR` is **set** but
+    //    the path doesn't exist (typical foot-gun: a path-format mismatch
+    //    between the env shell and the binary — e.g. Git Bash passing
+    //    `/tmp/foo` to a Windows binary), warn loudly so the operator knows
+    //    no overrides loaded. An *unset* env var falls back to the default
+    //    `config` dir silently — that's the normal "nothing configured" path.
+    let dir_env = std::env::var("LODESTONE_CONFIG_DIR");
+    let dir = dir_env.clone().unwrap_or_else(|_| "config".to_string());
+    let dir_path = std::path::Path::new(&dir);
+    if dir_env.is_ok() && !dir_path.exists() {
+        tracing::warn!(
+            path = %dir,
+            "LODESTONE_CONFIG_DIR is set but the path does not exist — no config files \
+             will be loaded from it. Check for a path-format mismatch (e.g. /tmp/foo on \
+             a Windows binary needs to be C:\\Temp\\foo)."
+        );
+    }
     let mut paths = Vec::new();
-    collect_toml_files(std::path::Path::new(&dir), &mut paths);
+    collect_toml_files(dir_path, &mut paths);
     paths.sort();
+    if dir_env.is_ok() && paths.is_empty() && dir_path.exists() {
+        tracing::warn!(
+            path = %dir,
+            "LODESTONE_CONFIG_DIR exists but contains no *.toml files — running with \
+             compiled-in defaults."
+        );
+    }
     for path in &paths {
         if let Some(table) = read_table(path) {
             merge_tables(&mut merged, table);
@@ -1557,8 +1579,25 @@ fn load_layered() -> toml::Table {
     }
 
     // 2) A personal single file (gitignored) overrides the directory baseline.
-    let file = std::env::var("LODESTONE_CONFIG").unwrap_or_else(|_| "lodestone.toml".into());
-    if let Some(table) = read_table(std::path::Path::new(&file)) {
+    //    Same warn-when-explicit-but-missing rule as the dir case: an unset
+    //    var falls back to `lodestone.toml`, which is *expected* not to exist
+    //    in most installs; a SET var pointing at a missing file means the
+    //    operator typed something the binary couldn't open and we shouldn't
+    //    silently fall through to defaults.
+    let file_env = std::env::var("LODESTONE_CONFIG");
+    let file = file_env
+        .clone()
+        .unwrap_or_else(|_| "lodestone.toml".to_string());
+    let file_path = std::path::Path::new(&file);
+    if file_env.is_ok() && !file_path.exists() {
+        tracing::warn!(
+            path = %file,
+            "LODESTONE_CONFIG is set but the file does not exist — no overrides will be \
+             loaded from it. Check for a path-format mismatch (e.g. /tmp/foo on a Windows \
+             binary needs to be C:\\Temp\\foo)."
+        );
+    }
+    if let Some(table) = read_table(file_path) {
         merge_tables(&mut merged, table);
     }
 

@@ -249,6 +249,95 @@ hits (you can't recompute a search ranking the way you can recompute a
 content hash), so a single (potentially malicious) peer could otherwise
 inject results.
 
+### End-to-end delegation flow
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant App as App / Skill
+  participant L as Lodestone<br/>(this node)
+  participant Cache as Local cache<br/>(store + IndexedRetrieval)
+  participant Peer as Peer node<br/>(constellation)
+  participant Up as Upstream<br/>(rate-limited)
+
+  App->>L: fetch_bytes_shared(url)
+  L->>Cache: lookup_by_url
+  alt local hit
+    Cache-->>L: bytes
+    L-->>App: bytes
+  else local miss
+    L->>Peer: consult_blob(url hash)<br/>+ blobinfo corroboration
+    alt peer-cached + corroborated
+      Peer-->>L: bytes
+      L->>Cache: put bytes
+      L-->>App: bytes
+    else peer cache miss
+      L->>Up: direct GET url
+      alt upstream ok
+        Up-->>L: bytes
+        L->>Cache: put bytes
+        L-->>App: bytes
+      else upstream 429 / blocked
+        Note over L,Peer: walk peers advertising<br/>delegation_enabled = true
+        L->>Peer: POST /constellation/retrieve<br/>X-Lodestone-Peer-Id + url
+        Peer->>Peer: try_acquire — rate limit check
+        alt limiter rejects
+          Peer-->>L: 429 / 413 + RetrieveReject
+          L-->>App: upstream error
+        else accepted
+          Peer->>Up: fetch on behalf
+          Up-->>Peer: bytes
+          Peer->>Peer: cache locally<br/>(now mesh-visible)
+          Peer-->>L: bytes
+          L->>Cache: put bytes
+          L-->>App: bytes
+        end
+      end
+    end
+  end
+```
+
+Five doors checked in order: **local store → peer cache → direct upstream →
+peer-delegated fetch → error**. Steps 2 and 4 require `[network].enabled`;
+step 4 additionally needs at least one peer advertising
+`delegation_enabled = true`. With none of those configured this collapses to
+plain HTTP.
+
+### Cross-constellation transfer
+
+```mermaid
+flowchart LR
+  subgraph C1["constellation X"]
+    A[Node A1]
+    A2[Node A2]
+  end
+  subgraph C2["constellation Y"]
+    B[Node B1<br/>delegation_enabled]
+    B2[Node B2]
+  end
+  Broker["galaxy broker<br/>directory only"]
+
+  A -.register endpoints.-> Broker
+  B -.register endpoints.-> Broker
+  A -.pull directory.-> Broker
+  B -.pull directory.-> Broker
+
+  Broker -. "introduces<br/>(no proxying)" .-> A
+  Broker -. "introduces<br/>(no proxying)" .-> B
+
+  A ==>|"add_peer<br/>(direct)"| B
+  A ==>|"POST /constellation/retrieve<br/>(direct, no broker)"| B
+
+  style Broker fill:#fff5e6,stroke:#c08000
+  style B fill:#e6ffe6
+```
+
+The broker is a **directory**, not a proxy — it learns each constellation's
+ingress endpoints and tells the others. Once introduced, constellations
+talk **direct**: a node in X adds nodes in Y as peers via the normal
+`add_peer`, fetches their digest, sees `delegation_enabled = true`, and
+POSTs `/constellation/retrieve` directly. The bytes never touch the broker.
+
 ### Retrieval delegation (opt-in)
 
 When local cache + peer-cache both miss and the direct upstream fetch fails
