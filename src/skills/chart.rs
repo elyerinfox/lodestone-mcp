@@ -1921,8 +1921,10 @@ impl Skill for ChartCanvas {
 struct GrafanaSeries {
     /// Series label shown in the legend.
     label: String,
-    /// `(timestamp_or_x, value)` points. Sorted by x at render time.
-    points: Vec<[f64; 2]>,
+    /// `[x, y]` points. `x` is a number OR an ISO-8601 date string
+    /// (date strings auto-format the axis ticks, which is the natural
+    /// shape for time-series telemetry). Sorted by x at render time.
+    points: Vec<Vec<serde_json::Value>>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -1959,50 +1961,57 @@ impl Skill for ChartGrafana {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (_server, args) = ctx.parse::<GrafanaArgs>()?;
-            if args.series.is_empty() {
-                return Err(invalid(
-                    "`series` must contain at least one entry".to_string(),
-                ));
-            }
-            let series_xy: Vec<Vec<(f64, f64)>> = args
-                .series
-                .iter()
-                .map(|s| {
-                    let mut pts: Vec<(f64, f64)> = s.points.iter().map(|p| (p[0], p[1])).collect();
-                    pts.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
-                    pts
-                })
-                .collect();
-            for (i, s) in series_xy.iter().enumerate() {
-                if s.len() < 2 {
-                    return Err(invalid(format!(
-                        "series {} (\"{}\") needs at least 2 points",
-                        i, args.series[i].label
-                    )));
+            ensure_min_len(&args.series, 1, "series")?;
+            // Same flexible-x parsing as chart_line / chart_scatter.
+            let mut series_xy: Vec<Vec<(f64, f64)>> = Vec::with_capacity(args.series.len());
+            let mut x_is_date = false;
+            for (i, s) in args.series.iter().enumerate() {
+                let mut row: Vec<(f64, f64)> = Vec::with_capacity(s.points.len());
+                for (j, pt) in s.points.iter().enumerate() {
+                    let (x, y, date_label) = parse_xy(pt).ok_or_else(|| {
+                        invalid(format!(
+                            "series {} (\"{}\") point {}: expected [number-or-date-string, number], \
+                             got {}",
+                            i,
+                            s.label,
+                            j,
+                            serde_json::to_string(pt).unwrap_or_default()
+                        ))
+                    })?;
+                    if date_label.is_some() {
+                        x_is_date = true;
+                    }
+                    row.push((x, y));
                 }
+                row.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+                series_xy.push(row);
+            }
+            for (i, s) in series_xy.iter().enumerate() {
+                ensure_min_len(
+                    s,
+                    2,
+                    &format!("points in series \"{}\"", args.series[i].label),
+                )?;
             }
             let w = args.width.unwrap_or(DEFAULT_W).clamp(160.0, 4000.0);
             let h = args.height.unwrap_or(DEFAULT_H).clamp(120.0, 4000.0);
-            let m = Margins {
+            // Grafana uses custom margins to give the legend room at the top.
+            let margins = Margins {
                 top: 44.0,
                 right: 28.0,
                 bottom: 48.0,
                 left: 64.0,
             };
-            let plot_left = m.left;
-            let plot_right = w - m.right;
-            let plot_top = m.top;
-            let plot_bottom = h - m.bottom;
-            let (xmin, xmax, ymin, ymax) = auto_xy_range(&series_xy);
-            let x_ticks = nice_ticks(xmin, xmax, 7);
-            let y_ticks = nice_ticks(ymin.min(0.0), ymax, 6);
-            let xd = (
-                *x_ticks.first().unwrap_or(&xmin),
-                *x_ticks.last().unwrap_or(&xmax),
-            );
-            let yd = (
-                *y_ticks.first().unwrap_or(&ymin),
-                *y_ticks.last().unwrap_or(&ymax),
+            // y-axis is clamped to include 0 for the Grafana "from zero" look.
+            let (xmin_d, xmax_d, ymin_d, ymax_d) = auto_xy_range(&series_xy);
+            let pa = PlotArea::from_ranges(
+                (xmin_d, xmax_d),
+                (ymin_d.min(0.0), ymax_d),
+                w,
+                h,
+                margins,
+                7,
+                6,
             );
             // Dark theme override of `svg_open`.
             let mut svg = format!(
@@ -2017,59 +2026,68 @@ impl Skill for ChartGrafana {
                     svg,
                     "<text x=\"{x}\" y=\"26\" font-size=\"15\" fill=\"#d8d9da\" \
                      font-weight=\"600\">{lbl}</text>",
-                    x = plot_left,
+                    x = pa.left(),
                     lbl = esc(t),
                 );
             }
-            // Grid + axis ticks, low-contrast lines.
-            let scale_x = |v: f64| {
-                plot_left + (v - xd.0) / (xd.1 - xd.0).max(f64::EPSILON) * (plot_right - plot_left)
-            };
-            let scale_y = |v: f64| {
-                plot_bottom
-                    - (v - yd.0) / (yd.1 - yd.0).max(f64::EPSILON) * (plot_bottom - plot_top)
-            };
-            for t in &x_ticks {
-                let x = scale_x(*t);
+            // Grid + axis ticks (low-contrast lines for the operational look).
+            // Date strings are formatted via fmt_ts when the series carried them.
+            let x_span = pa.x_domain.1 - pa.x_domain.0;
+            for t in &pa.x_ticks {
+                let x = pa.scale_x(*t);
+                let lbl = if x_is_date {
+                    fmt_ts(*t, x_span)
+                } else {
+                    fmt_tick(*t)
+                };
                 let _ = writeln!(
                     svg,
-                    "<line x1=\"{x}\" y1=\"{plot_top}\" x2=\"{x}\" y2=\"{plot_bottom}\" \
+                    "<line x1=\"{x}\" y1=\"{top}\" x2=\"{x}\" y2=\"{bot}\" \
                      stroke=\"#2c3036\" stroke-width=\"1\"/>\n\
                      <text x=\"{x}\" y=\"{ly}\" text-anchor=\"middle\" font-size=\"10\" \
-                     fill=\"#888\">{lbl}</text>",
-                    ly = plot_bottom + 14.0,
-                    lbl = esc(&fmt_tick(*t)),
+                     fill=\"#888\">{txt}</text>",
+                    top = pa.top(),
+                    bot = pa.bottom(),
+                    ly = pa.bottom() + 14.0,
+                    txt = esc(&lbl),
                 );
             }
-            for t in &y_ticks {
-                let y = scale_y(*t);
+            for t in &pa.y_ticks {
+                let y = pa.scale_y(*t);
                 let unit = args.unit.as_deref().unwrap_or("");
                 let _ = writeln!(
                     svg,
-                    "<line x1=\"{plot_left}\" y1=\"{y}\" x2=\"{plot_right}\" y2=\"{y}\" \
+                    "<line x1=\"{left}\" y1=\"{y}\" x2=\"{right}\" y2=\"{y}\" \
                      stroke=\"#2c3036\" stroke-width=\"1\"/>\n\
                      <text x=\"{x}\" y=\"{ty}\" text-anchor=\"end\" font-size=\"10\" \
                      fill=\"#888\">{lbl}{unit}</text>",
-                    x = plot_left - 6.0,
+                    left = pa.left(),
+                    right = pa.right(),
+                    x = pa.left() - 6.0,
                     ty = y + 3.0,
                     lbl = esc(&fmt_tick(*t)),
                 );
             }
             // Area fill + line per series.
+            let baseline_y_value = pa.y_domain.0;
             for (i, s) in series_xy.iter().enumerate() {
                 let color = PALETTE[i % PALETTE.len()];
                 let mut path = String::new();
-                let mut area = format!("M{:.2},{:.2} ", scale_x(s[0].0), scale_y(yd.0));
+                let mut area = format!(
+                    "M{:.2},{:.2} ",
+                    pa.scale_x(s[0].0),
+                    pa.scale_y(baseline_y_value)
+                );
                 for (j, (x, y)) in s.iter().enumerate() {
                     let cmd = if j == 0 { 'M' } else { 'L' };
-                    let _ = write!(path, "{cmd}{:.2},{:.2} ", scale_x(*x), scale_y(*y));
-                    let _ = write!(area, "L{:.2},{:.2} ", scale_x(*x), scale_y(*y));
+                    let _ = write!(path, "{cmd}{:.2},{:.2} ", pa.scale_x(*x), pa.scale_y(*y));
+                    let _ = write!(area, "L{:.2},{:.2} ", pa.scale_x(*x), pa.scale_y(*y));
                 }
                 let _ = write!(
                     area,
                     "L{:.2},{:.2} Z",
-                    scale_x(s.last().unwrap().0),
-                    scale_y(yd.0)
+                    pa.scale_x(s.last().unwrap().0),
+                    pa.scale_y(baseline_y_value)
                 );
                 let _ = writeln!(
                     svg,
@@ -2084,31 +2102,33 @@ impl Skill for ChartGrafana {
                         "<circle cx=\"{cx:.2}\" cy=\"{cy:.2}\" r=\"3\" fill=\"{color}\"/>\n\
                          <text x=\"{tx:.2}\" y=\"{ty:.2}\" font-size=\"10\" fill=\"{color}\" \
                          text-anchor=\"end\">{lbl}{unit}</text>",
-                        cx = scale_x(*lx),
-                        cy = scale_y(*ly),
-                        tx = scale_x(*lx) - 6.0,
-                        ty = scale_y(*ly) - 6.0,
+                        cx = pa.scale_x(*lx),
+                        cy = pa.scale_y(*ly),
+                        tx = pa.scale_x(*lx) - 6.0,
+                        ty = pa.scale_y(*ly) - 6.0,
                         lbl = esc(&fmt_tick(*ly)),
                         unit = esc(args.unit.as_deref().unwrap_or("")),
                     );
                 }
             }
             // Dark-themed legend at top-right.
-            let mut ly = plot_top - 24.0;
+            let mut ly = pa.top() - 24.0;
             for (i, s) in args.series.iter().enumerate() {
                 let color = PALETTE[i % PALETTE.len()];
                 let _ = writeln!(
                     svg,
                     "<rect x=\"{x}\" y=\"{ly}\" width=\"10\" height=\"10\" fill=\"{color}\"/>\n\
                      <text x=\"{tx}\" y=\"{ty}\" font-size=\"11\" fill=\"#bbb\">{lbl}</text>",
-                    x = plot_right - 160.0,
-                    tx = plot_right - 146.0,
+                    x = pa.right() - 160.0,
+                    tx = pa.right() - 146.0,
                     ty = ly + 9.0,
                     lbl = esc(&s.label),
                 );
                 ly += 14.0;
             }
             svg.push_str("</svg>");
+            let (xmin, xmax) = pa.x_domain;
+            let (ymin, ymax) = pa.y_domain;
             let total_points: usize = series_xy.iter().map(|s| s.len()).sum();
             let desc = format!(
                 "Grafana panel{} · {} serie{} · {} points · range x [{}, {}] · y [{}, {}]",
