@@ -19,9 +19,11 @@
 //! consumer that gets unusable bytes simply re-fetches from the authoritative source.
 
 mod bloom;
+pub mod identifiers;
 mod mdns;
 
 pub(crate) use bloom::{hash_bytes, hash_key};
+pub use identifiers::{Identifiers, Source};
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
@@ -160,7 +162,9 @@ pub(crate) struct Constellation {
     store: Option<Arc<crate::store::FileStore>>,
     /// Optional retrieval-output cache (page/PDF/doc text), also shared as blobs so
     /// work one node did isn't repeated by every node. All behind the digest Bloom.
-    retrieval: Option<Arc<TtlCache>>,
+    /// Multi-identifier: a single entry can be reached by primary key, URL aliases,
+    /// source-specific ids, or content hash — see [`identifiers::Identifiers`].
+    retrieval: Option<Arc<crate::retrieval::IndexedRetrievalCache>>,
     peers: Mutex<HashMap<String, Peer>>,
     /// Per-blob seed accounting (served vs. fetched), keyed by blob hash.
     seeds: Mutex<HashMap<String, BlobStat>>,
@@ -180,7 +184,7 @@ impl Constellation {
         cfg: &NetworkConfig,
         cache: Arc<TtlCache>,
         store: Option<Arc<crate::store::FileStore>>,
-        retrieval: Option<Arc<TtlCache>>,
+        retrieval: Option<Arc<crate::retrieval::IndexedRetrievalCache>>,
     ) -> Arc<Self> {
         let node_id = if cfg.node_id.trim().is_empty() {
             random_id()
@@ -297,7 +301,7 @@ impl Constellation {
             }
         }
         if let Some(ret) = &self.retrieval {
-            if let Some(text) = ret.get(key_hash) {
+            if let Some(text) = ret.lookup_by_hash(key_hash) {
                 return Some(text.into_bytes());
             }
         }
@@ -334,9 +338,20 @@ impl Constellation {
         self.seeds.lock().unwrap().get(key_hash).cloned()
     }
 
-    /// `consult_blob`, given a URL (hashed internally).
+    /// `consult_blob`, given a URL (hashed internally). No source hint — uses
+    /// the global `min_agreement`. Callers that have an `Identifiers` should
+    /// reach for [`Self::consult_blob_hash_sourced`] so per-source policy
+    /// applies.
     pub(crate) async fn consult_blob(&self, url: &str) -> Option<Vec<u8>> {
         self.consult_blob_hash(&hash_key(url)).await
+    }
+
+    /// Equivalent to [`Self::consult_blob_hash_sourced`] with
+    /// `Source::Other` — no per-source policy relaxation; the global
+    /// `min_agreement` floor applies. Existing call sites land here.
+    pub(crate) async fn consult_blob_hash(&self, key: &str) -> Option<Vec<u8>> {
+        self.consult_blob_hash_sourced(key, identifiers::Source::Other)
+            .await
     }
 
     /// Pull a shared blob by hash, **anti-tamper**: corroborate first, verify last.
@@ -348,7 +363,30 @@ impl Constellation {
     ///      availability by lowering it to 1.)
     ///   3. Fetch the bytes from an agreeing peer and verify they hash to the agreed
     ///      value before accepting; otherwise the caller falls back to the source.
-    pub(crate) async fn consult_blob_hash(&self, key: &str) -> Option<Vec<u8>> {
+    ///
+    /// `source` is a per-call hint of the upstream the consumer believes the
+    /// hash belongs to, and it changes what counts as "agreed":
+    /// - **Content-addressable** (Wayback, arXiv by `id+v`, GitHub release
+    ///   by tag) → a single peer suffices. The consumer was asking by a
+    ///   hash derived from the source-specific identifier *and* the
+    ///   consult-bytes step verifies the bytes hash to the agreed value,
+    ///   so a malicious peer can't substitute content without producing a
+    ///   different hash than the one the consumer was looking up by. The
+    ///   global `cfg.min_agreement` is intentionally **not** honored here
+    ///   — the safety isn't coming from peer consensus, it's coming from
+    ///   the consumer's hash check, so a 3-peer requirement would only add
+    ///   latency without adding safety. This is what makes long-tail
+    ///   rate-limited content actually usable across the mesh.
+    /// - **Volatile / non-content-addressable** (Overpass, search engines,
+    ///   `Other`) → multi-peer corroboration matters because the consumer
+    ///   has nothing to verify the bytes *against*. The effective floor is
+    ///   `max(cfg.min_agreement, source.min_agreement_floor())`, so a user
+    ///   that hardens to `min_agreement = 3` is never silently relaxed.
+    pub(crate) async fn consult_blob_hash_sourced(
+        &self,
+        key: &str,
+        source: identifiers::Source,
+    ) -> Option<Vec<u8>> {
         let key = key.to_string();
         let mut targets: Vec<(String, f64)> = {
             let peers = self.peers.lock().unwrap();
@@ -386,9 +424,18 @@ impl Constellation {
             return None;
         }
 
-        // 2. Corroborate: a content hash must be agreed by >= min_agreement distinct
-        //    peers (reputation breaks ties). A lone/disagreeing peer can't win.
-        let min_agree = self.cfg.min_agreement.max(1);
+        // 2. Corroborate: a content hash must be agreed by >= min_agreement
+        //    distinct peers. Per-source policy: content-addressable upstreams
+        //    use the source floor (typically 1) because the consumer's
+        //    bytes-hash check is the primary safety; everything else takes
+        //    max(cfg, source floor) so users can harden upward.
+        let min_agree = match source {
+            identifiers::Source::Wayback
+            | identifiers::Source::Arxiv
+            | identifiers::Source::Github => source.min_agreement_floor(),
+            _ => self.cfg.min_agreement.max(source.min_agreement_floor()),
+        }
+        .max(1);
         let mut tally: HashMap<String, (usize, f64)> = HashMap::new();
         for (_, rep, h) in &infos {
             let e = tally.entry(h.clone()).or_insert((0, 0.0));

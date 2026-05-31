@@ -6,6 +6,69 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Multi-identifier retrieval cache + per-source consensus policy** for the
+  constellation. Closes the alignment gap that made the mesh useless for
+  long-tail rate-limited content (a specific arXiv paper, a specific Wayback
+  snapshot — usually only one peer in the mesh has it, so the existing
+  `min_agreement = 2` consensus floor always failed and control fell back to
+  the rate-limited source).
+  - **`Identifiers`** (`src/constellation/identifiers.rs`) — each cache entry
+    now declares **every public name it's known by**: the canonical primary
+    key, URL aliases (raw URL, resolved snapshot URL, redirect target),
+    source-specific identifiers (`("arxiv", "1706.03762v5")`,
+    `("wayback_ts", "20240315120000")`, `("doi", "10.48550/…")`), and the
+    body's content hash. Built with a small fluent builder
+    (`Identifiers::new(key).with_source(Source::…).with_url(…).with_source_id(…, …)`).
+    Capped at 8 identifiers per entry to keep the digest small.
+  - **`Source`** enum classifies the upstream (`Wayback` / `Arxiv` / `Github` /
+    `Overpass` / `SearchEngine` / `Other`) and drives two per-source policies:
+    a TTL override (Wayback / arXiv / GitHub-release = 7 days, Overpass = 1
+    day, search engines = 1 hour) and a `min_agreement` floor (1 for
+    content-addressable, max(cfg, 2) for volatile).
+  - **`IndexedRetrievalCache`** (`src/retrieval.rs`) replaces the single-
+    keyed retrieval `TtlCache`. Multi-index: every identifier hash is a
+    secondary lookup that resolves to the same entry. `lookup_by_hash(h)`
+    walks the index in one mutex grab. Eviction (LRU-by-expiry under the
+    size cap) sweeps every secondary mapping in one pass. In-memory only for
+    v1 (Redis multi-key with atomic secondary-index updates is deferred —
+    single-node deployments use this; multi-node deployments share via the
+    constellation).
+  - **`Lodestone::retrieval_lookup(ids)`** / **`retrieval_put_indexed(ids,
+    body)`** — the new public API; existing
+    `retrieval_get(key)` / `retrieval_put(key, body)` are now thin shims that
+    wrap a single primary key, so every existing skill keeps working
+    unchanged. The shims store under `Source::Other` (global TTL + global
+    `min_agreement`), so semantics are preserved.
+  - **`Constellation::consult_blob_hash_sourced(hash, source)`** — the per-
+    source consensus path. For content-addressable sources
+    (`Wayback`/`Arxiv`/`Github`) the `min_agreement` floor drops to 1
+    *regardless* of `[network].min_agreement`: the safety comes from the
+    consumer-side bytes-hash check (step 3 of the anti-tampering flow), not
+    from peer count, so requiring N peers to corroborate a hash a single
+    peer derived from the same identifier the consumer was looking up by
+    adds latency without adding safety. For volatile sources the existing
+    multi-peer corroboration applies, and a user hardening to
+    `min_agreement = 3` is never silently relaxed. `consult_blob_hash`
+    (without source hint) delegates to the sourced path with `Source::Other`,
+    so existing call sites land on the global policy.
+  - **First adopter — Wayback** (`src/skills/archive.rs`). On lookup the
+    skill builds `Identifiers { primary_key, source: Wayback, urls: [raw_url],
+    source_ids: { "wayback_ts": timestamp } }` so a peer that cached the same
+    `(url, timestamp)` snapshot under a different `max_chars` key still
+    serves the consumer. On store, the resolved snapshot URL is added as a
+    second URL alias and the captured 14-digit timestamp is auto-extracted
+    from the snapshot URL — so an entry self-attaches its full identifier
+    set even when the caller didn't supply a timestamp.
+
+  See [`docs/constellation.md`](docs/constellation.md) §"Multi-identifier
+  retrieval entries" and §"Per-source consensus policy" for the per-source
+  policy table. 22 new unit tests covering put/lookup by every identifier,
+  per-source TTL override application, secondary-index eviction, primary-
+  key overwrite cleanly removing prior aliases, content-hash auto-attachment,
+  and the identifier cap.
+
 ### Documentation
 
 - **[`Makefile`](Makefile)** wraps the pre-commit triad and the CI gate as

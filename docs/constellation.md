@@ -185,6 +185,61 @@ that has it → the source** (caching the result), so a PDF/file one node fetche
 rate-limited source. The retrieval *text* cache is shared the same way (also behind
 the Bloom), so parsed page/RFC/doc text one node produced isn't recomputed by every node.
 
+### Multi-identifier retrieval entries
+
+The retrieval cache used to key each entry by a single canonical string (e.g.
+`wayback|max|ts|<url>`). The mesh could only help a consumer that asked by the
+*exact* same canonical key, which broke for long-tail rate-limited content
+because two peers cached under different per-skill formats would never see
+each other.
+
+The cache is now a **multi-index** keyed by an [`Identifiers`](../src/constellation/identifiers.rs)
+set:
+
+- the **primary canonical key** (the per-skill cache string, hashed);
+- **URL aliases** — every URL that resolves to the body (raw URL, resolved
+  snapshot URL, redirected URL, …);
+- **source-specific identifiers** — `("arxiv", "1706.03762v5")`,
+  `("wayback_ts", "20240315120000")`, `("doi", "10.48550/arXiv.1706.03762")`,
+  …, namespaced by [`Source`](../src/constellation/identifiers.rs) so different
+  upstreams can't collide on identical `(label, value)` pairs;
+- the **content hash** of the body (computed at put-time).
+
+Each entry advertises **every** identifier hash in the digest Bloom (capped at
+8 per entry to keep the digest small), so a peer that asks by any one of them
+gets a hit. A consumer asking `https://arxiv.org/abs/1706.03762v5` finds an
+entry a peer cached under the source-id `("arxiv", "1706.03762v5")` and vice
+versa.
+
+### Per-source consensus policy
+
+Sources fall into two safety classes. `consult_blob_hash_sourced` accepts a
+[`Source`](../src/constellation/identifiers.rs) hint so the right policy
+applies per call:
+
+| Source | TTL override | `min_agreement` floor | Why |
+| --- | --- | --- | --- |
+| `Wayback` | 7 days | **1** | `(url, timestamp)` is content-addressable; consumer-side bytes-hash check is the primary safety |
+| `Arxiv` | 7 days | **1** | `{id}+v` is immutable per version; consumer can verify |
+| `Github` (releases) | 7 days | **1** | Tag-addressable, immutable |
+| `Overpass` | 1 day | `max(cfg, 2)` | World data changes slowly; consensus matters because bytes can't be verified from the query |
+| `SearchEngine` | 1 hour | `max(cfg, 2)` | Volatile; consensus matters |
+| `Other` | global default | global default | Fallback for entries that don't classify their source |
+
+For **content-addressable sources** the `min_agreement` floor drops to **1**
+*regardless* of `[network].min_agreement`. The safety doesn't come from peer
+consensus — it comes from the consumer's content-hash check (step 3 of
+"Anti-tampering" below). Requiring multiple peers to corroborate a hash a
+single peer derived from the same identifier the consumer was looking up by
+adds latency without adding safety. This is the change that makes long-tail
+rate-limited content (a specific arXiv paper, a specific Wayback snapshot)
+actually serveable across the mesh — usually only one peer in the constellation
+has any given long-tail entry.
+
+For **volatile / non-content-addressable sources** the existing multi-peer
+corroboration applies, and a user that hardens to
+`[network].min_agreement = 3` is never silently relaxed.
+
 ### Anti-tampering
 
 A peer could serve corrupted or malicious bytes, so blobs are **corroborated, then
@@ -192,11 +247,12 @@ verified** before they're trusted:
 
 1. The consumer asks Bloom-matching peers for the blob's **content hash** only
    (`POST /constellation/blobinfo`, no bytes).
-2. It trusts a content hash only when **`>= [network].min_agreement` distinct peers
+2. It trusts a content hash only when **`>= min_agreement` distinct peers
    agree** on it (reputation breaks ties) — the same anti-poisoning gate as search
-   results, so a lone or malicious peer can't dictate content. With the default
-   `min_agreement = 2`, a single holder is *not* trusted (the consumer falls back to
-   the source); lower it to `1` to favor availability over corroboration.
+   results, so a lone or malicious peer can't dictate content. The effective
+   `min_agreement` is computed per call from the per-source policy table
+   above: 1 for content-addressable upstreams, `max(cfg, 2)` for everything
+   else.
 3. It fetches the bytes from an agreeing peer and checks they hash to the agreed
    value (`hash_bytes`) before accepting; on any mismatch it re-fetches from the
    authoritative source.

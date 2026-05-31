@@ -113,21 +113,51 @@ impl Skill for WaybackFetch {
         Box::pin(async move {
             let (server, args) = ctx.parse::<WaybackFetchArgs>()?;
             let max = server.clamp_chars(args.max_chars);
-            let key = format!(
+            let primary_key = format!(
                 "wayback|{max}|{}|{}",
                 args.timestamp.as_deref().unwrap_or(""),
                 args.url
             );
-            if let Some(cached) = server.retrieval_get(&key).await {
+
+            // Build the identifier set for the cache lookup. We don't have the
+            // resolved snapshot URL yet, so the *lookup* only carries the raw
+            // URL and the optional `(wayback_ts, <timestamp>)` source-id. If a
+            // peer cached the same `(url, timestamp)` snapshot, even under a
+            // different primary key (different `max_chars`, say), one of these
+            // identifiers will hit their Bloom.
+            let mut lookup_ids = crate::constellation::Identifiers::new(&primary_key)
+                .with_source(crate::constellation::Source::Wayback)
+                .with_url(&args.url);
+            if let Some(ts) = args.timestamp.as_deref() {
+                if !ts.trim().is_empty() {
+                    lookup_ids = lookup_ids.with_source_id("wayback_ts", ts);
+                }
+            }
+            if let Some(cached) = server.retrieval_lookup(&lookup_ids).await {
                 return Ok(text_result(cached));
             }
+
             let (snapshot, text) =
                 wayback_fetch(&server.http, &args.url, args.timestamp.as_deref(), max)
                     .await
                     .map_err(internal)?;
             let out = format!("Source (archived): {snapshot}\n\n{text}");
+
             if !text.is_empty() {
-                server.retrieval_put(key, &out);
+                // Now we DO have the resolved snapshot URL — store under primary
+                // key + raw URL + snapshot URL + `(wayback_ts, …)` so a future
+                // consumer asking by ANY of those four names hits this entry.
+                let mut store_ids = lookup_ids.with_url(&snapshot);
+                // Extract the captured timestamp from the snapshot URL so the
+                // entry self-attaches its `(wayback_ts, …)` source-id even when
+                // the caller didn't pass a timestamp. The regex matches the
+                // 14-digit YYYYMMDDhhmmss the Wayback URL embeds.
+                if let Some(captures) = WAYBACK_TS_RE.captures(&snapshot) {
+                    if let Some(ts) = captures.get(1).map(|m| m.as_str()) {
+                        store_ids = store_ids.with_source_id("wayback_ts", ts);
+                    }
+                }
+                server.retrieval_put_indexed(&store_ids, &out);
             }
             Ok(text_result(out))
         })

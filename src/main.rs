@@ -15,6 +15,7 @@ mod constellation;
 mod galaxy;
 mod provider;
 mod providers;
+mod retrieval;
 mod skills;
 mod store;
 mod util;
@@ -69,9 +70,11 @@ pub(crate) struct Lodestone {
     pub(crate) eia_key: Arc<str>,
     /// Serial-port policy (baud/timeout) for the `serial_*` tools.
     pub(crate) serial: Arc<config::Serial>,
-    /// Caches retrieval-tool output (page text, files, answers) keyed by request.
-    /// Separate from the search/constellation cache so it never enters peer digests.
-    pub(crate) retrieval_cache: Option<Arc<cache::TtlCache>>,
+    /// Caches retrieval-tool output (page text, files, answers) keyed by request
+    /// and by the entry's [`crate::constellation::Identifiers`] aliases (URL,
+    /// source-id, content hash). The constellation digest advertises every
+    /// identifier hash so a peer that asks by *any* of them gets a Bloom hit.
+    pub(crate) retrieval_cache: Option<Arc<retrieval::IndexedRetrievalCache>>,
     /// Default / hard-cap characters for the retrieval tools (`[retrieval]`).
     pub(crate) default_chars: usize,
     pub(crate) max_chars: usize,
@@ -132,7 +135,7 @@ impl Lodestone {
         eia_key: String,
         serial: config::Serial,
         timeout_secs: u64,
-        retrieval_cache: Option<Arc<cache::TtlCache>>,
+        retrieval_cache: Option<Arc<retrieval::IndexedRetrievalCache>>,
         default_chars: usize,
         max_chars: usize,
         docker: config::Docker,
@@ -211,37 +214,86 @@ impl Lodestone {
 
     /// Look up cached retrieval output for `key`: the local retrieval cache first,
     /// then (Bloom-gated, so a true miss costs nothing) a constellation peer that has it —
-    /// letting one node's fetched/parsed text serve the mesh. Entries are keyed by
-    /// hash, matching what the constellation advertises and serves.
+    /// letting one node's fetched/parsed text serve the mesh.
+    ///
+    /// Single-key shim — equivalent to calling [`Self::retrieval_lookup`] with
+    /// `Identifiers::new(key)`. New call sites that have a URL / source-id
+    /// available should call `retrieval_lookup` directly so a peer that
+    /// cached under a different canonical key can still serve us.
     pub(crate) async fn retrieval_get(&self, key: &str) -> Option<String> {
-        let hash = crate::constellation::hash_key(key);
+        self.retrieval_lookup(&crate::constellation::Identifiers::new(key))
+            .await
+    }
+
+    /// Look up an entry by **any** of its identifiers (primary key, URL,
+    /// source-id, content hash). Walks the local cache first — each
+    /// identifier is hashed and probed — then, on a true miss, asks
+    /// Bloom-matching constellation peers by each identifier hash in turn.
+    /// First hit wins.
+    ///
+    /// The multi-identifier path is what closes the alignment gap on
+    /// long-tail rate-limited content: a consumer asking by URL finds an
+    /// entry a peer cached by source-id (and vice versa).
+    pub(crate) async fn retrieval_lookup(
+        &self,
+        ids: &crate::constellation::Identifiers,
+    ) -> Option<String> {
         if let Some(c) = &self.retrieval_cache {
-            if let Some(v) = c.get(&hash) {
+            if let Some(v) = c.lookup(ids) {
                 return Some(v);
             }
         }
         if let Some(constellation) = self.registry.constellation() {
-            if let Some(bytes) = constellation.consult_blob_hash(&hash).await {
-                let text = String::from_utf8_lossy(&bytes).into_owned();
-                if !text.is_empty() {
-                    if let Some(c) = &self.retrieval_cache {
-                        c.put(hash, text.clone());
+            for r in ids.iter_capped() {
+                let h = crate::constellation::hash_key(&r.key());
+                // Pass the source hint so content-addressable upstreams
+                // (Wayback / arXiv / GitHub) skip the multi-peer corroboration
+                // floor — a single peer suffices because the consumer's
+                // bytes-hash check is the primary safety.
+                if let Some(bytes) = constellation
+                    .consult_blob_hash_sourced(&h, ids.source)
+                    .await
+                {
+                    let text = String::from_utf8_lossy(&bytes).into_owned();
+                    if !text.is_empty() {
+                        if let Some(c) = &self.retrieval_cache {
+                            c.put(ids, &text);
+                        }
+                        return Some(text);
                     }
-                    return Some(text);
                 }
             }
         }
         None
     }
 
-    /// Cache non-empty retrieval output for `key` (failures/empties are skipped so
-    /// they can be retried). Keyed by hash so the constellation can advertise/serve it.
+    /// Cache non-empty retrieval output under one primary key (no aliases,
+    /// `Source::Other`). Bare-key shim for existing call sites; new code
+    /// should call [`Self::retrieval_put_indexed`] with an `Identifiers`
+    /// carrying every public name the entry is known by, so peer
+    /// alignment works for long-tail content.
     pub(crate) fn retrieval_put(&self, key: String, value: &str) {
         if value.is_empty() {
             return;
         }
+        self.retrieval_put_indexed(&crate::constellation::Identifiers::new(key), value);
+    }
+
+    /// Cache non-empty retrieval output with a full `Identifiers` set
+    /// (primary key + URL aliases + source-id aliases). Every identifier is
+    /// hashed and stored in the secondary index; the constellation digest
+    /// will advertise all of them on its next sync so peers can find the
+    /// entry by any of its public names.
+    pub(crate) fn retrieval_put_indexed(
+        &self,
+        ids: &crate::constellation::Identifiers,
+        value: &str,
+    ) {
+        if value.is_empty() {
+            return;
+        }
         if let Some(c) = &self.retrieval_cache {
-            c.put(crate::constellation::hash_key(&key), value.to_string());
+            c.put(ids, value);
         }
     }
 
@@ -555,8 +607,14 @@ async fn main() -> anyhow::Result<()> {
     };
     // The retrieval-output cache (page/PDF/doc text). Built before the constellation so the
     // constellation can also advertise + serve it as blobs (all behind the digest Bloom).
+    // Multi-identifier indexed: every entry advertises its primary key, URL aliases,
+    // source-specific ids (arXiv id, Wayback `(url, timestamp)`, …) and content hash, so a
+    // peer that asks by any of those names gets a Bloom hit.
     let retrieval_cache = if cfg.cache.enabled {
-        Some(build_cache(&cfg.cache, "lodestone:ret:").await)
+        Some(Arc::new(retrieval::IndexedRetrievalCache::new(
+            cfg.cache.ttl_secs.max(1),
+            cfg.cache.max_entries,
+        )))
     } else {
         None
     };
