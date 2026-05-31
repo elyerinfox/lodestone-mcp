@@ -146,6 +146,51 @@ fn yn(v: bool) -> &'static str {
     }
 }
 
+/// Build a `Family` entry from a 4-field signature plus a config-section
+/// shorthand. Collapses the boilerplate two shapes that appear ~25 times
+/// in `families()`:
+///
+/// 1. `family!(key, section, desc, tools, field)` — `enabled` reads
+///    `c.<field>.enabled`, `extra` is empty. Used for plain on/off skills
+///    (`python`, `sysinfo`, `serial`, `printer`, `chart`, …).
+/// 2. `family!(key, section, desc, tools, field, destructive)` — also
+///    surfaces a single `allow_destructive` knob in `extra`. Used for the
+///    `filesystem` / `shell` / `git` / `docker` / `kubernetes` / `systemd`
+///    / `databases` cluster, which all share the destructive-confirmation
+///    pattern.
+///
+/// Anything more interesting (custom `enabled` predicates, multi-knob
+/// `extra`, untyped config fields) writes the long-form `Family { … }`
+/// literal directly — see `memory`, `network`, `nasa`, `eia`, `github`,
+/// `search`, `store`.
+macro_rules! family {
+    ($key:literal, $section:literal, $desc:expr, $tools:expr, $field:ident $(,)?) => {
+        Family {
+            key: $key,
+            section: $section,
+            description: $desc,
+            tool_match: $tools,
+            enabled: |c| c.$field.enabled,
+            extra: |_c| vec![],
+        }
+    };
+    ($key:literal, $section:literal, $desc:expr, $tools:expr, $field:ident, destructive $(,)?) => {
+        Family {
+            key: $key,
+            section: $section,
+            description: $desc,
+            tool_match: $tools,
+            enabled: |c| c.$field.enabled,
+            extra: |c| {
+                vec![(
+                    "allow_destructive".into(),
+                    yn(c.$field.allow_destructive).into(),
+                )]
+            },
+        }
+    };
+}
+
 fn families() -> Vec<Family> {
     vec![
         Family {
@@ -248,237 +293,182 @@ fn families() -> Vec<Family> {
                 ]
             },
         },
-        Family {
-            key: "filesystem",
-            section: "[filesystem]",
-            description: "Local file read/write (`fs_*`).",
-            tool_match: &["fs_"],
-            enabled: |c| c.filesystem.enabled,
-            extra: |c| {
-                vec![(
-                    "allow_destructive".into(),
-                    yn(c.filesystem.allow_destructive).into(),
-                )]
-            },
-        },
-        Family {
-            key: "shell",
-            section: "[shell]",
-            description: "Arbitrary subprocess execution (`shell_run`).",
-            tool_match: &["shell_"],
-            enabled: |c| c.shell.enabled,
-            extra: |c| {
-                vec![(
-                    "allow_destructive".into(),
-                    yn(c.shell.allow_destructive).into(),
-                )]
-            },
-        },
-        Family {
-            key: "git",
-            section: "[git]",
-            description: "Local git CLI passthrough (`git_run`).",
-            tool_match: &["git_"],
-            enabled: |c| c.git.enabled,
-            extra: |c| {
-                vec![(
-                    "allow_destructive".into(),
-                    yn(c.git.allow_destructive).into(),
-                )]
-            },
-        },
-        Family {
-            key: "docker",
-            section: "[docker]",
-            description: "Local Docker daemon (`docker_*`).",
-            tool_match: &["docker_"],
-            enabled: |c| c.docker.enabled,
-            extra: |c| {
-                vec![(
-                    "allow_destructive".into(),
-                    yn(c.docker.allow_destructive).into(),
-                )]
-            },
-        },
-        Family {
-            key: "kubernetes",
-            section: "[kubernetes]",
-            description: "Kubernetes context operations (`k8s_*`).",
-            tool_match: &["k8s_"],
-            enabled: |c| c.kubernetes.enabled,
-            extra: |c| {
-                vec![(
-                    "allow_destructive".into(),
-                    yn(c.kubernetes.allow_destructive).into(),
-                )]
-            },
-        },
-        Family {
-            key: "systemd",
-            section: "[systemd]",
-            description: "Linux systemd unit control (`systemd_*`).",
-            tool_match: &["systemd_"],
-            enabled: |c| c.systemd.enabled,
-            extra: |c| {
-                vec![(
-                    "allow_destructive".into(),
-                    yn(c.systemd.allow_destructive).into(),
-                )]
-            },
-        },
-        Family {
-            key: "python",
-            section: "[python]",
-            description: "Python interpreter subprocess (`python_run`).",
-            tool_match: &["python_run"],
-            enabled: |c| c.python.enabled,
-            extra: |_c| vec![],
-        },
-        Family {
-            key: "sysinfo",
-            section: "[sysinfo]",
-            description: "Host info: CPU, disks, GPU, OS release (`system_*`).",
-            tool_match: &["system_"],
-            enabled: |c| c.sysinfo.enabled,
-            extra: |_c| vec![],
-        },
-        Family {
-            key: "databases",
-            section: "[databases]",
-            description: "Ad-hoc DB queries (URL per call, never preconfigured).",
-            tool_match: &["db_query", "redis_command"],
-            enabled: |c| c.databases.enabled,
-            extra: |c| {
-                vec![(
-                    "allow_destructive".into(),
-                    yn(c.databases.allow_destructive).into(),
-                )]
-            },
-        },
-        Family {
-            key: "serial",
-            section: "[serial]",
-            description: "Serial port read/write.",
-            tool_match: &["serial_"],
-            enabled: |c| c.serial.enabled,
-            extra: |_c| vec![],
-        },
-        Family {
-            key: "printer",
-            section: "[printer]",
-            description: "CUPS printer listing + print.",
-            tool_match: &["printer_"],
-            enabled: |c| c.printer.enabled,
-            extra: |_c| vec![],
-        },
-        Family {
-            key: "sdr",
-            section: "[sdr]",
-            description: "Software-defined radio device listing + scan.",
-            tool_match: &["sdr_"],
-            enabled: |c| c.sdr.enabled,
-            extra: |_c| vec![],
-        },
-        Family {
-            key: "ffmpeg",
-            section: "[ffmpeg]",
-            description: "Media probe / convert.",
-            tool_match: &["ffmpeg_"],
-            enabled: |c| c.ffmpeg.enabled,
-            extra: |_c| vec![],
-        },
-        Family {
-            key: "fcc",
-            section: "[fcc]",
-            description:
-                "FCC callsign lookup (live ULS API) + US amateur band plan + non-amateur radio \
-                 services (FRS/GMRS/MURS/CB) reference.",
-            tool_match: &["fcc_"],
-            enabled: |c| c.fcc.enabled,
-            extra: |_c| vec![],
-        },
-        Family {
-            key: "chart",
-            section: "[chart]",
-            description:
-                "Chart / plot rendering — pure-Rust SVG (line, bar, scatter, histogram, pie), \
-                 procedural canvas, heatmaps, and interactive HTML via Chart.js / Plotly. \
-                 Output is responsive (SVG viewBox + HTML viewports) and embeddable.",
-            tool_match: &["chart_"],
-            enabled: |c| c.chart.enabled,
-            extra: |_c| vec![],
-        },
-        Family {
-            key: "image",
-            section: "[image]",
-            description:
-                "Image forensics + EXIF parsing — format / dimensions, full EXIF dump (incl. \
-                 GPS + forensic divergence flags), JPEG / PNG marker walk, embedded-thumbnail \
-                 extraction. Read-only, paths confined to [filesystem].roots.",
-            tool_match: &["image_"],
-            enabled: |c| c.image.enabled,
-            extra: |_c| vec![],
-        },
-        Family {
-            key: "html",
-            section: "[html]",
-            description:
-                "Render HTML / a URL in headless Chrome and capture diagnostics: every console \
-                 call, every uncaught JS exception with stack, every network failure, every HTTP \
-                 4xx/5xx response. Verifies generated UIs / `chart_interactive` HTML actually \
-                 runs cleanly.",
-            tool_match: &["html_"],
-            enabled: |c| c.html.enabled,
-            extra: |_c| vec![],
-        },
-        Family {
-            key: "signal",
-            section: "[signal]",
-            description: "Signal-processing (FFT, RMS, windowing).",
-            tool_match: &["signal_"],
-            enabled: |c| c.signal.enabled,
-            extra: |_c| vec![],
-        },
-        Family {
-            key: "wave",
-            section: "[wave]",
-            description: "WAV file reader.",
-            tool_match: &["wave_"],
-            enabled: |c| c.wave.enabled,
-            extra: |_c| vec![],
-        },
-        Family {
-            key: "binary",
-            section: "[binary]",
-            description: "Binary analysis (ELF/PE/Mach-O probe, strings, entropy, hexdump).",
-            tool_match: &["binary_"],
-            enabled: |c| c.binary.enabled,
-            extra: |_c| vec![],
-        },
-        Family {
-            key: "pcap",
-            section: "[pcap]",
-            description: "Pcap reader.",
-            tool_match: &["pcap_"],
-            enabled: |c| c.pcap.enabled,
-            extra: |_c| vec![],
-        },
-        Family {
-            key: "disasm",
-            section: "[disasm]",
-            description: "x86/x64 disassembler.",
-            tool_match: &["disasm_"],
-            enabled: |c| c.disasm.enabled,
-            extra: |_c| vec![],
-        },
-        Family {
-            key: "notebook",
-            section: "[notebook]",
-            description: "Jupyter notebook parser.",
-            tool_match: &["notebook_"],
-            enabled: |c| c.notebook.enabled,
-            extra: |_c| vec![],
-        },
+        family!(
+            "filesystem",
+            "[filesystem]",
+            "Local file read/write (`fs_*`).",
+            &["fs_"],
+            filesystem,
+            destructive
+        ),
+        family!(
+            "shell",
+            "[shell]",
+            "Arbitrary subprocess execution (`shell_run`).",
+            &["shell_"],
+            shell,
+            destructive
+        ),
+        family!(
+            "git",
+            "[git]",
+            "Local git CLI passthrough (`git_run`).",
+            &["git_"],
+            git,
+            destructive
+        ),
+        family!(
+            "docker",
+            "[docker]",
+            "Local Docker daemon (`docker_*`).",
+            &["docker_"],
+            docker,
+            destructive
+        ),
+        family!(
+            "kubernetes",
+            "[kubernetes]",
+            "Kubernetes context operations (`k8s_*`).",
+            &["k8s_"],
+            kubernetes,
+            destructive
+        ),
+        family!(
+            "systemd",
+            "[systemd]",
+            "Linux systemd unit control (`systemd_*`).",
+            &["systemd_"],
+            systemd,
+            destructive
+        ),
+        family!(
+            "python",
+            "[python]",
+            "Python interpreter subprocess (`python_run`).",
+            &["python_run"],
+            python
+        ),
+        family!(
+            "sysinfo",
+            "[sysinfo]",
+            "Host info: CPU, disks, GPU, OS release (`system_*`).",
+            &["system_"],
+            sysinfo
+        ),
+        family!(
+            "databases",
+            "[databases]",
+            "Ad-hoc DB queries (URL per call, never preconfigured).",
+            &["db_query", "redis_command"],
+            databases,
+            destructive
+        ),
+        family!(
+            "serial",
+            "[serial]",
+            "Serial port read/write.",
+            &["serial_"],
+            serial
+        ),
+        family!(
+            "printer",
+            "[printer]",
+            "CUPS printer listing + print.",
+            &["printer_"],
+            printer
+        ),
+        family!(
+            "sdr",
+            "[sdr]",
+            "Software-defined radio device listing + scan.",
+            &["sdr_"],
+            sdr
+        ),
+        family!(
+            "ffmpeg",
+            "[ffmpeg]",
+            "Media probe / convert.",
+            &["ffmpeg_"],
+            ffmpeg
+        ),
+        family!(
+            "fcc",
+            "[fcc]",
+            "FCC callsign lookup (live ULS API) + US amateur band plan + non-amateur radio \
+             services (FRS/GMRS/MURS/CB) reference.",
+            &["fcc_"],
+            fcc
+        ),
+        family!(
+            "chart",
+            "[chart]",
+            "Chart / plot rendering — pure-Rust SVG (line, bar, scatter, histogram, pie), \
+             procedural canvas, heatmaps, and interactive HTML via Chart.js / Plotly. \
+             Output is responsive (SVG viewBox + HTML viewports) and embeddable.",
+            &["chart_"],
+            chart
+        ),
+        family!(
+            "image",
+            "[image]",
+            "Image forensics + EXIF parsing — format / dimensions, full EXIF dump (incl. \
+             GPS + forensic divergence flags), JPEG / PNG marker walk, embedded-thumbnail \
+             extraction. Read-only, paths confined to [filesystem].roots.",
+            &["image_"],
+            image
+        ),
+        family!(
+            "html",
+            "[html]",
+            "Render HTML / a URL in headless Chrome and capture diagnostics: every console \
+             call, every uncaught JS exception with stack, every network failure, every HTTP \
+             4xx/5xx response. Verifies generated UIs / `chart_interactive` HTML actually \
+             runs cleanly.",
+            &["html_"],
+            html
+        ),
+        family!(
+            "signal",
+            "[signal]",
+            "Signal-processing (FFT, RMS, windowing).",
+            &["signal_"],
+            signal
+        ),
+        family!(
+            "wave",
+            "[wave]",
+            "WAV file reader.",
+            &["wave_"],
+            wave
+        ),
+        family!(
+            "binary",
+            "[binary]",
+            "Binary analysis (ELF/PE/Mach-O probe, strings, entropy, hexdump).",
+            &["binary_"],
+            binary
+        ),
+        family!(
+            "pcap",
+            "[pcap]",
+            "Pcap reader.",
+            &["pcap_"],
+            pcap
+        ),
+        family!(
+            "disasm",
+            "[disasm]",
+            "x86/x64 disassembler.",
+            &["disasm_"],
+            disasm
+        ),
+        family!(
+            "notebook",
+            "[notebook]",
+            "Jupyter notebook parser.",
+            &["notebook_"],
+            notebook
+        ),
         Family {
             key: "store",
             section: "[store]",
@@ -493,22 +483,20 @@ fn families() -> Vec<Family> {
                 ]
             },
         },
-        Family {
-            key: "tasks",
-            section: "[tasks]",
-            description: "Background task queue (`task_*`).",
-            tool_match: &["task_"],
-            enabled: |c| c.tasks.enabled,
-            extra: |_c| vec![],
-        },
-        Family {
-            key: "stocks",
-            section: "[stocks]",
-            description: "Stock / Yahoo finance lookups.",
-            tool_match: &["stock_", "yahoo_"],
-            enabled: |c| c.stocks.enabled,
-            extra: |_c| vec![],
-        },
+        family!(
+            "tasks",
+            "[tasks]",
+            "Background task queue (`task_*`).",
+            &["task_"],
+            tasks
+        ),
+        family!(
+            "stocks",
+            "[stocks]",
+            "Stock / Yahoo finance lookups.",
+            &["stock_", "yahoo_"],
+            stocks
+        ),
         Family {
             key: "nasa",
             section: "[nasa]",
