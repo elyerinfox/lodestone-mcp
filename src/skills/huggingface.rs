@@ -210,7 +210,6 @@ impl Skill for HfModel {
     }
 }
 
-
 /// The skills this module contributes.
 pub fn skills() -> Vec<Box<dyn Skill>> {
     vec![

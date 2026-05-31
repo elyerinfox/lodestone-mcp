@@ -1368,7 +1368,10 @@ impl Config {
         env_apply_bool(&mut self.chart.enabled, "LODESTONE_CHART_ENABLED");
         env_apply_bool(&mut self.image.enabled, "LODESTONE_IMAGE_ENABLED");
         env_apply_bool(&mut self.html.enabled, "LODESTONE_HTML_ENABLED");
-        env_apply_bool(&mut self.spreadsheet.enabled, "LODESTONE_SPREADSHEET_ENABLED");
+        env_apply_bool(
+            &mut self.spreadsheet.enabled,
+            "LODESTONE_SPREADSHEET_ENABLED",
+        );
         env_apply_bool(&mut self.sdr.enabled, "LODESTONE_SDR_ENABLED");
         env_apply_bool(&mut self.tasks.enabled, "LODESTONE_TASKS_ENABLED");
 

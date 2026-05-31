@@ -16,9 +16,9 @@ use serde_json::Value;
 use tokio::process::Command;
 
 use crate::skills::filesystem::resolve;
-use crate::util::human_size;
 use crate::skills::guard::Decision;
 use crate::skills::{schema_for, Skill, SkillCtx};
+use crate::util::human_size;
 use crate::{internal, invalid, text_result};
 
 /// Tool names (gated by `[ffmpeg].enabled` in `disabled_by_config`).

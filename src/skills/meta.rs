@@ -434,13 +434,7 @@ fn families() -> Vec<Family> {
             &["signal_"],
             signal
         ),
-        family!(
-            "wave",
-            "[wave]",
-            "WAV file reader.",
-            &["wave_"],
-            wave
-        ),
+        family!("wave", "[wave]", "WAV file reader.", &["wave_"], wave),
         family!(
             "binary",
             "[binary]",
@@ -448,13 +442,7 @@ fn families() -> Vec<Family> {
             &["binary_"],
             binary
         ),
-        family!(
-            "pcap",
-            "[pcap]",
-            "Pcap reader.",
-            &["pcap_"],
-            pcap
-        ),
+        family!("pcap", "[pcap]", "Pcap reader.", &["pcap_"], pcap),
         family!(
             "disasm",
             "[disasm]",

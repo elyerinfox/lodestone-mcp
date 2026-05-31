@@ -63,7 +63,6 @@ async fn fetch_chart(http: &Client, symbol: &str, range: &str, interval: &str) -
     Ok(serde_json::from_str(&body)?)
 }
 
-
 /// Pull Yahoo's `chart.error.description` if the response carries one.
 fn chart_error(v: &Value) -> Option<String> {
     let err = v.get("chart")?.get("error")?;

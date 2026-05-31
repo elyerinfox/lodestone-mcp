@@ -6,6 +6,60 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Internal — shared helpers (audit-driven WET-code reduction)
+
+A pass across the codebase pulled repeated patterns into shared modules so
+adding a new skill is now mostly a wiring exercise rather than a copy-and-edit
+exercise. None of this changes runtime behavior; every change kept all tests
+green and clippy clean. **Contributors:** see [`CONTRIBUTING.md`](CONTRIBUTING.md)
+§"Shared helpers" for the full inventory and when to use which one.
+
+- **`crate::skills::send_json` / `send_json_ctx`** (`src/skills/mod.rs`).
+  Centralizes the `.send().await.map_err…error_for_status().map_err…json().await.map_err`
+  ritual that 6+ skill modules repeated at every API call. `send_json_ctx`
+  prefixes every error with a uniform label (`"open-meteo: …"`, `"nws …: …"`)
+  so a single string controls error formatting across all three failure sites
+  (network / status / decode). Adopted by `weather`, `noaa`, `peeringdb`,
+  `eia`, `grid`, `osm` — each lost a hand-rolled 8-10 line `fetch` helper.
+- **`crate::skills::fs_read_bytes`** (`src/skills/mod.rs`). Resolve a path
+  against `[filesystem].roots` and read it into bytes, with uniform
+  `read <path>: <err>` error formatting. Used by every read-a-file skill
+  (`binary`, `image`, `disasm`, `notebook`) — they used to each carry an
+  identical hand-rolled `read_file` helper.
+- **`crate::skills::live_http`** + **`crate::LODESTONE_UA`** constant. The
+  shared User-Agent (`lodestone-mcp/0.1.0 (+https://github.com/…)`) and the
+  `cfg(test)` HTTP-client builder collapse what used to be 30+ string literals
+  and 28 copies of the same `reqwest::Client::builder()…unwrap()`.
+- **`crate::util::url_enc`** (`src/util.rs`). The RFC-3986 unreserved-character
+  percent-encoder used to live in 8 skill files (`weather`, `peeringdb`,
+  `eia`, `grid`, `osm`, `huggingface`, `yahoo`, `satellite`) as byte-identical
+  copies under three different names (`url_enc` / `url_encode` /
+  `urlencoding`). One canonical implementation, -77 lines net.
+- **`crate::util::human_size`** adopted by `ffmpeg` (drops its byte-identical
+  `fmt_bytes` copy). Future size-printing skills no longer have a template
+  to copy from.
+- **`crate::skills::chart::PlotArea`** + helpers (`svg_open_dark`,
+  `title_suffix`, `parse_xy`, `fmt_ts`). Six chart tools (`chart_line`,
+  `chart_bar`, `chart_scatter`, `chart_histogram`, `chart_candlestick`,
+  `chart_grafana`) now share axis layout + scale math; the title-formatting
+  idiom that appeared 12× inline is one call. `parse_xy` + `fmt_ts` are why
+  `chart_line` / `chart_scatter` / `chart_grafana` now accept ISO-8601 date
+  strings as x values without each tool re-implementing the parse.
+- **`crate::skills::meta::family!` macro**. The 23 of 32 `Family { … }` entries
+  in `meta::families()` that follow one of two shapes (plain on/off, or
+  on/off + `allow_destructive`) now collapse to a one-call
+  `family!("<name>", "[<name>]", "…", &["<name>_"], <field>[, destructive])`.
+  Adding a new skill family to the `features` introspection tool is now a
+  single line.
+- **`crate::config::env_apply_{str,bool,parse}`** (`src/config.rs`). The
+  `apply_env` block — 417 lines of nearly-identical `if let Ok(v) =
+  std::env::var(KEY) { self.foo = …; }` snippets for ~95 settings — now
+  reads as one call per setting. `env_apply_parse` is generic over any
+  `FromStr`, so a new numeric / float override is one line instead of five.
+  Net -91 lines on `config.rs`.
+- **`crate::skills::ensure_min_len`** standardizes the "needs at least N
+  &lt;what&gt;" invalid-input check used by chart / signal / forecast tools.
+
 ### Added
 
 - **`html_render` skill** (`src/skills/html.rs`, on by default via

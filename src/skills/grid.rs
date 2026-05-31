@@ -194,7 +194,6 @@ pub(crate) fn planned_lines_ql(south: f64, west: f64, north: f64, east: f64) -> 
     )
 }
 
-
 /// Pull (type, id, lat, lon, name) plus a tags handle for an element row.
 fn element_summary(el: &Value) -> (String, i64, Option<f64>, Option<f64>, String, Value) {
     let typ = el

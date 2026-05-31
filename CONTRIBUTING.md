@@ -19,10 +19,48 @@ uphold all of them; a change that breaks one is wrong by definition. In brief:
    logic in `main.rs`).
 8. Destructive actions never fire unguarded (prompt, disable, or guard-challenge).
 9. One tool per method — no hidden auto-selection (the method is in the tool name).
+10. `cargo fmt` and `cargo clippy --all-targets -- -D warnings` pass before every
+    commit (CI enforces both — see "Build & verify" below for details + tooling).
 
 Read [docs/golden-rules.md](docs/golden-rules.md) for the full statement of each.
 
 ## Architecture at a glance
+
+```mermaid
+flowchart LR
+  subgraph Client
+    Model[LLM / MCP client]
+  end
+  Model -->|"JSON-RPC over Streamable HTTP /mcp"| Main
+
+  subgraph Server["lodestone-mcp"]
+    Main["main.rs<br/>bootstrap + wiring only"]
+    Config[config.rs<br/>TOML + env]
+    Lodestone[(Lodestone<br/>shared state)]
+    Router["skills::all_routes()"]
+    Skills["skills/*.rs<br/>one module per tool family"]
+    Providers["providers/*<br/>SearchProviders"]
+    Registry["Registry<br/>aggregate or fallback"]
+    Browser["browser.rs<br/>shared ChromiumRenderer"]
+    Memory[("memory<br/>SQLite store")]
+    Constellation["constellation<br/>opt-in P2P cache"]
+
+    Config --> Main
+    Main --> Lodestone
+    Main --> Registry
+    Registry --> Providers
+    Main --> Router
+    Router --> Skills
+    Skills -->|search-shaped skills| Registry
+    Skills -->|optional render| Browser
+    Skills -->|memory family| Memory
+    Registry -->|consult-then-fetch| Constellation
+  end
+```
+
+Two truths in that picture: every tool the model invokes is a skill module
+(golden rule 7 — `main.rs` is wiring only), and providers are *data sources for
+the search skills*, not themselves tools (terminology section below).
 
 ```
 src/
@@ -110,6 +148,29 @@ skills (e.g. the Docker/Kubernetes/translate families) talk to their own clients
   `skills/` (e.g. the raw-file/page/PDF/Wayback primitives in
   [`skills/retrieve.rs`](src/skills/retrieve.rs); GitHub helpers in
   [`skills/github.rs`](src/skills/github.rs)).
+
+### Anatomy of a tool call
+
+```mermaid
+sequenceDiagram
+  participant M as Model (MCP client)
+  participant R as Router (rmcp)
+  participant S as Skill (impl Skill)
+  participant D as Dependencies<br/>(util, send_json_ctx,<br/>fs_read_bytes, …)
+
+  M->>R: tools/call { name, arguments }
+  R->>S: SkillCtx { server: &Lodestone, args: JsonObject }
+  S->>S: ctx.parse::&lt;Args&gt;()? — deserialize + validate
+  S->>D: fetch / read / compute (shared helpers)
+  D-->>S: Result&lt;T, McpError&gt;
+  S-->>R: text_result(...) → CallToolResult
+  R-->>M: JSON-RPC response
+```
+
+The skill never sees the wire protocol — `SkillCtx` already carries the
+deserialized argument object and a shared `Lodestone` handle (HTTP client,
+caches, config). Errors flow back via `McpError`; use `crate::internal(...)`
+for transport/parse failures and `crate::invalid(...)` for bad arguments.
 
 ### The provider interface
 
@@ -201,6 +262,25 @@ HTML search engine, or a code forge? If yes, add a spec (tier 2). If its
 transport/parsing is unique, add a bespoke provider (tier 3). Either way it
 becomes a `SearchProvider` the registry treats identically (tier 1).
 
+```mermaid
+flowchart TD
+  start([New data source])
+  start --> q1{Same shape<br/>as engine/forge/<br/>registry/apiengine?}
+  q1 -- Yes --> q2{Multiple<br/>modes at<br/>runtime?}
+  q1 -- No --> bespoke["Tier 3 — bespoke<br/>src/providers/bespoke/&lt;id&gt;.rs<br/>impl SearchProvider directly"]
+  q2 -- No --> spec["Tier 2 — spec-driven<br/>add &lt;id&gt;.rs declaring SPEC<br/>(EngineSpec / ForgeSpec /<br/>RegistrySpec / ApiSpec)"]
+  q2 -- Yes --> composite["Composite<br/>src/providers/composite/&lt;id&gt;.rs<br/>dispatcher, often reuses one family"]
+  spec --> reg[Register in providers::make<br/>+ family make/SPECS]
+  composite --> reg
+  bespoke --> reg
+  reg --> cfg["config/providers/&lt;id&gt;.toml<br/>+ docs/providers/&lt;id&gt;.md<br/>+ row in docs/providers.md"]
+  cfg --> done([Registry uses it via SearchProvider trait])
+
+  style spec fill:#f0f8ff
+  style bespoke fill:#fff5e6
+  style composite fill:#f0fff0
+```
+
 ### Adding a web engine (tier 2)
 
 1. Create `src/providers/engine/<name>.rs` with `pub(super) static SPEC: EngineSpec`
@@ -289,22 +369,364 @@ tick all of these:
 
 ## Build & verify
 
+> **Golden rule 10:** `cargo fmt` and `cargo clippy --all-targets -- -D warnings`
+> are non-negotiable. Both must pass before every commit; CI enforces both.
+
 There are no Cargo features — the headless browser (`chromiumoxide`) is always
 compiled in; a Chrome/Chromium binary is only needed at runtime when a render or
 Google path actually runs.
 
+### The pre-commit triad
+
+Run these **in order**, every time, before `git commit`:
+
 ```sh
-cargo build
-cargo fmt
-cargo clippy --all-targets -- -D warnings
+cargo fmt --all                              # 1. Format the whole workspace.
+cargo build                                  # 2. Check it compiles.
+cargo clippy --all-targets -- -D warnings    # 3. Lint at deny-warnings.
+cargo test                                   # 4. (Recommended) Hermetic tests.
 ```
 
-## Adding a tool
+If any of these fails, **fix the underlying problem**. Never `--no-verify` past
+a failing check (golden rules say so explicitly), never silence a clippy lint
+with a blanket `#[allow]` without understanding what it caught, never let an
+"I'll clean it up later" diff land. Local enforcement is fast; CI enforcement is
+slow and visible to everyone.
 
-Add an `async fn` to the `#[tool_router] impl Lodestone` block in `main.rs` with
-a `#[tool(description = "…")]` attribute and a `Parameters<Args>` argument whose
-`Args` struct derives `Deserialize` + `schemars::JsonSchema`. Return
-`CallToolResult` (use the `text_result(...)` helper). Mention it in `get_info`.
+### Why each step matters
+
+**`cargo fmt --all`** — the Rust standard formatter ([`rustfmt`][rustfmt]).
+The repo uses upstream defaults (no `rustfmt.toml` overrides), so any rustup
+toolchain produces identical output; `--all` covers every member of the
+workspace, not just the current crate. Reformatting is purely textual — it
+never changes semantics — so running it can't break anything. Why bother? Two
+reasons:
+
+1. **Diffs become semantic.** When everyone formats identically, `git diff` and
+   `git blame` show meaning changes instead of whitespace churn. Reviewers
+   spend their attention on what changed, not how it's indented.
+2. **CI fails on it.** A push that doesn't pass `cargo fmt --check` is
+   immediately rejected — running fmt locally turns a 5-minute CI round-trip
+   into a 0.5-second `fmt` round-trip. (CI uses `cargo fmt --all --check`,
+   which exits non-zero on any change rather than rewriting files.)
+
+If you're already inside an edit and `cargo fmt` rewrites whitespace, that's
+fine — the diff stays clean because the rest of the repo is already formatted.
+
+**`cargo build`** — basic compile gate. Run this before clippy so any borrow-
+checker or type error surfaces with the faster error path, not buried under
+clippy lint output. Catches missed imports, broken generic bounds, missing
+`mod` declarations after adding a new skill file.
+
+**`cargo clippy --all-targets -- -D warnings`** — the Rust linter
+([`clippy`][clippy]) at deny-on-warning. Decomposed:
+
+- `clippy` runs ~600 lints — correctness, performance, idiom, style, perf,
+  pedantic — over the AST + HIR. The default set is correctness-leaning;
+  anything it flags is at minimum "this is a code smell," at maximum "this is
+  a latent bug."
+- `--all-targets` runs against the binary **and** every `#[test]`,
+  `#[cfg(test)]` module, example, and benchmark. Without it, test-only code
+  rots — a clippy regression in a `#[test]` block doesn't show up in
+  `cargo clippy` alone.
+- `-- -D warnings` (the `--` separates clippy args from rustc args) promotes
+  every warning to an error. Without this, clippy *prints* the warning but
+  exits 0; CI would happily ship code with dozens of unaddressed lints. With
+  it, clippy is a hard gate.
+
+**Why deny-warnings instead of "just check it manually"?** Warnings rot. A
+project that accepts "0 errors, 47 warnings" gradually accumulates lint debt
+until nobody can tell whether a new warning is real or noise. Deny-warnings
+means every clippy ping must be either fixed or explicitly silenced with a
+narrow `#[allow(specific::lint)]` + reason comment — at which point the
+silence is documented, reviewable, and removable later.
+
+**`cargo test`** — runs the hermetic test suite (parser fixtures, config-merge
+tests, math, etc.). `#[ignore]` tests are skipped — those are the `mod live`
+network-touching ones, which contributors run manually before shipping a
+provider change but CI doesn't run on every push. The full suite finishes in
+under a second on a modern laptop.
+
+### Common pitfalls
+
+- **"clippy passes locally but fails in CI"** — almost always means you ran
+  `cargo clippy` without `--all-targets`. The fix is to always include it.
+- **A new `#[allow(clippy::xxx)]` with no rationale comment** — write *why*
+  the lint is wrong for that site. Future maintainers (including you in three
+  months) need to know whether the lint can be re-enabled.
+- **`unwrap()` / `expect()` / `panic!` in an async path** — clippy will catch
+  many of these, but not all. In a tool handler, propagate errors via
+  `Result<…, McpError>` and the `internal()` / `invalid()` helpers (see the
+  "Anatomy of a tool call" diagram earlier); panicking takes down the whole
+  server.
+- **Hand-rolled helper instead of the shared one** — clippy won't catch this;
+  reviewers will. Skim the "Shared helpers" section above before writing
+  another `fn url_encode(...)`.
+
+### Editor / pre-commit integration
+
+You can shift the entire triad into the background:
+
+- **Editor on save.**
+  - **rust-analyzer** ([`rust-analyzer.github.io`][rust-analyzer], the standard
+    LSP) — set `"rust-analyzer.check.command": "clippy"` and
+    `"rust-analyzer.check.extraArgs": ["--all-targets", "--", "-D", "warnings"]`
+    to surface clippy lints inline as you type, in the same format CI sees.
+    Pair with the standard format-on-save action for `cargo fmt`.
+  - **JetBrains RustRover / IntelliJ Rust** — *Settings → Languages & Frameworks →
+    Rust → External Linters → Clippy*, with the same args (`--all-targets`,
+    `-- -D warnings`). Format-on-save under *Tools → Actions on Save → Reformat
+    code*.
+  - **`cargo-watch`** ([`cargo-watch`][cargo-watch]) — for a terminal-driven
+    loop: `cargo install cargo-watch`, then
+    `cargo watch -x 'fmt --all' -x 'clippy --all-targets -- -D warnings' -x test`.
+- **Pre-commit hook.** Drop the triad into `.git/hooks/pre-commit` so a `git
+  commit` that would fail CI never lands. A minimal version:
+
+  ```sh
+  #!/bin/sh
+  set -e
+  cargo fmt --all -- --check    # --check fails if anything needs reformatting
+  cargo clippy --all-targets -- -D warnings
+  cargo test
+  ```
+
+  Mark it executable (`chmod +x .git/hooks/pre-commit`). For workspace-wide
+  enforcement, [`pre-commit`][pre-commit] (the Python framework) has Rust
+  hooks too.
+
+### Useful links
+
+- **rustfmt** — [`github.com/rust-lang/rustfmt`][rustfmt]. Stable formatter
+  shipped with every rustup toolchain (`rustup component add rustfmt` if
+  missing).
+- **clippy** — [`github.com/rust-lang/rust-clippy`][clippy]. The
+  [lint index][clippy-lints] is a searchable reference for every lint name,
+  category, and what it's looking for.
+- **rust-analyzer** — [`rust-analyzer.github.io`][rust-analyzer]. The LSP
+  every modern editor uses; the [manual][rust-analyzer-manual] documents
+  every editor-side setting.
+- **cargo-watch** — [`github.com/watchexec/cargo-watch`][cargo-watch].
+- **pre-commit** — [`pre-commit.com`][pre-commit].
+
+[rustfmt]: https://github.com/rust-lang/rustfmt
+[clippy]: https://github.com/rust-lang/rust-clippy
+[clippy-lints]: https://rust-lang.github.io/rust-clippy/master/index.html
+[rust-analyzer]: https://rust-analyzer.github.io/
+[rust-analyzer-manual]: https://rust-analyzer.github.io/manual.html
+[cargo-watch]: https://github.com/watchexec/cargo-watch
+[pre-commit]: https://pre-commit.com/
+
+## Adding a skill (= adding a tool)
+
+> **Golden rule 7:** every tool is a self-contained skill module — no tool logic
+> in `main.rs`. The flow below is the one path; there is no shortcut for "small"
+> tools.
+
+A new skill is one module under [`src/skills/`](src/skills/) plus three wiring
+touches. Each tool the skill exposes is a struct that implements the
+[`Skill`](src/skills/mod.rs) contract.
+
+```mermaid
+flowchart TD
+  start([New skill]) --> mod
+  mod["1. Create src/skills/&lt;name&gt;.rs<br/>· pub const TOOL_NAMES<br/>· struct + impl Skill (name/description/schema/call)<br/>· pub fn skills() -&gt; Vec&lt;Box&lt;dyn Skill&gt;&gt;"]
+  mod --> wire
+  wire["2. Wire it up (3 edits)"]
+  wire --> wire_mod["src/skills/mod.rs<br/>· pub mod &lt;name&gt;;<br/>· skills.extend(&lt;name&gt;::skills());"]
+  wire --> wire_cfg["src/config.rs<br/>· pub struct &lt;Name&gt;<br/>· Config field<br/>· env_apply_{str,bool,parse} in apply_env"]
+  wire --> wire_meta["src/skills/meta.rs<br/>family!('&lt;name&gt;', '[&lt;name&gt;]', '…', &amp;['&lt;name&gt;_'], &lt;name&gt;)"]
+  wire_mod --> docs
+  wire_cfg --> docs
+  wire_meta --> docs
+  docs["3. Document<br/>· docs/skills/&lt;name&gt;.md<br/>· row in docs/skills.md + docs/tools.md<br/>· CHANGELOG.md [Unreleased] entry"]
+  docs --> verify["cargo build · cargo clippy --all-targets -D warnings · cargo test"]
+  verify --> done(["Tool appears in /mcp tools/list"])
+
+  style mod fill:#f0f8ff
+  style wire fill:#fff5e6
+  style docs fill:#f0fff0
+```
+
+### 1. Write the module
+
+`src/skills/<name>.rs`:
+
+```rust
+use std::sync::Arc;
+
+use futures::future::BoxFuture;
+use rmcp::model::{CallToolResult, JsonObject};
+use rmcp::ErrorData as McpError;
+use serde::Deserialize;
+
+use crate::skills::{schema_for, Skill, SkillCtx};
+use crate::{invalid, text_result};
+
+/// Tool names this module contributes — `meta::features` walks this so the
+/// "how many <family> tools are active?" counter can answer authoritatively.
+pub const TOOL_NAMES: &[&str] = &["<name>_<verb>"];
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct DoThingArgs {
+    /// Rustdoc on each field becomes its JSON-schema description, which the
+    /// model reads. Be specific — this is the only signal it has.
+    target: String,
+}
+
+pub struct DoThing;
+impl Skill for DoThing {
+    fn name(&self) -> &'static str { "<name>_<verb>" }
+    fn description(&self) -> &'static str {
+        "One-line tool description shown to the model. State what it does, what \
+         it returns, and any non-obvious default."
+    }
+    fn schema(&self) -> Arc<JsonObject> { schema_for::<DoThingArgs>() }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (server, args) = ctx.parse::<DoThingArgs>()?;
+            // … domain logic — use the shared helpers in §"Shared helpers" below
+            //   instead of rolling your own HTTP, percent-encoding, file-read,
+            //   or env-var-merge code …
+            Ok(text_result(format!("ran on {}", args.target)))
+        })
+    }
+}
+
+/// Every skill module exposes one `skills()` function returning its skills as
+/// boxed trait objects. `mod.rs::all_skills()` extends from each.
+pub fn skills() -> Vec<Box<dyn Skill>> {
+    vec![Box::new(DoThing)]
+}
+```
+
+### 2. Wire it up
+
+Three small edits, all mechanical:
+
+| File | Edit |
+| --- | --- |
+| `src/skills/mod.rs` | Add `pub mod <name>;` to the module list, then `skills.extend(<name>::skills());` in `all_skills()`. |
+| `src/config.rs` | Add a `pub struct <Name> { pub enabled: bool, … }` (mirror an existing one — `pub use ToggleOnly as <Name>` for the on/off case), wire a field into `Config`, and one line per setting in `apply_env()` via `env_apply_{str,bool,parse}` (§"Shared helpers"). |
+| `src/skills/meta.rs` | Add a one-line entry inside `families()`. For the plain on/off case use `family!("<name>", "[<name>]", "Description", &["<name>_"], <name>)`; for the destructive-confirm case append `, destructive`. Skills with bespoke knobs keep a long-form `Family { … }` literal. |
+
+### 3. Document it
+
+- `docs/skills/<name>.md` (copy an existing one as a template).
+- Row in [`docs/skills.md`](docs/skills.md) and [`docs/tools.md`](docs/tools.md).
+- An entry under "Added" in [`CHANGELOG.md`](CHANGELOG.md)'s `[Unreleased]`.
+- For destructive tools: register them with the [`guard`](src/skills/guard.rs)
+  and verify the `allow_destructive` knob actually pre-authorizes the action.
+
+That's the whole flow. `main.rs` does not change.
+
+## Shared helpers — use these before rolling your own
+
+Several utility functions live in shared modules specifically to keep skill
+files small and uniform. **Before adding a hand-rolled helper, check whether one
+already exists** — the patterns below have all been pulled out of skill modules
+that used to copy them.
+
+```mermaid
+flowchart LR
+  subgraph Util["crate::util"]
+    U1[html_to_text]
+    U2[collapse_ws]
+    U3[truncate_chars]
+    U4[human_size]
+    U5[human_count]
+    U6[url_enc]
+    U7[ct_eq]
+  end
+
+  subgraph Skills["crate::skills (mod.rs)"]
+    S1[schema_for]
+    S2[fs_read_bytes]
+    S3[send_json]
+    S4[send_json_ctx]
+    S5[ensure_min_len]
+    S6[live_http]
+  end
+
+  subgraph Crate["crate::*"]
+    C1[LODESTONE_UA]
+    C2[internal / invalid]
+    C3[text_result]
+  end
+
+  subgraph Config["crate::config"]
+    CFG1[env_apply_str]
+    CFG2[env_apply_bool]
+    CFG3[env_apply_parse]
+    CFG4[env_list]
+  end
+
+  subgraph Meta["crate::skills::meta"]
+    M1["family! macro<br/>(2 shapes: plain / destructive)"]
+  end
+
+  Skill["Your skill module<br/>src/skills/&lt;name&gt;.rs"] --> Util
+  Skill --> Skills
+  Skill --> Crate
+  S6 -.uses.-> C1
+  S3 -.errors via.-> C2
+  S4 -.errors via.-> C2
+
+  ApplyEnv["Config::apply_env"] --> Config
+  Families["meta::families"] --> Meta
+
+  style Skill fill:#ffe6e6
+  style ApplyEnv fill:#ffe6e6
+  style Families fill:#ffe6e6
+```
+
+### `crate::util` (text / format / encoding)
+
+| Helper | What it does | Replaces |
+| --- | --- | --- |
+| `html_to_text(html)` | HTML fragment → readable plain text. | Per-skill `html2text` calls. |
+| `collapse_ws(s)` | Squash runs of whitespace + trim. | Hand-rolled `split_whitespace().join(" ")`. |
+| `truncate_chars(s, n)` | Truncate to N chars on a char boundary. | `s.chars().take(n).collect()` + " …" cleanup. |
+| `human_size(bytes)` | `36.3 MB`-style byte size. | The 9-line `B/KB/MB/GB/TB` table that used to live in `ffmpeg.rs` (and would have landed in every other size-printing skill). |
+| `human_count(n)` | `21.3K` / `13.0B`-style population count. | Per-skill star/pull-tally formatters. |
+| `url_enc(s)` | RFC-3986 unreserved percent-encoding. | The byte-identical `url_enc` / `url_encode` / `urlencoding` copy that used to live in `weather` / `peeringdb` / `eia` / `grid` / `osm` / `huggingface` / `yahoo` / `satellite`. |
+| `ct_eq(a, b)` | Constant-time byte equality. | Token-comparison loops. |
+
+### `crate::skills` (skill-layer plumbing)
+
+| Helper | What it does | Replaces |
+| --- | --- | --- |
+| `schema_for::<T>()` | Build the JSON schema for an `Args` struct. | Direct `schema_for_type` usage. |
+| `fs_read_bytes(server, path)` | Resolve `path` against `[filesystem].roots` and read it. Returns `(PathBuf, Vec<u8>)` so error messages can show the real path. | The 4-line `filesystem::resolve` + `std::fs::read` + `map_err` block that used to live in every read-a-file skill (`binary`, `image`, `disasm`, `notebook`, …). |
+| `send_json(req).await` | Send a `reqwest::RequestBuilder`, check status, decode JSON — all errors as `McpError::internal`. | The 7-line `.send().await.map_err…error_for_status().map_err…json().await.map_err` chain. Use this for skills that don't add a context prefix to errors. |
+| `send_json_ctx(req, "label").await` | Same as `send_json` but prefixes every error with `"<label>: …"`. | The per-skill `fetch` helpers in `noaa` / `weather` / `peeringdb` / `eia` / `grid` / `osm` that wrapped `internal(anyhow!("name: {e}"))` around each failure site. **Use this when adding a new "fetch JSON from API X" skill** — it keeps error messages uniform. |
+| `ensure_min_len(items, min, "what")` | Uniform "needs at least N <what>" `invalid_params` error. | Per-tool input-length checks. |
+| `live_http()` (cfg(test) only) | A `reqwest::Client` carrying `crate::LODESTONE_UA`. | The 4-line client builder repeated in every `#[ignore] mod live { fn http() … }`. |
+| `crate::LODESTONE_UA` | The shared User-Agent string. | String literals duplicated across 30+ skills. |
+
+### `crate::config` (config + env-var override)
+
+When you add a new config struct, the env-var override block in `apply_env()`
+should be one call per setting:
+
+| Helper | Use for |
+| --- | --- |
+| `env_apply_str(&mut self.x.field, "LODESTONE_X_FIELD")` | Plain string overrides. |
+| `env_apply_bool(&mut self.x.flag, "LODESTONE_X_FLAG")` | `is_truthy`-parsed booleans. |
+| `env_apply_parse(&mut self.x.n, "LODESTONE_X_N")` | Generic numeric / FromStr parse (works for `u32` / `u64` / `usize` / `f32` / `f64` / …). Empty / unparseable values leave the field alone. |
+| `env_list("LODESTONE_X_LIST")` (existing) | Comma-separated list. |
+
+A new family is two lines (`env_apply_bool` for `enabled`, optionally
+`env_apply_bool` for `allow_destructive`). Anything more — alt fallbacks like
+`GITHUB_TOKEN`, non-empty-string guards — stays long-form.
+
+### `crate::skills::chart` (chart-tool plumbing)
+
+If you're touching `src/skills/chart.rs`, reuse `PlotArea` (axis layout +
+`scale_x`/`scale_y` math), `svg_open_dark` (Grafana-themed SVG opener),
+`title_suffix(Option<&str>)` (the `" \"<title>\""` idiom), and `parse_xy` +
+`fmt_ts` (numeric-or-ISO-date x values + tick formatting). Chart tools added
+after these helpers shipped don't need to re-derive axis math.
 
 ## Manual smoke test
 

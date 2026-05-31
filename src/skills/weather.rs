@@ -16,8 +16,8 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::skills::{schema_for, send_json_ctx, Skill, SkillCtx};
-use crate::util::url_enc;
 use crate::text_result;
+use crate::util::url_enc;
 
 async fn fetch(server: &crate::Lodestone, url: &str) -> Result<Value, McpError> {
     send_json_ctx(

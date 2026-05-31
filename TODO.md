@@ -427,6 +427,44 @@ compression. Files: `src/skills/memory.rs`, `src/provider.rs`,
     consult those candidate hashes (still consensus-gated). Bigger digest + protocol
     change — left for a focused follow-up.
 
+## Code quality / modularity
+
+- [x] **Audit pass: pull WET patterns into shared helpers.** Goal was an
+  incredibly modular code base — common patterns implemented once as
+  shared factories/services, then called as thin adapters from per-skill
+  files. Eleven rounds, all tests green throughout. See
+  [`CONTRIBUTING.md`](CONTRIBUTING.md)#shared-helpers for the inventory:
+  - **HTTP fetch ritual** — `send_json` / `send_json_ctx` in
+    `src/skills/mod.rs` (6+ skill modules), replacing per-skill `fetch`
+    helpers that wrapped `internal(anyhow!("name: {e}"))` around each
+    failure site.
+  - **Filesystem read** — `fs_read_bytes` (resolve + read + uniform error
+    message), adopted by `binary`/`image`/`disasm`/`notebook`.
+  - **HTTP client** — `LODESTONE_UA` constant + cfg(test) `live_http()`,
+    collapses 30+ UA literals and 28 client-builder copies.
+  - **Percent-encoder** — `url_enc` in `src/util.rs`, replaces 8
+    byte-identical copies (`url_enc`/`url_encode`/`urlencoding`).
+  - **Byte-size formatting** — `human_size` in `src/util.rs`, adopted
+    by `ffmpeg`.
+  - **Chart-tool plumbing** — `PlotArea` axis/scale math + `svg_open_dark`
+    + `title_suffix` + `parse_xy` + `fmt_ts` (date-string x-axis support);
+    refactored 6 chart tools onto the shared layer.
+  - **Feature inventory** — `family!` declarative macro in
+    `src/skills/meta.rs`, collapses 23 boilerplate `Family { … }` entries.
+  - **Env-var overrides** — `env_apply_str/bool/parse` in `src/config.rs`,
+    `apply_env` block 417 → 326 lines, one call per setting.
+- [ ] **`#[skill]` proc macro to collapse remaining boilerplate.**
+  Per-module `TOOL_NAMES`, `skills()` function, and the `Box::pin(async move
+  { … })` wrap of `Skill::call` are mechanical across ~70 modules — a proc
+  macro on `impl Skill` could derive all three. ~350 LoC potential. Deferred:
+  high risk (proc macros are hard to debug), and the current Skill trait is
+  already explicit enough that the boilerplate is read-once-then-skim.
+- [ ] **`chart_state_timeline` PlotArea migration.** Non-rectangular row
+  layout needs a `RowTimelinePlot` variant of `PlotArea`. Deferred until
+  another row-based chart tool joins it.
+- [ ] **`image_thumbnail_extract`.** `kamadak-exif::Exif` doesn't expose
+  the thumbnail bytes; would need manual EXIF byte slicing.
+
 ## Docs & release
 
 - [~] **CHANGELOG.md and a tagged release.**

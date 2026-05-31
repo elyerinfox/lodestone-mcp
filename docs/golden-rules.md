@@ -96,3 +96,15 @@ truth — the README and CONTRIBUTING link here rather than restating them.
 
    The test: if a caller would be surprised *which* method ran, split it. If the
    caller named it (by id, target, or required enum), it's already explicit.
+
+10. **`cargo fmt` and `cargo clippy --all-targets -- -D warnings` before every
+    commit.** Both must pass; CI enforces both. Formatting is non-negotiable so
+    diffs stay about meaning rather than whitespace, and clippy at
+    deny-on-warning is non-negotiable so subtle correctness, performance, and
+    idiom regressions (uninitialized locks, needless clones, panicking
+    `unwrap`s in async paths, …) don't accumulate. Running them locally before
+    `git commit` is faster than waiting for CI to reject the push. See the
+    "Build & verify" section in [CONTRIBUTING.md](../CONTRIBUTING.md) for the
+    exact commands, what each flag means, and editor / pre-commit-hook
+    integration tips. Never `--no-verify` past a failing clippy or fmt check;
+    fix the underlying issue.
