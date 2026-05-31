@@ -39,6 +39,14 @@ use provider::Registry;
 pub(crate) const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 \
     (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36";
 
+/// The "honest" User-Agent we send to APIs that require explicit attribution
+/// (Overpass, callook, GitHub, Wikipedia, FCC, etc.) and that every live
+/// integration test reuses. Centralized so a single version bump propagates
+/// everywhere — chasing it down across 30+ files was the original wet-code
+/// motivation.
+pub(crate) const LODESTONE_UA: &str =
+    "lodestone-mcp/0.1.0 (+https://github.com/elyerinfox/lodestone-mcp)";
+
 // ---------------------------------------------------------------------------
 // Server
 // ---------------------------------------------------------------------------

@@ -28,8 +28,8 @@ use rmcp::model::{CallToolResult, JsonObject};
 use rmcp::ErrorData as McpError;
 use serde::Deserialize;
 
-use crate::skills::{filesystem, schema_for, Skill, SkillCtx};
-use crate::{internal, invalid, text_result};
+use crate::skills::{fs_read_bytes, schema_for, Skill, SkillCtx};
+use crate::{invalid, text_result};
 
 pub const TOOL_NAMES: &[&str] = &[
     "image_info",
@@ -37,16 +37,6 @@ pub const TOOL_NAMES: &[&str] = &[
     "image_jpeg_analyze",
     "image_png_analyze",
 ];
-
-fn read_file(
-    server: &crate::Lodestone,
-    path: &str,
-) -> Result<(std::path::PathBuf, Vec<u8>), McpError> {
-    let p = filesystem::resolve(&server.fs, path)?;
-    let bytes =
-        std::fs::read(&p).map_err(|e| internal(anyhow::anyhow!("read {}: {e}", p.display())))?;
-    Ok((p, bytes))
-}
 
 // ---------------------------------------------------------------------------
 // image_info — format detection + structural dimensions
@@ -75,7 +65,7 @@ impl Skill for ImageInfo {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (server, args) = ctx.parse::<PathArgs>()?;
-            let (p, bytes) = read_file(server, &args.path)?;
+            let (p, bytes) = fs_read_bytes(server, &args.path)?;
             let info = detect_image(&bytes);
             let mut out = format!("{}\n  bytes: {}\n", p.display(), bytes.len());
             match info {
@@ -411,7 +401,7 @@ impl Skill for ImageExif {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (server, args) = ctx.parse::<PathArgs>()?;
-            let (p, bytes) = read_file(server, &args.path)?;
+            let (p, bytes) = fs_read_bytes(server, &args.path)?;
             let mut cursor = std::io::Cursor::new(&bytes);
             let exif_data = match Reader::new().read_from_container(&mut cursor) {
                 Ok(e) => e,
@@ -604,7 +594,7 @@ impl Skill for ImageJpegAnalyze {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (server, args) = ctx.parse::<PathArgs>()?;
-            let (p, bytes) = read_file(server, &args.path)?;
+            let (p, bytes) = fs_read_bytes(server, &args.path)?;
             if bytes.len() < 2 || bytes[0] != 0xff || bytes[1] != 0xd8 {
                 return Err(invalid(format!(
                     "{} — not a JPEG (no SOI marker)",
@@ -803,7 +793,7 @@ impl Skill for ImagePngAnalyze {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (server, args) = ctx.parse::<PathArgs>()?;
-            let (p, bytes) = read_file(server, &args.path)?;
+            let (p, bytes) = fs_read_bytes(server, &args.path)?;
             if bytes.len() < 8 || &bytes[0..8] != b"\x89PNG\r\n\x1a\n" {
                 return Err(invalid(format!(
                     "{} — not a PNG (no signature)",

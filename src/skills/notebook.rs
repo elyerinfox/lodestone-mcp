@@ -11,16 +11,13 @@ use rmcp::ErrorData as McpError;
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::skills::filesystem;
-use crate::skills::{schema_for, Skill, SkillCtx};
-use crate::{internal, invalid, text_result};
+use crate::skills::{fs_read_bytes, schema_for, Skill, SkillCtx};
+use crate::{invalid, text_result};
 
 pub const TOOL_NAMES: &[&str] = &["notebook_info", "notebook_cells"];
 
 fn load(server: &crate::Lodestone, path: &str) -> Result<(std::path::PathBuf, Value), McpError> {
-    let p = filesystem::resolve(&server.fs, path)?;
-    let bytes =
-        std::fs::read(&p).map_err(|e| internal(anyhow::anyhow!("read {}: {e}", p.display())))?;
+    let (p, bytes) = fs_read_bytes(server, path)?;
     let json: Value =
         serde_json::from_slice(&bytes).map_err(|e| invalid(format!("not JSON: {e}")))?;
     Ok((p, json))

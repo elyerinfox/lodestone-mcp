@@ -1111,7 +1111,7 @@ mod tests {
     #[ignore]
     async fn fcc_callsign_w1aw_live() {
         let http = reqwest::Client::builder()
-            .user_agent("lodestone-mcp/0.1.0 (+https://github.com/elyerinfox/lodestone-mcp)")
+            .user_agent(crate::LODESTONE_UA)
             .build()
             .unwrap();
         let v: serde_json::Value = http

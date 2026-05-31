@@ -368,7 +368,7 @@ impl Skill for GithubRepo {
 mod live {
     fn http() -> reqwest::Client {
         reqwest::Client::builder()
-            .user_agent("lodestone-mcp/0.1.0 (+https://github.com/elyerinfox/lodestone-mcp)")
+            .user_agent(crate::LODESTONE_UA)
             .build()
             .unwrap()
     }

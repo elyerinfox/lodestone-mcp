@@ -96,8 +96,7 @@ fn check_bbox(south: f64, west: f64, north: f64, east: f64) -> Result<(), McpErr
 /// Descriptive User-Agent for OSM/Overpass calls. **Required** — Apache at
 /// `overpass-api.de` returns 406 for browser-like UAs and for `curl/*`. OSM's
 /// UA policy asks third-party clients to identify themselves.
-pub(crate) const OVERPASS_UA: &str =
-    "lodestone-mcp/0.1.0 (+https://github.com/elyerinfox/lodestone-mcp)";
+pub(crate) const OVERPASS_UA: &str = crate::LODESTONE_UA;
 
 async fn run_overpass(server: &crate::Lodestone, query: &str) -> Result<Value, McpError> {
     let cache_key = format!("grid_overpass|{}", crate::constellation::hash_key(query));
@@ -787,7 +786,7 @@ mod tests {
     async fn overpass_live_returns_json_with_proper_ua() {
         let http = reqwest::Client::builder()
             // Deliberately mirror the production client's UA quirks.
-            .user_agent("lodestone-mcp/0.1.0 (+https://github.com/elyerinfox/lodestone-mcp)")
+            .user_agent(crate::LODESTONE_UA)
             .build()
             .unwrap();
         // Tiny query: count Redmond's substations within a 0.02° box.

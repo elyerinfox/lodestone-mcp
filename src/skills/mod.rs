@@ -130,6 +130,41 @@ pub(crate) fn schema_for<T: JsonSchema + 'static>() -> Arc<JsonObject> {
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub(crate) struct NoArgs {}
 
+// ---------------------------------------------------------------------------
+// Shared building blocks — small helpers many skills used to copy-paste.
+// ---------------------------------------------------------------------------
+
+/// Resolve `path` against `[filesystem].roots` and read the file into a byte
+/// vector. Returns the canonical resolved `PathBuf` alongside the bytes so
+/// callers can render the real path in error messages.
+///
+/// Centralized so every read-a-file skill (`binary_*`, `image_*`, `disasm_*`,
+/// `notebook_*`, `wave_*`, `pcap_*`) uses the same path-resolution policy
+/// and the same `read {}: {err}` error formatting.
+pub(crate) fn fs_read_bytes(
+    server: &crate::Lodestone,
+    path: &str,
+) -> Result<(std::path::PathBuf, Vec<u8>), McpError> {
+    let p = filesystem::resolve(&server.fs, path)?;
+    let bytes = std::fs::read(&p)
+        .map_err(|e| crate::internal(anyhow::anyhow!("read {}: {e}", p.display())))?;
+    Ok((p, bytes))
+}
+
+/// Validate that a slice carries at least `min` elements; raise a uniform
+/// "needs at least N {what}" `McpError::invalid_params` otherwise. Used by
+/// chart / signal / forecast tools that all required this same check.
+pub(crate) fn ensure_min_len<T>(items: &[T], min: usize, what: &str) -> Result<(), McpError> {
+    if items.len() < min {
+        Err(crate::invalid(format!(
+            "needs at least {min} {what}, got {}",
+            items.len()
+        )))
+    } else {
+        Ok(())
+    }
+}
+
 /// Extract a "what is the user trying to do" signal from a tool call. Returns
 /// `Some(query)` for tools whose arguments naturally carry a free-text question
 /// — every search-shaped tool — and `None` for everything else (system

@@ -27,7 +27,7 @@ use rmcp::model::{CallToolResult, Content, JsonObject};
 use rmcp::ErrorData as McpError;
 use serde::Deserialize;
 
-use crate::skills::{schema_for, Skill, SkillCtx};
+use crate::skills::{ensure_min_len, schema_for, Skill, SkillCtx};
 use crate::{invalid, text_result};
 
 pub const TOOL_NAMES: &[&str] = &[
@@ -2997,11 +2997,7 @@ impl Skill for ChartSparkline {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (_server, args) = ctx.parse::<SparklineArgs>()?;
-            if args.points.len() < 2 {
-                return Err(invalid(
-                    "`points` must contain at least two entries".to_string(),
-                ));
-            }
+            ensure_min_len(&args.points, 2, "points")?;
             let w = args.width.unwrap_or(240.0).clamp(40.0, 4000.0);
             let h = args.height.unwrap_or(60.0).clamp(20.0, 4000.0);
             let color = args.color.as_deref().unwrap_or("#5794f2");

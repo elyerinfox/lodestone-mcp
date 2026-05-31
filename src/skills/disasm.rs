@@ -10,9 +10,8 @@ use rmcp::model::{CallToolResult, JsonObject};
 use rmcp::ErrorData as McpError;
 use serde::Deserialize;
 
-use crate::skills::filesystem;
-use crate::skills::{schema_for, Skill, SkillCtx};
-use crate::{internal, invalid, text_result};
+use crate::skills::{fs_read_bytes, schema_for, Skill, SkillCtx};
+use crate::{invalid, text_result};
 
 pub const TOOL_NAMES: &[&str] = &["disasm_x86_hex", "disasm_x86_file"];
 
@@ -135,10 +134,8 @@ impl Skill for DisasmFile {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (server, args) = ctx.parse::<FileArgs>()?;
-            let p = filesystem::resolve(&server.fs, &args.path)?;
             let length = (args.length).clamp(1, 65536) as usize;
-            let bytes = std::fs::read(&p)
-                .map_err(|e| internal(anyhow::anyhow!("read {}: {e}", p.display())))?;
+            let (p, bytes) = fs_read_bytes(server, &args.path)?;
             let off = args.offset as usize;
             if off >= bytes.len() {
                 return Err(invalid(format!(
