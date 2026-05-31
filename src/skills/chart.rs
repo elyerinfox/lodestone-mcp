@@ -81,6 +81,108 @@ impl Default for Margins {
     }
 }
 
+/// Bundles the boilerplate every X/Y chart tool used to copy-paste:
+/// width / height + margins → plot rectangle, auto-ranged domains from a
+/// series, nice ticks, and data-→-pixel scale functions. Replacing this
+/// inline block per tool (chart_line, chart_scatter, chart_histogram,
+/// chart_candlestick all had it) saves ~20 LoC per call site and
+/// guarantees the scaling math is identical everywhere.
+struct PlotArea {
+    width: f64,
+    height: f64,
+    margins: Margins,
+    x_domain: (f64, f64),
+    y_domain: (f64, f64),
+    x_ticks: Vec<f64>,
+    y_ticks: Vec<f64>,
+}
+
+impl PlotArea {
+    /// Default margins + 7 X ticks + 6 Y ticks, ranges auto-derived from the
+    /// provided XY series.
+    fn from_xy(series: &[Vec<(f64, f64)>], width: f64, height: f64) -> Self {
+        Self::custom(series, width, height, Margins::default(), 7, 6)
+    }
+
+    /// Same shape as [`PlotArea::from_xy`] but with explicit margins / tick
+    /// targets. Used by the Grafana-style and heatmap tools that need
+    /// custom insets.
+    fn custom(
+        series: &[Vec<(f64, f64)>],
+        width: f64,
+        height: f64,
+        margins: Margins,
+        x_tick_target: usize,
+        y_tick_target: usize,
+    ) -> Self {
+        let (xmin, xmax, ymin, ymax) = auto_xy_range(series);
+        Self::from_ranges(
+            (xmin, xmax),
+            (ymin, ymax),
+            width,
+            height,
+            margins,
+            x_tick_target,
+            y_tick_target,
+        )
+    }
+
+    /// Build from caller-supplied data-space ranges (skip the
+    /// `auto_xy_range` step). Useful when the caller already knows the
+    /// envelope — e.g. histograms (Y is 0..max_count) or bar-style charts.
+    fn from_ranges(
+        x_range: (f64, f64),
+        y_range: (f64, f64),
+        width: f64,
+        height: f64,
+        margins: Margins,
+        x_tick_target: usize,
+        y_tick_target: usize,
+    ) -> Self {
+        let x_ticks = nice_ticks(x_range.0, x_range.1, x_tick_target);
+        let y_ticks = nice_ticks(y_range.0, y_range.1, y_tick_target);
+        let x_domain = (
+            *x_ticks.first().unwrap_or(&x_range.0),
+            *x_ticks.last().unwrap_or(&x_range.1),
+        );
+        let y_domain = (
+            *y_ticks.first().unwrap_or(&y_range.0),
+            *y_ticks.last().unwrap_or(&y_range.1),
+        );
+        Self {
+            width,
+            height,
+            margins,
+            x_domain,
+            y_domain,
+            x_ticks,
+            y_ticks,
+        }
+    }
+
+    fn left(&self) -> f64 {
+        self.margins.left
+    }
+    fn right(&self) -> f64 {
+        self.width - self.margins.right
+    }
+    fn top(&self) -> f64 {
+        self.margins.top
+    }
+    fn bottom(&self) -> f64 {
+        self.height - self.margins.bottom
+    }
+
+    fn scale_x(&self, v: f64) -> f64 {
+        let (d0, d1) = self.x_domain;
+        self.left() + (v - d0) / (d1 - d0).max(f64::EPSILON) * (self.right() - self.left())
+    }
+    fn scale_y(&self, v: f64) -> f64 {
+        let (d0, d1) = self.y_domain;
+        self.bottom() - (v - d0) / (d1 - d0).max(f64::EPSILON) * (self.bottom() - self.top())
+    }
+}
+
 /// Tab10-style colour palette — high contrast, dataviz-safe.
 const PALETTE: &[&str] = &[
     "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2", "#7f7f7f",
@@ -614,31 +716,15 @@ impl Skill for ChartLine {
                 series_xy.push(row);
             }
             for (i, s) in series_xy.iter().enumerate() {
-                if s.len() < 2 {
-                    return Err(invalid(format!(
-                        "series {} (\"{}\") needs at least 2 points",
-                        i, args.series[i].label
-                    )));
-                }
+                ensure_min_len(
+                    s,
+                    2,
+                    &format!("points in series \"{}\"", args.series[i].label),
+                )?;
             }
             let w = args.width.unwrap_or(DEFAULT_W).clamp(160.0, 4000.0);
             let h = args.height.unwrap_or(DEFAULT_H).clamp(120.0, 4000.0);
-            let m = Margins::default();
-            let plot_left = m.left;
-            let plot_right = w - m.right;
-            let plot_top = m.top;
-            let plot_bottom = h - m.bottom;
-            let (xmin, xmax, ymin, ymax) = auto_xy_range(&series_xy);
-            let x_ticks = nice_ticks(xmin, xmax, 7);
-            let y_ticks = nice_ticks(ymin, ymax, 6);
-            let xd = (
-                *x_ticks.first().unwrap_or(&xmin),
-                *x_ticks.last().unwrap_or(&xmax),
-            );
-            let yd = (
-                *y_ticks.first().unwrap_or(&ymin),
-                *y_ticks.last().unwrap_or(&ymax),
-            );
+            let pa = PlotArea::from_xy(&series_xy, w, h);
             let mut svg = svg_open(w, h);
             render_chrome(
                 &mut svg,
@@ -647,52 +733,45 @@ impl Skill for ChartLine {
                 args.ylabel.as_deref(),
                 w,
                 h,
-                &m,
+                &pa.margins,
             );
             if x_is_date {
                 // Re-render the x axis with date-formatted tick labels.
-                let span = xd.1 - xd.0;
-                let dated: Vec<String> = x_ticks.iter().map(|t| fmt_ts(*t, span)).collect();
+                let span = pa.x_domain.1 - pa.x_domain.0;
+                let dated: Vec<String> = pa.x_ticks.iter().map(|t| fmt_ts(*t, span)).collect();
                 render_x_axis_with_labels(
                     &mut svg,
-                    &x_ticks,
+                    &pa.x_ticks,
                     &dated,
-                    xd,
-                    (plot_left, plot_right),
-                    plot_bottom,
-                    plot_top,
+                    pa.x_domain,
+                    (pa.left(), pa.right()),
+                    pa.bottom(),
+                    pa.top(),
                 );
             } else {
                 render_x_axis(
                     &mut svg,
-                    &x_ticks,
-                    xd,
-                    (plot_left, plot_right),
-                    plot_bottom,
-                    plot_top,
+                    &pa.x_ticks,
+                    pa.x_domain,
+                    (pa.left(), pa.right()),
+                    pa.bottom(),
+                    pa.top(),
                 );
             }
             render_y_axis(
                 &mut svg,
-                &y_ticks,
-                yd,
-                (plot_top, plot_bottom),
-                plot_left,
-                plot_right,
+                &pa.y_ticks,
+                pa.y_domain,
+                (pa.top(), pa.bottom()),
+                pa.left(),
+                pa.right(),
             );
-            let scale_x = |x: f64| {
-                plot_left + (x - xd.0) / (xd.1 - xd.0).max(f64::EPSILON) * (plot_right - plot_left)
-            };
-            let scale_y = |y: f64| {
-                plot_bottom
-                    - (y - yd.0) / (yd.1 - yd.0).max(f64::EPSILON) * (plot_bottom - plot_top)
-            };
             for (i, s) in series_xy.iter().enumerate() {
                 let color = PALETTE[i % PALETTE.len()];
                 let mut path = String::new();
                 for (j, (x, y)) in s.iter().enumerate() {
                     let cmd = if j == 0 { 'M' } else { 'L' };
-                    let _ = write!(path, "{cmd}{:.2},{:.2} ", scale_x(*x), scale_y(*y));
+                    let _ = write!(path, "{cmd}{:.2},{:.2} ", pa.scale_x(*x), pa.scale_y(*y));
                 }
                 let _ = writeln!(
                     svg,
@@ -701,8 +780,10 @@ impl Skill for ChartLine {
                 );
             }
             let labels: Vec<&str> = args.series.iter().map(|s| s.label.as_str()).collect();
-            render_legend(&mut svg, &labels, PALETTE, plot_right, plot_top);
+            render_legend(&mut svg, &labels, PALETTE, pa.right(), pa.top());
             svg.push_str("</svg>");
+            let (xmin, xmax) = pa.x_domain;
+            let (ymin, ymax) = pa.y_domain;
             let total_points: usize = series_xy.iter().map(|s| s.len()).sum();
             let desc = format!(
                 "Line chart{} · {} serie{} · {} points · x ∈ [{}, {}] · y ∈ [{}, {}]",
@@ -873,8 +954,9 @@ impl Skill for ChartBar {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct ScatterArgs {
-    /// `(x, y)` points.
-    points: Vec<[f64; 2]>,
+    /// `[x, y]` points. `x` is a number OR an ISO-8601 date string (same
+    /// flexible shape as `chart_line.series[*].points`). `y` is a number.
+    points: Vec<Vec<serde_json::Value>>,
     /// Title above the plot.
     #[serde(default)]
     title: Option<String>,
@@ -897,9 +979,10 @@ impl Skill for ChartScatter {
         "chart_scatter"
     }
     fn description(&self) -> &'static str {
-        "Render `(x, y)` points as a scatter plot. Useful for showing data distributions / \
-        correlations without committing to an interpolation between samples. Returns SVG with a \
-        viewBox."
+        "Render `[x, y]` points as a scatter plot. `x` is a number OR an ISO-8601 date string (same \
+        flexible shape as chart_line), `y` is a number — date axes auto-format their ticks. Useful \
+        for showing distributions / correlations without committing to an interpolation between \
+        samples. Returns SVG with a viewBox."
     }
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<ScatterArgs>()
@@ -907,32 +990,29 @@ impl Skill for ChartScatter {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (_server, args) = ctx.parse::<ScatterArgs>()?;
-            if args.points.is_empty() {
-                return Err(invalid(
-                    "`points` must contain at least one entry".to_string(),
-                ));
+            ensure_min_len(&args.points, 1, "points")?;
+            // Same flexible point parsing as chart_line: x can be a number
+            // OR a date string. Tracks `x_is_date` so the axis gets date
+            // tick labels when appropriate.
+            let mut points_xy: Vec<(f64, f64)> = Vec::with_capacity(args.points.len());
+            let mut x_is_date = false;
+            for (i, pt) in args.points.iter().enumerate() {
+                let (x, y, date_label) = parse_xy(pt).ok_or_else(|| {
+                    invalid(format!(
+                        "point {i}: expected [number-or-date-string, number], got {}",
+                        serde_json::to_string(pt).unwrap_or_default()
+                    ))
+                })?;
+                if date_label.is_some() {
+                    x_is_date = true;
+                }
+                points_xy.push((x, y));
             }
             let w = args.width.unwrap_or(DEFAULT_W).clamp(160.0, 4000.0);
             let h = args.height.unwrap_or(DEFAULT_H).clamp(120.0, 4000.0);
             let r = args.point_size.unwrap_or(4.0).clamp(1.0, 20.0);
-            let m = Margins::default();
-            let plot_left = m.left;
-            let plot_right = w - m.right;
-            let plot_top = m.top;
-            let plot_bottom = h - m.bottom;
-            let series: Vec<Vec<(f64, f64)>> =
-                vec![args.points.iter().map(|p| (p[0], p[1])).collect()];
-            let (xmin, xmax, ymin, ymax) = auto_xy_range(&series);
-            let x_ticks = nice_ticks(xmin, xmax, 7);
-            let y_ticks = nice_ticks(ymin, ymax, 6);
-            let xd = (
-                *x_ticks.first().unwrap_or(&xmin),
-                *x_ticks.last().unwrap_or(&xmax),
-            );
-            let yd = (
-                *y_ticks.first().unwrap_or(&ymin),
-                *y_ticks.last().unwrap_or(&ymax),
-            );
+            let series: Vec<Vec<(f64, f64)>> = vec![points_xy.clone()];
+            let pa = PlotArea::from_xy(&series, w, h);
             let mut svg = svg_open(w, h);
             render_chrome(
                 &mut svg,
@@ -941,49 +1021,58 @@ impl Skill for ChartScatter {
                 args.ylabel.as_deref(),
                 w,
                 h,
-                &m,
+                &pa.margins,
             );
-            render_x_axis(
-                &mut svg,
-                &x_ticks,
-                xd,
-                (plot_left, plot_right),
-                plot_bottom,
-                plot_top,
-            );
+            if x_is_date {
+                let span = pa.x_domain.1 - pa.x_domain.0;
+                let dated: Vec<String> = pa.x_ticks.iter().map(|t| fmt_ts(*t, span)).collect();
+                render_x_axis_with_labels(
+                    &mut svg,
+                    &pa.x_ticks,
+                    &dated,
+                    pa.x_domain,
+                    (pa.left(), pa.right()),
+                    pa.bottom(),
+                    pa.top(),
+                );
+            } else {
+                render_x_axis(
+                    &mut svg,
+                    &pa.x_ticks,
+                    pa.x_domain,
+                    (pa.left(), pa.right()),
+                    pa.bottom(),
+                    pa.top(),
+                );
+            }
             render_y_axis(
                 &mut svg,
-                &y_ticks,
-                yd,
-                (plot_top, plot_bottom),
-                plot_left,
-                plot_right,
+                &pa.y_ticks,
+                pa.y_domain,
+                (pa.top(), pa.bottom()),
+                pa.left(),
+                pa.right(),
             );
-            let scale_x = |x: f64| {
-                plot_left + (x - xd.0) / (xd.1 - xd.0).max(f64::EPSILON) * (plot_right - plot_left)
-            };
-            let scale_y = |y: f64| {
-                plot_bottom
-                    - (y - yd.0) / (yd.1 - yd.0).max(f64::EPSILON) * (plot_bottom - plot_top)
-            };
-            for [x, y] in &args.points {
+            for (x, y) in &points_xy {
                 let _ = writeln!(
                     svg,
                     "<circle cx=\"{cx:.2}\" cy=\"{cy:.2}\" r=\"{r}\" fill=\"{c}\" \
                      opacity=\"0.7\"/>",
-                    cx = scale_x(*x),
-                    cy = scale_y(*y),
+                    cx = pa.scale_x(*x),
+                    cy = pa.scale_y(*y),
                     c = PALETTE[0],
                 );
             }
             svg.push_str("</svg>");
+            let (xmin, xmax) = pa.x_domain;
+            let (ymin, ymax) = pa.y_domain;
             let desc = format!(
                 "Scatter{} · {} points · x ∈ [{}, {}] · y ∈ [{}, {}]",
                 args.title
                     .as_deref()
                     .map(|t| format!(" \"{}\"", t))
                     .unwrap_or_default(),
-                args.points.len(),
+                points_xy.len(),
                 fmt_tick(xmin),
                 fmt_tick(xmax),
                 fmt_tick(ymin),
@@ -1061,21 +1150,15 @@ impl Skill for ChartHistogram {
             }
             let w = args.width.unwrap_or(DEFAULT_W).clamp(160.0, 4000.0);
             let h = args.height.unwrap_or(DEFAULT_H).clamp(120.0, 4000.0);
-            let m = Margins::default();
-            let plot_left = m.left;
-            let plot_right = w - m.right;
-            let plot_top = m.top;
-            let plot_bottom = h - m.bottom;
             let max_count = *counts.iter().max().unwrap_or(&1) as f64;
-            let y_ticks = nice_ticks(0.0, max_count, 6);
-            let yd = (
-                *y_ticks.first().unwrap_or(&0.0),
-                *y_ticks.last().unwrap_or(&max_count),
-            );
-            let x_ticks = nice_ticks(vmin, vmax, 7);
-            let xd = (
-                *x_ticks.first().unwrap_or(&vmin),
-                *x_ticks.last().unwrap_or(&vmax),
+            let pa = PlotArea::from_ranges(
+                (vmin, vmax),
+                (0.0, max_count),
+                w,
+                h,
+                Margins::default(),
+                7,
+                6,
             );
             let mut svg = svg_open(w, h);
             render_chrome(
@@ -1085,44 +1168,36 @@ impl Skill for ChartHistogram {
                 args.ylabel.as_deref(),
                 w,
                 h,
-                &m,
+                &pa.margins,
             );
             render_x_axis(
                 &mut svg,
-                &x_ticks,
-                xd,
-                (plot_left, plot_right),
-                plot_bottom,
-                plot_top,
+                &pa.x_ticks,
+                pa.x_domain,
+                (pa.left(), pa.right()),
+                pa.bottom(),
+                pa.top(),
             );
             render_y_axis(
                 &mut svg,
-                &y_ticks,
-                yd,
-                (plot_top, plot_bottom),
-                plot_left,
-                plot_right,
+                &pa.y_ticks,
+                pa.y_domain,
+                (pa.top(), pa.bottom()),
+                pa.left(),
+                pa.right(),
             );
-            let scale_x = |x: f64| {
-                plot_left + (x - xd.0) / (xd.1 - xd.0).max(f64::EPSILON) * (plot_right - plot_left)
-            };
-            let bar_top_y = |count: u64| {
-                plot_bottom
-                    - (count as f64 - yd.0) / (yd.1 - yd.0).max(f64::EPSILON)
-                        * (plot_bottom - plot_top)
-            };
             for (i, c) in counts.iter().enumerate() {
                 let lo = vmin + i as f64 * width;
                 let hi = lo + width;
-                let x_l = scale_x(lo);
-                let x_h = scale_x(hi);
-                let y_t = bar_top_y(*c);
+                let x_l = pa.scale_x(lo);
+                let x_h = pa.scale_x(hi);
+                let y_t = pa.scale_y(*c as f64);
                 let bw = (x_h - x_l - 1.0).max(0.5);
                 let _ = writeln!(
                     svg,
                     "<rect x=\"{x_l:.2}\" y=\"{y_t:.2}\" width=\"{bw:.2}\" height=\"{bh:.2}\" \
                      fill=\"{col}\" opacity=\"0.85\"/>",
-                    bh = plot_bottom - y_t,
+                    bh = pa.bottom() - y_t,
                     col = PALETTE[0],
                 );
             }
@@ -2844,45 +2919,28 @@ impl Skill for ChartCandlestick {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (_server, args) = ctx.parse::<CandlestickArgs>()?;
-            if args.candles.is_empty() {
-                return Err(invalid(
-                    "`candles` must contain at least one entry".to_string(),
-                ));
-            }
+            ensure_min_len(&args.candles, 1, "candles")?;
             let mut xs: Vec<f64> = args.candles.iter().map(|c| c.x).collect();
             xs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-            let xmin = *xs.first().unwrap();
-            let xmax = *xs.last().unwrap();
-            let mut ymin = f64::INFINITY;
-            let mut ymax = f64::NEG_INFINITY;
+            let xmin_data = *xs.first().unwrap();
+            let xmax_data = *xs.last().unwrap();
+            let mut ymin_data = f64::INFINITY;
+            let mut ymax_data = f64::NEG_INFINITY;
             for c in &args.candles {
-                ymin = ymin.min(c.low);
-                ymax = ymax.max(c.high);
+                ymin_data = ymin_data.min(c.low);
+                ymax_data = ymax_data.max(c.high);
             }
             let w = args.width.unwrap_or(DEFAULT_W).clamp(160.0, 4000.0);
             let h = args.height.unwrap_or(DEFAULT_H).clamp(120.0, 4000.0);
-            let m = Margins::default();
-            let plot_left = m.left;
-            let plot_right = w - m.right;
-            let plot_top = m.top;
-            let plot_bottom = h - m.bottom;
-            let x_ticks = nice_ticks(xmin, xmax, 7);
-            let y_ticks = nice_ticks(ymin, ymax, 6);
-            let xd = (
-                *x_ticks.first().unwrap_or(&xmin),
-                *x_ticks.last().unwrap_or(&xmax),
+            let pa = PlotArea::from_ranges(
+                (xmin_data, xmax_data),
+                (ymin_data, ymax_data),
+                w,
+                h,
+                Margins::default(),
+                7,
+                6,
             );
-            let yd = (
-                *y_ticks.first().unwrap_or(&ymin),
-                *y_ticks.last().unwrap_or(&ymax),
-            );
-            let scale_x = |x: f64| {
-                plot_left + (x - xd.0) / (xd.1 - xd.0).max(f64::EPSILON) * (plot_right - plot_left)
-            };
-            let scale_y = |y: f64| {
-                plot_bottom
-                    - (y - yd.0) / (yd.1 - yd.0).max(f64::EPSILON) * (plot_bottom - plot_top)
-            };
             let mut svg = svg_open(w, h);
             render_chrome(
                 &mut svg,
@@ -2891,39 +2949,41 @@ impl Skill for ChartCandlestick {
                 args.ylabel.as_deref(),
                 w,
                 h,
-                &m,
+                &pa.margins,
             );
             render_x_axis(
                 &mut svg,
-                &x_ticks,
-                xd,
-                (plot_left, plot_right),
-                plot_bottom,
-                plot_top,
+                &pa.x_ticks,
+                pa.x_domain,
+                (pa.left(), pa.right()),
+                pa.bottom(),
+                pa.top(),
             );
             render_y_axis(
                 &mut svg,
-                &y_ticks,
-                yd,
-                (plot_top, plot_bottom),
-                plot_left,
-                plot_right,
+                &pa.y_ticks,
+                pa.y_domain,
+                (pa.top(), pa.bottom()),
+                pa.left(),
+                pa.right(),
             );
             let up = args.up_color.as_deref().unwrap_or("#73bf69");
             let down = args.down_color.as_deref().unwrap_or("#e02f44");
             // Candle width: 60% of the gap between consecutive x positions.
             let bw = if args.candles.len() < 2 {
-                (plot_right - plot_left) * 0.05
+                (pa.right() - pa.left()) * 0.05
             } else {
-                let avg_gap = (xd.1 - xd.0) / (args.candles.len().max(1) as f64);
-                (avg_gap / (xd.1 - xd.0).max(f64::EPSILON) * (plot_right - plot_left)) * 0.6
+                let avg_gap = (pa.x_domain.1 - pa.x_domain.0) / (args.candles.len().max(1) as f64);
+                (avg_gap / (pa.x_domain.1 - pa.x_domain.0).max(f64::EPSILON)
+                    * (pa.right() - pa.left()))
+                    * 0.6
             };
             for c in &args.candles {
-                let cx = scale_x(c.x);
-                let yh = scale_y(c.high);
-                let yl = scale_y(c.low);
-                let yo = scale_y(c.open);
-                let yc = scale_y(c.close);
+                let cx = pa.scale_x(c.x);
+                let yh = pa.scale_y(c.high);
+                let yl = pa.scale_y(c.low);
+                let yo = pa.scale_y(c.open);
+                let yc = pa.scale_y(c.close);
                 let color = if c.close >= c.open { up } else { down };
                 let (top, bot) = if yo <= yc { (yo, yc) } else { (yc, yo) };
                 // Wick.
@@ -2942,6 +3002,8 @@ impl Skill for ChartCandlestick {
                 );
             }
             svg.push_str("</svg>");
+            let (xmin, xmax) = pa.x_domain;
+            let (ymin, ymax) = pa.y_domain;
             let desc = format!(
                 "Candlestick{} · {} candles · price [{}, {}] · time [{}, {}]",
                 args.title
