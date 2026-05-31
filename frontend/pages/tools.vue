@@ -65,11 +65,47 @@
           </ul>
         </div>
 
-        <p class="text-xs text-slate-500">
-          Per-tool runtime toggling requires changes deeper in the tool
-          dispatcher and isn't wired yet — edit
-          <span class="font-mono">[tools] disabled</span> to gate a tool.
-        </p>
+        <hr class="border-slate-800" />
+
+        <div class="space-y-2">
+          <div class="text-xs uppercase tracking-wide text-slate-500">
+            Runtime-disabled
+          </div>
+          <p class="text-xs text-slate-400">
+            Tools flipped off via the kill-switches on each row below.
+            Disabled tools reject calls with an explanatory error and
+            don't trigger auto-recall or conversation recording.
+            Re-enable to restore.
+          </p>
+          <div
+            v-if="snapshot.server.tools_runtime_disabled_names.length === 0"
+            class="text-xs text-slate-500"
+          >
+            None — every active tool is reachable.
+          </div>
+          <ul v-else class="space-y-1">
+            <li
+              v-for="name in snapshot.server.tools_runtime_disabled_names"
+              :key="`rd-${name}`"
+              class="flex items-center justify-between rounded border border-amber-700/40 bg-amber-900/15 px-3 py-1.5 text-xs"
+            >
+              <span class="font-mono text-amber-200">{{ name }}</span>
+              <button
+                type="button"
+                class="rounded bg-amber-700/30 px-2 py-0.5 text-xs text-amber-100 hover:bg-amber-700/50"
+                @click="toggleTool(name, false)"
+              >
+                re-enable
+              </button>
+            </li>
+          </ul>
+          <div
+            v-if="toolsPatchError"
+            class="mt-2 rounded border border-accent-err/40 bg-accent-err/10 p-2 text-xs text-accent-err"
+          >
+            {{ toolsPatchError }}
+          </div>
+        </div>
       </div>
     </SettingsDrawer>
 
@@ -172,11 +208,36 @@
           <li
             v-for="t in group.active"
             :key="`a-${t}`"
-            class="flex items-center gap-2 font-mono"
+            class="group flex items-center gap-2 font-mono"
             :class="compact ? 'py-0' : 'py-0.5'"
           >
-            <span class="h-1.5 w-1.5 rounded-full bg-accent-ok shrink-0" />
-            <span class="truncate text-slate-200">{{ t }}</span>
+            <span
+              class="h-1.5 w-1.5 rounded-full shrink-0"
+              :class="
+                runtimeDisabledSet.has(t) ? 'bg-amber-400' : 'bg-accent-ok'
+              "
+            />
+            <span
+              class="truncate"
+              :class="
+                runtimeDisabledSet.has(t)
+                  ? 'text-amber-300 line-through opacity-80'
+                  : 'text-slate-200'
+              "
+            >{{ t }}</span>
+            <button
+              type="button"
+              class="ml-auto text-[10px] opacity-0 group-hover:opacity-100 focus:opacity-100"
+              :class="
+                runtimeDisabledSet.has(t)
+                  ? 'text-accent-ok hover:underline'
+                  : 'text-amber-400 hover:underline'
+              "
+              :title="runtimeDisabledSet.has(t) ? 'Re-enable at runtime' : 'Kill at runtime (no restart)'"
+              @click="toggleTool(t, !runtimeDisabledSet.has(t))"
+            >
+              {{ runtimeDisabledSet.has(t) ? 'enable' : 'kill' }}
+            </button>
           </li>
           <li
             v-for="t in group.disabled"
@@ -211,6 +272,21 @@ const showWhich = ref<'all' | 'active' | 'disabled'>('all')
 const settingsOpen = ref(false)
 const compact = ref(false)
 const hideAllDisabledFamilies = ref(false)
+
+const runtimeDisabledSet = computed(
+  () => new Set(snapshot.value?.server.tools_runtime_disabled_names ?? []),
+)
+
+const { patch: patchSettings } = useSettingsApi()
+const toolsPatchError = ref<string | null>(null)
+async function toggleTool(name: string, disabled: boolean) {
+  toolsPatchError.value = null
+  try {
+    await patchSettings('tools', { disabled: { [name]: disabled } })
+  } catch (e) {
+    toolsPatchError.value = e instanceof Error ? e.message : String(e)
+  }
+}
 
 const activeTotal = computed(() => snapshot.value?.server.tools_active_names.length ?? 0)
 const disabledTotal = computed(

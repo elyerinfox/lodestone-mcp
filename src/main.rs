@@ -18,6 +18,7 @@ mod providers;
 mod retrieval;
 mod skills;
 mod store;
+mod tracing_control;
 mod util;
 mod ws;
 
@@ -122,6 +123,13 @@ pub(crate) struct Lodestone {
     /// `features` skill can map families to "any of these tools hidden?"
     /// without re-running the resolution.
     pub(crate) disabled_tools: Arc<Vec<String>>,
+    /// Tools the dashboard's settings drawer has flipped off at runtime.
+    /// Empty at startup; mutated by `POST /api/settings/tools`. The
+    /// dispatch wrapper (`skills::route`) checks this set before
+    /// running each call and returns a "tool disabled" error if hit.
+    /// Ephemeral — never persisted, so a restart restores the resolved
+    /// active set from config.
+    pub(crate) runtime_disabled_tools: Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
     // The filtered tool router; `#[tool_handler(router = self.tool_router)]`
     // uses it for both tool listing and dispatch.
     tool_router: ToolRouter<Lodestone>,
@@ -189,6 +197,9 @@ impl Lodestone {
             python: Arc::new(python),
             systemd: Arc::new(systemd),
             disabled_tools: Arc::new(tools_disabled.to_vec()),
+            runtime_disabled_tools: Arc::new(std::sync::Mutex::new(
+                std::collections::HashSet::new(),
+            )),
             cfg,
             started_at: std::time::Instant::now(),
             tool_router,
@@ -399,6 +410,14 @@ impl Lodestone {
         tools_active_names.sort();
         let mut tools_disabled_names: Vec<String> = (*self.disabled_tools).clone();
         tools_disabled_names.sort();
+        let mut tools_runtime_disabled_names: Vec<String> = self
+            .runtime_disabled_tools
+            .lock()
+            .unwrap()
+            .iter()
+            .cloned()
+            .collect();
+        tools_runtime_disabled_names.sort();
         let server = crate::ws::ServerStatus {
             name: "lodestone-mcp",
             version: env!("CARGO_PKG_VERSION"),
@@ -407,6 +426,7 @@ impl Lodestone {
             tools_disabled: tools_disabled_names.len(),
             tools_active_names,
             tools_disabled_names,
+            tools_runtime_disabled_names,
             providers,
             bind: self.cfg.bind.clone(),
             constellation_bind: self.cfg.network.bind.clone(),
@@ -417,13 +437,15 @@ impl Lodestone {
                 nasa_key: !self.nasa_key.trim().is_empty(),
                 eia_key: !self.eia_key.trim().is_empty(),
             },
+            log_level: tracing_control::current(),
         };
         // Memory. Internal struct uses i64 (SQLite native); convert to u64
         // for the wire format (negatives can't happen — these are
         // COUNT(*) results).
         let mem_stats = self.memory.stats().await;
+        let memory_enabled = self.memory.enabled();
         let memory = crate::ws::MemoryStats {
-            enabled: self.cfg.memory.enabled,
+            enabled: memory_enabled,
             memos: mem_stats.memos.max(0) as u64,
             solutions: mem_stats.solutions.max(0) as u64,
             solution_revisions: mem_stats.solution_revisions.max(0) as u64,
@@ -433,16 +455,18 @@ impl Lodestone {
             conversations: mem_stats.conversations.max(0) as u64,
             conversation_turns: mem_stats.conversation_turns.max(0) as u64,
             synonyms: mem_stats.synonyms.max(0) as u64,
-            db_path: if self.cfg.memory.enabled {
+            db_path: if memory_enabled {
                 self.cfg.memory.dir.clone()
             } else {
                 String::new()
             },
-            embedding_model: if self.cfg.memory.enabled {
+            embedding_model: if memory_enabled {
                 self.cfg.memory.embedding_model.clone()
             } else {
                 String::new()
             },
+            auto_recall: self.memory.auto_recall_enabled(),
+            record_conversations: self.memory.record_conversations_enabled(),
         };
         // Constellation. When the network is off, return a sensible
         // "disabled" snapshot so the frontend can show "constellation
@@ -802,11 +826,22 @@ fn ws_routes(server: Arc<Lodestone>) -> axum::Router {
 /// are intentionally absent — see `ConstellationState.*_configured`.
 /// Secrets are never accepted here: the network token, auth token, and
 /// any future API keys can only be set via config or env.
-fn api_routes(constellation: Arc<constellation::Constellation>) -> axum::Router {
+fn api_routes(
+    server: Arc<Lodestone>,
+    constellation: Arc<constellation::Constellation>,
+) -> axum::Router {
     use axum::extract::State;
     use axum::http::{HeaderMap, StatusCode};
     use axum::response::IntoResponse;
     use axum::Json;
+
+    /// Bundle the two handles a settings endpoint might need.
+    #[derive(Clone)]
+    struct ApiState {
+        #[allow(dead_code)] // used by handlers added in follow-up tasks
+        server: Arc<Lodestone>,
+        constellation: Arc<constellation::Constellation>,
+    }
 
     fn presented_token(headers: &HeaderMap) -> Option<&str> {
         let auth = headers.get(axum::http::header::AUTHORIZATION)?;
@@ -815,14 +850,14 @@ fn api_routes(constellation: Arc<constellation::Constellation>) -> axum::Router 
     }
 
     async fn patch_constellation(
-        State(c): State<Arc<constellation::Constellation>>,
+        State(state): State<ApiState>,
         headers: HeaderMap,
         Json(patch): Json<constellation::RuntimeOverridesPatch>,
     ) -> axum::response::Response {
-        if !c.token_ok(presented_token(&headers)) {
+        if !state.constellation.token_ok(presented_token(&headers)) {
             return (StatusCode::UNAUTHORIZED, "unauthorized\n").into_response();
         }
-        let applied = c.apply_runtime_patch(patch);
+        let applied = state.constellation.apply_runtime_patch(patch);
         Json(serde_json::json!({
             "delegation_enabled": applied.delegation_enabled,
             "max_peers": applied.max_peers,
@@ -831,12 +866,108 @@ fn api_routes(constellation: Arc<constellation::Constellation>) -> axum::Router 
         .into_response()
     }
 
+    #[derive(serde::Deserialize)]
+    struct ServerPatch {
+        log_level: Option<String>,
+    }
+
+    async fn patch_server(
+        State(state): State<ApiState>,
+        headers: HeaderMap,
+        Json(patch): Json<ServerPatch>,
+    ) -> axum::response::Response {
+        if !state.constellation.token_ok(presented_token(&headers)) {
+            return (StatusCode::UNAUTHORIZED, "unauthorized\n").into_response();
+        }
+        if let Some(lvl) = patch.log_level.as_deref() {
+            if let Err(e) = tracing_control::set_level(lvl) {
+                return (StatusCode::BAD_REQUEST, format!("{e}\n")).into_response();
+            }
+        }
+        Json(serde_json::json!({
+            "log_level": tracing_control::current(),
+        }))
+        .into_response()
+    }
+
+    #[derive(serde::Deserialize)]
+    struct MemoryPatch {
+        enabled: Option<bool>,
+        auto_recall: Option<bool>,
+        record_conversations: Option<bool>,
+    }
+
+    async fn patch_memory(
+        State(state): State<ApiState>,
+        headers: HeaderMap,
+        Json(patch): Json<MemoryPatch>,
+    ) -> axum::response::Response {
+        if !state.constellation.token_ok(presented_token(&headers)) {
+            return (StatusCode::UNAUTHORIZED, "unauthorized\n").into_response();
+        }
+        state.server.memory.apply_runtime_patch(
+            crate::skills::memory::RuntimeOverrides {
+                enabled: patch.enabled,
+                auto_recall: patch.auto_recall,
+                record_conversations: patch.record_conversations,
+            },
+        );
+        Json(serde_json::json!({
+            "enabled": state.server.memory.enabled(),
+            "auto_recall": state.server.memory.auto_recall_enabled(),
+            "record_conversations": state.server.memory.record_conversations_enabled(),
+        }))
+        .into_response()
+    }
+
+    /// `{ disabled: { "<tool_name>": true|false, ... } }` — sparse map
+    /// of toggles. `true` adds the tool to the runtime-disabled set,
+    /// `false` removes it. Names not in the map keep their current
+    /// state. Names that aren't real tools are silently ignored
+    /// (the dashboard never sends them, and accepting them would just
+    /// waste memory).
+    #[derive(serde::Deserialize)]
+    struct ToolsPatch {
+        #[serde(default)]
+        disabled: std::collections::HashMap<String, bool>,
+    }
+
+    async fn patch_tools(
+        State(state): State<ApiState>,
+        headers: HeaderMap,
+        Json(patch): Json<ToolsPatch>,
+    ) -> axum::response::Response {
+        if !state.constellation.token_ok(presented_token(&headers)) {
+            return (StatusCode::UNAUTHORIZED, "unauthorized\n").into_response();
+        }
+        let known: std::collections::HashSet<String> =
+            crate::skills::registered_tool_names().into_iter().collect();
+        let mut set = state.server.runtime_disabled_tools.lock().unwrap();
+        for (name, disabled) in patch.disabled {
+            if !known.contains(&name) {
+                continue;
+            }
+            if disabled {
+                set.insert(name);
+            } else {
+                set.remove(&name);
+            }
+        }
+        let mut current: Vec<String> = set.iter().cloned().collect();
+        current.sort();
+        Json(serde_json::json!({ "disabled": current })).into_response()
+    }
+
+    let state = ApiState { server, constellation };
     axum::Router::new()
         .route(
             "/api/settings/constellation",
             axum::routing::post(patch_constellation),
         )
-        .with_state(constellation)
+        .route("/api/settings/server", axum::routing::post(patch_server))
+        .route("/api/settings/memory", axum::routing::post(patch_memory))
+        .route("/api/settings/tools", axum::routing::post(patch_tools))
+        .with_state(state)
 }
 
 /// Static dashboard route — serves the Nuxt SPA embedded into the binary
@@ -970,12 +1101,7 @@ fn dashboard_routes() -> axum::Router {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "lodestone_mcp=info,rmcp=warn".into()),
-        )
-        .init();
+    tracing_control::init();
 
     let mut cfg = Config::load();
     // Default the constellation node id to a stable, machine-derived id (mixed with the
@@ -1150,7 +1276,7 @@ async fn main() -> anyhow::Result<()> {
         // `/ws/status` — dashboard push feed. Auth via `?token=…` against
         // `[network].token` (separate from `auth_token`, same trust domain
         // as the constellation endpoints).
-        .merge(ws_routes(server_for_ws))
+        .merge(ws_routes(server_for_ws.clone()))
         // `/dashboard/{*path}` + `/` redirect — Nuxt SPA embedded into the
         // binary at compile time. When npm wasn't on PATH at build time
         // the route returns a "not built — install Node and rebuild"
@@ -1163,7 +1289,7 @@ async fn main() -> anyhow::Result<()> {
         // listener (the dashboard talks to them from the same origin
         // it loads from). The constellation-port listener intentionally
         // exposes only `/constellation/*`.
-        app = app.merge(api_routes(h.clone()));
+        app = app.merge(api_routes(server_for_ws.clone(), h.clone()));
         let port_of = |addr: &str| addr.rsplit(':').next().and_then(|p| p.parse::<u16>().ok());
         let sep_bind = cfg.network.bind.trim();
         if sep_bind.is_empty() {

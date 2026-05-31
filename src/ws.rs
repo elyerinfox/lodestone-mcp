@@ -91,6 +91,10 @@ pub struct ServerStatus {
     /// `tools_active_names`. Together the two lists cover every tool
     /// the build knows about.
     pub tools_disabled_names: Vec<String>,
+    /// Tools the dashboard's settings drawer has flipped off at runtime.
+    /// Disjoint from `tools_disabled_names` (those are config-disabled,
+    /// these are session-disabled). Sorted.
+    pub tools_runtime_disabled_names: Vec<String>,
     /// Active search providers — one entry per `(kind, id)`.
     pub providers: Vec<ProviderEntry>,
     /// Bind address the MCP listener accepted on. Read-only.
@@ -102,6 +106,9 @@ pub struct ServerStatus {
     /// `true` = configured (env or config). Golden rule 11: a secret's
     /// presence can be surfaced; the bytes never can.
     pub secrets: SecretPresence,
+    /// Active tracing filter directive (e.g. `lodestone_mcp=info,rmcp=warn`).
+    /// Mutated at runtime via `POST /api/settings/server { log_level }`.
+    pub log_level: String,
 }
 
 /// One bit per secret the server might be configured with. The
@@ -145,6 +152,10 @@ pub struct MemoryStats {
     /// vectors stay consistent. Empty when memory is disabled or
     /// embeddings aren't configured.
     pub embedding_model: String,
+    /// Auto-recall preamble currently armed. Runtime-tunable.
+    pub auto_recall: bool,
+    /// Conversation-turn recording currently armed. Runtime-tunable.
+    pub record_conversations: bool,
 }
 
 /// Constellation snapshot — peer table + identity + delegation knobs.

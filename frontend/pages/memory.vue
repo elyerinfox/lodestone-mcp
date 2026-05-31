@@ -19,22 +19,80 @@
       @close="settingsOpen = false"
     >
       <div class="space-y-5 text-sm">
-        <div>
-          <label class="flex items-center justify-between gap-3">
-            <span>
-              <span class="font-medium text-slate-100">Show zero-value counts</span>
-              <span class="block text-xs text-slate-400">
-                Page-local UI toggle. When off, count cards that are 0 are
-                hidden so the page reads as "what's actually populated."
-              </span>
+        <label class="flex items-center justify-between gap-3">
+          <span>
+            <span class="font-medium text-slate-100">Memory family enabled</span>
+            <span class="block text-xs text-slate-400">
+              When off, the dispatch wrapper skips auto-recall and turn
+              recording, and the memory_* / solution_* / conversation_*
+              tools no-op. New rows aren't written.
             </span>
-            <input
-              type="checkbox"
-              class="h-5 w-5 accent-accent-info"
-              v-model="showZeroCounts"
-            />
-          </label>
+          </span>
+          <input
+            type="checkbox"
+            class="h-5 w-5 accent-accent-info"
+            :checked="snapshot.memory.enabled"
+            @change="patchMemory({ enabled: ($event.target as HTMLInputElement).checked })"
+          />
+        </label>
+
+        <label class="flex items-center justify-between gap-3">
+          <span>
+            <span class="font-medium text-slate-100">Auto-recall preamble</span>
+            <span class="block text-xs text-slate-400">
+              Prepends prior-solution recall to query-bearing tool responses.
+              Turn off to silence the preamble without disabling memory.
+            </span>
+          </span>
+          <input
+            type="checkbox"
+            class="h-5 w-5 accent-accent-info"
+            :checked="snapshot.memory.auto_recall"
+            :disabled="!snapshot.memory.enabled"
+            @change="patchMemory({ auto_recall: ($event.target as HTMLInputElement).checked })"
+          />
+        </label>
+
+        <label class="flex items-center justify-between gap-3">
+          <span>
+            <span class="font-medium text-slate-100">Record conversations</span>
+            <span class="block text-xs text-slate-400">
+              Writes one row per tool call to conversation_turns. Turn off
+              to stop growing the conversation log without disabling memory.
+            </span>
+          </span>
+          <input
+            type="checkbox"
+            class="h-5 w-5 accent-accent-info"
+            :checked="snapshot.memory.record_conversations"
+            :disabled="!snapshot.memory.enabled"
+            @change="patchMemory({ record_conversations: ($event.target as HTMLInputElement).checked })"
+          />
+        </label>
+
+        <div
+          v-if="memPatchError"
+          class="rounded border border-accent-err/40 bg-accent-err/10 p-2 text-xs text-accent-err"
+        >
+          {{ memPatchError }}
         </div>
+
+        <hr class="border-slate-800" />
+
+        <label class="flex items-center justify-between gap-3">
+          <span>
+            <span class="font-medium text-slate-100">Show zero-value counts</span>
+            <span class="block text-xs text-slate-400">
+              Page-local UI toggle. When off, count cards that are 0 are
+              hidden so the page reads as "what's actually populated."
+            </span>
+          </span>
+          <input
+            type="checkbox"
+            class="h-5 w-5 accent-accent-info"
+            v-model="showZeroCounts"
+          />
+        </label>
 
         <hr class="border-slate-800" />
 
@@ -49,8 +107,8 @@
           />
         </div>
         <p class="text-xs text-slate-500">
-          Memory retention, recall threshold, and the embedding endpoint live
-          in <span class="font-mono">[memory]</span> and apply at startup.
+          Recall threshold, embedding endpoint, and retention live in
+          <span class="font-mono">[memory]</span> and apply at startup.
         </p>
       </div>
     </SettingsDrawer>
@@ -131,6 +189,17 @@ const showZeroCounts = ref(true)
 
 function show(n: number): boolean {
   return showZeroCounts.value || n > 0
+}
+
+const { patch: patchSettings } = useSettingsApi()
+const memPatchError = ref<string | null>(null)
+async function patchMemory(body: Record<string, unknown>) {
+  memPatchError.value = null
+  try {
+    await patchSettings('memory', body)
+  } catch (e) {
+    memPatchError.value = e instanceof Error ? e.message : String(e)
+  }
 }
 
 const avgRevisions = computed(() => {

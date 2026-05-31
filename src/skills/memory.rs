@@ -363,6 +363,19 @@ pub(crate) struct Memory {
     /// Active conversation tracker. `None` until the first tool call (or after
     /// a long idle gap rotates the id).
     active_conv: Arc<std::sync::Mutex<Option<ActiveConversation>>>,
+    /// Runtime overrides for the three knobs the dashboard can flip
+    /// without restarting the server. `None` = use the static `cfg`
+    /// value, `Some(v)` = override is in effect. Mutated by the
+    /// settings drawer; never persisted, so a restart restores the
+    /// config-file values.
+    runtime: Arc<std::sync::Mutex<RuntimeOverrides>>,
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+pub(crate) struct RuntimeOverrides {
+    pub enabled: Option<bool>,
+    pub auto_recall: Option<bool>,
+    pub record_conversations: Option<bool>,
 }
 
 /// One scored prior-solution hit returned by [`Memory::auto_recall`]. Used by
@@ -423,16 +436,61 @@ impl RecallHit {
 impl Memory {
     /// `true` if the `memory_*` / `solution_*` / `synonym_*` family is enabled —
     /// the dispatch wrapper checks this before running auto-recall so the cost
-    /// is zero when memory is off.
+    /// is zero when memory is off. Honors the runtime override when set.
     pub(crate) fn enabled(&self) -> bool {
-        self.cfg.enabled
+        self.runtime
+            .lock()
+            .unwrap()
+            .enabled
+            .unwrap_or(self.cfg.enabled)
+    }
+
+    /// Effective auto-recall setting (config OR runtime override). The
+    /// dispatch wrapper reads this instead of `cfg.auto_recall` so the
+    /// settings drawer can silence the preamble at runtime without
+    /// disabling the memory family.
+    pub(crate) fn auto_recall_enabled(&self) -> bool {
+        self.runtime
+            .lock()
+            .unwrap()
+            .auto_recall
+            .unwrap_or(self.cfg.auto_recall)
+    }
+
+    /// Effective conversation-recording setting. The dispatch wrapper
+    /// reads this instead of `cfg.record_conversations`.
+    pub(crate) fn record_conversations_enabled(&self) -> bool {
+        self.runtime
+            .lock()
+            .unwrap()
+            .record_conversations
+            .unwrap_or(self.cfg.record_conversations)
     }
 
     /// Read-only handle to the resolved `[memory]` config. Used by the
-    /// dispatch wrapper to decide whether to run auto-recall, record
-    /// conversation turns, etc.
+    /// dispatch wrapper for everything *other* than the runtime-tunable
+    /// booleans (recall_threshold, embedding endpoint, etc.).
     pub(crate) fn config(&self) -> &config::Memory {
         &self.cfg
+    }
+
+    /// Apply a sparse patch to the runtime overrides. `None` fields
+    /// keep their current state. `Some(true)/Some(false)` set an
+    /// override. To clear an override and revert to the config value
+    /// the dashboard should re-send the config value explicitly — there
+    /// is no separate "clear" action in this round.
+    pub(crate) fn apply_runtime_patch(&self, patch: RuntimeOverrides) -> RuntimeOverrides {
+        let mut r = self.runtime.lock().unwrap();
+        if let Some(v) = patch.enabled {
+            r.enabled = Some(v);
+        }
+        if let Some(v) = patch.auto_recall {
+            r.auto_recall = Some(v);
+        }
+        if let Some(v) = patch.record_conversations {
+            r.record_conversations = Some(v);
+        }
+        *r
     }
 
     /// Fetch an embedding for `text` if the embedding endpoint is configured
@@ -779,7 +837,7 @@ impl Memory {
     /// turned off — callers should treat that as "no conversation context"
     /// and skip the bookkeeping entirely.
     pub(crate) async fn current_conversation_id(&self) -> Option<String> {
-        if !self.cfg.enabled || !self.cfg.record_conversations {
+        if !self.enabled() || !self.record_conversations_enabled() {
             return None;
         }
         let now = now_secs();
@@ -830,7 +888,7 @@ impl Memory {
         query: Option<&str>,
         response_excerpt: &str,
     ) {
-        if !self.cfg.enabled || !self.cfg.record_conversations {
+        if !self.enabled() || !self.record_conversations_enabled() {
             return;
         }
         // `record_only_query_calls=true` keeps the log focused on intent:
@@ -1078,6 +1136,7 @@ impl Memory {
             pool,
             synonyms,
             active_conv: Arc::new(std::sync::Mutex::new(None)),
+            runtime: Arc::new(std::sync::Mutex::new(RuntimeOverrides::default())),
         })
     }
 }

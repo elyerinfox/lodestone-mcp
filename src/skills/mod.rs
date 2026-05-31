@@ -356,13 +356,29 @@ fn route(skill: Box<dyn Skill>) -> ToolRoute<Lodestone> {
         let server = ctx.service;
         let args = ctx.arguments.unwrap_or_default();
         let trigger = intent_trigger(tool_name, &args);
+        // Runtime kill-switch from the dashboard's Tools settings drawer.
+        // Reject before we run the skill body — also short-circuits the
+        // auto-recall / conversation-recording side effects so a
+        // disabled tool leaves no trace.
+        if server
+            .runtime_disabled_tools
+            .lock()
+            .unwrap()
+            .contains(tool_name)
+        {
+            let err = rmcp::ErrorData::invalid_request(
+                format!("tool '{tool_name}' is disabled at runtime via the dashboard settings"),
+                None,
+            );
+            return Box::pin(async move { Err(err) });
+        }
         let sctx = SkillCtx { server, args };
         let fut = skill.call(sctx);
         Box::pin(async move {
             let mut result = fut.await?;
             if server.memory.enabled() {
                 let cfg = server.memory.config();
-                if cfg.auto_recall {
+                if server.memory.auto_recall_enabled() {
                     if let Some(q) = trigger.as_deref() {
                         let mut hits = server
                             .memory
@@ -401,7 +417,7 @@ fn route(skill: Box<dyn Skill>) -> ToolRoute<Lodestone> {
                 // Record one conversation turn per tool call. Skip when
                 // `record_conversations` is off; the helper also drops
                 // query-less calls when `record_only_query_calls` is on.
-                if cfg.record_conversations {
+                if server.memory.record_conversations_enabled() {
                     if let Some(conv_id) = server.memory.current_conversation_id().await {
                         let excerpt = result
                             .content

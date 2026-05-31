@@ -15,10 +15,12 @@ export interface ServerStatus {
   tools_disabled: number
   tools_active_names: string[]
   tools_disabled_names: string[]
+  tools_runtime_disabled_names: string[]
   providers: ProviderEntry[]
   bind: string
   constellation_bind: string
   secrets: SecretPresence
+  log_level: string
 }
 
 export interface SecretPresence {
@@ -42,6 +44,8 @@ export interface MemoryStats {
   synonyms: number
   db_path: string
   embedding_model: string
+  auto_recall: boolean
+  record_conversations: boolean
 }
 
 export interface PeerEntry {

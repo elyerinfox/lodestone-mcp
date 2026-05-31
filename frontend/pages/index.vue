@@ -49,10 +49,35 @@
 
         <hr class="border-slate-800" />
 
-        <p class="text-xs text-slate-500">
-          Server-wide runtime knobs (log level, in-flight limits) require a
-          restart to change.
-        </p>
+        <div>
+          <div class="text-xs uppercase tracking-wide text-slate-500 mb-2">
+            Log level
+          </div>
+          <p class="mb-2 text-xs text-slate-400">
+            Reloads the tracing filter without restarting. Debug and trace
+            also enable hyper at info so request-handling activity surfaces.
+          </p>
+          <select
+            class="w-full rounded border border-slate-700 bg-surface-0 px-2 py-1.5 text-sm"
+            :value="currentLogLevel"
+            @change="setLogLevel(($event.target as HTMLSelectElement).value)"
+          >
+            <option value="error">error</option>
+            <option value="warn">warn</option>
+            <option value="info">info</option>
+            <option value="debug">debug</option>
+            <option value="trace">trace</option>
+          </select>
+          <div class="mt-2 text-xs font-mono text-slate-500">
+            active: {{ snapshot.server.log_level }}
+          </div>
+          <div
+            v-if="serverPatchError"
+            class="mt-2 rounded border border-accent-err/40 bg-accent-err/10 p-2 text-xs text-accent-err"
+          >
+            {{ serverPatchError }}
+          </div>
+        </div>
       </div>
     </SettingsDrawer>
 
@@ -135,6 +160,27 @@ const feed = inject<{ snapshot: Ref<Snapshot | null> }>('dashboardFeed')!
 const snapshot = feed.snapshot
 
 const settingsOpen = ref(false)
+
+const currentLogLevel = computed(() => {
+  // Extract the level we'd expose in the dropdown from the live filter
+  // string (e.g. "lodestone_mcp=info,rmcp=warn" → "info"). The set_level
+  // call always builds the directive from one of the five keywords, so
+  // splitting on the first '=' and ',' is reliable here.
+  const s = snapshot.value?.server.log_level ?? ''
+  const m = s.match(/=([a-z]+)/i)
+  return m ? m[1].toLowerCase() : 'info'
+})
+
+const { patch: patchSettings } = useSettingsApi()
+const serverPatchError = ref<string | null>(null)
+async function setLogLevel(level: string) {
+  serverPatchError.value = null
+  try {
+    await patchSettings('server', { log_level: level })
+  } catch (e) {
+    serverPatchError.value = e instanceof Error ? e.message : String(e)
+  }
+}
 
 const uptimeHuman = computed(() => {
   const s = snapshot.value?.server.uptime_secs ?? 0
