@@ -16,6 +16,7 @@ use serde_json::Value;
 use tokio::process::Command;
 
 use crate::skills::filesystem::resolve;
+use crate::util::human_size;
 use crate::skills::guard::Decision;
 use crate::skills::{schema_for, Skill, SkillCtx};
 use crate::{internal, invalid, text_result};
@@ -243,24 +244,9 @@ impl Skill for FfmpegConvert {
             Ok(text_result(format!(
                 "Wrote {} ({}).",
                 args.output,
-                fmt_bytes(size)
+                human_size(size)
             )))
         })
-    }
-}
-
-fn fmt_bytes(n: u64) -> String {
-    const UNITS: &[&str] = &["B", "KB", "MB", "GB", "TB"];
-    let mut v = n as f64;
-    let mut u = 0;
-    while v >= 1024.0 && u < UNITS.len() - 1 {
-        v /= 1024.0;
-        u += 1;
-    }
-    if u == 0 {
-        format!("{n} B")
-    } else {
-        format!("{v:.1} {}", UNITS[u])
     }
 }
 
@@ -281,9 +267,9 @@ mod tests {
 
     #[test]
     fn bytes_format() {
-        assert_eq!(fmt_bytes(512), "512 B");
-        assert_eq!(fmt_bytes(2048), "2.0 KB");
-        assert_eq!(fmt_bytes(5 * 1024 * 1024), "5.0 MB");
+        assert_eq!(human_size(512), "512 B");
+        assert_eq!(human_size(2048), "2.0 KB");
+        assert_eq!(human_size(5 * 1024 * 1024), "5.0 MB");
     }
 
     #[test]
