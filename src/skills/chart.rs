@@ -292,6 +292,21 @@ fn svg_open(w: f64, h: f64) -> String {
     )
 }
 
+/// Variant of [`svg_open`] for the dark-themed panels (Grafana, Stat,
+/// Gauge, Bar Gauge, State Timeline). Opens the SVG and immediately paints
+/// a full-canvas background rect in `bg` so subsequent strokes show against
+/// the dark backdrop. Centralizes a string literal that used to live
+/// inline in five chart tools.
+fn svg_open_dark(w: f64, h: f64, bg: &str) -> String {
+    format!(
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 {w} {h}\" \
+         preserveAspectRatio=\"xMidYMid meet\" \
+         style=\"font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif\" \
+         role=\"img\">\n\
+         <rect x=\"0\" y=\"0\" width=\"{w}\" height=\"{h}\" fill=\"{bg}\"/>",
+    )
+}
+
 /// Render axis tick lines + labels for the X (bottom) axis. `domain` is
 /// data-space min/max; `range` is the pixel-space left/right edge of the
 /// plot area.
@@ -2013,14 +2028,7 @@ impl Skill for ChartGrafana {
                 7,
                 6,
             );
-            // Dark theme override of `svg_open`.
-            let mut svg = format!(
-                "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 {w} {h}\" \
-                 preserveAspectRatio=\"xMidYMid meet\" \
-                 style=\"font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif\" \
-                 role=\"img\">\n\
-                 <rect x=\"0\" y=\"0\" width=\"{w}\" height=\"{h}\" fill=\"#181b1f\"/>"
-            );
+            let mut svg = svg_open_dark(w, h, "#181b1f");
             if let Some(t) = args.title.as_deref() {
                 let _ = writeln!(
                     svg,
@@ -2475,17 +2483,7 @@ impl Skill for ChartGauge {
             // Background arc.
             let (sx, sy) = polar(cx, cy, r, start);
             let (ex, ey) = polar(cx, cy, r, end);
-            let _ = writeln!(
-                svg_open_arg(w, h),
-                "<rect x=\"0\" y=\"0\" width=\"{w}\" height=\"{h}\" fill=\"#1f2329\"/>"
-            );
-            let mut svg = format!(
-                "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 {w} {h}\" \
-                 preserveAspectRatio=\"xMidYMid meet\" \
-                 style=\"font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif\" \
-                 role=\"img\">\n\
-                 <rect x=\"0\" y=\"0\" width=\"{w}\" height=\"{h}\" fill=\"#1f2329\"/>"
-            );
+            let mut svg = svg_open_dark(w, h, "#1f2329");
             let _ = writeln!(
                 svg,
                 "<path d=\"M{sx:.2},{sy:.2} A{r:.2},{r:.2} 0 1 1 {ex:.2},{ey:.2}\" \
@@ -2568,12 +2566,6 @@ impl Skill for ChartGauge {
     }
 }
 
-/// Throwaway helper so the compiler doesn't complain about `svg_open` returning
-/// a String we ignored above; the real SVG buffer is local to each tool.
-fn svg_open_arg(w: f64, h: f64) -> String {
-    svg_open(w, h)
-}
-
 // ---------------------------------------------------------------------------
 // chart_bar_gauge — Grafana horizontal threshold bars (one row per item)
 // ---------------------------------------------------------------------------
@@ -2639,13 +2631,7 @@ impl Skill for ChartBarGauge {
             let value_w = 80.0_f64;
             let bar_left = label_w + 8.0;
             let bar_right = w - value_w - 8.0;
-            let mut svg = format!(
-                "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 {w} {h}\" \
-                 preserveAspectRatio=\"xMidYMid meet\" \
-                 style=\"font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif\" \
-                 role=\"img\">\n\
-                 <rect x=\"0\" y=\"0\" width=\"{w}\" height=\"{h}\" fill=\"#1f2329\"/>"
-            );
+            let mut svg = svg_open_dark(w, h, "#1f2329");
             if let Some(t) = args.title.as_deref() {
                 let _ = writeln!(
                     svg,
@@ -2810,13 +2796,7 @@ impl Skill for ChartStateTimeline {
             let plot_bottom = h - 32.0;
             let scale_x =
                 |x: f64| plot_left + (x - xmin) / (xmax - xmin) * (plot_right - plot_left);
-            let mut svg = format!(
-                "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 {w} {h}\" \
-                 preserveAspectRatio=\"xMidYMid meet\" \
-                 style=\"font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif\" \
-                 role=\"img\">\n\
-                 <rect x=\"0\" y=\"0\" width=\"{w}\" height=\"{h}\" fill=\"#1f2329\"/>"
-            );
+            let mut svg = svg_open_dark(w, h, "#1f2329");
             if let Some(t) = args.title.as_deref() {
                 let _ = writeln!(
                     svg,
