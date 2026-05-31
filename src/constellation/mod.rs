@@ -892,8 +892,15 @@ impl Constellation {
                     reputation: p.reputation,
                     reachable: p.reachable(),
                     delegation_enabled: p.delegation_enabled,
+                    known_peers: p.known.clone(),
                 })
                 .collect()
+        };
+        let local_urls: Vec<String> = {
+            let mut v: Vec<String> =
+                self.local_urls.lock().unwrap().iter().cloned().collect();
+            v.sort();
+            v
         };
         let (served, fetched) = {
             let seeds = self.seeds.lock().unwrap();
@@ -913,6 +920,7 @@ impl Constellation {
             delegation_total_bytes_per_hour: self.cfg.delegation_total_bytes_per_hour,
             total_served_bytes: served,
             total_fetched_bytes: fetched,
+            local_urls,
         }
     }
 

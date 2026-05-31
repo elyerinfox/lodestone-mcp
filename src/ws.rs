@@ -144,6 +144,10 @@ pub struct ConstellationState {
     /// node has served vs. fetched across all blobs.
     pub total_served_bytes: u64,
     pub total_fetched_bytes: u64,
+    /// URLs that resolve to this very node. Lets the dashboard recognize
+    /// "peer X says it knows us" without false positives when a peer
+    /// references us by a LAN address rather than localhost.
+    pub local_urls: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -156,4 +160,8 @@ pub struct PeerEntry {
     pub reachable: bool,
     /// Did this peer advertise willingness to serve delegated retrieves?
     pub delegation_enabled: bool,
+    /// URLs this peer advertised as its own known neighbors on its most
+    /// recent digest. Drives the swarm view's peer-to-peer edges. Empty
+    /// until we've fetched the peer's digest at least once.
+    pub known_peers: Vec<String>,
 }

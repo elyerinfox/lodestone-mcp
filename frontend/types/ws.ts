@@ -37,6 +37,7 @@ export interface PeerEntry {
   reputation: number
   reachable: boolean
   delegation_enabled: boolean
+  known_peers: string[]
 }
 
 export interface ConstellationState {
@@ -51,6 +52,7 @@ export interface ConstellationState {
   delegation_total_bytes_per_hour: number
   total_served_bytes: number
   total_fetched_bytes: number
+  local_urls: string[]
 }
 
 export interface Snapshot {

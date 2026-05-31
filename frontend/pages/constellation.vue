@@ -38,6 +38,7 @@
       <ConstellationGraph
         :node-id="snapshot.constellation.node_id"
         :peers="snapshot.constellation.peers"
+        :local-urls="snapshot.constellation.local_urls"
       />
     </section>
 
