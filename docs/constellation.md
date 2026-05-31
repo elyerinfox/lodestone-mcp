@@ -240,6 +240,15 @@ For **volatile / non-content-addressable sources** the existing multi-peer
 corroboration applies, and a user that hardens to
 `[network].min_agreement = 3` is never silently relaxed.
 
+The same per-source floor applies to the **search-result consensus path**
+(`consult` → `consensus`, separate from the blob-hash path). Search results
+are inherently `Source::SearchEngine` and use `max(cfg.min_agreement, 2)`:
+even a user that relaxes `cfg.min_agreement = 1` doesn't accept lone-peer
+search results, because there's no consumer-side verification for search
+hits (you can't recompute a search ranking the way you can recompute a
+content hash), so a single (potentially malicious) peer could otherwise
+inject results.
+
 ### Anti-tampering
 
 A peer could serve corrupted or malicious bytes, so blobs are **corroborated, then

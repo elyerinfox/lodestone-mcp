@@ -100,8 +100,17 @@ fn check_bbox(south: f64, west: f64, north: f64, east: f64) -> Result<(), McpErr
 pub(crate) const OVERPASS_UA: &str = crate::LODESTONE_UA;
 
 async fn run_overpass(server: &crate::Lodestone, query: &str) -> Result<Value, McpError> {
-    let cache_key = format!("grid_overpass|{}", crate::constellation::hash_key(query));
-    if let Some(c) = server.retrieval_get(&cache_key).await {
+    // Overpass-QL is the natural content key — same QL ⇒ same world data.
+    // Hashing it once gives us a stable source-id that two nodes computing
+    // the same per-skill `grid_overpass|…` primary key share, AND that
+    // `osm_overpass` (a different primary key shape) also shares — so any
+    // peer that ran this query under any skill is reachable.
+    let q_hash = crate::constellation::hash_key(query);
+    let cache_key = format!("grid_overpass|{q_hash}");
+    let ids = crate::constellation::Identifiers::new(&cache_key)
+        .with_source(crate::constellation::Source::Overpass)
+        .with_source_id("overpass_qhash", &q_hash);
+    if let Some(c) = server.retrieval_lookup(&ids).await {
         if let Ok(v) = serde_json::from_str::<Value>(&c) {
             return Ok(v);
         }
@@ -118,7 +127,7 @@ async fn run_overpass(server: &crate::Lodestone, query: &str) -> Result<Value, M
     )
     .await?;
     if let Ok(s) = serde_json::to_string(&v) {
-        server.retrieval_put(cache_key, &s);
+        server.retrieval_put_indexed(&ids, &s);
     }
     Ok(v)
 }

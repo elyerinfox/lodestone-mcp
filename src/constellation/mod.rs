@@ -692,8 +692,18 @@ impl Constellation {
     /// ordered by (corroborating peers, summed reputation, best rank). Returns
     /// empty if nothing clears the bar — so a lone (possibly malicious) peer
     /// can't inject a result.
+    ///
+    /// Search results are inherently `Source::SearchEngine` — volatile,
+    /// non-content-addressable — so the effective floor is
+    /// `max(cfg.min_agreement, SearchEngine.min_agreement_floor())` = at
+    /// least 2. A user that relaxes to `min_agreement = 1` for some other
+    /// reason doesn't accidentally accept lone-peer search results.
     pub(crate) fn consensus(&self, peer_hits: &[PeerHit], limit: usize) -> Vec<SearchResult> {
-        let min_agree = self.cfg.min_agreement.max(1);
+        let min_agree = self
+            .cfg
+            .min_agreement
+            .max(identifiers::Source::SearchEngine.min_agreement_floor())
+            .max(1);
         struct Agg {
             result: SearchResult,
             peers: usize,
@@ -1146,12 +1156,26 @@ mod tests {
     }
 
     #[test]
-    fn min_agreement_one_trusts_any_peer() {
+    fn search_consensus_enforces_source_floor_even_when_cfg_relaxes() {
+        // Search results are inherently `Source::SearchEngine`, which has a
+        // floor of 2 regardless of `cfg.min_agreement`. A user that drops
+        // cfg to 1 (presumably to favor availability for some other
+        // consult path) is intentionally NOT permitted to accept lone-peer
+        // search results — there's no consumer-side verification to fall
+        // back to for search hits, so a single (potentially malicious)
+        // peer could otherwise inject results.
         let constellation = constellation_with(1);
         let hits = vec![peer(0.5, &["https://solo.example"])];
+        assert!(constellation.consensus(&hits, 10).is_empty());
+
+        // With two agreeing peers the result clears the floor.
+        let hits = vec![
+            peer(0.5, &["https://both.example"]),
+            peer(0.4, &["https://both.example"]),
+        ];
         let out = constellation.consensus(&hits, 10);
         assert_eq!(out.len(), 1);
-        assert_eq!(out[0].url, "https://solo.example");
+        assert_eq!(out[0].url, "https://both.example");
     }
 
     #[test]

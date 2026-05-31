@@ -196,8 +196,15 @@ impl Skill for OsmOverpass {
             if q.is_empty() {
                 return Err(invalid("empty query"));
             }
-            let cache = format!("osm_overpass|{max}|{}", crate::constellation::hash_key(q));
-            if let Some(c) = server.retrieval_get(&cache).await {
+            // The QL hash is the cross-skill identifier: `grid_*` tools and
+            // `osm_overpass` running the same query share the same source-id
+            // even though their primary keys differ.
+            let q_hash = crate::constellation::hash_key(q);
+            let cache = format!("osm_overpass|{max}|{q_hash}");
+            let ids = crate::constellation::Identifiers::new(&cache)
+                .with_source(crate::constellation::Source::Overpass)
+                .with_source_id("overpass_qhash", &q_hash);
+            if let Some(c) = server.retrieval_lookup(&ids).await {
                 return Ok(text_result(c));
             }
             let v: Value = send_json_ctx(
@@ -240,7 +247,7 @@ impl Skill for OsmOverpass {
                 };
                 out.push_str(&format!("  {typ}/{id}{coords}  {name}\n"));
             }
-            server.retrieval_put(cache, &out);
+            server.retrieval_put_indexed(&ids, &out);
             Ok(text_result(out))
         })
     }

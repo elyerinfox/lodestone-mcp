@@ -69,6 +69,28 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   key overwrite cleanly removing prior aliases, content-hash auto-attachment,
   and the identifier cap.
 
+  **Adopters** (this commit pulse — every rate-limit-painful source now
+  classifies its cache entries):
+  - **`arxiv_get`** (`src/skills/arxiv.rs`) — `Source::Arxiv`; lookup carries
+    `("arxiv", "<id>v<ver>")` source-id, store adds abs URL + PDF URL aliases.
+    arXiv's 3-second-gated API now serves the mesh from any node that has
+    the paper, regardless of whether the consumer asks by id, abs URL, or
+    PDF URL.
+  - **`arxiv_search`** — primary key only (search results aren't
+    content-addressable by paper id), keeps `Source::Other` semantics.
+  - **`github_releases`** (`src/skills/github.rs`) — `Source::Github`; URL
+    aliases include the listing page and each release's canonical `html_url`
+    up to the 8-identifier cap, so a consumer probing a specific
+    `/releases/tag/<tag>` URL hits this entry.
+  - **`grid::run_overpass`** + **`osm_overpass`** — `Source::Overpass`; both
+    sites attach `("overpass_qhash", hash_of_QL)` so a query run under any
+    skill is reachable from any other. Cross-skill cache hits for free.
+  - **Search-result consensus** (`src/constellation/mod.rs::consensus`) —
+    inherently `Source::SearchEngine`; the effective `min_agreement` floor
+    is now `max(cfg, 2)` regardless of `cfg.min_agreement`, so a user that
+    drops cfg to 1 (for some other consult path) doesn't accidentally
+    accept lone-peer search results.
+
 ### Documentation
 
 - **[`Makefile`](Makefile)** wraps the pre-commit triad and the CI gate as

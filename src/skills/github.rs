@@ -226,7 +226,15 @@ impl Skill for GithubReleases {
             let max = clamp(args.max_results, 5, 30);
             let prereleases = args.include_prereleases.unwrap_or(false);
             let key = format!("ghrel|{repo}|{max}|{prereleases}");
-            if let Some(cached) = server.retrieval_get(&key).await {
+            // GitHub releases are content-addressable by `{repo}@{tag}`
+            // (each tag's body is immutable once published) — Source::Github
+            // gets the 7-day TTL and the relaxed single-peer min_agreement.
+            // We don't have the tag list yet for lookup; the URL of the
+            // releases page is a stable handle a peer could've cached under.
+            let lookup_ids = crate::constellation::Identifiers::new(&key)
+                .with_source(crate::constellation::Source::Github)
+                .with_url(format!("https://github.com/{repo}/releases"));
+            if let Some(cached) = server.retrieval_lookup(&lookup_ids).await {
                 return Ok(text_result(cached));
             }
             let per = if prereleases { max } else { (max * 3).min(100) }.to_string();
@@ -242,6 +250,15 @@ impl Skill for GithubReleases {
             let empty = Vec::new();
             let mut out = format!("Releases for {repo}:\n");
             let mut shown = 0usize;
+            // GitHub's API gives us each release's canonical html_url
+            // (`https://github.com/{repo}/releases/tag/{tag}`); collect them
+            // so we can attach each as a URL alias on the cache entry. A
+            // consumer probing any per-tag URL then hits this listing.
+            // Capped by the cache's identifier limit
+            // (`MAX_IDENTIFIERS_PER_ENTRY = 8`) — surplus tags drop off the
+            // alias list, the entry is still reachable by primary key and
+            // the releases-listing URL.
+            let mut release_urls: Vec<String> = Vec::new();
             for r in v.as_array().unwrap_or(&empty) {
                 let pre = r
                     .get("prerelease")
@@ -265,6 +282,9 @@ impl Skill for GithubReleases {
                 let url = r.get("html_url").and_then(|x| x.as_str()).unwrap_or("");
                 let body = r.get("body").and_then(|x| x.as_str()).unwrap_or("").trim();
                 shown += 1;
+                if !url.is_empty() {
+                    release_urls.push(url.to_string());
+                }
                 out.push_str(&format!(
                     "\n{shown}. {name} ({tag}){} — {date}\n   {url}\n",
                     if pre { " [prerelease]" } else { "" }
@@ -284,7 +304,13 @@ impl Skill for GithubReleases {
                 )));
             }
             let out = truncate_chars(&out, server.max_chars);
-            server.retrieval_put(key, &out);
+            // Attach each release's canonical html_url as a URL alias.
+            // Identifier cap drops surplus past the 8th identifier slot.
+            let mut store_ids = lookup_ids;
+            for u in &release_urls {
+                store_ids = store_ids.with_url(u);
+            }
+            server.retrieval_put_indexed(&store_ids, &out);
             Ok(text_result(out))
         })
     }

@@ -140,6 +140,10 @@ impl Skill for ArxivSearch {
             let (server, args) = ctx.parse::<ArxivSearchArgs>()?;
             let limit = clamp(args.max_results, 8, 25);
             let cache_key = format!("arxiv_search|{limit}|{}", args.query.trim());
+            // arxiv_search results aren't content-addressable by paper id —
+            // they're query-shaped — so source stays as Other (global TTL +
+            // global min_agreement). What buys us mesh sharing here is just
+            // the primary key: identical query text on multiple nodes.
             if let Some(cached) = server.retrieval_get(&cache_key).await {
                 return Ok(text_result(cached));
             }
@@ -207,7 +211,14 @@ impl Skill for ArxivGet {
                 return Err(invalid(format!("not an arXiv id: '{}'", args.id)));
             }
             let cache_key = format!("arxiv_get|{id}");
-            if let Some(cached) = server.retrieval_get(&cache_key).await {
+            // arxiv papers are content-addressable by `{id}+v` — immutable per
+            // version — so a peer that cached the same paper under any of
+            // (primary key, abs URL, PDF URL, source-id "arxiv":"<id>v<ver>")
+            // serves us without re-hitting the 3-second-gated upstream.
+            let lookup_ids = crate::constellation::Identifiers::new(&cache_key)
+                .with_source(crate::constellation::Source::Arxiv)
+                .with_source_id("arxiv", &id);
+            if let Some(cached) = server.retrieval_lookup(&lookup_ids).await {
                 return Ok(text_result(cached));
             }
             let entries = fetch(
@@ -233,7 +244,10 @@ impl Skill for ArxivGet {
                 "  PDF (read_pdf for full text): {}\n\n{}",
                 e.pdf_url, e.summary
             ));
-            server.retrieval_put(cache_key, &out);
+            // Now we have the resolved abs + PDF URLs — attach them as
+            // aliases so a consumer asking by either URL hits this entry.
+            let store_ids = lookup_ids.with_url(&e.abs_url).with_url(&e.pdf_url);
+            server.retrieval_put_indexed(&store_ids, &out);
             Ok(text_result(out))
         })
     }
