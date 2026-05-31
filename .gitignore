@@ -14,11 +14,8 @@
 # Memory/solution SQLite store ([memory]) — runtime data, never source.
 /.lodestone-memory/
 
-# Smoke-harness runtime artifacts — the harness creates these in smoke/<node>/.
-# Only the configs (and the harness script itself) are committed.
-/smoke/*/.lodestone-memory/
-/smoke/*/.lodestone-store/
-/smoke/*/*.log
+# Local smoke/dev harness directory — runtime configs + state, never source.
+/smoke/
 
 # Claude Code session state.
 /.claude/
