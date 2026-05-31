@@ -62,6 +62,18 @@ pub(crate) struct Digest {
     /// don't accidentally hammer a peer that hasn't advertised willingness.
     #[serde(default)]
     pub delegation_enabled: bool,
+    /// **Full** count of reachable peers this node knows about, used as the
+    /// primary signal in `maybe_adopt_id`: when two constellations meet, the
+    /// **larger** mesh wins so the smaller mesh adopts the larger one's id
+    /// (with the alphabetically-smaller id as a tiebreaker on equal sizes).
+    ///
+    /// Distinct from `peers` (which is a gossip *sample* capped at
+    /// `MAX_GOSSIP_PEERS = 64`) and from `count` (which is the Bloom filter
+    /// entry count). Older peers that omit this default to 0 — they'll lose
+    /// every merge against newer peers, which is the safe default
+    /// (they're either alone or upgrading).
+    #[serde(default)]
+    pub peer_count: usize,
 }
 
 /// Max peer URLs advertised per digest, and the upper bound on the peer table —
@@ -198,7 +210,8 @@ pub(crate) struct Constellation {
     cfg: NetworkConfig,
     node_id: String,
     /// The shared constellation id (distinct from `node_id`). Mutable so the mesh can
-    /// converge to one id — co-located constellations merge by adopting the smallest.
+    /// converge to one id — co-located constellations merge by adopting the **larger**
+    /// mesh's id (alphabetically smaller id as the tiebreaker on equal sizes).
     constellation_id: Mutex<String>,
     http: Client,
     cache: Arc<TtlCache>,
@@ -242,7 +255,8 @@ impl Constellation {
             cfg.node_id.trim().to_string()
         };
         // Shared constellation id: configured, else random. Convergence on sync makes
-        // co-located nodes/meshes agree on (and merge to) the smallest id.
+        // co-located nodes/meshes agree on a single id via `maybe_adopt_id` — the
+        // larger mesh wins; alphabetical id is the tiebreaker on equal sizes.
         let constellation_id = if cfg.id.trim().is_empty() {
             random_id()
         } else {
@@ -316,9 +330,13 @@ impl Constellation {
         if let Some(ret) = &self.retrieval {
             keys.extend(ret.keys());
         }
-        let peers: Vec<String> = {
+        let (peers, peer_count): (Vec<String>, usize) = {
             let table = self.peers.lock().unwrap();
-            table.keys().take(MAX_GOSSIP_PEERS).cloned().collect()
+            let sample = table.keys().take(MAX_GOSSIP_PEERS).cloned().collect();
+            // `peers` is a CAPPED gossip sample; `peer_count` is the FULL
+            // count used by the merge rule so mesh size compares accurately
+            // even when the gossip sample is saturated.
+            (sample, table.len())
         };
         Digest {
             node_id: self.node_id.clone(),
@@ -328,6 +346,7 @@ impl Constellation {
             delegation_enabled: self.cfg.delegation_enabled,
             bloom: BloomFilter::from_keys(&keys),
             peers,
+            peer_count,
         }
     }
 
@@ -336,15 +355,38 @@ impl Constellation {
         self.constellation_id.lock().unwrap().clone()
     }
 
-    /// Adopt `peer_cid` as our constellation id iff it's a non-empty id smaller than
-    /// ours — the deterministic merge rule that converges a connected mesh to one id.
-    fn maybe_adopt_id(&self, peer_cid: &str) {
+    /// Adopt `peer_cid` as our constellation id when meeting a peer in a
+    /// different mesh. The rule is **larger mesh wins** with the
+    /// alphabetically-smaller id as the tiebreaker on equal sizes:
+    ///
+    /// - `peer_peer_count > our peer count` → adopt (their mesh is bigger
+    ///   so the smaller mesh — us — adopts the more-defined one);
+    /// - equal counts AND `peer_cid < our_cid` → adopt (preserves
+    ///   determinism — both ends compute the same answer);
+    /// - everything else → no-op.
+    ///
+    /// Propagation is automatic via gossip: a node that adopts a new id
+    /// re-advertises it on its next digest, peers see the change and run
+    /// the same rule, and the new id spreads to every connected node in
+    /// `O(sync_secs × mesh diameter)`.
+    fn maybe_adopt_id(&self, peer_cid: &str, peer_peer_count: usize) {
         if peer_cid.is_empty() {
             return;
         }
+        let my_peer_count = self.peers.lock().unwrap().len();
         let mut mine = self.constellation_id.lock().unwrap();
-        if peer_cid < mine.as_str() {
-            tracing::info!(adopted = %peer_cid, "constellation id converged (merge)");
+        // Larger mesh wins; alphabetical id is only the tiebreaker. An empty
+        // local cid (uninitialised on first boot — shouldn't happen but be
+        // defensive) always loses.
+        let adopt = peer_peer_count > my_peer_count
+            || (peer_peer_count == my_peer_count && (mine.is_empty() || peer_cid < mine.as_str()));
+        if adopt {
+            tracing::info!(
+                adopted = %peer_cid,
+                their_peers = peer_peer_count,
+                our_peers = my_peer_count,
+                "constellation id converged (merge — larger mesh wins)"
+            );
             *mine = peer_cid.to_string();
         }
     }
@@ -1073,6 +1115,7 @@ impl Constellation {
                 Ok(d) if d.node_id != self.node_id && d.bloom.is_valid() => {
                     let peer_cid = d.constellation_id.clone();
                     let peer_delegation = d.delegation_enabled;
+                    let peer_peer_count = d.peer_count;
                     gossiped.extend(d.peers.iter().take(MAX_GOSSIP_PEERS).cloned());
                     {
                         let mut peers = self.peers.lock().unwrap();
@@ -1084,9 +1127,11 @@ impl Constellation {
                             p.delegation_enabled = peer_delegation;
                         }
                     }
-                    // Converge to the smallest constellation id seen, so nodes that can
-                    // reach each other (incl. two co-located meshes) MERGE to one id.
-                    self.maybe_adopt_id(&peer_cid);
+                    // Merge to the LARGER mesh; alphabetical id is only a
+                    // tiebreaker. Each adopt propagates to our own peers on
+                    // the next digest exchange so a connected mesh converges
+                    // in O(sync_secs × diameter).
+                    self.maybe_adopt_id(&peer_cid, peer_peer_count);
                 }
                 Ok(_) => {
                     // Self or malformed: don't consult it.
@@ -1503,7 +1548,7 @@ mod tests {
     }
 
     #[test]
-    fn constellation_id_configured_and_converges_to_smallest() {
+    fn constellation_id_configured_and_converges_to_larger_mesh() {
         let cfg = NetworkConfig {
             enabled: true,
             id: "mmm-mid".to_string(),
@@ -1511,14 +1556,58 @@ mod tests {
         };
         let c = Constellation::new(&cfg, Arc::new(TtlCache::new(60, 64)), None, None);
         assert_eq!(c.constellation_id(), "mmm-mid");
-        // A larger peer id is ignored; a smaller one is adopted (merge).
-        c.maybe_adopt_id("zzz-high");
+        // Our peer count is 0 (no static peers in default config).
+        //
+        // Equal mesh size (both 0): alphabetical tiebreaker. "zzz-high" loses,
+        // "aaa-low" wins.
+        c.maybe_adopt_id("zzz-high", 0);
         assert_eq!(c.constellation_id(), "mmm-mid");
-        c.maybe_adopt_id("aaa-low");
+        c.maybe_adopt_id("aaa-low", 0);
         assert_eq!(c.constellation_id(), "aaa-low");
         // Empty peer id never changes ours.
-        c.maybe_adopt_id("");
+        c.maybe_adopt_id("", 0);
         assert_eq!(c.constellation_id(), "aaa-low");
+    }
+
+    #[test]
+    fn larger_mesh_wins_over_alphabetically_smaller_id() {
+        // A larger peer mesh overrides our id even if the peer's id is
+        // alphabetically *greater* than ours — the mesh-size signal is
+        // primary, alphabetical id is only the tiebreaker.
+        let cfg = NetworkConfig {
+            enabled: true,
+            id: "aaa-low".to_string(),
+            ..NetworkConfig::default()
+        };
+        let c = Constellation::new(&cfg, Arc::new(TtlCache::new(60, 64)), None, None);
+        // Peer's mesh has 5 members; ours has 0. Peer wins despite
+        // "zzz-high" > "aaa-low" alphabetically.
+        c.maybe_adopt_id("zzz-high", 5);
+        assert_eq!(c.constellation_id(), "zzz-high");
+    }
+
+    #[test]
+    fn smaller_mesh_does_not_override_larger() {
+        // Symmetric case: a peer in a smaller mesh can't drag us back even
+        // if its id is alphabetically smaller. The big-mesh node already
+        // adopted, and a stray small-mesh node poking in shouldn't undo it.
+        let cfg = NetworkConfig {
+            enabled: true,
+            // Pretend we already merged to a bigger mesh's id.
+            id: "zzz-big-mesh".to_string(),
+            // Static peers seed our peer table so peer_count() > 0.
+            peers: vec![
+                "http://a.example:8000".into(),
+                "http://b.example:8000".into(),
+            ],
+            ..NetworkConfig::default()
+        };
+        let c = Constellation::new(&cfg, Arc::new(TtlCache::new(60, 64)), None, None);
+        // Our mesh has 2 peers. A lone peer offers an alphabetically smaller
+        // id but its mesh is smaller (just itself, peer_count = 0). We
+        // keep ours.
+        c.maybe_adopt_id("aaa-tiny-mesh", 0);
+        assert_eq!(c.constellation_id(), "zzz-big-mesh");
     }
 
     #[test]

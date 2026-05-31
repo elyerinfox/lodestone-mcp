@@ -6,6 +6,34 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **Constellation merge rule: prefer the larger mesh.** When two
+  constellations meet, the **larger** mesh's id wins so the smaller mesh
+  adopts the larger one (alphabetical id is now only the tiebreaker on
+  equal sizes). The prior rule — "smallest id wins regardless" — was
+  deterministic but semantically arbitrary: a 50-node mesh could be
+  forced to adopt the id of a 2-node mesh just because the small mesh
+  happened to have an `"aaa-…"`-style id. The new rule prefers the
+  more-defined mesh, matching the intuition that "the bigger thing
+  absorbs the smaller thing." Implementation: `Digest` gains
+  `peer_count: usize` carrying the FULL count of reachable peers (the
+  existing `peers` field is a gossip *sample* capped at
+  `MAX_GOSSIP_PEERS = 64`, so wasn't usable for size comparison once a
+  mesh got past 64 nodes); `maybe_adopt_id(peer_cid, peer_peer_count)`
+  compares mesh sizes first, falls back to alphabetical id on tie.
+  Backward compat: `serde(default)` on `peer_count` so older peers
+  default to 0 — they'll lose every merge against a newer peer (safe
+  default; they're either alone or upgrading).
+
+  **Propagation.** Each adopt is one hop; the change spreads through the
+  connected mesh via the normal gossip path. When node X adopts, X's
+  next digest carries the new id, X's other peers see it on their next
+  sync and run the same rule. Full convergence in
+  `O(sync_secs × diameter)` — a few minutes for typical sparse meshes
+  with the default 30s sync. Documented under §"Auto-healing on network
+  change" in `docs/constellation.md`.
+
 ### Added
 
 - **Retrieval delegation** — opt-in "go fetch this URL for me" service over

@@ -34,7 +34,9 @@ come first so the rest reads unambiguously.
   `[network].node_id`). Unique per process, stable across restarts.
 - **constellation id** — a *shared* id for all members of one constellation
   (`[network].id`, distinct from `node_id`). Nodes that reach each other **converge to
-  the smallest id**, so a mesh registers in the galaxy as one entry, not one per node.
+  the larger mesh's id** (alphabetically smaller id as the tiebreaker on equal sizes),
+  so a mesh registers in the galaxy as one entry, not one per node, and a small mesh
+  meeting a big one is absorbed by the big one.
 - **`ingress`** — a constellation's publicly-reachable URL(s), registered with a broker
   so other constellations can connect inbound.
 
@@ -454,19 +456,31 @@ with peers already in mesh **beta**:
    `[galaxy]` broker nor `[network].peers` matches anything reachable, the
    node runs as a lone constellation until discovery — its caches still
    work locally with zero peers.
-3. **The constellation_id merges to the smaller of the two.** Each digest
-   carries the advertiser's `constellation_id`. When the moved node sees a
-   digest from a peer in a *different* constellation, `maybe_adopt_id` picks
-   the alphabetically-smaller id deterministically:
-   - laptop = `"alpha"`, office mesh = `"beta"` → `"alpha"` wins. The
-     office mesh's nodes adopt `"alpha"` as they sync with the laptop, and
-     the office mesh effectively **merges into** the laptop's home
-     constellation.
-   - laptop = `"beta"`, office mesh = `"alpha"` → reverse. The laptop
-     adopts `"alpha"` on its next sync. The home mesh the laptop left
-     behind keeps its `"beta"` id and just loses one peer from each table.
-   - Same id on both sides → no-op (they were already the same
-     constellation).
+3. **The constellation_id merges to the *larger* mesh** (tiebreak: smaller
+   alphabetical id). Each digest carries the advertiser's
+   `constellation_id` AND its full `peer_count`. When the moved node sees
+   a digest from a peer in a *different* constellation, `maybe_adopt_id`
+   compares the two meshes:
+   - **Different sizes** → the **larger** mesh's id wins. A 50-node
+     `"alpha"` mesh meeting a 2-node `"beta"` mesh adopts `"alpha"` —
+     even if `"beta"` < `"alpha"` alphabetically — because the more-
+     defined mesh is the more useful name to converge on. The smaller
+     mesh is the one that should adopt; otherwise mesh size carries no
+     signal and merges would oscillate.
+   - **Equal sizes** → the alphabetically-smaller id is the tiebreaker, so
+     both ends compute the same answer with no extra state.
+   - **Same id already** → no-op (already converged).
+
+   **The change propagates by gossip.** When node X adopts a new
+   constellation_id from peer Y, X's *next* `digest()` carries the new id.
+   X's other peers — which may not yet have talked to Y — see X's new id
+   on their next sync cycle and run the same comparison: most of the time
+   they're now smaller than Y's mesh (because X's mesh just merged in) and
+   they adopt too. The change spreads through the connected mesh in
+   `O(sync_secs × diameter)` — for a sparse 30-node mesh with the default
+   30s sync, that's a few minutes for full convergence. Nothing ever
+   needs to be told twice; each node makes the same comparison
+   independently and arrives at the same answer.
 4. **The cache is preserved — the moving node is a *bridge*.** Every entry
    in the laptop's `IndexedRetrievalCache` and file store survives the
    network switch (same process, in-memory). The new digest re-advertises
@@ -512,7 +526,7 @@ sequenceDiagram
 
   Note over L,O: mDNS announce on new LAN
   L<<->>O: digest exchange
-  Note over L,O: maybe_adopt_id picks min("alpha","beta")<br/>= "alpha" → office mesh merges into "alpha"
+  Note over L,O: maybe_adopt_id picks the LARGER mesh<br/>(alphabetical id is only the tiebreaker)<br/>then propagates to all peers via the next digest
   L-->>O: serves home-cached arxiv / wayback bytes<br/>(no upstream re-fetch)
 
   opt galaxy broker configured
@@ -597,10 +611,13 @@ Two sides (independent):
 
 **One id per constellation.** Member nodes share a single **constellation id**
 (`[network].id`; distinct from each node's `node_id`). It's random if unset, and
-nodes that reach each other **converge to the smallest id** — so a multi-node
-constellation registers as *one* entry in the galaxy (not one per node), and two
-meshes that find each other on a network **merge** into a single constellation. The
-galaxy client registers under this id unless `[galaxy].id` overrides it.
+nodes that reach each other **converge to the larger mesh's id** — the smaller
+mesh adopts the larger one's id, with the alphabetically-smaller id as the
+tiebreaker when sizes are equal. So a multi-node constellation registers as
+*one* entry in the galaxy (not one per node), and two meshes that find each
+other on a network **merge** into a single constellation that keeps the
+more-defined name. The galaxy client registers under this id unless
+`[galaxy].id` overrides it.
 
 **Bidirectional ("reach out" *and* "allow in").** Participation is two-way and
 symmetric through the directory: **registering** your `ingress` makes you discoverable
