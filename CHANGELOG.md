@@ -8,6 +8,39 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`html_render` skill** (`src/skills/html.rs`, on by default via
+  `[html].enabled`). Renders an HTML snippet OR navigates to a URL in
+  the same shared headless Chrome the rest of the project uses
+  (`render_page`, the Google search-provider rendering), waits a
+  configurable `wait_ms` for JavaScript to run, then returns a
+  structured diagnostics report:
+  - **Console** — every `console.log / info / warn / error / debug /
+    trace / dir / table / count / time / group / clear / assert / profile`
+    call. Level, concatenated args, source URL + 1-based line number from
+    the CDP stack-trace top frame.
+  - **JS exceptions** — every `Runtime.exceptionThrown` event, with text,
+    source / line / column, and a flattened multi-frame stack trace.
+  - **Network failures** — every `Network.loadingFailed` event (DNS,
+    connection refused, CORS block, ad-blocker interception, mixed-
+    content block, …). Distinguished from HTTP errors because no
+    response was ever received.
+  - **HTTP errors** — every response with status ≥ 400, with URL,
+    status, and resource type.
+  - **Summary** — final page title, final URL after redirects, total
+    elapsed time.
+
+  Use after `chart_interactive` (or any HTML-emitting tool) to verify
+  the output actually runs cleanly before shipping it.
+
+  The `PageRenderer` trait gained a `render_diagnostics(input, wait_ms)`
+  method; `RenderInput` is a new public enum (`Url` or `Html`). The
+  implementation subscribes to CDP `Runtime.consoleAPICalled` /
+  `Runtime.exceptionThrown` / `Network.loadingFailed` /
+  `Network.responseReceived` event streams BEFORE navigation so early
+  events aren't lost to a startup race, collects them into
+  `Arc<Mutex<Vec<…>>>` buffers via spawned tasks during the wait, then
+  drains and closes. Gate via `LODESTONE_HTML_ENABLED`.
+
 - **Image forensics + EXIF skills** (`src/skills/image.rs`, on by default
   via `[image].enabled`). Four read-only tools, all paths confined to
   `[filesystem].roots`:

@@ -43,6 +43,7 @@ pub struct Config {
     pub fcc: Fcc,
     pub chart: Chart,
     pub image: Image,
+    pub html: Html,
     pub spreadsheet: Spreadsheet,
     pub sdr: Sdr,
     pub tasks: Tasks,
@@ -773,6 +774,25 @@ impl Default for Image {
     }
 }
 
+/// `html_render` skill (`src/skills/html.rs`). **On by default**. Executes
+/// HTML / JS in the same shared headless Chrome used by `render_page` and
+/// `fetch_page`, captures console events / JS exceptions / network failures
+/// / HTTP errors, returns an aggregated diagnostics report. Useful for
+/// verifying that a generated UI or `chart_interactive` HTML actually runs
+/// cleanly before shipping it.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct Html {
+    /// Expose `html_render`.
+    pub enabled: bool,
+}
+
+impl Default for Html {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
+}
+
 /// Spreadsheet skill (`src/skills/spreadsheet.rs`) — read/query/write CSV & XLSX.
 /// **Off by default**; paths are confined to `[filesystem].roots` and writes go
 /// through the confirmation guard.
@@ -1052,6 +1072,7 @@ impl Default for Config {
             fcc: Fcc::default(),
             chart: Chart::default(),
             image: Image::default(),
+            html: Html::default(),
             spreadsheet: Spreadsheet::default(),
             sdr: Sdr::default(),
             tasks: Tasks::default(),
@@ -1435,6 +1456,9 @@ impl Config {
         }
         if let Ok(v) = std::env::var("LODESTONE_IMAGE_ENABLED") {
             self.image.enabled = is_truthy(&v);
+        }
+        if let Ok(v) = std::env::var("LODESTONE_HTML_ENABLED") {
+            self.html.enabled = is_truthy(&v);
         }
         if let Ok(v) = std::env::var("LODESTONE_SPREADSHEET_ENABLED") {
             self.spreadsheet.enabled = is_truthy(&v);

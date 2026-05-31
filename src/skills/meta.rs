@@ -420,6 +420,18 @@ fn families() -> Vec<Family> {
             extra: |_c| vec![],
         },
         Family {
+            key: "html",
+            section: "[html]",
+            description:
+                "Render HTML / a URL in headless Chrome and capture diagnostics: every console \
+                 call, every uncaught JS exception with stack, every network failure, every HTTP \
+                 4xx/5xx response. Verifies generated UIs / `chart_interactive` HTML actually \
+                 runs cleanly.",
+            tool_match: &["html_"],
+            enabled: |c| c.html.enabled,
+            extra: |_c| vec![],
+        },
+        Family {
             key: "signal",
             section: "[signal]",
             description: "Signal-processing (FFT, RMS, windowing).",

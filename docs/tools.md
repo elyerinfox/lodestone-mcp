@@ -388,6 +388,7 @@ client). Gated by `[tasks]`. Currently backgrounds searches.
 | `chart_canvas` | `commands`, `width?`, `height?`, `background?`, `title?` | Procedural drawing canvas (turtle / Logo style): line / rect / circle / polygon / polyline / text primitives drawn in order. |
 | `chart_interactive` | `library` (chartjs/plotly), `config`, `title?`, `width?`, `height?` | Self-contained HTML wrapping Chart.js or Plotly. Clients that render HTML get full interactivity; others see source. |
 | `chart_mermaid` | `source`, `title?` | Wrap mermaid source in a markdown code fence. Every modern MCP client renders mermaid blocks natively. |
+| `html_render` | `html?`, `url?`, `wait_ms?` | Execute HTML/JS or a URL in headless Chrome and return diagnostics: console events, JS exceptions, network failures, HTTP 4xx/5xx errors, title, final URL, elapsed time. |
 | `image_info` | `path` | Format / dimensions / color / animation from structural headers (JPEG SOFn, PNG IHDR, GIF LSD, WebP VP8, BMP DIB, TIFF, HEIF, JPEG-XL). |
 | `image_exif` | `path` | Full EXIF tag dump (IFD0 / Exif / GPS / Interop) with GPS decoded to signed decimal degrees + OSM link; flags timestamp-divergence and editor-branded Software tags. |
 | `image_jpeg_analyze` | `path` | Walk every JPEG marker — APP segments by identifier (JFIF / EXIF / XMP / ICC / 8BIM / MPF), DQT / DHT, SOFn, scan headers. |
