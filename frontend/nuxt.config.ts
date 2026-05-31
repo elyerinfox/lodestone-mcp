@@ -19,6 +19,14 @@ export default defineNuxtConfig({
   modules: ['@nuxtjs/tailwindcss', '@vueuse/nuxt'],
   ssr: false,
   app: {
+    // The Rust binary serves the SPA under `/dashboard/`, so every
+    // generated asset URL (`<link rel="stylesheet" href="…">`,
+    // `<script src="…">`, route paths) must carry the same prefix.
+    // Without this, the SPA HTML loads but every `/_nuxt/…` reference
+    // resolves to a 404 against the bare backend (`/` → MCP only) and
+    // the page hangs with no styles + no JS.
+    baseURL: '/dashboard/',
+    buildAssetsDir: '/_nuxt/',
     head: {
       title: 'lodestone-mcp dashboard',
       meta: [
