@@ -2,10 +2,12 @@
 # config/06-network.toml — constellation (peer-to-peer shared query knowledge)
 # =============================================================================
 #
-# OPT-IN and OFF by default. When enabled, instances consult each other's caches
-# before scraping the open web, spreading load and softening per-IP rate limits.
-# The network is a *helper*, never a dependency: with zero peers everything still
-# works locally.
+# ON by default — instances consult each other's caches before scraping the open
+# web, spreading load and softening per-IP rate limits. The network is a *helper*,
+# never a dependency: with zero peers everything still works locally. mDNS auto-
+# discovers other lodestone-mcp nodes on the same LAN; outbound traffic is limited
+# to digest-sync against known peers and (when delegation is on) the URLs a peer
+# explicitly asks us to fetch. Set `enabled = false` to opt out.
 #
 # Privacy & trust: only *hashes* of query keys cross the wire (never raw queries),
 # and responses carry only cached search results (public web data), never secrets.
@@ -20,7 +22,7 @@
 
 [network]
 # Master switch. Env: LODESTONE_NETWORK_ENABLED
-enabled = false
+enabled = true
 
 # Optional SEPARATE host:port for the /constellation/* endpoints. Empty = share the
 # main MCP `bind` (top of config). Set this to expose ONLY the constellation — e.g.
