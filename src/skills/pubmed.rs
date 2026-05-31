@@ -505,10 +505,7 @@ pub fn skills() -> Vec<Box<dyn Skill>> {
 #[cfg(test)]
 mod live {
     fn http() -> reqwest::Client {
-        reqwest::Client::builder()
-            .user_agent(crate::LODESTONE_UA)
-            .build()
-            .unwrap()
+        crate::skills::live_http()
     }
 
     /// NCBI E-utilities — keyless (3 req/sec without key, 10 with one).

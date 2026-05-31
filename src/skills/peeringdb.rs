@@ -304,10 +304,7 @@ mod tests {
     }
 
     fn http() -> reqwest::Client {
-        reqwest::Client::builder()
-            .user_agent(crate::LODESTONE_UA)
-            .build()
-            .unwrap()
+        crate::skills::live_http()
     }
 
     /// AS13335 = Cloudflare — well-known, stable.

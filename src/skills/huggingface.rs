@@ -258,10 +258,7 @@ mod tests {
     }
 
     fn http() -> reqwest::Client {
-        reqwest::Client::builder()
-            .user_agent(crate::LODESTONE_UA)
-            .build()
-            .unwrap()
+        crate::skills::live_http()
     }
 
     /// `gpt2` is canonical and won't go away — stable target for the live test.

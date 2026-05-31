@@ -162,10 +162,7 @@ mod tests {
     }
 
     fn http() -> reqwest::Client {
-        reqwest::Client::builder()
-            .user_agent(crate::LODESTONE_UA)
-            .build()
-            .unwrap()
+        crate::skills::live_http()
     }
 
     /// EIA needs a real API key; skip the live test cleanly when one isn't

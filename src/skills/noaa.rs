@@ -203,10 +203,7 @@ mod tests {
     use super::*;
 
     fn http() -> reqwest::Client {
-        reqwest::Client::builder()
-            .user_agent(crate::LODESTONE_UA)
-            .build()
-            .unwrap()
+        crate::skills::live_http()
     }
 
     /// The /alerts endpoint returns a GeoJSON FeatureCollection even when

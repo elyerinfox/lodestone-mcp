@@ -89,10 +89,7 @@ pub fn skills() -> Vec<Box<dyn Skill>> {
 #[cfg(test)]
 mod tests {
     fn http() -> reqwest::Client {
-        reqwest::Client::builder()
-            .user_agent(crate::LODESTONE_UA)
-            .build()
-            .unwrap()
+        crate::skills::live_http()
     }
 
     /// kernel.org publishes `releases.json` with a stable schema covering

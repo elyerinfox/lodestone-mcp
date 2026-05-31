@@ -135,10 +135,7 @@ pub fn skills() -> Vec<Box<dyn Skill>> {
 #[cfg(test)]
 mod live {
     fn http() -> reqwest::Client {
-        reqwest::Client::builder()
-            .user_agent(crate::LODESTONE_UA)
-            .build()
-            .unwrap()
+        crate::skills::live_http()
     }
 
     /// Stooq's CSV quote endpoint — keyless, the source `stock_quote` reads.

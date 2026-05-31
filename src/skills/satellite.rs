@@ -715,10 +715,7 @@ impl Skill for SatGroup {
 #[cfg(test)]
 mod live {
     fn http() -> reqwest::Client {
-        reqwest::Client::builder()
-            .user_agent(crate::LODESTONE_UA)
-            .build()
-            .unwrap()
+        crate::skills::live_http()
     }
 
     /// CelesTrak: the source for both sat_tle (by NORAD id) and sat_group.

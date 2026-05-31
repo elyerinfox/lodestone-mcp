@@ -404,10 +404,7 @@ pub const TOOL_NAMES: &[&str] = &["yahoo_quote", "yahoo_history", "yahoo_search"
 #[cfg(test)]
 mod live {
     fn http() -> reqwest::Client {
-        reqwest::Client::builder()
-            .user_agent(crate::LODESTONE_UA)
-            .build()
-            .unwrap()
+        crate::skills::live_http()
     }
 
     /// Yahoo Finance's keyless v7 quote endpoint — Yahoo periodically tightens

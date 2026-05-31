@@ -113,10 +113,7 @@ mod tests {
 #[cfg(test)]
 mod live {
     fn http() -> reqwest::Client {
-        reqwest::Client::builder()
-            .user_agent(crate::LODESTONE_UA)
-            .build()
-            .unwrap()
+        crate::skills::live_http()
     }
 
     /// grep.app's keyless code-search JSON endpoint. The parser test pins

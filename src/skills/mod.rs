@@ -165,6 +165,18 @@ pub(crate) fn ensure_min_len<T>(items: &[T], min: usize, what: &str) -> Result<(
     }
 }
 
+/// Build a `reqwest::Client` carrying [`crate::LODESTONE_UA`] for use in
+/// `#[ignore]` live integration tests. Replaces ~28 hand-rolled copies of
+/// the same `reqwest::Client::builder().user_agent(...).build().unwrap()`
+/// pattern across skill modules. Compiled only under `cfg(test)`.
+#[cfg(test)]
+pub(crate) fn live_http() -> reqwest::Client {
+    reqwest::Client::builder()
+        .user_agent(crate::LODESTONE_UA)
+        .build()
+        .unwrap()
+}
+
 /// Extract a "what is the user trying to do" signal from a tool call. Returns
 /// `Some(query)` for tools whose arguments naturally carry a free-text question
 /// — every search-shaped tool — and `None` for everything else (system

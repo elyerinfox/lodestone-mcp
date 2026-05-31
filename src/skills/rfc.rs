@@ -168,10 +168,7 @@ pub fn skills() -> Vec<Box<dyn Skill>> {
 #[cfg(test)]
 mod live {
     fn http() -> reqwest::Client {
-        reqwest::Client::builder()
-            .user_agent(crate::LODESTONE_UA)
-            .build()
-            .unwrap()
+        crate::skills::live_http()
     }
 
     /// RFC Editor txt format — stable URL. RFC 2616 = HTTP/1.1.

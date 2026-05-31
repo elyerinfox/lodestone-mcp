@@ -859,22 +859,24 @@ impl Skill for ChartBar {
             }
             let w = args.width.unwrap_or(DEFAULT_W).clamp(160.0, 4000.0);
             let h = args.height.unwrap_or(DEFAULT_H).clamp(120.0, 4000.0);
-            let m = Margins::default();
-            let plot_left = m.left;
-            let plot_right = w - m.right;
-            let plot_top = m.top;
-            let plot_bottom = h - m.bottom;
             let max_v = args
                 .values
                 .iter()
                 .copied()
                 .fold(f64::NEG_INFINITY, f64::max);
             let min_v = args.values.iter().copied().fold(f64::INFINITY, f64::min);
-            let (ymin, ymax) = (min_v.min(0.0), max_v.max(0.0));
-            let y_ticks = nice_ticks(ymin, ymax, 6);
-            let yd = (
-                *y_ticks.first().unwrap_or(&ymin),
-                *y_ticks.last().unwrap_or(&ymax),
+            // Bars use categorical x (0..n), but we route through PlotArea
+            // for the y-axis scaling + nice ticks - the x-axis is drawn
+            // manually since there's no continuous x range to tick.
+            let n = args.labels.len() as f64;
+            let pa = PlotArea::from_ranges(
+                (0.0, n),
+                (min_v.min(0.0), max_v.max(0.0)),
+                w,
+                h,
+                Margins::default(),
+                0,
+                6,
             );
             let mut svg = svg_open(w, h);
             render_chrome(
@@ -884,35 +886,33 @@ impl Skill for ChartBar {
                 args.ylabel.as_deref(),
                 w,
                 h,
-                &m,
+                &pa.margins,
             );
             render_y_axis(
                 &mut svg,
-                &y_ticks,
-                yd,
-                (plot_top, plot_bottom),
-                plot_left,
-                plot_right,
+                &pa.y_ticks,
+                pa.y_domain,
+                (pa.top(), pa.bottom()),
+                pa.left(),
+                pa.right(),
             );
-            let n = args.labels.len() as f64;
-            let band = (plot_right - plot_left) / n;
+            let band = (pa.right() - pa.left()) / n;
             let bar_w = band * 0.7;
-            let baseline_y = if yd.0 <= 0.0 && yd.1 >= 0.0 {
-                // zero baseline maps to its actual position
-                plot_bottom
-                    - (0.0 - yd.0) / (yd.1 - yd.0).max(f64::EPSILON) * (plot_bottom - plot_top)
+            let baseline_y = if pa.y_domain.0 <= 0.0 && pa.y_domain.1 >= 0.0 {
+                pa.scale_y(0.0)
             } else {
-                plot_bottom
+                pa.bottom()
             };
             let _ = writeln!(
                 svg,
-                "<line x1=\"{plot_left}\" y1=\"{baseline_y}\" x2=\"{plot_right}\" \
-                 y2=\"{baseline_y}\" stroke=\"#999\" stroke-width=\"1\"/>"
+                "<line x1=\"{left}\" y1=\"{baseline_y}\" x2=\"{right}\" \
+                 y2=\"{baseline_y}\" stroke=\"#999\" stroke-width=\"1\"/>",
+                left = pa.left(),
+                right = pa.right(),
             );
             for (i, (lbl, v)) in args.labels.iter().zip(args.values.iter()).enumerate() {
-                let cx = plot_left + (i as f64 + 0.5) * band;
-                let y_v = plot_bottom
-                    - (*v - yd.0) / (yd.1 - yd.0).max(f64::EPSILON) * (plot_bottom - plot_top);
+                let cx = pa.left() + (i as f64 + 0.5) * band;
+                let y_v = pa.scale_y(*v);
                 let (top, height) = if *v >= 0.0 {
                     (y_v, baseline_y - y_v)
                 } else {
@@ -926,7 +926,7 @@ impl Skill for ChartBar {
                      fill=\"#444\">{txt}</text>",
                     x = cx - bar_w / 2.0,
                     c = PALETTE[0],
-                    ly = plot_bottom + 16.0,
+                    ly = pa.bottom() + 16.0,
                     txt = esc(lbl),
                 );
             }

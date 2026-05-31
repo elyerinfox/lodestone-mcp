@@ -367,10 +367,7 @@ impl Skill for GithubRepo {
 #[cfg(test)]
 mod live {
     fn http() -> reqwest::Client {
-        reqwest::Client::builder()
-            .user_agent(crate::LODESTONE_UA)
-            .build()
-            .unwrap()
+        crate::skills::live_http()
     }
 
     /// Unauthenticated GitHub allows 60 req/h/IP — fine for one nightly run

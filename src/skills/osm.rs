@@ -635,10 +635,7 @@ mod live {
     use super::*;
 
     fn http() -> reqwest::Client {
-        reqwest::Client::builder()
-            .user_agent(crate::LODESTONE_UA)
-            .build()
-            .unwrap()
+        crate::skills::live_http()
     }
 
     /// Nominatim — keyless geocode. The OSM UA policy requires a descriptive

@@ -220,10 +220,7 @@ impl Skill for CurrencyConvert {
 #[cfg(test)]
 mod live {
     fn http() -> reqwest::Client {
-        reqwest::Client::builder()
-            .user_agent(crate::LODESTONE_UA)
-            .build()
-            .unwrap()
+        crate::skills::live_http()
     }
 
     /// ECB publishes a daily XML reference-rates file — the source the

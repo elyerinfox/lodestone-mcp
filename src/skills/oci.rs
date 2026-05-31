@@ -747,10 +747,7 @@ impl Skill for OciManifest {
 #[cfg(test)]
 mod live {
     fn http() -> reqwest::Client {
-        reqwest::Client::builder()
-            .user_agent(crate::LODESTONE_UA)
-            .build()
-            .unwrap()
+        crate::skills::live_http()
     }
 
     /// Docker Hub search v1 search/repositories — the legacy keyless endpoint.

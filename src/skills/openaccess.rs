@@ -380,10 +380,7 @@ impl Skill for OpenAlexWork {
 #[cfg(test)]
 mod live {
     fn http() -> reqwest::Client {
-        reqwest::Client::builder()
-            .user_agent(crate::LODESTONE_UA)
-            .build()
-            .unwrap()
+        crate::skills::live_http()
     }
 
     /// Unpaywall rejects example.com emails — needs LODESTONE_CONTACT_EMAIL.

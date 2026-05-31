@@ -175,10 +175,7 @@ pub fn skills() -> Vec<Box<dyn Skill>> {
 #[cfg(test)]
 mod live {
     fn http() -> reqwest::Client {
-        reqwest::Client::builder()
-            .user_agent(crate::LODESTONE_UA)
-            .build()
-            .unwrap()
+        crate::skills::live_http()
     }
 
     /// Google Translate's free `translate_a/single` endpoint — exactly the
