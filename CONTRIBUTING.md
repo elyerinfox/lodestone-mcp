@@ -21,6 +21,9 @@ uphold all of them; a change that breaks one is wrong by definition. In brief:
 9. One tool per method — no hidden auto-selection (the method is in the tool name).
 10. `cargo fmt` and `cargo clippy --all-targets -- -D warnings` pass before every
     commit (CI enforces both — see "Build & verify" below for details + tooling).
+11. Sensitive information must never be shared — secrets are never logged,
+    returned in tool responses, committed to git, advertised over the
+    constellation, or echoed back; bearer-token checks go through `ct_eq`.
 
 Read [docs/golden-rules.md](docs/golden-rules.md) for the full statement of each.
 
@@ -158,12 +161,12 @@ sequenceDiagram
   participant S as Skill (impl Skill)
   participant D as Dependencies<br/>(util, send_json_ctx,<br/>fs_read_bytes, …)
 
-  M->>R: tools/call { name, arguments }
-  R->>S: SkillCtx { server: &Lodestone, args: JsonObject }
-  S->>S: ctx.parse::&lt;Args&gt;()? — deserialize + validate
+  M->>R: tools/call name + arguments
+  R->>S: SkillCtx { server, args: JsonObject }
+  S->>S: ctx.parse Args — deserialize + validate
   S->>D: fetch / read / compute (shared helpers)
-  D-->>S: Result&lt;T, McpError&gt;
-  S-->>R: text_result(...) → CallToolResult
+  D-->>S: Result T, McpError
+  S-->>R: text_result(...) — CallToolResult
   R-->>M: JSON-RPC response
 ```
 

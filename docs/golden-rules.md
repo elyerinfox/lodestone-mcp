@@ -108,3 +108,35 @@ truth — the README and CONTRIBUTING link here rather than restating them.
     exact commands, what each flag means, and editor / pre-commit-hook
     integration tips. Never `--no-verify` past a failing clippy or fmt check;
     fix the underlying issue.
+
+11. **Sensitive information must never be shared.** Credentials (API keys,
+    tokens, bearer secrets, database connection strings, passwords), personally
+    identifying information the server happens to see, and any other secret
+    material **must never** be:
+    - **logged** — not at any level, not even debug. `tracing` calls that
+      reference a config field carrying a secret must redact it (`<set>` /
+      `<unset>`, not the value).
+    - **returned in a tool response** — the [`features`](skills/meta.md) tool
+      is the load-bearing example: it surfaces `[github].token`, `[eia].key`,
+      `[network].token`, the DATABASE_URL passed to `db_query`, etc. as the
+      tokens `<set>` / `<unset — …>` and never the underlying value. Every
+      future tool that introspects config follows the same pattern.
+    - **committed to git** — `lodestone.toml` (the personal-overrides file)
+      is gitignored; the shipped `config/` baseline must contain no real
+      credentials. Database URLs passed to `db_query` / `redis_command` are
+      conversation-supplied at call time, never stored on disk.
+    - **advertised over the constellation** — the digest carries only
+      hashes of normalized query keys; the cached results that traverse a
+      consult call never include payloads from keyed sources (golden rule 3
+      keeps the keyless path the default for sharing).
+    - **echoed back when the model pastes one in** — input that *looks* like
+      a secret (`sk-…`, `ghp_…`, JWT shape, `*://user:pass@host` URI form, …)
+      must be redacted before reaching any response, the same as if the
+      server had seen it through config.
+
+    `ct_eq` ([`util.rs`](../src/util.rs)) is the constant-time comparator for
+    any bearer-token check — never use `==` on secret bytes (timing leak).
+    When you add a tool that takes a secret-shaped argument (a database URL,
+    an API key, a webhook URL), document explicitly that it's a secret in
+    its arg's `#[doc]` and verify it doesn't escape into any response or
+    log line.

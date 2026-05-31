@@ -367,35 +367,142 @@ client). Gated by `[tasks]`. Currently backgrounds searches.
 | `conversation_forget` | `id`, `confirm?`, `trust?` | Delete one conversation (cascades to turns; NULLs revisions' back-pointer). **Destructive — guarded.** |
 | `conversation_prune` | `older_than_days?`, `keep_newest?`, `dry_run?`, `confirm?`, `trust?` | Bulk-delete by retention policy. Falls back to configured `[memory].conversation_retention_days` / `max_conversations` when no args given. **Destructive — guarded; `dry_run=true` bypasses.** |
 
+## Charts & plots (on by default `[chart]`)
+
+Pure-Rust SVG charts (no headless browser, no network) plus an interactive HTML
+escape hatch and a mermaid passthrough. SVGs ship as MCP `image/svg+xml` so
+clients render inline, with a one-line text fallback for clients that can't.
+All static charts are responsive via `viewBox`. Full detail:
+[skills/chart.md](skills/chart.md).
+
+| Tool | Arguments | Purpose |
+| --- | --- | --- |
+| `chart_line` | `series`, `title?`, `xlabel?`, `ylabel?`, `width?`, `height?` | Multi-series line plot (tab10 palette + legend). `x` accepts numbers **or** ISO-8601 date strings. |
+| `chart_bar` | `labels`, `values`, `title?`, … | Vertical bar chart. |
+| `chart_scatter` | `points`, `title?`, `point_size?`, … | Scatter plot. `x` accepts numbers or ISO-8601 dates. |
+| `chart_histogram` | `values`, `bins?`, `title?`, … | Histogram, auto-bins to √n when `bins` omitted. |
+| `chart_pie` | `slices`, `title?`, … | Pie chart with percentage legend. |
+| `chart_heatmap` | `matrix`, `row_labels?`, `col_labels?`, `colormap?`, … | 2D matrix as colored cells with a colorbar. Colormaps: viridis (default), magma, plasma, coolwarm, grayscale. |
+| `chart_grafana` | `title?`, `series`, `unit?`, … | Dark-themed time-series panel — translucent area fills + last-value labels. Operational-telemetry feel. |
+| `chart_stat` | `value`, `label?`, `unit?`, `thresholds?`, `sparkline?`, `color_mode?` | Grafana Stat panel: big-number tile, threshold-tinted, optional background sparkline. |
+| `chart_gauge` | `value`, `min`, `max`, `thresholds?`, `unit?`, `title?` | Grafana Gauge: 270° radial dial with threshold bands. |
+| `chart_bar_gauge` | `items`, `min`, `max`, `thresholds?`, `unit?` | Grafana Bar gauge: one horizontal threshold-tinted bar per item. |
+| `chart_state_timeline` | `rows`, `state_colors?` | Grafana State timeline: categorical state bands per row (UP / DEGRADED / DOWN). |
+| `chart_candlestick` | `candles`, `up_color?`, `down_color?`, … | Grafana Candlestick: OHLC bodies + wicks for financial time-series. |
+| `chart_sparkline` | `points`, `color?`, `fill_opacity?`, … | Tiny inline trend, no chrome. |
+| `chart_canvas` | `commands`, `width?`, `height?`, `background?`, `title?` | Procedural canvas (turtle / Logo style): `line` / `rect` / `circle` / `polygon` / `polyline` / `text` drawn in order. |
+| `chart_interactive` | `library` (chartjs/plotly), `config`, `title?`, `width?`, `height?` | Self-contained HTML wrapping Chart.js or Plotly. Clients that render HTML get full interactivity (hover, zoom, pan); others see source. |
+| `chart_mermaid` | `source`, `title?` | Wrap mermaid source in a markdown code fence. Modern MCP clients render mermaid natively. |
+
+## HTML render & diagnostics (on by default `[html]`)
+
+| Tool | Arguments | Purpose |
+| --- | --- | --- |
+| `html_render` | `html?`, `url?`, `wait_ms?` | Execute an HTML snippet OR a URL in the shared headless Chrome, wait for JS, and return diagnostics: every `console.*` call (level + args + source/line), every uncaught JS exception (text + stack), every network failure (DNS / refused / CORS), every HTTP 4xx/5xx response, final title / URL / elapsed time. Pair with `chart_interactive` output before shipping. |
+
+## Image forensics + EXIF (on by default `[image]`)
+
+Read-only, paths confined to `[filesystem].roots`. The "analyze" tools walk every
+container marker / chunk so editor-vs-camera divergence stands out.
+
+| Tool | Arguments | Purpose |
+| --- | --- | --- |
+| `image_info` | `path` | Format / dimensions / color / animation from structural headers (JPEG SOFn, PNG IHDR, GIF LSD, WebP VP8 / VP8L / VP8X, BMP DIB, TIFF, HEIF, JPEG-XL). Pure binary parse, no full decode. |
+| `image_exif` | `path` | Full EXIF dump (IFD0 / Exif / GPS / Interop) via `kamadak-exif`. GPS decoded to signed decimal degrees + OSM link. Forensic divergence flags fire when `DateTime{Original,Digitized}` disagree or `Software` is editor-branded (Photoshop / GIMP / Lightroom / …). |
+| `image_jpeg_analyze` | `path` | Walk every JPEG marker — APP segments by identifier (JFIF / EXIF / XMP / ICC_PROFILE / 8BIM / MPF / Adobe), DQT (encoder fingerprint), DHT, DRI, SOFn payload, SOS. |
+| `image_png_analyze` | `path` | Walk every PNG chunk with decoded payloads — IHDR, tEXt / iTXt / zTXt, eXIf, iCCP, tIME, pHYs (with DPI conversion), gAMA, sRGB, acTL (APNG). Flags unknown private chunks. |
+
+## FCC / amateur radio reference (on by default `[fcc]`)
+
+| Tool | Arguments | Purpose |
+| --- | --- | --- |
+| `fcc_callsign` | `callsign` | US amateur callsign lookup via the keyless callook.info JSON API. Returns name, class, trustee, FRN, grant / expire dates, grid square. Non-amateur callsigns get a ULS web-search hint. |
+| `fcc_amateur_bands` | `band?`, `license_class?` | Full US amateur band plan (2200m → 1.25cm, 24 bands) with per-class privileges. `band` matches wavelength (`40m`), region (`HF`), or a frequency in MHz (`14.250`). |
+| `fcc_radio_service` | `service?`, `channel?` | FRS / GMRS / MURS / CB reference: license, power, channels, antenna rules, spectrum sharing. `service="compare"` for the side-by-side table. |
+
+## Weather, geo & infrastructure (keyless)
+
+| Tool | Arguments | Purpose |
+| --- | --- | --- |
+| `weather_forecast` | `lat`, `lon`, `hourly?`, `daily?`, `model?`, `forecast_days?`, `hours?`, `timezone?` | Open-Meteo point forecast. Selectable NWP model: `best_match` (default), `gfs_seamless`, `ecmwf_ifs04` / `ecmwf_ifs025`, `icon_seamless`, `gem_seamless`, `jma_seamless`, `metno_seamless`, `ukmo_seamless`, `arpege_seamless`. |
+| `weather_marine` | `lat`, `lon`, `hourly?`, `days?`, `timezone?` | Marine forecast: wave height, period, swell, sea-surface temperature. |
+| `weather_air_quality` | `lat`, `lon`, `hourly?`, `days?`, `timezone?` | Air quality forecast: PM10 / PM2.5 / NO₂ / O₃ / CO / SO₂, European AQI, dust, pollen. |
+| `weather_historical` | `lat`, `lon`, `start_date`, `end_date`, `hourly?`, `daily?`, `timezone?` | ERA5 reanalysis archive (1940 → ~5 days ago). |
+| `noaa_alerts` | `area?`, `status?`, `max?` | Active NWS weather alerts (US). |
+| `noaa_forecast` | `lat`, `lon`, `hourly?` | NWS point forecast (US). |
+| `osm_geocode` | `query`, `max_results?` | Nominatim place-name → lat/lon. |
+| `osm_reverse_geocode` | `lat`, `lon` | Nominatim lat/lon → address. |
+| `osm_overpass` | `query`, `max_elements?` | Run an Overpass-QL query against OpenStreetMap. |
+| `osm_elevation` | `points` | Open-Elevation ground-elevation lookup (≤ 100 points). |
+| `osm_route` | `from_lat`, `from_lon`, `to_lat`, `to_lon`, `profile?` | OSRM public demo routing. |
+| `grid_power_plants` | `south`, `west`, `north`, `east`, `max?` | Power plants in a bounding box (OSM). |
+| `grid_transmission_lines` / `grid_substations` / `grid_data_centres` / `grid_gas_pipelines` / `grid_submarine_cables` | bbox + `max?` | Critical-infrastructure layers (OSM Overpass). |
+| `peeringdb_network` | `asn?`, `name?`, `max?` | PeeringDB network (ASN) lookup. |
+| `peeringdb_ix` | `name?`, `country?`, `city?`, `max?` | Internet exchanges. |
+| `peeringdb_facility` | `name?`, `country?`, `city?`, `max?` | Colo facilities. |
+| `peeringdb_org` | `name?`, `max?` | Organizations. |
+
+## Binary / signal / pcap / notebook (off by default — read-only)
+
+Paths confined to `[filesystem].roots`. Pair `signal_*` with `wave_*` for
+FFT-of-decoded-audio.
+
+| Tool | Arguments | Purpose |
+| --- | --- | --- |
+| `binary_info` | `path` | Identify ELF / PE / Mach-O / WASM / archive; arch, entry, sections (via `object`). |
+| `binary_strings` | `path`, `min_len?`, `max?` | Extract printable strings. |
+| `binary_entropy` | `path`, `block_size?` | Shannon entropy per block — spots packed / encrypted regions. |
+| `binary_hexdump` | `path`, `offset?`, `length?` | Hexdump a range of bytes. |
+| `signal_fft` | `samples`, `sample_rate_hz`, `window?` | Real-to-complex FFT (rustfft, runtime SIMD). Returns magnitude spectrum. |
+| `signal_dominant_frequencies` | `samples`, `sample_rate_hz`, `top?`, `window?` | Top-K peak frequencies. |
+| `signal_rms` | `samples` | Root-mean-square (signal level). |
+| `signal_window` | `n`, `kind` | Compute a window: Hann / Hamming / Blackman / rectangular. |
+| `wave_info` | `path` | `.wav` header summary (sample rate, bit depth, channels, duration). |
+| `wave_samples` | `path`, `max_samples?`, `channel?` | Decode raw samples (for FFT / RMS). |
+| `pcap_info` | `path` | `.pcap` header + packet count. |
+| `pcap_packets` | `path`, `offset?`, `max?` | Walk packet records. |
+| `disasm_x86_hex` | `hex`, `bits?`, `base?`, `max?` | Disassemble inline hex bytes (16/32/64-bit, `iced-x86`, NASM flavor). |
+| `disasm_x86_file` | `path`, `offset?`, `length?`, `bits?` | Disassemble a region of a local binary. |
+| `notebook_info` | `path` | `.ipynb` summary (cells, kernel, language). |
+| `notebook_cells` | `path`, `max?`, `include_outputs?` | Walk cells (markdown + code; optionally outputs). |
+
+## Python runner (off by default `[python]`)
+
+| Tool | Arguments | Purpose |
+| --- | --- | --- |
+| `python_run` | `code`, `stdin?`, `args?`, `timeout_secs?`, `confirm?`, `trust?` | Execute Python via the configured interpreter (`[python].interpreter`). **Destructive — guarded.** |
+
+## systemd (Linux, off by default `[systemd]`)
+
+| Tool | Arguments | Access | Purpose |
+| --- | --- | --- | --- |
+| `systemd_list` | `state?`, `pattern?` | read | List units (active / failed / loaded / pattern-match). |
+| `systemd_status` | `unit` | read | Unit status (`systemctl status`). |
+| `systemd_show` | `unit`, `properties?` | read | Show one or more unit properties. |
+| `systemd_start` / `systemd_stop` / `systemd_restart` | `unit`, `confirm?`, `trust?` | **destructive** | Start / stop / restart a unit. Guarded. |
+
+## Energy (`[eia]`, keyless API but requires a free key)
+
+| Tool | Arguments | Purpose |
+| --- | --- | --- |
+| `eia_browse` | `path?` | Browse the EIA v2 dataset tree (electricity / NG / petroleum / coal / renewables / international). |
+| `eia_series` | `path`, `frequency?`, `data?`, `facets?`, `start?`, `end?` | Pull a specific time series. |
+
+## Astronomy & radio (off by default)
+
+| Tool | Arguments | Purpose |
+| --- | --- | --- |
+| `astro_sun` | `lat`, `lon`, `date?` | Sun position (alt / az) + sunrise / transit / sunset for a date / location. Local compute. |
+| `astro_moon` | `lat`, `lon`, `date?` | Moon position + rise / set + phase. |
+| `radio_fspl` | `frequency_hz`, `distance_m` | Free-space path loss in dB. |
+| `radio_link_budget` | `tx_power_dbm`, `tx_gain_dbi`, `rx_gain_dbi`, `frequency_hz`, `distance_m`, `cable_loss_db?`, `other_losses_db?` | Compute received power and link margin against a noise floor. |
+| `radio_antenna` | `frequency_hz`, `gain_dbi?`, `effective_aperture_m2?` | Convert antenna gain ↔ effective aperture. |
+
 ## Meta
 
 | Tool | Arguments | Purpose |
 | --- | --- | --- |
 | `features` | `name?` | Per-family enabled/disabled status plus every knob (allow_destructive, recall thresholds, retention policy, embedding endpoint, …) and live memory counts. With `name=<family>`, focused dump for one family. Use BEFORE assuming a family is reachable. |
-| `chart_line` | `series`, `title?`, `xlabel?`, `ylabel?`, `width?`, `height?` | Pure-Rust SVG multi-series line plot. Returns MCP image content (`image/svg+xml`) so clients render inline. Responsive via `viewBox`. |
-| `chart_bar` | `labels`, `values`, `title?`, … | SVG vertical bar chart. |
-| `chart_scatter` | `points`, `title?`, `point_size?`, … | SVG scatter plot. |
-| `chart_histogram` | `values`, `bins?`, `title?`, … | SVG histogram with auto-bin count (√n) if `bins` is omitted. |
-| `chart_pie` | `slices`, `title?`, … | SVG pie chart with a percentage legend. |
-| `chart_heatmap` | `matrix`, `row_labels?`, `col_labels?`, `colormap?`, … | 2D matrix as colored cells with a colorbar; colormaps: viridis (default), magma, plasma, coolwarm, grayscale. |
-| `chart_grafana` | `title?`, `series`, `unit?`, … | Dark-themed time-series panel with translucent area fills and last-value labels — operational telemetry feel. |
-| `chart_stat` | `value`, `label?`, `unit?`, `thresholds?`, `sparkline?`, `color_mode?` | Grafana Stat panel: big-number tile, threshold-tinted, optional background sparkline. |
-| `chart_gauge` | `value`, `min`, `max`, `thresholds?`, `unit?`, `title?` | Grafana Gauge: 270° radial dial with threshold bands. |
-| `chart_bar_gauge` | `items`, `min`, `max`, `thresholds?`, `unit?` | Grafana Bar gauge: one horizontal threshold-tinted bar per item. |
-| `chart_state_timeline` | `rows`, `state_colors?` | Grafana State timeline: categorical state bands over time per row (UP / DEGRADED / DOWN). |
-| `chart_candlestick` | `candles`, `up_color?`, `down_color?`, … | Grafana Candlestick: OHLC candles for financial / market time-series. |
-| `chart_sparkline` | `points`, `color?`, `fill_opacity?`, … | Tiny inline trend with no chrome. |
-| `chart_canvas` | `commands`, `width?`, `height?`, `background?`, `title?` | Procedural drawing canvas (turtle / Logo style): line / rect / circle / polygon / polyline / text primitives drawn in order. |
-| `chart_interactive` | `library` (chartjs/plotly), `config`, `title?`, `width?`, `height?` | Self-contained HTML wrapping Chart.js or Plotly. Clients that render HTML get full interactivity; others see source. |
-| `chart_mermaid` | `source`, `title?` | Wrap mermaid source in a markdown code fence. Every modern MCP client renders mermaid blocks natively. |
-| `html_render` | `html?`, `url?`, `wait_ms?` | Execute HTML/JS or a URL in headless Chrome and return diagnostics: console events, JS exceptions, network failures, HTTP 4xx/5xx errors, title, final URL, elapsed time. |
-| `image_info` | `path` | Format / dimensions / color / animation from structural headers (JPEG SOFn, PNG IHDR, GIF LSD, WebP VP8, BMP DIB, TIFF, HEIF, JPEG-XL). |
-| `image_exif` | `path` | Full EXIF tag dump (IFD0 / Exif / GPS / Interop) with GPS decoded to signed decimal degrees + OSM link; flags timestamp-divergence and editor-branded Software tags. |
-| `image_jpeg_analyze` | `path` | Walk every JPEG marker — APP segments by identifier (JFIF / EXIF / XMP / ICC / 8BIM / MPF), DQT / DHT, SOFn, scan headers. |
-| `image_png_analyze` | `path` | Walk every PNG chunk — IHDR / tEXt / iTXt / eXIf / iCCP / tIME / pHYs / gAMA / sRGB / acTL with private-chunk flagging. |
-| `fcc_callsign` | `callsign` | US amateur callsign lookup via the keyless callook.info JSON API. Returns name, class, trustee, FRN, grant/expire dates, grid square. Non-amateur callsigns (GMRS / commercial) get a ULS web-search hint. |
-| `fcc_amateur_bands` | `band?`, `license_class?` | Full US amateur band plan (2200m → 1.25cm) with per-class privileges. `band` matches wavelength (`40m`), region (`HF`), or a frequency in MHz. |
-| `fcc_radio_service` | `service?`, `channel?` | FRS / GMRS / MURS / CB reference: license, power, channels, antenna rules, spectrum sharing. `service="compare"` for the side-by-side. |
 | `list_providers` | — | Show the active providers, strategy, and ranking. |
 | `constellation_status` | — | Show the peer-to-peer constellation graph (peers, machine ids, reputation, edges); says disabled when off. |
 | `constellation_peers` | — | List constellation nodes and how many **hops** away each is (direct = 1), with machine id/reputation. |

@@ -6,6 +6,41 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Documentation
+
+- **Two new golden rules** ([`docs/golden-rules.md`](docs/golden-rules.md)).
+  - **Rule 10:** `cargo fmt` and `cargo clippy --all-targets -- -D warnings`
+    must pass before every commit (CI enforces both). The expanded
+    [`CONTRIBUTING.md`](CONTRIBUTING.md) "Build & verify" section explains
+    why deny-warnings, what each flag means, common pitfalls, and editor /
+    pre-commit-hook integration (rust-analyzer, RustRover, cargo-watch).
+  - **Rule 11:** sensitive information must never be shared. Credentials,
+    PII, and other secrets are never logged, returned in tool responses,
+    committed to git, advertised over the constellation, or echoed back —
+    with `[github].token` / `[eia].key` / `[network].token` style
+    `<set>` / `<unset>` redaction as the load-bearing example pattern.
+    Bearer-token comparisons go through `ct_eq` (`util.rs`) for constant-
+    time check.
+- **Five mermaid diagrams in [`CONTRIBUTING.md`](CONTRIBUTING.md)** —
+  architecture overview, adding-a-skill flowchart, anatomy-of-a-tool-call
+  sequence, provider-tier decision tree, and the shared-helpers map. Plus
+  a corrected "Adding a skill" section (the old "Adding a tool" was
+  factually wrong — it described a `#[tool_router]` flow that contradicts
+  golden rule 7). New "Shared helpers" section tables every utility now
+  in `crate::util`, `crate::skills`, and `crate::config` with what each
+  one replaces.
+- **20 new per-skill detail pages** under
+  [`docs/skills/`](docs/skills/) — chart, html, image, fcc, binary,
+  signal, wave, pcap, disasm, notebook, python, systemd, weather, noaa,
+  osm, grid, peeringdb, yahoo, eia, astro, radio. Each follows the
+  existing template (header table → "What it does" → tool list → example
+  uses → notes → "See also"). [`docs/skills.md`](docs/skills.md) gained
+  rows for every previously-undocumented family;
+  [`docs/tools.md`](docs/tools.md) was reorganized so the chart / html /
+  image / fcc / weather / geo / binary-analysis / runtime / energy /
+  astro / radio tools sit under their own headings rather than under
+  "Meta".
+
 ### Internal — shared helpers (audit-driven WET-code reduction)
 
 A pass across the codebase pulled repeated patterns into shared modules so

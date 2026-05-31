@@ -76,6 +76,71 @@ behind the search tools see [providers.md](providers.md).
 | [printer](skills/printer.md) | `printer_list`, `printer_print` | OS printing (CUPS / Windows; `printer_print` guarded). |
 | [sdr](skills/sdr.md) | `sdr_devices`, `sdr_scan` | List SDRs + sweep the RF spectrum (RTL-SDR/HackRF; receive-only). |
 
+## Service control (Linux, off by default `[systemd]`)
+
+| Skill | Tools | What |
+| --- | --- | --- |
+| [systemd](skills/systemd.md) | `systemd_list`, `systemd_status`, `systemd_show` + **destructive** `start`/`stop`/`restart` | Linux systemd unit control. Destructive verbs guarded. |
+
+## Runtimes (off by default)
+
+| Skill | Tools | What |
+| --- | --- | --- |
+| [python](skills/python.md) | `python_run` | Run a Python script via the configured interpreter (`[python]`). Guarded. |
+
+## Binary / signal / pcap / notebook (off by default)
+
+A pure-Rust toolkit for inspecting binaries, signals, packet captures, and
+notebooks. All read-only; paths confined to `[filesystem].roots`. The
+signal-processing family pairs with `wave_*` for FFT-of-decoded-audio flows.
+
+| Skill | Tools | What |
+| --- | --- | --- |
+| [binary](skills/binary.md) | `binary_info`, `binary_strings`, `binary_entropy`, `binary_hexdump` | ELF / PE / Mach-O probe (via `object`), strings, Shannon entropy, hexdump. |
+| [signal](skills/signal.md) | `signal_fft`, `signal_dominant_frequencies`, `signal_rms`, `signal_window` | FFT (rustfft, runtime SIMD), dominant frequencies, RMS, windowing (Hann/Hamming/Blackman/rect). |
+| [wave](skills/wave.md) | `wave_info`, `wave_samples` | Read a `.wav` file (via `hound`). |
+| [pcap](skills/pcap.md) | `pcap_info`, `pcap_packets` | Read a `.pcap` file (pure Rust). |
+| [disasm](skills/disasm.md) | `disasm_x86_hex`, `disasm_x86_file` | x86 / x64 disassembly (via `iced-x86`, NASM flavor). |
+| [notebook](skills/notebook.md) | `notebook_info`, `notebook_cells` | Read a Jupyter `.ipynb` file. |
+
+## Image / chart / HTML rendering (`[image]`, `[chart]`, `[html]` — on by default)
+
+| Skill | Tools | What |
+| --- | --- | --- |
+| [image](skills/image.md) | `image_info`, `image_exif`, `image_jpeg_analyze`, `image_png_analyze` | Format / dimensions / EXIF (incl. GPS) / JPEG-marker / PNG-chunk walk. Forensic divergence flags. Paths confined to roots. |
+| [chart](skills/chart.md) | `chart_line`, `chart_bar`, `chart_scatter`, `chart_histogram`, `chart_pie`, `chart_heatmap`, `chart_grafana`, `chart_stat`, `chart_gauge`, `chart_bar_gauge`, `chart_state_timeline`, `chart_candlestick`, `chart_sparkline`, `chart_canvas`, `chart_interactive`, `chart_mermaid` | Pure-Rust SVG charts (matplotlib equivalents + Grafana-style operational panels) + procedural canvas + interactive HTML (Chart.js / Plotly) + mermaid passthrough. |
+| [html](skills/html.md) | `html_render` | Execute HTML / a URL in headless Chrome and return diagnostics: console events, JS exceptions, network failures, HTTP 4xx/5xx errors. |
+
+## Weather, geo & infrastructure (keyless)
+
+| Skill | Tools | What |
+| --- | --- | --- |
+| [weather](skills/weather.md) | `weather_forecast`, `weather_marine`, `weather_air_quality`, `weather_historical` | Open-Meteo point queries — same NWP models Ventusky aggregates (GFS / ECMWF / ICON / …), plus marine, air quality, and ERA5 reanalysis. |
+| [noaa](skills/noaa.md) | `noaa_alerts`, `noaa_forecast` | NOAA / NWS active weather alerts + point forecast (US coverage). |
+| [osm](skills/osm.md) | `osm_geocode`, `osm_reverse_geocode`, `osm_overpass`, `osm_elevation`, `osm_route` | OpenStreetMap (Nominatim + Overpass + Open-Elevation + OSRM). |
+| [grid](skills/grid.md) | `grid_power_plants`, `grid_transmission_lines`, `grid_substations`, `grid_data_centres`, `grid_gas_pipelines`, `grid_submarine_cables` | Critical-infrastructure layers via OpenStreetMap Overpass. |
+| [peeringdb](skills/peeringdb.md) | `peeringdb_network`, `peeringdb_ix`, `peeringdb_facility`, `peeringdb_org` | Networks / IXs / facilities / orgs (peeringdb.com). |
+| [fcc](skills/fcc.md) | `fcc_callsign`, `fcc_amateur_bands`, `fcc_radio_service` | US amateur callsign lookup + amateur band plan + FRS / GMRS / MURS / CB reference. |
+
+## Finance & markets (extended)
+
+| Skill | Tools | What |
+| --- | --- | --- |
+| [yahoo](skills/yahoo.md) | `yahoo_quote`, `yahoo_history`, `yahoo_search` | Yahoo Finance: delayed quote, OHLC history, symbol search. Keyless. Joins the `stocks` family. |
+
+## Energy (keyless, optional key)
+
+| Skill | Tools | What |
+| --- | --- | --- |
+| [eia](skills/eia.md) | `eia_series`, `eia_browse` | U.S. Energy Information Administration time series (electricity / NG / petroleum / coal / renewables / international). Requires free `[eia].key`. |
+
+## Astronomy & radio (keyless, off by default)
+
+| Skill | Tools | What |
+| --- | --- | --- |
+| [astro](skills/astro.md) | `astro_sun`, `astro_moon` | Sun / moon position, rise / transit / set, phase. Local compute. |
+| [radio](skills/radio.md) | `radio_fspl`, `radio_link_budget`, `radio_antenna` | RF link math: free-space path loss, link budget, antenna gain ↔ effective aperture. |
+
 ## Caching & storage
 
 | Skill | Tools | What |
