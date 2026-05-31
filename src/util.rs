@@ -24,6 +24,27 @@ pub fn collapse_ws(s: &str) -> String {
     s.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+/// Minimal percent-encoding for a URL path/query segment: alphanumerics and
+/// `-`, `_`, `.`, `~` pass through; every other byte becomes `%XX`. RFC 3986
+/// unreserved-character set. Avoids pulling in the `url` crate for what is
+/// usually a one-line escape of a search query.
+///
+/// Replaces ~8 byte-identical `url_enc` / `url_encode` / `urlencoding`
+/// helpers that used to live in `weather`, `peeringdb`, `eia`, `grid`,
+/// `osm`, `huggingface`, `yahoo`, and `satellite`.
+pub fn url_enc(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char)
+            }
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
+}
+
 /// Collapse 3+ consecutive blank lines down to a single blank line.
 fn collapse_blank_lines(s: &str) -> String {
     let mut out = String::with_capacity(s.len());

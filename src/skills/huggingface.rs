@@ -14,7 +14,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::skills::{schema_for, Skill, SkillCtx};
-use crate::util::human_count;
+use crate::util::{human_count, url_enc};
 use crate::{clamp, internal, text_result};
 
 async fn api_get(http: &Client, url: &str) -> Result<Value> {
@@ -65,7 +65,7 @@ async fn hf_search(
     }
     let url = format!(
         "https://huggingface.co/api/{endpoint}?search={}&limit={limit}&sort=downloads&direction=-1",
-        urlencoding(query)
+        url_enc(query)
     );
     let v = api_get(&server.http, &url).await.map_err(internal)?;
     let empty = Vec::new();
@@ -210,20 +210,6 @@ impl Skill for HfModel {
     }
 }
 
-/// Minimal percent-encoding for a query string value (alnum + a few safe chars
-/// pass through; everything else is %XX). Avoids a url-crate dep here.
-fn urlencoding(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for b in s.bytes() {
-        match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                out.push(b as char)
-            }
-            _ => out.push_str(&format!("%{b:02X}")),
-        }
-    }
-    out
-}
 
 /// The skills this module contributes.
 pub fn skills() -> Vec<Box<dyn Skill>> {
@@ -240,9 +226,9 @@ mod tests {
 
     #[test]
     fn urlencoding_safe_chars_passthrough() {
-        assert_eq!(urlencoding("bert-base"), "bert-base");
-        assert_eq!(urlencoding("a/b"), "a%2Fb");
-        assert_eq!(urlencoding("hello world"), "hello%20world");
+        assert_eq!(url_enc("bert-base"), "bert-base");
+        assert_eq!(url_enc("a/b"), "a%2Fb");
+        assert_eq!(url_enc("hello world"), "hello%20world");
     }
 
     #[test]

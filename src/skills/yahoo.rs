@@ -20,6 +20,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::skills::{schema_for, Skill, SkillCtx};
+use crate::util::url_enc;
 use crate::{internal, invalid, text_result};
 
 /// Format a float compactly: up to 4 decimals, trailing zeros trimmed (so equities
@@ -48,9 +49,9 @@ fn is_intraday(interval: &str) -> bool {
 async fn fetch_chart(http: &Client, symbol: &str, range: &str, interval: &str) -> Result<Value> {
     let url = format!(
         "https://query1.finance.yahoo.com/v8/finance/chart/{}?range={}&interval={}",
-        urlencoding(symbol),
-        urlencoding(range),
-        urlencoding(interval),
+        url_enc(symbol),
+        url_enc(range),
+        url_enc(interval),
     );
     let body = http
         .get(&url)
@@ -62,19 +63,6 @@ async fn fetch_chart(http: &Client, symbol: &str, range: &str, interval: &str) -
     Ok(serde_json::from_str(&body)?)
 }
 
-/// Minimal percent-encoding for path/query segments (symbols can contain `^`, `=`).
-fn urlencoding(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for b in s.bytes() {
-        match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                out.push(b as char)
-            }
-            _ => out.push_str(&format!("%{b:02X}")),
-        }
-    }
-    out
-}
 
 /// Pull Yahoo's `chart.error.description` if the response carries one.
 fn chart_error(v: &Value) -> Option<String> {
@@ -339,7 +327,7 @@ impl Skill for YahooSearch {
             }
             let url = format!(
                 "https://query1.finance.yahoo.com/v1/finance/search?q={}&quotesCount=10&newsCount=0",
-                urlencoding(query)
+                url_enc(query)
             );
             let body = server
                 .http
@@ -470,10 +458,10 @@ mod tests {
 
     #[test]
     fn urlencoding_escapes_symbols() {
-        assert_eq!(urlencoding("AAPL"), "AAPL");
-        assert_eq!(urlencoding("^GSPC"), "%5EGSPC");
-        assert_eq!(urlencoding("EURUSD=X"), "EURUSD%3DX");
-        assert_eq!(urlencoding("BTC-USD"), "BTC-USD");
+        assert_eq!(url_enc("AAPL"), "AAPL");
+        assert_eq!(url_enc("^GSPC"), "%5EGSPC");
+        assert_eq!(url_enc("EURUSD=X"), "EURUSD%3DX");
+        assert_eq!(url_enc("BTC-USD"), "BTC-USD");
     }
 
     #[test]

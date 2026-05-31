@@ -18,22 +18,10 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::skills::{schema_for, send_json_ctx, Skill, SkillCtx};
+use crate::util::url_enc;
 use crate::{invalid, text_result};
 
 // Not gated by config — keyless public APIs, always on (like wikipedia/arxiv).
-
-fn url_encode(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for b in s.bytes() {
-        match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                out.push(b as char)
-            }
-            _ => out.push_str(&format!("%{b:02X}")),
-        }
-    }
-    out
-}
 
 async fn http_json(server: &crate::Lodestone, url: &str) -> Result<Value, McpError> {
     send_json_ctx(
@@ -77,7 +65,7 @@ impl Skill for OsmGeocode {
             }
             let url = format!(
                 "https://nominatim.openstreetmap.org/search?q={}&format=json&addressdetails=1&limit={limit}",
-                url_encode(args.query.trim())
+                url_enc(args.query.trim())
             );
             let v = http_json(server, &url).await?;
             let empty = Vec::new();
@@ -216,7 +204,7 @@ impl Skill for OsmOverpass {
                 server
                     .http
                     .post("https://overpass-api.de/api/interpreter")
-                    .body(format!("data={}", url_encode(q)))
+                    .body(format!("data={}", url_enc(q)))
                     .header("Content-Type", "application/x-www-form-urlencoded")
                     .header("Accept", "application/json")
                     .header("User-Agent", crate::skills::grid::OVERPASS_UA),
@@ -663,7 +651,7 @@ mod live {
         // Single-substation tiny bbox so the call is fast and we never get
         // rate-limited even on a CI nightly.
         let ql = "[out:json][timeout:30];(node[\"power\"=\"substation\"](47.66,-122.13,47.68,-122.11);way[\"power\"=\"substation\"](47.66,-122.13,47.68,-122.11);relation[\"power\"=\"substation\"](47.66,-122.13,47.68,-122.11););out center tags;";
-        let body = format!("data={}", url_encode(ql));
+        let body = format!("data={}", url_enc(ql));
         let r = http()
             .post("https://overpass-api.de/api/interpreter")
             .body(body)

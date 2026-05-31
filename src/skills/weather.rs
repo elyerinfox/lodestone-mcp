@@ -16,20 +16,8 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::skills::{schema_for, send_json_ctx, Skill, SkillCtx};
+use crate::util::url_enc;
 use crate::text_result;
-
-fn url_enc(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for b in s.bytes() {
-        match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                out.push(b as char)
-            }
-            _ => out.push_str(&format!("%{b:02X}")),
-        }
-    }
-    out
-}
 
 async fn fetch(server: &crate::Lodestone, url: &str) -> Result<Value, McpError> {
     send_json_ctx(

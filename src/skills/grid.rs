@@ -15,6 +15,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::skills::{schema_for, send_json_ctx, Skill, SkillCtx};
+use crate::util::url_enc;
 use crate::{invalid, text_result};
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -109,7 +110,7 @@ async fn run_overpass(server: &crate::Lodestone, query: &str) -> Result<Value, M
         server
             .http
             .post("https://overpass-api.de/api/interpreter")
-            .body(format!("data={}", url_encode(query)))
+            .body(format!("data={}", url_enc(query)))
             .header("Content-Type", "application/x-www-form-urlencoded")
             .header("Accept", "application/json")
             .header("User-Agent", OVERPASS_UA),
@@ -193,18 +194,6 @@ pub(crate) fn planned_lines_ql(south: f64, west: f64, north: f64, east: f64) -> 
     )
 }
 
-fn url_encode(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for b in s.bytes() {
-        match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                out.push(b as char)
-            }
-            _ => out.push_str(&format!("%{b:02X}")),
-        }
-    }
-    out
-}
 
 /// Pull (type, id, lat, lon, name) plus a tags handle for an element row.
 fn element_summary(el: &Value) -> (String, i64, Option<f64>, Option<f64>, String, Value) {
@@ -787,7 +776,7 @@ mod tests {
             .unwrap();
         // Tiny query: count Redmond's substations within a 0.02° box.
         let ql = substation_ql(47.66, -122.13, 47.68, -122.11);
-        let body = format!("data={}", url_encode(&ql));
+        let body = format!("data={}", url_enc(&ql));
         let resp = http
             .post("https://overpass-api.de/api/interpreter")
             .body(body)

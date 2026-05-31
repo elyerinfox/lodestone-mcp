@@ -16,6 +16,7 @@ use rmcp::ErrorData as McpError;
 use serde::Deserialize;
 
 use crate::skills::{schema_for, Skill, SkillCtx};
+use crate::util::url_enc;
 use crate::{internal, invalid, text_result};
 
 // WGS-84 ellipsoid.
@@ -201,7 +202,7 @@ impl Skill for SatTle {
             let param = if !q.is_empty() && q.chars().all(|c| c.is_ascii_digit()) {
                 format!("CATNR={q}")
             } else {
-                format!("NAME={}", urlencoding(q))
+                format!("NAME={}", url_enc(q))
             };
             let url = format!("https://celestrak.org/NORAD/elements/gp.php?{param}&FORMAT=TLE");
             let body = server
@@ -291,20 +292,6 @@ impl Skill for SatObserve {
             )))
         })
     }
-}
-
-/// Minimal percent-encoding for the CelesTrak NAME query.
-fn urlencoding(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for b in s.bytes() {
-        match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                out.push(b as char)
-            }
-            _ => out.push_str(&format!("%{b:02X}")),
-        }
-    }
-    out
 }
 
 // ---------------------------------------------------------------------------
@@ -639,7 +626,7 @@ impl Skill for SatGroup {
             } else {
                 let url = format!(
                     "https://celestrak.org/NORAD/elements/gp.php?GROUP={}&FORMAT=tle",
-                    urlencoding(&group)
+                    url_enc(&group)
                 );
                 let resp = server
                     .http
