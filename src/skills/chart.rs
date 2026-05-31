@@ -292,6 +292,14 @@ fn svg_open(w: f64, h: f64) -> String {
     )
 }
 
+/// Format a chart title as a quoted suffix for the one-line text
+/// description, or empty when there's no title. Every chart tool used to
+/// inline `title.map(|t| format!(" \"{}\"", t)).unwrap_or_default()` —
+/// extracting it removes 13 copies of the same boilerplate.
+fn title_suffix(title: Option<&str>) -> String {
+    title.map(|t| format!(" \"{}\"", t)).unwrap_or_default()
+}
+
 /// Variant of [`svg_open`] for the dark-themed panels (Grafana, Stat,
 /// Gauge, Bar Gauge, State Timeline). Opens the SVG and immediately paints
 /// a full-canvas background rect in `bg` so subsequent strokes show against
@@ -802,10 +810,7 @@ impl Skill for ChartLine {
             let total_points: usize = series_xy.iter().map(|s| s.len()).sum();
             let desc = format!(
                 "Line chart{} · {} serie{} · {} points · x ∈ [{}, {}] · y ∈ [{}, {}]",
-                args.title
-                    .as_deref()
-                    .map(|t| format!(" \"{}\"", t))
-                    .unwrap_or_default(),
+                title_suffix(args.title.as_deref()),
                 args.series.len(),
                 if args.series.len() == 1 { "" } else { "s" },
                 total_points,
@@ -949,10 +954,7 @@ impl Skill for ChartBar {
             let total: f64 = args.values.iter().sum();
             let desc = format!(
                 "Bar chart{} · {} bars · sum {} · min {} · max {}",
-                args.title
-                    .as_deref()
-                    .map(|t| format!(" \"{}\"", t))
-                    .unwrap_or_default(),
+                title_suffix(args.title.as_deref()),
                 args.values.len(),
                 fmt_tick(total),
                 fmt_tick(min_v),
@@ -1083,10 +1085,7 @@ impl Skill for ChartScatter {
             let (ymin, ymax) = pa.y_domain;
             let desc = format!(
                 "Scatter{} · {} points · x ∈ [{}, {}] · y ∈ [{}, {}]",
-                args.title
-                    .as_deref()
-                    .map(|t| format!(" \"{}\"", t))
-                    .unwrap_or_default(),
+                title_suffix(args.title.as_deref()),
                 points_xy.len(),
                 fmt_tick(xmin),
                 fmt_tick(xmax),
@@ -1220,10 +1219,7 @@ impl Skill for ChartHistogram {
             let mean = args.values.iter().sum::<f64>() / args.values.len() as f64;
             let desc = format!(
                 "Histogram{} · n = {} · {} bins · range [{}, {}] · mean {}",
-                args.title
-                    .as_deref()
-                    .map(|t| format!(" \"{}\"", t))
-                    .unwrap_or_default(),
+                title_suffix(args.title.as_deref()),
                 args.values.len(),
                 bins,
                 fmt_tick(vmin),
@@ -1337,10 +1333,7 @@ impl Skill for ChartPie {
             svg.push_str("</svg>");
             let desc = format!(
                 "Pie chart{} · {} slices · total {}",
-                args.title
-                    .as_deref()
-                    .map(|t| format!(" \"{}\"", t))
-                    .unwrap_or_default(),
+                title_suffix(args.title.as_deref()),
                 args.slices.len(),
                 fmt_tick(total),
             );
@@ -1642,10 +1635,7 @@ impl Skill for ChartHeatmap {
             svg.push_str("</svg>");
             let desc = format!(
                 "Heatmap{} · {}×{} matrix · range [{}, {}]",
-                args.title
-                    .as_deref()
-                    .map(|t| format!(" \"{}\"", t))
-                    .unwrap_or_default(),
+                title_suffix(args.title.as_deref()),
                 nrows,
                 ncols,
                 fmt_tick(vmin),
@@ -1914,10 +1904,7 @@ impl Skill for ChartCanvas {
             svg.push_str("</svg>");
             let desc = format!(
                 "Canvas drawing{} · {} command{} · viewBox {}×{}",
-                args.title
-                    .as_deref()
-                    .map(|t| format!(" \"{}\"", t))
-                    .unwrap_or_default(),
+                title_suffix(args.title.as_deref()),
                 args.commands.len(),
                 if args.commands.len() == 1 { "" } else { "s" },
                 fmt_tick(w),
@@ -2140,10 +2127,7 @@ impl Skill for ChartGrafana {
             let total_points: usize = series_xy.iter().map(|s| s.len()).sum();
             let desc = format!(
                 "Grafana panel{} · {} serie{} · {} points · range x [{}, {}] · y [{}, {}]",
-                args.title
-                    .as_deref()
-                    .map(|t| format!(" \"{}\"", t))
-                    .unwrap_or_default(),
+                title_suffix(args.title.as_deref()),
                 args.series.len(),
                 if args.series.len() == 1 { "" } else { "s" },
                 total_points,
@@ -2552,10 +2536,7 @@ impl Skill for ChartGauge {
             svg.push_str("</svg>");
             let desc = format!(
                 "Gauge{} · {} of [{}, {}] ({:.1}%)",
-                args.title
-                    .as_deref()
-                    .map(|t| format!(" \"{}\"", t))
-                    .unwrap_or_default(),
+                title_suffix(args.title.as_deref()),
                 fmt_tick(args.value),
                 fmt_tick(args.min),
                 fmt_tick(args.max),
@@ -2666,10 +2647,7 @@ impl Skill for ChartBarGauge {
             svg.push_str("</svg>");
             let desc = format!(
                 "Bar gauge{} · {} items · scale [{}, {}]",
-                args.title
-                    .as_deref()
-                    .map(|t| format!(" \"{}\"", t))
-                    .unwrap_or_default(),
+                title_suffix(args.title.as_deref()),
                 args.items.len(),
                 fmt_tick(args.min),
                 fmt_tick(args.max),
@@ -2853,10 +2831,7 @@ impl Skill for ChartStateTimeline {
             let total_segments: usize = args.rows.iter().map(|r| r.segments.len()).sum();
             let desc = format!(
                 "State timeline{} · {} row{} · {} segments · x ∈ [{}, {}]",
-                args.title
-                    .as_deref()
-                    .map(|t| format!(" \"{}\"", t))
-                    .unwrap_or_default(),
+                title_suffix(args.title.as_deref()),
                 args.rows.len(),
                 if args.rows.len() == 1 { "" } else { "s" },
                 total_segments,
@@ -3006,10 +2981,7 @@ impl Skill for ChartCandlestick {
             let (ymin, ymax) = pa.y_domain;
             let desc = format!(
                 "Candlestick{} · {} candles · price [{}, {}] · time [{}, {}]",
-                args.title
-                    .as_deref()
-                    .map(|t| format!(" \"{}\"", t))
-                    .unwrap_or_default(),
+                title_suffix(args.title.as_deref()),
                 args.candles.len(),
                 fmt_tick(ymin),
                 fmt_tick(ymax),
