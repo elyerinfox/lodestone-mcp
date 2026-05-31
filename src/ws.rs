@@ -1,0 +1,150 @@
+//! WebSocket dashboard feed.
+//!
+//! A read-only push channel for the Nuxt frontend at `/ws/status`. The server
+//! sends a snapshot of three subsystems on connect, then refreshes every
+//! [`PUSH_INTERVAL`] seconds for as long as the socket is open:
+//!
+//! - **Server status** — uptime, build, tool/provider counts, basic config.
+//! - **Memory stats** — counts from the SQLite memory store (memos, solutions,
+//!   conversations, …). Cheap, indexed `COUNT(*)` queries — no row data.
+//! - **Constellation state** — node id, constellation id, peer table summary,
+//!   delegation knobs, seed-accounting totals.
+//!
+//! All messages are JSON-encoded with a tagged enum envelope (`type` +
+//! `data`) so the frontend can pattern-match on the type and add new
+//! variants without breaking older clients. No client-to-server commands
+//! yet — this is a one-way feed for v1.
+//!
+//! ## Auth
+//!
+//! Same `[network].token` gate as the constellation endpoints. The frontend
+//! passes the token via `?token=…` query string (so the browser's
+//! `WebSocket` constructor — which can't set custom headers — still
+//! authenticates). When no token is configured the endpoint is open.
+//!
+//! ## Privacy
+//!
+//! Snapshots contain **no secrets** and **no user content** — `<set>` /
+//! `<unset>` redaction for keys (same convention as `features`), counts but
+//! never row bodies for memory, peer URLs but never the cluster token.
+//! Rule 11 applies here exactly as it does to the `features` tool.
+
+use std::time::Duration;
+
+use include_dir::{include_dir, Dir};
+use serde::Serialize;
+
+/// The Nuxt SPA's static-build output, embedded at compile time via
+/// `build.rs`. When npm wasn't on PATH at compile time (or
+/// `LODESTONE_SKIP_FRONTEND=1`), this directory is empty and the
+/// `/dashboard` route returns a friendly "not built" page.
+pub static DASHBOARD: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/frontend/.output/public");
+
+/// How often the server pushes a fresh snapshot once a client is connected.
+/// Short enough that the dashboard feels live; long enough that it doesn't
+/// thrash a busy server.
+pub const PUSH_INTERVAL: Duration = Duration::from_secs(5);
+
+/// The tagged-enum message envelope. JSON shape:
+/// `{"type":"server_status","data":{…}}` so the frontend can pattern-match
+/// on `type` and treat each variant's `data` as a typed struct.
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "type", content = "data", rename_all = "snake_case")]
+pub enum WsMessage {
+    /// A full snapshot bundle — all three subsystems at once. Sent on
+    /// connect and on every push tick. Future variants might be incremental
+    /// (e.g. `peer_changed`, `memo_added`) but the snapshot is the load-
+    /// bearing message for v1.
+    Snapshot(Snapshot),
+}
+
+/// The three-subsystem snapshot.
+#[derive(Debug, Clone, Serialize)]
+pub struct Snapshot {
+    pub server: ServerStatus,
+    pub memory: MemoryStats,
+    pub constellation: ConstellationState,
+}
+
+/// Server-level information: build, uptime, what's active.
+#[derive(Debug, Clone, Serialize)]
+pub struct ServerStatus {
+    /// `CARGO_PKG_VERSION` baked in at compile time.
+    pub version: &'static str,
+    /// `lodestone-mcp` for the main app.
+    pub name: &'static str,
+    /// Seconds since the server started. Frontend can format this for
+    /// display (e.g. "3h 14m") without needing the server's local clock.
+    pub uptime_secs: u64,
+    /// Total tools the router currently exposes (post-gating).
+    pub tools_active: usize,
+    /// Tools gated off by config (e.g. `[memory].enabled = false` hides
+    /// the memory tools). Useful in the UI as a "you have N tools hidden;
+    /// here's which families" panel.
+    pub tools_disabled: usize,
+    /// Active search providers — one entry per `(kind, id)`.
+    pub providers: Vec<ProviderEntry>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ProviderEntry {
+    pub kind: String,
+    pub id: String,
+}
+
+/// Memory-store counts. None of these carry row bodies — just `COUNT(*)`s
+/// from the indexed tables. If the memory family is disabled (`[memory]
+/// .enabled = false`) all fields are zero.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct MemoryStats {
+    pub enabled: bool,
+    pub memos: u64,
+    pub solutions: u64,
+    pub solution_revisions: u64,
+    pub solution_tags: u64,
+    pub solution_links: u64,
+    pub solution_phrasings: u64,
+    pub conversations: u64,
+    pub conversation_turns: u64,
+    pub synonyms: u64,
+}
+
+/// Constellation snapshot — peer table + identity + delegation knobs.
+/// When `[network].enabled = false`, `enabled` is `false` and the rest is
+/// zero / empty so the frontend can render "constellation disabled" rather
+/// than crash on missing fields.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct ConstellationState {
+    pub enabled: bool,
+    /// This node's stable id.
+    pub node_id: String,
+    /// The shared constellation id (may differ from configured id after a
+    /// merge — see `maybe_adopt_id`).
+    pub constellation_id: String,
+    /// Number of peers in the table (reachable + still-being-tried).
+    pub peer_count: usize,
+    /// Per-peer summary suitable for a UI list — never carries the
+    /// cluster token.
+    pub peers: Vec<PeerEntry>,
+    /// True if this node advertised `delegation_enabled = true`.
+    pub delegation_enabled: bool,
+    pub delegation_max_jobs_per_peer_per_hour: u32,
+    pub delegation_max_bytes_per_job: u64,
+    pub delegation_total_bytes_per_hour: u64,
+    /// Aggregate seed-accounting bytes (BitTorrent-style): how much this
+    /// node has served vs. fetched across all blobs.
+    pub total_served_bytes: u64,
+    pub total_fetched_bytes: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PeerEntry {
+    pub url: String,
+    pub node_id: Option<String>,
+    pub reputation: f64,
+    /// Whether we currently hold a valid Bloom filter for this peer (i.e.
+    /// have successfully fetched its digest recently).
+    pub reachable: bool,
+    /// Did this peer advertise willingness to serve delegated retrieves?
+    pub delegation_enabled: bool,
+}

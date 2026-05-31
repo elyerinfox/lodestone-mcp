@@ -19,6 +19,7 @@ mod retrieval;
 mod skills;
 mod store;
 mod util;
+mod ws;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -112,6 +113,10 @@ pub(crate) struct Lodestone {
     /// family's on/off state and key knobs without dragging individual config
     /// sections into the constructor signature one-by-one.
     pub(crate) cfg: Arc<config::Config>,
+    /// Server boot time. Captured at `Lodestone::new`; consumed by the
+    /// `/ws/status` dashboard feed to compute uptime without dragging the
+    /// server's local clock into the wire format.
+    pub(crate) started_at: std::time::Instant,
     /// The set of tool names the resolved config has gated off. Precomputed
     /// at startup (the source of truth used to build the tool router) so the
     /// `features` skill can map families to "any of these tools hidden?"
@@ -185,6 +190,7 @@ impl Lodestone {
             systemd: Arc::new(systemd),
             disabled_tools: Arc::new(tools_disabled.to_vec()),
             cfg,
+            started_at: std::time::Instant::now(),
             tool_router,
         }
     }
@@ -365,6 +371,59 @@ impl Lodestone {
                 }
                 Err(anyhow::anyhow!(direct_err))
             }
+        }
+    }
+
+    /// Build a privacy-safe snapshot of server / memory / constellation
+    /// state for the `/ws/status` dashboard feed. Counts only — no row
+    /// bodies, no secrets, no peer auth material. The frontend renders
+    /// the dashboard from this; nothing else flows through this channel.
+    pub(crate) async fn ws_snapshot(&self) -> crate::ws::Snapshot {
+        // Server.
+        let providers: Vec<crate::ws::ProviderEntry> = self
+            .registry
+            .list()
+            .into_iter()
+            .map(|(kind, id)| crate::ws::ProviderEntry {
+                kind: format!("{kind:?}").to_lowercase(),
+                id: id.to_string(),
+            })
+            .collect();
+        let server = crate::ws::ServerStatus {
+            name: "lodestone-mcp",
+            version: env!("CARGO_PKG_VERSION"),
+            uptime_secs: self.started_at.elapsed().as_secs(),
+            tools_active: skills::registered_tool_names().len() - self.disabled_tools.len(),
+            tools_disabled: self.disabled_tools.len(),
+            providers,
+        };
+        // Memory. Internal struct uses i64 (SQLite native); convert to u64
+        // for the wire format (negatives can't happen — these are
+        // COUNT(*) results).
+        let mem_stats = self.memory.stats().await;
+        let memory = crate::ws::MemoryStats {
+            enabled: self.cfg.memory.enabled,
+            memos: mem_stats.memos.max(0) as u64,
+            solutions: mem_stats.solutions.max(0) as u64,
+            solution_revisions: mem_stats.solution_revisions.max(0) as u64,
+            solution_tags: mem_stats.solution_tags.max(0) as u64,
+            solution_links: mem_stats.solution_links.max(0) as u64,
+            solution_phrasings: mem_stats.solution_phrasings.max(0) as u64,
+            conversations: mem_stats.conversations.max(0) as u64,
+            conversation_turns: mem_stats.conversation_turns.max(0) as u64,
+            synonyms: mem_stats.synonyms.max(0) as u64,
+        };
+        // Constellation. When the network is off, return a sensible
+        // "disabled" snapshot so the frontend can show "constellation
+        // disabled" without trying to parse missing fields.
+        let constellation = match self.registry.constellation() {
+            Some(c) => c.ws_state(),
+            None => crate::ws::ConstellationState::default(),
+        };
+        crate::ws::Snapshot {
+            server,
+            memory,
+            constellation,
         }
     }
 }
@@ -632,6 +691,206 @@ fn constellation_routes(constellation: Arc<constellation::Constellation>) -> axu
         .with_state(constellation)
 }
 
+/// `/ws/status` — the dashboard WebSocket feed. One-way push: snapshot on
+/// connect, then a fresh snapshot every [`ws::PUSH_INTERVAL`]. Auth via
+/// the `[network].token` (passed as `?token=…` since the browser's
+/// `WebSocket` constructor can't set custom headers); open when no token
+/// is configured. See `src/ws.rs` for the message envelope.
+fn ws_routes(server: Arc<Lodestone>) -> axum::Router {
+    use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
+    use axum::extract::{Query, State};
+    use axum::response::IntoResponse;
+    use serde::Deserialize;
+
+    #[derive(Deserialize)]
+    struct AuthQuery {
+        #[serde(default)]
+        token: String,
+    }
+
+    async fn handler(
+        ws: WebSocketUpgrade,
+        State(server): State<Arc<Lodestone>>,
+        Query(auth): Query<AuthQuery>,
+    ) -> axum::response::Response {
+        let configured = server.cfg.network.token.trim();
+        if !configured.is_empty()
+            && !util::ct_eq(auth.token.trim().as_bytes(), configured.as_bytes())
+        {
+            return (axum::http::StatusCode::UNAUTHORIZED, "unauthorized\n").into_response();
+        }
+        ws.on_upgrade(|sock| run(server, sock))
+    }
+
+    async fn run(server: Arc<Lodestone>, mut sock: WebSocket) {
+        // Send the initial snapshot immediately so the dashboard renders
+        // on connect, then loop pushing one every PUSH_INTERVAL until the
+        // client disconnects.
+        let mut tick = tokio::time::interval(ws::PUSH_INTERVAL);
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            let snap = server.ws_snapshot().await;
+            let msg = ws::WsMessage::Snapshot(snap);
+            match serde_json::to_string(&msg) {
+                Ok(payload) => {
+                    if sock.send(Message::Text(payload.into())).await.is_err() {
+                        return; // client gone
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "ws snapshot serialize failed");
+                }
+            }
+            // Wait for next tick OR a client message (we ignore inbound
+            // text for v1, but we DO need to drive the socket to detect
+            // clean closes).
+            tokio::select! {
+                _ = tick.tick() => {}
+                msg = sock.recv() => {
+                    match msg {
+                        Some(Ok(Message::Close(_))) | None => return,
+                        Some(Err(_)) => return,
+                        _ => {} // ignore other inbound; v1 is push-only
+                    }
+                }
+            }
+        }
+    }
+
+    axum::Router::new()
+        .route("/ws/status", axum::routing::get(handler))
+        .with_state(server)
+}
+
+/// Static dashboard route — serves the Nuxt SPA embedded into the binary
+/// at compile time by `build.rs` (see [`ws::DASHBOARD`]). Path layout:
+/// - `GET /` → redirect to `/dashboard/`.
+/// - `GET /dashboard/` → `index.html`.
+/// - `GET /dashboard/{*path}` → the matching file under
+///   `frontend/.output/public/`.
+///
+/// When the dashboard wasn't built (no npm at compile time), the route
+/// returns a small HTML page telling the operator how to build it. The
+/// rest of the server (MCP, `/ws/status`, constellation endpoints)
+/// works regardless.
+fn dashboard_routes() -> axum::Router {
+    use axum::http::{header, StatusCode};
+    use axum::response::{Html, IntoResponse, Redirect};
+
+    async fn redirect_root() -> impl axum::response::IntoResponse {
+        Redirect::permanent("/dashboard/")
+    }
+
+    async fn serve(path: axum::extract::Path<String>) -> axum::response::Response {
+        serve_path(&path.0).await
+    }
+
+    async fn serve_index() -> axum::response::Response {
+        serve_path("index.html").await
+    }
+
+    async fn serve_path(raw: &str) -> axum::response::Response {
+        let path = if raw.is_empty() || raw.ends_with('/') {
+            format!("{raw}index.html")
+        } else {
+            raw.to_string()
+        };
+        if let Some(file) = ws::DASHBOARD.get_file(&path) {
+            let mime = mime_for(&path);
+            return ([(header::CONTENT_TYPE, mime)], file.contents()).into_response();
+        }
+        // No file at that path. If the dashboard wasn't built at all,
+        // show the "how to build" page; otherwise fall back to the
+        // SPA's index.html so client-side routing still works.
+        if ws::DASHBOARD.files().next().is_none() {
+            return Html(NOT_BUILT_PAGE).into_response();
+        }
+        if let Some(index) = ws::DASHBOARD.get_file("index.html") {
+            return (
+                [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
+                index.contents(),
+            )
+                .into_response();
+        }
+        (StatusCode::NOT_FOUND, "not found\n").into_response()
+    }
+
+    fn mime_for(path: &str) -> &'static str {
+        let lower = path.to_lowercase();
+        if lower.ends_with(".html") {
+            "text/html; charset=utf-8"
+        } else if lower.ends_with(".js") || lower.ends_with(".mjs") {
+            "application/javascript"
+        } else if lower.ends_with(".css") {
+            "text/css; charset=utf-8"
+        } else if lower.ends_with(".json") {
+            "application/json"
+        } else if lower.ends_with(".svg") {
+            "image/svg+xml"
+        } else if lower.ends_with(".png") {
+            "image/png"
+        } else if lower.ends_with(".jpg") || lower.ends_with(".jpeg") {
+            "image/jpeg"
+        } else if lower.ends_with(".gif") {
+            "image/gif"
+        } else if lower.ends_with(".webp") {
+            "image/webp"
+        } else if lower.ends_with(".ico") {
+            "image/x-icon"
+        } else if lower.ends_with(".woff2") {
+            "font/woff2"
+        } else if lower.ends_with(".woff") {
+            "font/woff"
+        } else if lower.ends_with(".map") {
+            "application/json"
+        } else {
+            "application/octet-stream"
+        }
+    }
+
+    const NOT_BUILT_PAGE: &str = r#"<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>lodestone-mcp dashboard — not built</title>
+  <style>
+    body { font-family: ui-monospace, Menlo, Consolas, monospace; background:#0f1115; color:#e2e8f0; max-width:780px; margin:6rem auto; padding:0 1.5rem; line-height:1.6; }
+    h1 { font-size:1.25rem; }
+    code, pre { background:#1d2230; border:1px solid #252b3c; border-radius:6px; padding:.15rem .35rem; }
+    pre { padding:1rem; overflow:auto; }
+    a { color:#60a5fa; }
+  </style>
+</head>
+<body>
+  <h1>Dashboard not built</h1>
+  <p>
+    The <code>lodestone-mcp</code> binary was built without the Nuxt
+    dashboard — usually because <code>npm</code> wasn't on <code>PATH</code>
+    at compile time. Install <a href="https://nodejs.org/">Node.js</a>
+    (≥ 18) and rebuild:
+  </p>
+  <pre>cargo clean &amp;&amp; cargo build</pre>
+  <p>
+    The MCP server, the <code>/ws/status</code> WebSocket feed, and the
+    <code>/constellation/*</code> endpoints all work without the
+    dashboard.
+  </p>
+  <p>
+    During dashboard development you can also run Nuxt's hot-reloading
+    dev server separately — see
+    <code>frontend/README.md</code>.
+  </p>
+</body>
+</html>
+"#;
+
+    axum::Router::new()
+        .route("/", axum::routing::get(redirect_root))
+        .route("/dashboard", axum::routing::get(serve_index))
+        .route("/dashboard/", axum::routing::get(serve_index))
+        .route("/dashboard/{*path}", axum::routing::get(serve))
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
@@ -789,6 +1048,11 @@ async fn main() -> anyhow::Result<()> {
     );
     let ct = CancellationToken::new();
 
+    // Hold an Arc handle for the WebSocket dashboard feed BEFORE the MCP
+    // service closure moves `server`. The Lodestone struct's heavy fields
+    // are already `Arc`-shared internally, so cloning here is cheap.
+    let server_for_ws = Arc::new(server.clone());
+
     let service = StreamableHttpService::new(
         move || Ok(server.clone()),
         LocalSessionManager::default().into(),
@@ -805,7 +1069,16 @@ async fn main() -> anyhow::Result<()> {
     }
     let mut app = axum::Router::new()
         .route("/health", axum::routing::get(|| async { "ok" }))
-        .merge(mcp);
+        .merge(mcp)
+        // `/ws/status` — dashboard push feed. Auth via `?token=…` against
+        // `[network].token` (separate from `auth_token`, same trust domain
+        // as the constellation endpoints).
+        .merge(ws_routes(server_for_ws))
+        // `/dashboard/{*path}` + `/` redirect — Nuxt SPA embedded into the
+        // binary at compile time. When npm wasn't on PATH at build time
+        // the route returns a "not built — install Node and rebuild"
+        // page instead of the SPA.
+        .merge(dashboard_routes());
 
     // Constellation: mount peer endpoints and start discovery/sync (opt-in).
     if let Some(h) = &constellation {

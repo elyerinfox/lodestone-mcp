@@ -4,8 +4,17 @@ version = "0.1.0"
 edition = "2021"
 description = "MCP server that searches and retrieves code from the web by scraping search engines (no API keys)."
 license = "MIT"
+# Triggers `build.rs`, which (when npm is installed) runs the Nuxt
+# dashboard build so the resulting static files get embedded into the
+# binary via `include_dir!` and served at `/dashboard`. Builds still
+# succeed without npm — the dashboard route returns a "not built" page.
+build = "build.rs"
 
 [dependencies]
+# Embeds the Nuxt SPA output (`frontend/.output/public/`) at compile
+# time. include_dir is a no-op when the directory is empty, so the build
+# still succeeds for contributors without Node.
+include_dir = "0.7"
 rmcp = { version = "1.7", features = [
     "server",
     "macros",
@@ -14,7 +23,7 @@ rmcp = { version = "1.7", features = [
 ] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "net"] }
 tokio-util = "0.7"
-axum = "0.8"
+axum = { version = "0.8", features = ["ws"] }
 reqwest = { version = "0.13", default-features = true, features = ["gzip", "brotli", "json", "query", "form", "socks"] }
 scraper = "0.21"
 html2text = "0.12"

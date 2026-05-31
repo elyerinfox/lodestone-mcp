@@ -858,6 +858,46 @@ impl Constellation {
         self.peers.lock().unwrap().len()
     }
 
+    /// Build a privacy-safe snapshot of the constellation state for the
+    /// dashboard WebSocket feed. Contains no secrets — never the cluster
+    /// token, never the request body of any cached entry, never any peer
+    /// auth material. Per-peer rows carry just URL + node_id + reputation
+    /// + reachability + advertised-delegation flag.
+    pub(crate) fn ws_state(&self) -> crate::ws::ConstellationState {
+        let peers: Vec<crate::ws::PeerEntry> = {
+            let table = self.peers.lock().unwrap();
+            table
+                .values()
+                .map(|p| crate::ws::PeerEntry {
+                    url: p.url.clone(),
+                    node_id: p.node_id.clone(),
+                    reputation: p.reputation,
+                    reachable: p.reachable(),
+                    delegation_enabled: p.delegation_enabled,
+                })
+                .collect()
+        };
+        let (served, fetched) = {
+            let seeds = self.seeds.lock().unwrap();
+            seeds.values().fold((0u64, 0u64), |(s, f), st| {
+                (s + st.served_bytes, f + st.fetched_bytes)
+            })
+        };
+        crate::ws::ConstellationState {
+            enabled: true,
+            node_id: self.node_id.clone(),
+            constellation_id: self.constellation_id.lock().unwrap().clone(),
+            peer_count: peers.len(),
+            peers,
+            delegation_enabled: self.cfg.delegation_enabled,
+            delegation_max_jobs_per_peer_per_hour: self.cfg.delegation_max_jobs_per_peer_per_hour,
+            delegation_max_bytes_per_job: self.cfg.delegation_max_bytes_per_job,
+            delegation_total_bytes_per_hour: self.cfg.delegation_total_bytes_per_hour,
+            total_served_bytes: served,
+            total_fetched_bytes: fetched,
+        }
+    }
+
     /// Answer an incoming `/constellation/query`: serve from our own cache, else (while
     /// `ttl > 0` and we haven't been visited) relay to our bloom-matching peers
     /// one hop closer. The `seen` node-id set breaks loops.
