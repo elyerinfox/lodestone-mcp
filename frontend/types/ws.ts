@@ -16,6 +16,17 @@ export interface ServerStatus {
   tools_active_names: string[]
   tools_disabled_names: string[]
   providers: ProviderEntry[]
+  bind: string
+  constellation_bind: string
+  secrets: SecretPresence
+}
+
+export interface SecretPresence {
+  auth_token: boolean
+  network_token: boolean
+  github_token: boolean
+  nasa_key: boolean
+  eia_key: boolean
 }
 
 export interface MemoryStats {
@@ -29,6 +40,8 @@ export interface MemoryStats {
   conversations: number
   conversation_turns: number
   synonyms: number
+  db_path: string
+  embedding_model: string
 }
 
 export interface PeerEntry {

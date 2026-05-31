@@ -408,6 +408,15 @@ impl Lodestone {
             tools_active_names,
             tools_disabled_names,
             providers,
+            bind: self.cfg.bind.clone(),
+            constellation_bind: self.cfg.network.bind.clone(),
+            secrets: crate::ws::SecretPresence {
+                auth_token: !self.cfg.auth_token.trim().is_empty(),
+                network_token: !self.cfg.network.token.trim().is_empty(),
+                github_token: !self.github_token.trim().is_empty(),
+                nasa_key: !self.nasa_key.trim().is_empty(),
+                eia_key: !self.eia_key.trim().is_empty(),
+            },
         };
         // Memory. Internal struct uses i64 (SQLite native); convert to u64
         // for the wire format (negatives can't happen — these are
@@ -424,6 +433,16 @@ impl Lodestone {
             conversations: mem_stats.conversations.max(0) as u64,
             conversation_turns: mem_stats.conversation_turns.max(0) as u64,
             synonyms: mem_stats.synonyms.max(0) as u64,
+            db_path: if self.cfg.memory.enabled {
+                self.cfg.memory.dir.clone()
+            } else {
+                String::new()
+            },
+            embedding_model: if self.cfg.memory.enabled {
+                self.cfg.memory.embedding_model.clone()
+            } else {
+                String::new()
+            },
         };
         // Constellation. When the network is off, return a sensible
         // "disabled" snapshot so the frontend can show "constellation

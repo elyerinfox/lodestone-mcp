@@ -8,6 +8,54 @@
     Waiting for the first snapshot from <span class="font-mono">/ws/status</span>…
   </div>
   <div v-else class="space-y-8">
+    <PageHeader title="Overview" @open-settings="settingsOpen = true" />
+
+    <SettingsDrawer
+      :open="settingsOpen"
+      subsystem="Server"
+      @close="settingsOpen = false"
+    >
+      <div class="space-y-5 text-sm">
+        <div>
+          <div class="text-xs uppercase tracking-wide text-slate-500 mb-2">
+            Bind addresses
+          </div>
+          <div class="space-y-2">
+            <ReadOnlyRow label="MCP" :value="snapshot.server.bind || '—'" />
+            <ReadOnlyRow
+              label="Constellation"
+              :value="snapshot.server.constellation_bind || 'shares MCP port'"
+            />
+          </div>
+        </div>
+
+        <div>
+          <div class="text-xs uppercase tracking-wide text-slate-500 mb-2">
+            Secrets
+          </div>
+          <p class="mb-2 text-xs text-slate-400">
+            Values are never sent over this socket — only whether each one is
+            configured. Set via <span class="font-mono">config/</span> or the
+            corresponding <span class="font-mono">LODESTONE_*</span> env var.
+          </p>
+          <div class="space-y-2">
+            <SecretRow label="MCP auth token" :set="snapshot.server.secrets.auth_token" />
+            <SecretRow label="Constellation token" :set="snapshot.server.secrets.network_token" />
+            <SecretRow label="GitHub token" :set="snapshot.server.secrets.github_token" />
+            <SecretRow label="NASA API key" :set="snapshot.server.secrets.nasa_key" />
+            <SecretRow label="EIA API key" :set="snapshot.server.secrets.eia_key" />
+          </div>
+        </div>
+
+        <hr class="border-slate-800" />
+
+        <p class="text-xs text-slate-500">
+          Server-wide runtime knobs (log level, in-flight limits) require a
+          restart to change.
+        </p>
+      </div>
+    </SettingsDrawer>
+
     <section>
       <SectionHeading>Server</SectionHeading>
       <div class="grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -80,11 +128,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed, inject, type Ref } from 'vue'
+import { computed, inject, ref, type Ref } from 'vue'
 import type { Snapshot } from '~/types/ws'
 
 const feed = inject<{ snapshot: Ref<Snapshot | null> }>('dashboardFeed')!
 const snapshot = feed.snapshot
+
+const settingsOpen = ref(false)
 
 const uptimeHuman = computed(() => {
   const s = snapshot.value?.server.uptime_secs ?? 0

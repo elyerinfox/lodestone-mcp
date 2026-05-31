@@ -93,6 +93,27 @@ pub struct ServerStatus {
     pub tools_disabled_names: Vec<String>,
     /// Active search providers — one entry per `(kind, id)`.
     pub providers: Vec<ProviderEntry>,
+    /// Bind address the MCP listener accepted on. Read-only.
+    pub bind: String,
+    /// Bind address the constellation listener accepted on, or empty
+    /// when the constellation shares the MCP port.
+    pub constellation_bind: String,
+    /// Per-secret presence flags — boolean only, never the value.
+    /// `true` = configured (env or config). Golden rule 11: a secret's
+    /// presence can be surfaced; the bytes never can.
+    pub secrets: SecretPresence,
+}
+
+/// One bit per secret the server might be configured with. The
+/// dashboard renders these as `<set>` / `<unset>` badges so operators
+/// can audit configuration without ever seeing the value.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct SecretPresence {
+    pub auth_token: bool,
+    pub network_token: bool,
+    pub github_token: bool,
+    pub nasa_key: bool,
+    pub eia_key: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -116,6 +137,14 @@ pub struct MemoryStats {
     pub conversations: u64,
     pub conversation_turns: u64,
     pub synonyms: u64,
+    /// Resolved memory store directory. Read-only; the path is
+    /// established at startup. Empty when memory is disabled.
+    pub db_path: String,
+    /// Resolved embedding model id used for semantic memory search.
+    /// Read-only; switching models requires a restart so the index
+    /// vectors stay consistent. Empty when memory is disabled or
+    /// embeddings aren't configured.
+    pub embedding_model: String,
 }
 
 /// Constellation snapshot — peer table + identity + delegation knobs.

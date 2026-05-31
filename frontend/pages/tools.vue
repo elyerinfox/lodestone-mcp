@@ -7,6 +7,72 @@
 <template>
   <div v-if="!snapshot" class="text-slate-400">Waiting for snapshot…</div>
   <div v-else class="space-y-6">
+    <PageHeader title="Tools" @open-settings="settingsOpen = true" />
+
+    <SettingsDrawer
+      :open="settingsOpen"
+      subsystem="Tools"
+      @close="settingsOpen = false"
+    >
+      <div class="space-y-5 text-sm">
+        <label class="flex items-center justify-between gap-3">
+          <span>
+            <span class="font-medium text-slate-100">Compact rows</span>
+            <span class="block text-xs text-slate-400">
+              Tighter list spacing. Useful when scanning hundreds of tools.
+            </span>
+          </span>
+          <input type="checkbox" class="h-5 w-5 accent-accent-info" v-model="compact" />
+        </label>
+
+        <label class="flex items-center justify-between gap-3">
+          <span>
+            <span class="font-medium text-slate-100">Hide families with no active tools</span>
+            <span class="block text-xs text-slate-400">
+              When on, families whose every tool is config-gated off
+              are collapsed out of the list.
+            </span>
+          </span>
+          <input
+            type="checkbox"
+            class="h-5 w-5 accent-accent-info"
+            v-model="hideAllDisabledFamilies"
+          />
+        </label>
+
+        <hr class="border-slate-800" />
+
+        <div class="space-y-2">
+          <div class="text-xs uppercase tracking-wide text-slate-500">
+            Fully-disabled families
+          </div>
+          <p class="text-xs text-slate-400">
+            Every tool in these families is hidden by config — usually
+            because the whole skill is opted out.
+          </p>
+          <div v-if="fullyDisabledFamilies.length === 0" class="text-xs text-slate-500">
+            None — every family has at least one active tool.
+          </div>
+          <ul v-else class="space-y-1">
+            <li
+              v-for="f in fullyDisabledFamilies"
+              :key="f.family"
+              class="flex items-center justify-between rounded border border-slate-800 bg-surface-2/40 px-3 py-1.5 text-xs"
+            >
+              <span class="font-mono text-slate-300">{{ f.family }}_*</span>
+              <span class="text-slate-500">{{ f.count }} tool{{ f.count === 1 ? '' : 's' }}</span>
+            </li>
+          </ul>
+        </div>
+
+        <p class="text-xs text-slate-500">
+          Per-tool runtime toggling requires changes deeper in the tool
+          dispatcher and isn't wired yet — edit
+          <span class="font-mono">[tools] disabled</span> to gate a tool.
+        </p>
+      </div>
+    </SettingsDrawer>
+
     <section class="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
       <div>
         <SectionHeading>Tools</SectionHeading>
@@ -99,11 +165,15 @@
             </span>
           </div>
         </header>
-        <ul class="grid grid-cols-1 gap-x-4 px-4 py-3 text-xs md:grid-cols-2 lg:grid-cols-3">
+        <ul
+          class="grid grid-cols-1 gap-x-4 text-xs md:grid-cols-2 lg:grid-cols-3"
+          :class="compact ? 'px-4 py-2' : 'px-4 py-3'"
+        >
           <li
             v-for="t in group.active"
             :key="`a-${t}`"
-            class="flex items-center gap-2 py-0.5 font-mono"
+            class="flex items-center gap-2 font-mono"
+            :class="compact ? 'py-0' : 'py-0.5'"
           >
             <span class="h-1.5 w-1.5 rounded-full bg-accent-ok shrink-0" />
             <span class="truncate text-slate-200">{{ t }}</span>
@@ -111,7 +181,8 @@
           <li
             v-for="t in group.disabled"
             :key="`d-${t}`"
-            class="flex items-center gap-2 py-0.5 font-mono opacity-60"
+            class="flex items-center gap-2 font-mono opacity-60"
+            :class="compact ? 'py-0' : 'py-0.5'"
           >
             <span class="h-1.5 w-1.5 rounded-full bg-accent-warn shrink-0" />
             <span class="truncate text-slate-400 line-through">{{ t }}</span>
@@ -137,6 +208,9 @@ const snapshot = feed.snapshot
 
 const filter = ref('')
 const showWhich = ref<'all' | 'active' | 'disabled'>('all')
+const settingsOpen = ref(false)
+const compact = ref(false)
+const hideAllDisabledFamilies = ref(false)
 
 const activeTotal = computed(() => snapshot.value?.server.tools_active_names.length ?? 0)
 const disabledTotal = computed(
@@ -197,5 +271,18 @@ const displayedGroups = computed(() => {
       disabled: showWhich.value === 'active' ? [] : g.disabled,
     }))
     .filter((g) => g.active.length + g.disabled.length > 0)
+    .filter((g) => !hideAllDisabledFamilies.value || g.active.length > 0)
+})
+
+// Families where every tool is config-gated off — surfaced in the
+// settings drawer as the "skills you've opted out of" view.
+const fullyDisabledFamilies = computed(() => {
+  const all = buildGroups(
+    snapshot.value?.server.tools_active_names ?? [],
+    snapshot.value?.server.tools_disabled_names ?? [],
+  )
+  return all
+    .filter((g) => g.active.length === 0 && g.disabled.length > 0)
+    .map((g) => ({ family: g.family, count: g.disabled.length }))
 })
 </script>
