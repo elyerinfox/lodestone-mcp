@@ -379,6 +379,12 @@ client). Gated by `[tasks]`. Currently backgrounds searches.
 | `chart_pie` | `slices`, `title?`, … | SVG pie chart with a percentage legend. |
 | `chart_heatmap` | `matrix`, `row_labels?`, `col_labels?`, `colormap?`, … | 2D matrix as colored cells with a colorbar; colormaps: viridis (default), magma, plasma, coolwarm, grayscale. |
 | `chart_grafana` | `title?`, `series`, `unit?`, … | Dark-themed time-series panel with translucent area fills and last-value labels — operational telemetry feel. |
+| `chart_stat` | `value`, `label?`, `unit?`, `thresholds?`, `sparkline?`, `color_mode?` | Grafana Stat panel: big-number tile, threshold-tinted, optional background sparkline. |
+| `chart_gauge` | `value`, `min`, `max`, `thresholds?`, `unit?`, `title?` | Grafana Gauge: 270° radial dial with threshold bands. |
+| `chart_bar_gauge` | `items`, `min`, `max`, `thresholds?`, `unit?` | Grafana Bar gauge: one horizontal threshold-tinted bar per item. |
+| `chart_state_timeline` | `rows`, `state_colors?` | Grafana State timeline: categorical state bands over time per row (UP / DEGRADED / DOWN). |
+| `chart_candlestick` | `candles`, `up_color?`, `down_color?`, … | Grafana Candlestick: OHLC candles for financial / market time-series. |
+| `chart_sparkline` | `points`, `color?`, `fill_opacity?`, … | Tiny inline trend with no chrome. |
 | `chart_canvas` | `commands`, `width?`, `height?`, `background?`, `title?` | Procedural drawing canvas (turtle / Logo style): line / rect / circle / polygon / polyline / text primitives drawn in order. |
 | `chart_interactive` | `library` (chartjs/plotly), `config`, `title?`, `width?`, `height?` | Self-contained HTML wrapping Chart.js or Plotly. Clients that render HTML get full interactivity; others see source. |
 | `chart_mermaid` | `source`, `title?` | Wrap mermaid source in a markdown code fence. Every modern MCP client renders mermaid blocks natively. |

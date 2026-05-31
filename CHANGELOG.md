@@ -23,6 +23,25 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - **`chart_grafana`** — dark-themed time-series panel with translucent
     area fills, last-value labels, low-contrast grid. For when "this is
     operational telemetry" needs to read at a glance.
+  - **`chart_stat`** — Grafana Stat panel. Big-number tile, threshold-
+    tinted, with an optional background sparkline. `color_mode=
+    "background"` flood-fills the tile for the dramatic green/yellow/red
+    status look.
+  - **`chart_gauge`** — Grafana radial gauge (270° dial). Threshold bands
+    color the arc; numerical readout in the middle.
+  - **`chart_bar_gauge`** — Grafana horizontal threshold bars. One row
+    per item, value mapped to fill proportion, color from highest reached
+    threshold. The Top-N hosts / pods tile.
+  - **`chart_state_timeline`** — Grafana State timeline. Categorical
+    state bands over time per row — the "is each service up" grid for
+    SLO reporting. Sensible state→color defaults (up=green,
+    degraded=yellow, down=red, scheduled=blue, unknown=gray); overridable
+    via `state_colors`.
+  - **`chart_candlestick`** — Grafana Candlestick. OHLC with green/red
+    bodies + wicks. Financial time-series.
+  - **`chart_sparkline`** — tiny inline trend, no chrome. The shape
+    Edward Tufte popularized; Grafana embeds it inside the Stat panel.
+    Useful in tables and tight UIs.
   - **`chart_canvas`** — turtle / Logo / matplotlib.patches procedural
     drawing. Issue a sequence of `line`, `rect`, `circle`, `polygon`,
     `polyline`, `text` commands; the tool emits a self-contained SVG.

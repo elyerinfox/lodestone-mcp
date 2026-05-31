@@ -39,6 +39,14 @@ pub const TOOL_NAMES: &[&str] = &[
     "chart_heatmap",
     "chart_canvas",
     "chart_grafana",
+    // Grafana panel types
+    "chart_stat",
+    "chart_gauge",
+    "chart_bar_gauge",
+    "chart_state_timeline",
+    "chart_candlestick",
+    "chart_sparkline",
+    // Interactive + diagram
     "chart_interactive",
     "chart_mermaid",
 ];
@@ -1888,6 +1896,976 @@ impl Skill for ChartGrafana {
 }
 
 // ---------------------------------------------------------------------------
+// Threshold helpers — shared by stat / gauge / bar_gauge / sparkline
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize, schemars::JsonSchema, Clone)]
+struct Threshold {
+    /// Value at or above which this band's `color` applies. Lower bands
+    /// (smaller `at`) define the base; higher bands take over as `value`
+    /// climbs past them. By convention, include one threshold at the
+    /// minimum (often `0`) with the "normal" color.
+    at: f64,
+    /// SVG color (named, `#hex`, `rgb()`). Grafana defaults are green for
+    /// normal, yellow / orange for warning, red for critical.
+    color: String,
+}
+
+fn threshold_color<'a>(value: f64, thresholds: &'a [Threshold], default: &'a str) -> &'a str {
+    let mut picked = default;
+    for t in thresholds {
+        if value >= t.at {
+            picked = &t.color;
+        }
+    }
+    picked
+}
+
+/// Default Grafana-style thresholds when none are supplied: green at 0,
+/// yellow at 60% of `max`, red at 80% of `max`.
+fn default_thresholds(_min: f64, max: f64) -> Vec<Threshold> {
+    vec![
+        Threshold {
+            at: f64::NEG_INFINITY,
+            color: "#73bf69".into(),
+        },
+        Threshold {
+            at: 0.6 * max,
+            color: "#f2cc0c".into(),
+        },
+        Threshold {
+            at: 0.8 * max,
+            color: "#e02f44".into(),
+        },
+    ]
+}
+
+/// Inline mini sparkline drawn within `(x0, y0)`→`(x0+w, y0+h)` user-space
+/// units. No axes; pure trend shape. Used by both `chart_sparkline` and as
+/// the optional inline trend on `chart_stat`.
+#[allow(clippy::too_many_arguments)]
+fn draw_sparkline(
+    out: &mut String,
+    points: &[(f64, f64)],
+    x0: f64,
+    y0: f64,
+    w: f64,
+    h: f64,
+    color: &str,
+    fill_opacity: f64,
+) {
+    if points.len() < 2 {
+        return;
+    }
+    let xs: Vec<f64> = points.iter().map(|p| p.0).collect();
+    let ys: Vec<f64> = points.iter().map(|p| p.1).collect();
+    let xmin = xs.iter().copied().fold(f64::INFINITY, f64::min);
+    let xmax = xs.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    let ymin = ys.iter().copied().fold(f64::INFINITY, f64::min);
+    let ymax = ys.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    let sx = |x: f64| {
+        if (xmax - xmin).abs() < f64::EPSILON {
+            x0 + w / 2.0
+        } else {
+            x0 + (x - xmin) / (xmax - xmin) * w
+        }
+    };
+    let sy = |y: f64| {
+        if (ymax - ymin).abs() < f64::EPSILON {
+            y0 + h / 2.0
+        } else {
+            y0 + h - (y - ymin) / (ymax - ymin) * h
+        }
+    };
+    let mut path = String::new();
+    let mut area = format!("M{:.2},{:.2} ", sx(points[0].0), y0 + h);
+    for (i, p) in points.iter().enumerate() {
+        let cmd = if i == 0 { 'M' } else { 'L' };
+        let _ = write!(path, "{cmd}{:.2},{:.2} ", sx(p.0), sy(p.1));
+        let _ = write!(area, "L{:.2},{:.2} ", sx(p.0), sy(p.1));
+    }
+    let _ = write!(area, "L{:.2},{:.2} Z", sx(points.last().unwrap().0), y0 + h);
+    if fill_opacity > 0.0 {
+        let _ = writeln!(
+            out,
+            "<path d=\"{area}\" fill=\"{color}\" opacity=\"{fill_opacity}\"/>"
+        );
+    }
+    let _ = writeln!(
+        out,
+        "<path d=\"{path}\" fill=\"none\" stroke=\"{color}\" stroke-width=\"1.5\" \
+         stroke-linejoin=\"round\" stroke-linecap=\"round\"/>"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// chart_stat — Grafana "Stat" panel: a big number, threshold-tinted, with an
+// optional background sparkline. The signature operational dashboard tile.
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct StatArgs {
+    /// The big number to display.
+    value: f64,
+    /// Optional label shown above the value.
+    #[serde(default)]
+    label: Option<String>,
+    /// Unit suffix appended to the value (e.g. "ms", "%", "req/s").
+    #[serde(default)]
+    unit: Option<String>,
+    /// Decimal places. Default 2.
+    #[serde(default)]
+    decimals: Option<u32>,
+    /// Threshold bands. Maps the value to a color via "highest reached
+    /// threshold wins" logic.
+    #[serde(default)]
+    thresholds: Option<Vec<Threshold>>,
+    /// How the threshold color is applied. `"value"` colors just the
+    /// number (default), `"background"` colors the entire tile.
+    #[serde(default)]
+    color_mode: Option<String>,
+    /// Optional sparkline drawn behind the number (the trend leading up to
+    /// `value`). `(x, y)` points; the renderer auto-fits the bounds.
+    #[serde(default)]
+    sparkline: Option<Vec<[f64; 2]>>,
+    #[serde(default)]
+    width: Option<f64>,
+    #[serde(default)]
+    height: Option<f64>,
+}
+
+pub struct ChartStat;
+impl Skill for ChartStat {
+    fn name(&self) -> &'static str {
+        "chart_stat"
+    }
+    fn description(&self) -> &'static str {
+        "Grafana 'Stat' panel — one big number, threshold-tinted, with an optional background \
+        sparkline showing the trend leading up to it. The most recognizable operational dashboard \
+        tile. Pass `color_mode=\"background\"` to flood-fill the tile (the dramatic \
+        green/yellow/red status look). `thresholds` is a list of `{at, color}` entries; the \
+        highest reached threshold wins. `sparkline` is an optional trail of `(x, y)` points."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<StatArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (_server, args) = ctx.parse::<StatArgs>()?;
+            let w = args.width.unwrap_or(360.0).clamp(120.0, 4000.0);
+            let h = args.height.unwrap_or(220.0).clamp(80.0, 4000.0);
+            let thresholds = args
+                .thresholds
+                .unwrap_or_else(|| default_thresholds(0.0, 100.0));
+            let color = threshold_color(args.value, &thresholds, "#73bf69").to_string();
+            let color_mode = args
+                .color_mode
+                .as_deref()
+                .map(str::to_ascii_lowercase)
+                .unwrap_or_else(|| "value".to_string());
+            let bg = if color_mode == "background" {
+                color.as_str()
+            } else {
+                "#1f2329"
+            };
+            let value_color = if color_mode == "background" {
+                "#ffffff"
+            } else {
+                color.as_str()
+            };
+            let decimals = args.decimals.unwrap_or(2).min(8);
+            let formatted = if args.value.is_finite() {
+                let s = format!("{:.*}", decimals as usize, args.value);
+                // Strip trailing zeros after the decimal — looks cleaner for
+                // integers passed in as floats.
+                if s.contains('.') {
+                    s.trim_end_matches('0').trim_end_matches('.').to_string()
+                } else {
+                    s
+                }
+            } else {
+                "—".to_string()
+            };
+            let unit = args.unit.as_deref().unwrap_or("");
+            let mut svg = format!(
+                "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 {w} {h}\" \
+                 preserveAspectRatio=\"xMidYMid meet\" \
+                 style=\"font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif\" \
+                 role=\"img\">\n\
+                 <rect x=\"0\" y=\"0\" width=\"{w}\" height=\"{h}\" rx=\"4\" fill=\"{bg}\"/>"
+            );
+            if let Some(spark) = args.sparkline.as_ref() {
+                let pts: Vec<(f64, f64)> = spark.iter().map(|p| (p[0], p[1])).collect();
+                let spark_color = if color_mode == "background" {
+                    "rgba(255,255,255,0.45)"
+                } else {
+                    color.as_str()
+                };
+                let opacity = 0.18_f64;
+                draw_sparkline(
+                    &mut svg,
+                    &pts,
+                    8.0,
+                    h * 0.55,
+                    w - 16.0,
+                    h * 0.40,
+                    spark_color,
+                    opacity,
+                );
+            }
+            if let Some(lbl) = args.label.as_deref() {
+                let label_color = if color_mode == "background" {
+                    "rgba(255,255,255,0.85)"
+                } else {
+                    "#bbb"
+                };
+                let _ = writeln!(
+                    svg,
+                    "<text x=\"{cx}\" y=\"30\" text-anchor=\"middle\" font-size=\"13\" \
+                     fill=\"{label_color}\">{lbl}</text>",
+                    cx = w / 2.0,
+                    lbl = esc(lbl),
+                );
+            }
+            let _ = writeln!(
+                svg,
+                "<text x=\"{cx}\" y=\"{cy}\" text-anchor=\"middle\" font-size=\"{fs}\" \
+                 fill=\"{value_color}\" font-weight=\"700\">{val}<tspan font-size=\"{us}\" \
+                 font-weight=\"500\" dx=\"4\">{unit}</tspan></text>",
+                cx = w / 2.0,
+                cy = h * 0.55,
+                fs = h * 0.32,
+                val = esc(&formatted),
+                us = h * 0.13,
+                unit = esc(unit),
+            );
+            svg.push_str("</svg>");
+            let desc = format!(
+                "Stat panel{} · value {}{unit}{}",
+                args.label
+                    .as_deref()
+                    .map(|t| format!(" \"{}\"", t))
+                    .unwrap_or_default(),
+                formatted,
+                if args.sparkline.is_some() {
+                    " · with sparkline"
+                } else {
+                    ""
+                },
+            );
+            Ok(svg_result(svg, desc))
+        })
+    }
+}
+
+// ---------------------------------------------------------------------------
+// chart_gauge — Grafana radial gauge with threshold bands
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct GaugeArgs {
+    value: f64,
+    min: f64,
+    max: f64,
+    #[serde(default)]
+    title: Option<String>,
+    #[serde(default)]
+    unit: Option<String>,
+    #[serde(default)]
+    thresholds: Option<Vec<Threshold>>,
+    #[serde(default)]
+    decimals: Option<u32>,
+    #[serde(default)]
+    width: Option<f64>,
+    #[serde(default)]
+    height: Option<f64>,
+}
+
+/// Polar-to-cartesian, with 0° at 9 o'clock and angle sweeping clockwise.
+fn polar(cx: f64, cy: f64, r: f64, theta: f64) -> (f64, f64) {
+    (cx + r * theta.cos(), cy + r * theta.sin())
+}
+
+pub struct ChartGauge;
+impl Skill for ChartGauge {
+    fn name(&self) -> &'static str {
+        "chart_gauge"
+    }
+    fn description(&self) -> &'static str {
+        "Grafana 'Gauge' panel — a 270° radial dial showing `value` between `min` and `max`. \
+        Threshold bands tint the arc; the needle / fill terminates at `value`'s angle. Numerical \
+        readout in the middle. Common for SLO / latency / utilization dashboards."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<GaugeArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (_server, args) = ctx.parse::<GaugeArgs>()?;
+            if args.max <= args.min {
+                return Err(invalid("`max` must be greater than `min`".to_string()));
+            }
+            let w = args.width.unwrap_or(320.0).clamp(120.0, 4000.0);
+            let h = args.height.unwrap_or(260.0).clamp(120.0, 4000.0);
+            let thresholds = args
+                .thresholds
+                .unwrap_or_else(|| default_thresholds(args.min, args.max));
+            let cx = w / 2.0;
+            let cy = h * 0.62;
+            let r = (w.min(h * 1.4)) * 0.38;
+            let stroke = r * 0.28;
+            // Sweep arc from -225° to +45° (270° total, 12 o'clock = -90°).
+            let start = -225f64.to_radians();
+            let end = 45f64.to_radians();
+            let total = end - start;
+            // Background arc.
+            let (sx, sy) = polar(cx, cy, r, start);
+            let (ex, ey) = polar(cx, cy, r, end);
+            let _ = writeln!(
+                svg_open_arg(w, h),
+                "<rect x=\"0\" y=\"0\" width=\"{w}\" height=\"{h}\" fill=\"#1f2329\"/>"
+            );
+            let mut svg = format!(
+                "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 {w} {h}\" \
+                 preserveAspectRatio=\"xMidYMid meet\" \
+                 style=\"font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif\" \
+                 role=\"img\">\n\
+                 <rect x=\"0\" y=\"0\" width=\"{w}\" height=\"{h}\" fill=\"#1f2329\"/>"
+            );
+            let _ = writeln!(
+                svg,
+                "<path d=\"M{sx:.2},{sy:.2} A{r:.2},{r:.2} 0 1 1 {ex:.2},{ey:.2}\" \
+                 fill=\"none\" stroke=\"#2c3036\" stroke-width=\"{stroke}\" stroke-linecap=\"butt\"/>"
+            );
+            // Threshold band-colored fill from start to the value's angle.
+            let frac = ((args.value - args.min) / (args.max - args.min)).clamp(0.0, 1.0);
+            let value_end = start + total * frac;
+            if frac > 0.0 {
+                let (vx, vy) = polar(cx, cy, r, value_end);
+                let large = if total * frac > std::f64::consts::PI {
+                    1
+                } else {
+                    0
+                };
+                let color = threshold_color(args.value, &thresholds, "#73bf69");
+                let _ = writeln!(
+                    svg,
+                    "<path d=\"M{sx:.2},{sy:.2} A{r:.2},{r:.2} 0 {large} 1 {vx:.2},{vy:.2}\" \
+                     fill=\"none\" stroke=\"{color}\" stroke-width=\"{stroke}\" stroke-linecap=\"butt\"/>"
+                );
+            }
+            // Tick marks at min / mid / max.
+            for (frac_t, lbl) in [
+                (0.0, fmt_tick(args.min)),
+                (0.5, fmt_tick((args.min + args.max) / 2.0)),
+                (1.0, fmt_tick(args.max)),
+            ] {
+                let theta = start + total * frac_t;
+                let (tx, ty) = polar(cx, cy, r + stroke * 0.7, theta);
+                let _ = writeln!(
+                    svg,
+                    "<text x=\"{tx:.2}\" y=\"{ty:.2}\" text-anchor=\"middle\" font-size=\"11\" \
+                     fill=\"#888\">{lbl}</text>"
+                );
+            }
+            // Big value in the middle.
+            let decimals = args.decimals.unwrap_or(2).min(8);
+            let val_str = format!("{:.*}", decimals as usize, args.value);
+            let val_str = if val_str.contains('.') {
+                val_str
+                    .trim_end_matches('0')
+                    .trim_end_matches('.')
+                    .to_string()
+            } else {
+                val_str
+            };
+            let _ = writeln!(
+                svg,
+                "<text x=\"{cx:.2}\" y=\"{cy:.2}\" text-anchor=\"middle\" font-size=\"{fs:.2}\" \
+                 fill=\"#fff\" font-weight=\"700\">{v}<tspan font-size=\"{us:.2}\" \
+                 font-weight=\"500\" dx=\"3\">{unit}</tspan></text>",
+                fs = r * 0.55,
+                us = r * 0.22,
+                v = esc(&val_str),
+                unit = esc(args.unit.as_deref().unwrap_or("")),
+            );
+            if let Some(t) = args.title.as_deref() {
+                let _ = writeln!(
+                    svg,
+                    "<text x=\"{cx}\" y=\"22\" text-anchor=\"middle\" font-size=\"13\" \
+                     fill=\"#bbb\" font-weight=\"600\">{lbl}</text>",
+                    lbl = esc(t),
+                );
+            }
+            svg.push_str("</svg>");
+            let desc = format!(
+                "Gauge{} · {} of [{}, {}] ({:.1}%)",
+                args.title
+                    .as_deref()
+                    .map(|t| format!(" \"{}\"", t))
+                    .unwrap_or_default(),
+                fmt_tick(args.value),
+                fmt_tick(args.min),
+                fmt_tick(args.max),
+                frac * 100.0,
+            );
+            Ok(svg_result(svg, desc))
+        })
+    }
+}
+
+/// Throwaway helper so the compiler doesn't complain about `svg_open` returning
+/// a String we ignored above; the real SVG buffer is local to each tool.
+fn svg_open_arg(w: f64, h: f64) -> String {
+    svg_open(w, h)
+}
+
+// ---------------------------------------------------------------------------
+// chart_bar_gauge — Grafana horizontal threshold bars (one row per item)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct BarGaugeItem {
+    label: String,
+    value: f64,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct BarGaugeArgs {
+    items: Vec<BarGaugeItem>,
+    min: f64,
+    max: f64,
+    #[serde(default)]
+    title: Option<String>,
+    #[serde(default)]
+    unit: Option<String>,
+    #[serde(default)]
+    thresholds: Option<Vec<Threshold>>,
+    #[serde(default)]
+    width: Option<f64>,
+    #[serde(default)]
+    height: Option<f64>,
+}
+
+pub struct ChartBarGauge;
+impl Skill for ChartBarGauge {
+    fn name(&self) -> &'static str {
+        "chart_bar_gauge"
+    }
+    fn description(&self) -> &'static str {
+        "Grafana 'Bar gauge' panel — one horizontal bar per item, filled proportionally to \
+        `(value - min) / (max - min)` and tinted by the highest reached threshold. The numerical \
+        readout sits on the right. Common for compact 'all my hosts' or 'top N pods' tiles."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<BarGaugeArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (_server, args) = ctx.parse::<BarGaugeArgs>()?;
+            if args.items.is_empty() {
+                return Err(invalid(
+                    "`items` must contain at least one entry".to_string(),
+                ));
+            }
+            if args.max <= args.min {
+                return Err(invalid("`max` must be greater than `min`".to_string()));
+            }
+            let n = args.items.len();
+            let row_h = 28.0_f64;
+            let w = args.width.unwrap_or(520.0).clamp(160.0, 4000.0);
+            let h = args
+                .height
+                .unwrap_or((n as f64 * (row_h + 8.0) + 56.0).max(120.0))
+                .clamp(80.0, 8000.0);
+            let thresholds = args
+                .thresholds
+                .unwrap_or_else(|| default_thresholds(args.min, args.max));
+            let label_w = 120.0_f64;
+            let value_w = 80.0_f64;
+            let bar_left = label_w + 8.0;
+            let bar_right = w - value_w - 8.0;
+            let mut svg = format!(
+                "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 {w} {h}\" \
+                 preserveAspectRatio=\"xMidYMid meet\" \
+                 style=\"font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif\" \
+                 role=\"img\">\n\
+                 <rect x=\"0\" y=\"0\" width=\"{w}\" height=\"{h}\" fill=\"#1f2329\"/>"
+            );
+            if let Some(t) = args.title.as_deref() {
+                let _ = writeln!(
+                    svg,
+                    "<text x=\"12\" y=\"22\" font-size=\"13\" fill=\"#bbb\" font-weight=\"600\">{lbl}</text>",
+                    lbl = esc(t),
+                );
+            }
+            let unit = args.unit.as_deref().unwrap_or("");
+            let mut y = 40.0_f64;
+            for it in &args.items {
+                let frac = ((it.value - args.min) / (args.max - args.min)).clamp(0.0, 1.0);
+                let color = threshold_color(it.value, &thresholds, "#73bf69");
+                let _ = writeln!(
+                    svg,
+                    "<text x=\"12\" y=\"{ty}\" font-size=\"12\" fill=\"#ddd\">{lbl}</text>\n\
+                     <rect x=\"{bar_left}\" y=\"{y}\" width=\"{bw}\" height=\"{row_h}\" rx=\"3\" \
+                     fill=\"#2c3036\"/>\n\
+                     <rect x=\"{bar_left}\" y=\"{y}\" width=\"{fw}\" height=\"{row_h}\" rx=\"3\" \
+                     fill=\"{color}\" opacity=\"0.85\"/>\n\
+                     <text x=\"{vx}\" y=\"{ty}\" text-anchor=\"end\" font-size=\"12\" \
+                     fill=\"#fff\" font-weight=\"600\">{val}{unit}</text>",
+                    ty = y + row_h * 0.65,
+                    bw = bar_right - bar_left,
+                    fw = (bar_right - bar_left) * frac,
+                    vx = w - 12.0,
+                    val = esc(&fmt_tick(it.value)),
+                    unit = esc(unit),
+                    lbl = esc(&it.label),
+                );
+                y += row_h + 8.0;
+            }
+            svg.push_str("</svg>");
+            let desc = format!(
+                "Bar gauge{} · {} items · scale [{}, {}]",
+                args.title
+                    .as_deref()
+                    .map(|t| format!(" \"{}\"", t))
+                    .unwrap_or_default(),
+                args.items.len(),
+                fmt_tick(args.min),
+                fmt_tick(args.max),
+            );
+            Ok(svg_result(svg, desc))
+        })
+    }
+}
+
+// ---------------------------------------------------------------------------
+// chart_state_timeline — categorical state over time per row
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct StateSegment {
+    /// Segment start (x-axis position).
+    from: f64,
+    /// Segment end (x-axis position). Must be > `from`.
+    to: f64,
+    /// State label (e.g. "up", "degraded", "down", "scheduled"). Color is
+    /// looked up in `state_colors`; unknown states fall back to a default.
+    state: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct StateRow {
+    /// Row label shown on the left.
+    label: String,
+    /// Time-ordered segments. Don't have to be contiguous; gaps render as
+    /// the background.
+    segments: Vec<StateSegment>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct StateTimelineArgs {
+    rows: Vec<StateRow>,
+    /// Map of state name → color. Common defaults applied for known states
+    /// (`up`/`ok` = green, `degraded`/`warning` = yellow,
+    /// `down`/`error`/`critical` = red, `unknown` = gray).
+    #[serde(default)]
+    state_colors: Option<std::collections::HashMap<String, String>>,
+    #[serde(default)]
+    title: Option<String>,
+    #[serde(default)]
+    width: Option<f64>,
+    #[serde(default)]
+    height: Option<f64>,
+}
+
+fn lookup_state_color(
+    state: &str,
+    overrides: &Option<std::collections::HashMap<String, String>>,
+) -> String {
+    let key = state.trim().to_ascii_lowercase();
+    if let Some(m) = overrides.as_ref() {
+        if let Some(c) = m.get(&key) {
+            return c.clone();
+        }
+    }
+    match key.as_str() {
+        "up" | "ok" | "good" | "healthy" | "online" | "running" => "#73bf69".into(),
+        "degraded" | "warning" | "warn" | "yellow" => "#f2cc0c".into(),
+        "down" | "error" | "critical" | "fail" | "failed" | "offline" => "#e02f44".into(),
+        "scheduled" | "maintenance" | "paused" => "#a0a0ff".into(),
+        "unknown" | "" => "#666".into(),
+        _ => "#5794f2".into(),
+    }
+}
+
+pub struct ChartStateTimeline;
+impl Skill for ChartStateTimeline {
+    fn name(&self) -> &'static str {
+        "chart_state_timeline"
+    }
+    fn description(&self) -> &'static str {
+        "Grafana 'State timeline' panel — one row per series, horizontal colored segments \
+        showing categorical state over time. The 'is each service up' grid that everyone uses for \
+        SLO reporting. Each row is `{label, segments: [{from, to, state}]}`. State→color map is \
+        provided by `state_colors` or falls back to sensible defaults (up=green, degraded=yellow, \
+        down=red, scheduled=blue, unknown=gray)."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<StateTimelineArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (_server, args) = ctx.parse::<StateTimelineArgs>()?;
+            if args.rows.is_empty() {
+                return Err(invalid(
+                    "`rows` must contain at least one entry".to_string(),
+                ));
+            }
+            // Compute the global x-range from all segments.
+            let mut xmin = f64::INFINITY;
+            let mut xmax = f64::NEG_INFINITY;
+            for r in &args.rows {
+                for s in &r.segments {
+                    if s.from.is_finite() {
+                        xmin = xmin.min(s.from);
+                    }
+                    if s.to.is_finite() {
+                        xmax = xmax.max(s.to);
+                    }
+                }
+            }
+            if !xmin.is_finite() {
+                xmin = 0.0;
+                xmax = 1.0;
+            }
+            if (xmax - xmin).abs() < f64::EPSILON {
+                xmax = xmin + 1.0;
+            }
+            let row_h = 26.0_f64;
+            let n = args.rows.len();
+            let w = args.width.unwrap_or(760.0).clamp(200.0, 4000.0);
+            let h = args
+                .height
+                .unwrap_or((n as f64 * (row_h + 8.0) + 76.0).max(140.0))
+                .clamp(120.0, 8000.0);
+            let label_w = 140.0_f64;
+            let plot_left = label_w + 8.0;
+            let plot_right = w - 16.0;
+            let plot_top = 44.0_f64;
+            let plot_bottom = h - 32.0;
+            let scale_x =
+                |x: f64| plot_left + (x - xmin) / (xmax - xmin) * (plot_right - plot_left);
+            let mut svg = format!(
+                "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 {w} {h}\" \
+                 preserveAspectRatio=\"xMidYMid meet\" \
+                 style=\"font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif\" \
+                 role=\"img\">\n\
+                 <rect x=\"0\" y=\"0\" width=\"{w}\" height=\"{h}\" fill=\"#1f2329\"/>"
+            );
+            if let Some(t) = args.title.as_deref() {
+                let _ = writeln!(
+                    svg,
+                    "<text x=\"12\" y=\"24\" font-size=\"14\" fill=\"#bbb\" font-weight=\"600\">{lbl}</text>",
+                    lbl = esc(t),
+                );
+            }
+            // Background row stripes for visual rhythm.
+            let mut y = plot_top;
+            let height_per_row = (plot_bottom - plot_top) / n as f64;
+            for (i, row) in args.rows.iter().enumerate() {
+                let bg = if i % 2 == 0 { "#23282d" } else { "#1f2329" };
+                let _ = writeln!(
+                    svg,
+                    "<rect x=\"{plot_left}\" y=\"{y}\" width=\"{rw}\" height=\"{row_h}\" \
+                     fill=\"{bg}\" opacity=\"0.6\"/>\n\
+                     <text x=\"12\" y=\"{ly}\" font-size=\"12\" fill=\"#ddd\">{lbl}</text>",
+                    rw = plot_right - plot_left,
+                    ly = y + row_h * 0.65,
+                    lbl = esc(&row.label),
+                );
+                for seg in &row.segments {
+                    if !seg.to.is_finite() || !seg.from.is_finite() || seg.to <= seg.from {
+                        continue;
+                    }
+                    let x1 = scale_x(seg.from);
+                    let x2 = scale_x(seg.to);
+                    let color = lookup_state_color(&seg.state, &args.state_colors);
+                    let _ = writeln!(
+                        svg,
+                        "<rect x=\"{x1:.2}\" y=\"{y:.2}\" width=\"{w:.2}\" height=\"{row_h}\" \
+                         fill=\"{color}\" opacity=\"0.9\"/>",
+                        w = x2 - x1
+                    );
+                }
+                y += height_per_row;
+            }
+            // X-axis ticks (5 evenly spaced).
+            let ticks = nice_ticks(xmin, xmax, 5);
+            for t in &ticks {
+                let x = scale_x(*t);
+                let _ = writeln!(
+                    svg,
+                    "<line x1=\"{x:.2}\" y1=\"{plot_bottom}\" x2=\"{x:.2}\" y2=\"{ty:.2}\" \
+                     stroke=\"#3a3f47\" stroke-width=\"1\"/>\n\
+                     <text x=\"{x:.2}\" y=\"{ly}\" text-anchor=\"middle\" font-size=\"10\" \
+                     fill=\"#888\">{lbl}</text>",
+                    ty = plot_bottom + 4.0,
+                    ly = plot_bottom + 18.0,
+                    lbl = esc(&fmt_tick(*t)),
+                );
+            }
+            svg.push_str("</svg>");
+            let total_segments: usize = args.rows.iter().map(|r| r.segments.len()).sum();
+            let desc = format!(
+                "State timeline{} · {} row{} · {} segments · x ∈ [{}, {}]",
+                args.title
+                    .as_deref()
+                    .map(|t| format!(" \"{}\"", t))
+                    .unwrap_or_default(),
+                args.rows.len(),
+                if args.rows.len() == 1 { "" } else { "s" },
+                total_segments,
+                fmt_tick(xmin),
+                fmt_tick(xmax),
+            );
+            Ok(svg_result(svg, desc))
+        })
+    }
+}
+
+// ---------------------------------------------------------------------------
+// chart_candlestick — OHLC candles (financial)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct Candle {
+    /// X position (timestamp or index).
+    x: f64,
+    open: f64,
+    high: f64,
+    low: f64,
+    close: f64,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct CandlestickArgs {
+    candles: Vec<Candle>,
+    #[serde(default)]
+    title: Option<String>,
+    #[serde(default)]
+    xlabel: Option<String>,
+    #[serde(default)]
+    ylabel: Option<String>,
+    /// Color when close ≥ open. Default `#73bf69` (green).
+    #[serde(default)]
+    up_color: Option<String>,
+    /// Color when close < open. Default `#e02f44` (red).
+    #[serde(default)]
+    down_color: Option<String>,
+    #[serde(default)]
+    width: Option<f64>,
+    #[serde(default)]
+    height: Option<f64>,
+}
+
+pub struct ChartCandlestick;
+impl Skill for ChartCandlestick {
+    fn name(&self) -> &'static str {
+        "chart_candlestick"
+    }
+    fn description(&self) -> &'static str {
+        "Grafana 'Candlestick' panel — OHLC (open / high / low / close) candles for time-series \
+        with open and close per interval. Up candles (close ≥ open) are green, down candles are \
+        red. Wicks span low→high; the body spans open↔close. Common for financial / market data."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<CandlestickArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (_server, args) = ctx.parse::<CandlestickArgs>()?;
+            if args.candles.is_empty() {
+                return Err(invalid(
+                    "`candles` must contain at least one entry".to_string(),
+                ));
+            }
+            let mut xs: Vec<f64> = args.candles.iter().map(|c| c.x).collect();
+            xs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+            let xmin = *xs.first().unwrap();
+            let xmax = *xs.last().unwrap();
+            let mut ymin = f64::INFINITY;
+            let mut ymax = f64::NEG_INFINITY;
+            for c in &args.candles {
+                ymin = ymin.min(c.low);
+                ymax = ymax.max(c.high);
+            }
+            let w = args.width.unwrap_or(DEFAULT_W).clamp(160.0, 4000.0);
+            let h = args.height.unwrap_or(DEFAULT_H).clamp(120.0, 4000.0);
+            let m = Margins::default();
+            let plot_left = m.left;
+            let plot_right = w - m.right;
+            let plot_top = m.top;
+            let plot_bottom = h - m.bottom;
+            let x_ticks = nice_ticks(xmin, xmax, 7);
+            let y_ticks = nice_ticks(ymin, ymax, 6);
+            let xd = (
+                *x_ticks.first().unwrap_or(&xmin),
+                *x_ticks.last().unwrap_or(&xmax),
+            );
+            let yd = (
+                *y_ticks.first().unwrap_or(&ymin),
+                *y_ticks.last().unwrap_or(&ymax),
+            );
+            let scale_x = |x: f64| {
+                plot_left + (x - xd.0) / (xd.1 - xd.0).max(f64::EPSILON) * (plot_right - plot_left)
+            };
+            let scale_y = |y: f64| {
+                plot_bottom
+                    - (y - yd.0) / (yd.1 - yd.0).max(f64::EPSILON) * (plot_bottom - plot_top)
+            };
+            let mut svg = svg_open(w, h);
+            render_chrome(
+                &mut svg,
+                args.title.as_deref(),
+                args.xlabel.as_deref(),
+                args.ylabel.as_deref(),
+                w,
+                h,
+                &m,
+            );
+            render_x_axis(
+                &mut svg,
+                &x_ticks,
+                xd,
+                (plot_left, plot_right),
+                plot_bottom,
+                plot_top,
+            );
+            render_y_axis(
+                &mut svg,
+                &y_ticks,
+                yd,
+                (plot_top, plot_bottom),
+                plot_left,
+                plot_right,
+            );
+            let up = args.up_color.as_deref().unwrap_or("#73bf69");
+            let down = args.down_color.as_deref().unwrap_or("#e02f44");
+            // Candle width: 60% of the gap between consecutive x positions.
+            let bw = if args.candles.len() < 2 {
+                (plot_right - plot_left) * 0.05
+            } else {
+                let avg_gap = (xd.1 - xd.0) / (args.candles.len().max(1) as f64);
+                (avg_gap / (xd.1 - xd.0).max(f64::EPSILON) * (plot_right - plot_left)) * 0.6
+            };
+            for c in &args.candles {
+                let cx = scale_x(c.x);
+                let yh = scale_y(c.high);
+                let yl = scale_y(c.low);
+                let yo = scale_y(c.open);
+                let yc = scale_y(c.close);
+                let color = if c.close >= c.open { up } else { down };
+                let (top, bot) = if yo <= yc { (yo, yc) } else { (yc, yo) };
+                // Wick.
+                let _ = writeln!(
+                    svg,
+                    "<line x1=\"{cx:.2}\" y1=\"{yh:.2}\" x2=\"{cx:.2}\" y2=\"{yl:.2}\" \
+                     stroke=\"{color}\" stroke-width=\"1\"/>"
+                );
+                // Body.
+                let _ = writeln!(
+                    svg,
+                    "<rect x=\"{x:.2}\" y=\"{top:.2}\" width=\"{bw:.2}\" height=\"{bh:.2}\" \
+                     fill=\"{color}\" opacity=\"0.85\"/>",
+                    x = cx - bw / 2.0,
+                    bh = (bot - top).max(1.0)
+                );
+            }
+            svg.push_str("</svg>");
+            let desc = format!(
+                "Candlestick{} · {} candles · price [{}, {}] · time [{}, {}]",
+                args.title
+                    .as_deref()
+                    .map(|t| format!(" \"{}\"", t))
+                    .unwrap_or_default(),
+                args.candles.len(),
+                fmt_tick(ymin),
+                fmt_tick(ymax),
+                fmt_tick(xmin),
+                fmt_tick(xmax),
+            );
+            Ok(svg_result(svg, desc))
+        })
+    }
+}
+
+// ---------------------------------------------------------------------------
+// chart_sparkline — tiny inline trend, no chrome
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct SparklineArgs {
+    points: Vec<[f64; 2]>,
+    /// Stroke color. Default `#5794f2`.
+    #[serde(default)]
+    color: Option<String>,
+    /// Fill the area under the line at this opacity (0-1). Default 0.18.
+    #[serde(default)]
+    fill_opacity: Option<f64>,
+    /// Width in user-space units. Default 240.
+    #[serde(default)]
+    width: Option<f64>,
+    /// Height in user-space units. Default 60.
+    #[serde(default)]
+    height: Option<f64>,
+}
+
+pub struct ChartSparkline;
+impl Skill for ChartSparkline {
+    fn name(&self) -> &'static str {
+        "chart_sparkline"
+    }
+    fn description(&self) -> &'static str {
+        "Tiny inline trend line — no axes, no title, just the shape. The miniature chart Edward \
+        Tufte popularized; Grafana uses it inside its Stat panel sparkline option and in \
+        compact dashboard tiles. Pass `(x, y)` points; the renderer auto-scales to fill the box. \
+        Useful in tables and tight UIs."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<SparklineArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (_server, args) = ctx.parse::<SparklineArgs>()?;
+            if args.points.len() < 2 {
+                return Err(invalid(
+                    "`points` must contain at least two entries".to_string(),
+                ));
+            }
+            let w = args.width.unwrap_or(240.0).clamp(40.0, 4000.0);
+            let h = args.height.unwrap_or(60.0).clamp(20.0, 4000.0);
+            let color = args.color.as_deref().unwrap_or("#5794f2");
+            let fill_op = args.fill_opacity.unwrap_or(0.18).clamp(0.0, 1.0);
+            let mut svg = format!(
+                "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 {w} {h}\" \
+                 preserveAspectRatio=\"xMidYMid meet\" role=\"img\">"
+            );
+            let pts: Vec<(f64, f64)> = args.points.iter().map(|p| (p[0], p[1])).collect();
+            draw_sparkline(&mut svg, &pts, 2.0, 2.0, w - 4.0, h - 4.0, color, fill_op);
+            svg.push_str("</svg>");
+            let desc = format!(
+                "Sparkline · {} points · {}×{}",
+                args.points.len(),
+                fmt_tick(w),
+                fmt_tick(h),
+            );
+            Ok(svg_result(svg, desc))
+        })
+    }
+}
+
+// ---------------------------------------------------------------------------
 // chart_interactive — Chart.js / Plotly HTML wrappers (full interactivity
 // for clients that render HTML; static fallback for those that don't)
 // ---------------------------------------------------------------------------
@@ -2011,6 +2989,12 @@ pub fn skills() -> Vec<Box<dyn Skill>> {
         Box::new(ChartHeatmap),
         Box::new(ChartCanvas),
         Box::new(ChartGrafana),
+        Box::new(ChartStat),
+        Box::new(ChartGauge),
+        Box::new(ChartBarGauge),
+        Box::new(ChartStateTimeline),
+        Box::new(ChartCandlestick),
+        Box::new(ChartSparkline),
         Box::new(ChartInteractive),
         Box::new(ChartMermaid),
     ]
