@@ -73,10 +73,13 @@ relay_hops = 1
 node_id = ""
 
 # The shared CONSTELLATION id — common to all member nodes (distinct from node_id
-# above). Empty = a random id is chosen at startup; nodes that can reach each other
-# CONVERGE to the smallest id, so multiple meshes on one network MERGE into a single
-# constellation. Set it explicitly to pin a constellation's identity. (The galaxy
-# directory lists a constellation under this id.) Env: LODESTONE_NETWORK_ID
+# above). **Leave empty — the recommended default.** A random id is chosen at
+# startup, and nodes that reach each other CONVERGE to the larger mesh's id (with
+# the alphabetically-smaller id as the tiebreaker on equal sizes), so multiple
+# meshes on one network MERGE into a single constellation automatically. Pinning a
+# specific id risks two unrelated networks accidentally merging if they happen to
+# share it — leave this empty and let the merge rule handle convergence.
+# Env: LODESTONE_NETWORK_ID
 id = ""
 
 # Optional path to persist peer reputations across restarts (JSON map of
