@@ -53,6 +53,14 @@ export interface ConstellationState {
   total_served_bytes: number
   total_fetched_bytes: number
   local_urls: string[]
+  // Runtime-tunable values currently in effect (mirror /api/settings).
+  max_peers: number
+  min_agreement: number
+  // Read-only config-file values for knobs that require a restart
+  // to change. The settings drawer surfaces them with a badge.
+  mdns_configured: boolean
+  sync_secs_configured: number
+  request_timeout_ms_configured: number
 }
 
 export interface Snapshot {

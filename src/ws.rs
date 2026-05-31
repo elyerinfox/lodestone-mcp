@@ -148,6 +148,18 @@ pub struct ConstellationState {
     /// "peer X says it knows us" without false positives when a peer
     /// references us by a LAN address rather than localhost.
     pub local_urls: Vec<String>,
+    /// `max_peers` cap currently in effect. Mirrors the runtime
+    /// override, not the config value, so the dashboard settings drawer
+    /// sees its own edits take effect.
+    pub max_peers: usize,
+    /// Min-agreement consensus floor currently in effect.
+    pub min_agreement: usize,
+    /// Config-file values for the knobs that aren't runtime-tunable
+    /// (changing them requires a restart). The settings drawer shows
+    /// these read-only with a "restart required" badge.
+    pub mdns_configured: bool,
+    pub sync_secs_configured: u64,
+    pub request_timeout_ms_configured: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]

@@ -246,6 +246,35 @@ pub(crate) struct Constellation {
     /// slips past the node-id dedup, or a misconfigured static peer entry
     /// can't accidentally make us our own peer.
     local_urls: Mutex<HashSet<String>>,
+    /// Runtime-tunable overrides for a small subset of [network] knobs.
+    /// Dashboard settings drawer writes here; reads inside the constellation
+    /// consult these instead of the static `cfg` values. Ephemeral by
+    /// design — never persisted, so a restart restores the config file's
+    /// values. Knobs that require subsystem lifecycle changes (mdns,
+    /// sync_secs, request_timeout_ms) live in `cfg` only; the UI shows
+    /// them read-only as "restart required".
+    runtime: Mutex<RuntimeOverrides>,
+}
+
+/// The subset of [network] knobs the dashboard can mutate without
+/// restarting subsystems. Every read site inside the constellation
+/// reads through this, not through `self.cfg`, when a runtime
+/// override is allowed.
+#[derive(Debug, Clone)]
+pub(crate) struct RuntimeOverrides {
+    pub delegation_enabled: bool,
+    pub max_peers: usize,
+    pub min_agreement: usize,
+}
+
+/// Sparse PATCH body — every field is optional so the dashboard can
+/// send only the knob it actually changed. Anything outside the
+/// allowed set lives on `cfg` and isn't representable here.
+#[derive(Debug, Default, Deserialize)]
+pub(crate) struct RuntimeOverridesPatch {
+    pub delegation_enabled: Option<bool>,
+    pub max_peers: Option<usize>,
+    pub min_agreement: Option<usize>,
 }
 
 impl Constellation {
@@ -305,7 +334,44 @@ impl Constellation {
             loaded_reps,
             delegation,
             local_urls: Mutex::new(HashSet::new()),
+            runtime: Mutex::new(RuntimeOverrides {
+                delegation_enabled: cfg.delegation_enabled,
+                max_peers: cfg.max_peers,
+                min_agreement: cfg.min_agreement,
+            }),
         })
+    }
+
+    /// Apply a sparse patch to runtime overrides. Fields the caller
+    /// didn't set keep their current value. Returns the post-patch
+    /// snapshot so the dashboard can confirm what stuck. Values are
+    /// clamped to safe ranges so a typo in the dashboard can't disable
+    /// the consensus check or starve the peer table.
+    pub(crate) fn apply_runtime_patch(&self, patch: RuntimeOverridesPatch) -> RuntimeOverrides {
+        let mut r = self.runtime.lock().unwrap();
+        if let Some(v) = patch.delegation_enabled {
+            r.delegation_enabled = v;
+        }
+        if let Some(v) = patch.max_peers {
+            r.max_peers = v.clamp(1, 256);
+        }
+        if let Some(v) = patch.min_agreement {
+            r.min_agreement = v.clamp(1, 16);
+        }
+        r.clone()
+    }
+
+    /// Effective runtime values — used at every hot-path read site
+    /// instead of `self.cfg.*`, so dashboard edits take effect on the
+    /// next call without a restart.
+    fn delegation_enabled(&self) -> bool {
+        self.runtime.lock().unwrap().delegation_enabled
+    }
+    fn max_peers(&self) -> usize {
+        self.runtime.lock().unwrap().max_peers
+    }
+    fn min_agreement(&self) -> usize {
+        self.runtime.lock().unwrap().min_agreement
     }
 
     pub(crate) fn node_id(&self) -> &str {
@@ -353,7 +419,7 @@ impl Constellation {
             constellation_id: self.constellation_id.lock().unwrap().clone(),
             generation: now_secs(),
             count: keys.len(),
-            delegation_enabled: self.cfg.delegation_enabled,
+            delegation_enabled: self.delegation_enabled(),
             bloom: BloomFilter::from_keys(&keys),
             peers,
             peer_count,
@@ -484,7 +550,7 @@ impl Constellation {
             return None;
         }
         targets.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-        targets.truncate(self.cfg.max_peers.max(1));
+        targets.truncate(self.max_peers().max(1));
 
         let req = RetrieveReq {
             url: url.to_string(),
@@ -726,7 +792,7 @@ impl Constellation {
             return None;
         }
         targets.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-        targets.truncate(self.cfg.max_peers.max(1));
+        targets.truncate(self.max_peers().max(1));
 
         // 1. Gather each candidate's claimed content hash (cheap).
         let infos: Vec<(String, f64, String)> =
@@ -759,7 +825,7 @@ impl Constellation {
             identifiers::Source::Wayback
             | identifiers::Source::Arxiv
             | identifiers::Source::Github => source.min_agreement_floor(),
-            _ => self.cfg.min_agreement.max(source.min_agreement_floor()),
+            _ => self.min_agreement().max(source.min_agreement_floor()),
         }
         .max(1);
         let mut tally: HashMap<String, (usize, f64)> = HashMap::new();
@@ -914,13 +980,18 @@ impl Constellation {
             constellation_id: self.constellation_id.lock().unwrap().clone(),
             peer_count: peers.len(),
             peers,
-            delegation_enabled: self.cfg.delegation_enabled,
+            delegation_enabled: self.delegation_enabled(),
             delegation_max_jobs_per_peer_per_hour: self.cfg.delegation_max_jobs_per_peer_per_hour,
             delegation_max_bytes_per_job: self.cfg.delegation_max_bytes_per_job,
             delegation_total_bytes_per_hour: self.cfg.delegation_total_bytes_per_hour,
             total_served_bytes: served,
             total_fetched_bytes: fetched,
             local_urls,
+            max_peers: self.max_peers(),
+            min_agreement: self.min_agreement(),
+            mdns_configured: self.cfg.mdns,
+            sync_secs_configured: self.cfg.sync_secs,
+            request_timeout_ms_configured: self.cfg.request_timeout_ms,
         }
     }
 
@@ -975,7 +1046,7 @@ impl Constellation {
                 .values()
                 .filter(|p| p.bloom.as_ref().is_some_and(|b| b.maybe_contains(key)))
                 .map(|p| p.url.clone())
-                .take(self.cfg.max_peers.max(1))
+                .take(self.max_peers().max(1))
                 .collect()
         };
         let cap = self.cfg.max_results_per_peer.max(1);
@@ -1016,7 +1087,7 @@ impl Constellation {
     /// answered, so a relay can't fabricate corroboration. Bounded by `max_peers`,
     /// the per-request timeout, and capped result lists; `seen` stops loops.
     pub(crate) async fn consult(&self, key_hash: &str) -> Vec<PeerHit> {
-        let max = self.cfg.max_peers.max(1);
+        let max = self.max_peers().max(1);
         let mut direct: Vec<(String, f64)> = Vec::new();
         let mut relay: Vec<(String, f64)> = Vec::new();
         {

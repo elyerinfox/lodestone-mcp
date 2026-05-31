@@ -774,6 +774,52 @@ fn ws_routes(server: Arc<Lodestone>) -> axum::Router {
         .with_state(server)
 }
 
+/// `/api/settings/*` — ephemeral, per-subsystem runtime tuners that the
+/// dashboard's settings drawers POST to. Authenticated against the same
+/// `[network].token` as the WebSocket feed (constant-time compare).
+/// Changes apply to the running process only and are NOT persisted to
+/// disk, so a restart restores the config file's values. Knobs that
+/// require subsystem lifecycle changes (mDNS daemon, sync interval)
+/// are intentionally absent — see `ConstellationState.*_configured`.
+/// Secrets are never accepted here: the network token, auth token, and
+/// any future API keys can only be set via config or env.
+fn api_routes(constellation: Arc<constellation::Constellation>) -> axum::Router {
+    use axum::extract::State;
+    use axum::http::{HeaderMap, StatusCode};
+    use axum::response::IntoResponse;
+    use axum::Json;
+
+    fn presented_token(headers: &HeaderMap) -> Option<&str> {
+        let auth = headers.get(axum::http::header::AUTHORIZATION)?;
+        let s = auth.to_str().ok()?;
+        Some(s.strip_prefix("Bearer ").unwrap_or(s).trim())
+    }
+
+    async fn patch_constellation(
+        State(c): State<Arc<constellation::Constellation>>,
+        headers: HeaderMap,
+        Json(patch): Json<constellation::RuntimeOverridesPatch>,
+    ) -> axum::response::Response {
+        if !c.token_ok(presented_token(&headers)) {
+            return (StatusCode::UNAUTHORIZED, "unauthorized\n").into_response();
+        }
+        let applied = c.apply_runtime_patch(patch);
+        Json(serde_json::json!({
+            "delegation_enabled": applied.delegation_enabled,
+            "max_peers": applied.max_peers,
+            "min_agreement": applied.min_agreement,
+        }))
+        .into_response()
+    }
+
+    axum::Router::new()
+        .route(
+            "/api/settings/constellation",
+            axum::routing::post(patch_constellation),
+        )
+        .with_state(constellation)
+}
+
 /// Static dashboard route — serves the Nuxt SPA embedded into the binary
 /// at compile time by `build.rs` (see [`ws::DASHBOARD`]). Path layout:
 /// - `GET /` → redirect to `/dashboard/`.
@@ -1094,6 +1140,11 @@ async fn main() -> anyhow::Result<()> {
 
     // Constellation: mount peer endpoints and start discovery/sync (opt-in).
     if let Some(h) = &constellation {
+        // Per-subsystem ephemeral settings endpoints live on the MCP
+        // listener (the dashboard talks to them from the same origin
+        // it loads from). The constellation-port listener intentionally
+        // exposes only `/constellation/*`.
+        app = app.merge(api_routes(h.clone()));
         let port_of = |addr: &str| addr.rsplit(':').next().and_then(|p| p.parse::<u16>().ok());
         let sep_bind = cfg.network.bind.trim();
         if sep_bind.is_empty() {

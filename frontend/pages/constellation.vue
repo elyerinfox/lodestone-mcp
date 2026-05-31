@@ -12,6 +12,82 @@
     <span class="font-mono">[network].mdns</span>) to participate.
   </div>
   <div v-else class="space-y-8">
+    <PageHeader title="Constellation" @open-settings="settingsOpen = true" />
+
+    <SettingsDrawer
+      :open="settingsOpen"
+      subsystem="Constellation"
+      @close="settingsOpen = false"
+    >
+      <form class="space-y-5" @submit.prevent>
+        <div>
+          <label class="flex items-center justify-between gap-3 text-sm">
+            <span>
+              <span class="font-medium text-slate-100">Delegation</span>
+              <span class="block text-xs text-slate-400">
+                Accept fetches peers ask us to perform.
+              </span>
+            </span>
+            <input
+              type="checkbox"
+              class="h-5 w-5 accent-accent-info"
+              :checked="form.delegation_enabled"
+              @change="patch({ delegation_enabled: ($event.target as HTMLInputElement).checked })"
+            />
+          </label>
+        </div>
+
+        <div>
+          <label class="block text-sm">
+            <span class="font-medium text-slate-100">Max peers</span>
+            <span class="block text-xs text-slate-400">
+              Cap on peers consulted per query. 1–256.
+            </span>
+            <input
+              type="number"
+              min="1"
+              max="256"
+              class="mt-2 w-24 rounded border border-slate-700 bg-surface-0 px-2 py-1 text-sm"
+              :value="form.max_peers"
+              @change="patch({ max_peers: Number(($event.target as HTMLInputElement).value) })"
+            />
+          </label>
+        </div>
+
+        <div>
+          <label class="block text-sm">
+            <span class="font-medium text-slate-100">Min agreement</span>
+            <span class="block text-xs text-slate-400">
+              Peers that must corroborate a result before returning without a local search. 1–16.
+            </span>
+            <input
+              type="number"
+              min="1"
+              max="16"
+              class="mt-2 w-24 rounded border border-slate-700 bg-surface-0 px-2 py-1 text-sm"
+              :value="form.min_agreement"
+              @change="patch({ min_agreement: Number(($event.target as HTMLInputElement).value) })"
+            />
+          </label>
+        </div>
+
+        <div v-if="patchError" class="rounded border border-accent-err/40 bg-accent-err/10 p-2 text-xs text-accent-err">
+          {{ patchError }}
+        </div>
+
+        <hr class="border-slate-800" />
+
+        <div class="space-y-3 text-sm">
+          <div class="text-xs uppercase tracking-wide text-slate-500">
+            Restart required
+          </div>
+          <ReadOnlyRow label="mDNS" :value="snapshot.constellation.mdns_configured ? 'on' : 'off'" />
+          <ReadOnlyRow label="Sync interval" :value="`${snapshot.constellation.sync_secs_configured}s`" />
+          <ReadOnlyRow label="Request timeout" :value="`${snapshot.constellation.request_timeout_ms_configured}ms`" />
+        </div>
+      </form>
+    </SettingsDrawer>
+
     <section>
       <SectionHeading>Identity</SectionHeading>
       <div class="grid grid-cols-2 gap-3 md:grid-cols-3">
@@ -147,7 +223,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, inject, type Ref } from 'vue'
+import { computed, inject, reactive, ref, watchEffect, type Ref } from 'vue'
 import type { Snapshot } from '~/types/ws'
 
 const feed = inject<{ snapshot: Ref<Snapshot | null> }>('dashboardFeed')!
@@ -167,5 +243,35 @@ function fmtBytes(n: number): string {
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
   if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`
   return `${(n / 1024 / 1024 / 1024).toFixed(1)} GB`
+}
+
+// Settings drawer state. `form` mirrors the snapshot's runtime values
+// so the inputs reflect what the server actually accepted (the backend
+// clamps and echoes back); we mirror from snapshot each tick.
+const settingsOpen = ref(false)
+const form = reactive({
+  delegation_enabled: false,
+  max_peers: 16,
+  min_agreement: 2,
+})
+watchEffect(() => {
+  const c = snapshot.value?.constellation
+  if (!c) return
+  form.delegation_enabled = c.delegation_enabled
+  form.max_peers = c.max_peers
+  form.min_agreement = c.min_agreement
+})
+
+const { patch: patchSettings } = useSettingsApi()
+const patchError = ref<string | null>(null)
+async function patch(body: Record<string, unknown>) {
+  patchError.value = null
+  try {
+    await patchSettings('constellation', body)
+    // The next WS snapshot will reflect the applied state, so we don't
+    // need to merge the response into `form` ourselves.
+  } catch (e) {
+    patchError.value = e instanceof Error ? e.message : String(e)
+  }
 }
 </script>
