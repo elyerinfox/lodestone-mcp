@@ -205,6 +205,71 @@ instead of plain HTTP. The `engine` family honors the flag automatically;
 bespoke providers that scrape HTML branch on `query.render` and call
 `crate::browser::shared_global().render(url)` themselves (see `stackexchange.rs`).
 
+## What kinds of features fit (and what don't)
+
+Before opening a PR or an issue with a proposal, run the idea past the golden
+rules. Most rejections trace back to the same handful of mismatches, and most
+good fits trace back to the same handful of patterns. Use the table below as a
+litmus test; if your idea doesn't appear, the matching golden rule is your
+oracle.
+
+### New skill (= new tool family)
+
+| ✅ Fits | ❌ Doesn't fit | Why |
+| --- | --- | --- |
+| `tide_charts { lat, lon, date? }` — NOAA Tides & Currents (keyless). | `ai_summarize_page { url }` — wraps another LLM to summarize. | Rule 2 (the LLM decides): the host model already summarizes; smuggling in another model takes the decision away from the user's model. Use `fetch_page` and let the host decide what to do with the text. |
+| `dns_lookup { name, type? }` — system resolver, deterministic, no network beyond the query. | `email_send { to, subject, body }` — SMTP/SES write. | Rule 8 (destructive never unguarded). A one-shot send-and-forget can't be undone; if you really need it, route through the [`guard`](src/skills/guard.rs) and keep it `[email].enabled = false` by default. |
+| `decode_jwt { token }` — pure-local parse into header + payload. | `crypto_wallet_balance { address }` — third-party paid API, or worse, a hot-wallet read. | Rule 3 (keyless by default); also broadly out of scope. The wallet-balance use case wants a different project (or a `web_search` against the public block explorer). |
+| `sat_passes { tle, observer }` — split out from a pre-existing `satellite_compute` tool that took a `mode` arg. | `satellite_compute { mode: "pass" \| "position" \| "look" }` — one tool, mode-switched. | Rule 9 (one tool per method). The method belongs in the name; `sat_passes` / `sat_position` / `sat_observe` is what we shipped. |
+| `image_thumbnail_extract { path }` — pure-Rust EXIF thumbnail walk, paths confined to `[filesystem].roots`. | `image_recognize { path }` — runs a remote ML model. | Rule 3 (keyless) and Rule 7 (skill domain logic lives in its module). Remote ML is someone else's project; the host model can call it from its own toolkit. |
+| `physical_constant { name? }` — bare lookup, ~50 SI constants compiled in. | `auto_buy_stocks { ticker, qty }` — placing real trades. | Wrong project, rule 8, also rule 5 (every capability ships with an off switch — there's no off switch for "I bought $5k of NVDA"). |
+
+### New search / data provider
+
+| ✅ Fits | ❌ Doesn't fit | Why |
+| --- | --- | --- |
+| `web_kagi_open` — keyless Kagi endpoint if one exists. | `web_kagi` — full paid Kagi API as a **default**. | Rule 3: keyed providers are off until a key is set and never replace keyless. A keyed Kagi provider is fine; making it default isn't. |
+| `code_framagit` — Gitea-shaped, site-scoped DuckDuckGo+Mojeek search of `framagit.org`. Tier-2 spec entry. | `code_smart` — auto-routes between GitHub / GitLab / forge based on the query. | Rule 9 (no hidden auto-selection). The model picks the tool. The user wants `code_github`, they call `code_github`. |
+| Adding `pkg.go.dev` to `registry/` — new file declaring a `RegistrySpec`, joins `docs_search`. | A provider that needs a per-user cookie or a hidden API. | Rule 3 + rule 6 (keyless + documented). A cookie isn't keyless and probably violates the upstream's ToS. |
+| A new `apiengine/` member when the user supplies a key (off by default). | Logging the user's queries to a third-party analytics service. | Rule 11 (sensitive info never shared). Query text crossing the wire to a third party is a leak vector. The constellation already shares only hashes for a reason. |
+
+### Cross-cutting / infrastructure
+
+| ✅ Fits | ❌ Doesn't fit | Why |
+| --- | --- | --- |
+| `chart_violin` — new SVG shape via `PlotArea`, pure-Rust deterministic. | Server-side rasterization of charts via a headless browser when SVG would do. | Rule 1 (scrape default, render fallback). The browser is for fetching pages, not painting our own output. SVG is responsive and doesn't need a renderer. |
+| A new `Source` variant for `Pubmed` with a sensible TTL + min_agreement floor. | Always-on telemetry to a metrics service. | Rule 5 (everything is enable/disable-able) and rule 11. If you want metrics, expose them via a local `/metrics` endpoint behind `[network].token` and let the operator scrape it. |
+| `constellation_status` enhancements — more reputation detail, prune-history, live-blob counts. | A "phone home on first boot" registration with a public directory. | Rule 5 + rule 11. The galaxy broker is opt-in and explicit; surprise outbound traffic isn't. |
+| A new `--dry-run` flag on a destructive skill (alongside `confirm`/`trust`). | Removing the `guard` from a destructive skill because "the user already confirmed in chat". | Rule 8 explicitly: the guard is client-agnostic by design. The chat client isn't the source of truth; the protocol is. |
+
+### Behaviour change to an existing skill
+
+| ✅ Fits | ❌ Doesn't fit | Why |
+| --- | --- | --- |
+| `wayback_fetch` attaches the raw URL + snapshot URL as cache aliases so peers asking by raw URL also hit the entry (what we shipped). | `wayback_fetch` automatically tries `web.archive.org` if the original URL 404s on the live web, without the model asking. | Rule 2. The model didn't ask for an archive lookup; it asked for the page. Surfacing the option in the description is fine; auto-redirecting isn't. |
+| `osm_overpass` keys by QL hash so cross-skill cache hits (what we shipped). | `osm_overpass` rewrites the user's QL to "improve" it. | Rule 9 + rule 2. The QL is the method. If we rewrite, we hide what actually ran. |
+| `read_pdf` honours `max_chars` more strictly so the cache entry shape matches the requested chars. | `read_pdf` runs a local LLM to summarize after extraction. | Rule 2 + scope creep. The host model summarizes. |
+| Adding `--state` / `--pattern` to `systemd_list`. | Auto-restarting failed units that `systemd_status` happens to show. | Rule 8. A read tool that performs writes is the worst kind of guard bypass. |
+
+### A quick litmus heuristic
+
+A proposal almost always fits if it's:
+
+- **Local-or-keyless**, **deterministic** (same input → same output once cached),
+  **read-shaped** OR explicitly destructive with the guard wired up, and
+  **one method per tool**;
+
+and almost always doesn't fit if it:
+
+- requires a paid account on the **default** path,
+- decides for the model (auto-routes, auto-fallbacks, auto-summarizes),
+- can't be turned off, or
+- moves data the user didn't deliberately ask to move (telemetry, phone-home,
+  query text crossing to a third party).
+
+When in doubt, propose it in an issue first with which golden rule(s) you
+think it touches and how. The conversation is faster there than after the PR.
+
 ## The provider paradigm
 
 > For a detailed, per-provider reference (what each one does, keyless vs.

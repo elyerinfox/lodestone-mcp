@@ -429,6 +429,102 @@ host stay distinct, yet each is stable across restarts. Peers record each other'
 from their digests; `constellation_status`/`constellation_peers` show it. Override with
 `[network].node_id`.
 
+## Auto-healing on network change
+
+A constellation **survives a node moving between networks**. The path is
+fully unattended — nothing needs restarting, no configuration touches —
+because every part of the design assumes the mesh is unreliable.
+
+What actually happens when a laptop in mesh **alpha** at home moves to a LAN
+with peers already in mesh **beta**:
+
+1. **Old peers age out.** Each `sync_secs` cycle (default 30s) the node tries
+   to fetch every known peer's `/constellation/digest`. The Network 1 IPs
+   don't route from Network 2, so the fetches fail. After `MAX_PEER_MISSES`
+   (5 consecutive failures = ~2.5 min on defaults) each old peer is pruned.
+   Their `Peer` record is dropped, in-flight `consult_blob_hash` /
+   `delegated_fetch` against them time out per `[network].request_timeout_ms`
+   and the chain falls through to the next door (direct upstream).
+2. **New peers appear via two channels.** **mDNS** (if
+   `[network].mdns = true`) announces under `_lodestone._tcp.local.` on the
+   new LAN within seconds; other lodestone instances on the same broadcast
+   domain auto-discover. **Gossip** then propagates: each peer's digest
+   carries a sample of its own known peers, so once the laptop talks to
+   *one* node on Network 2 it learns about the rest. If neither mDNS nor a
+   `[galaxy]` broker nor `[network].peers` matches anything reachable, the
+   node runs as a lone constellation until discovery — its caches still
+   work locally with zero peers.
+3. **The constellation_id merges to the smaller of the two.** Each digest
+   carries the advertiser's `constellation_id`. When the moved node sees a
+   digest from a peer in a *different* constellation, `maybe_adopt_id` picks
+   the alphabetically-smaller id deterministically:
+   - laptop = `"alpha"`, office mesh = `"beta"` → `"alpha"` wins. The
+     office mesh's nodes adopt `"alpha"` as they sync with the laptop, and
+     the office mesh effectively **merges into** the laptop's home
+     constellation.
+   - laptop = `"beta"`, office mesh = `"alpha"` → reverse. The laptop
+     adopts `"alpha"` on its next sync. The home mesh the laptop left
+     behind keeps its `"beta"` id and just loses one peer from each table.
+   - Same id on both sides → no-op (they were already the same
+     constellation).
+4. **The cache is preserved — the moving node is a *bridge*.** Every entry
+   in the laptop's `IndexedRetrievalCache` and file store survives the
+   network switch (same process, in-memory). The new digest re-advertises
+   every identifier hash. So an arXiv paper the laptop cached at home is
+   served to office peers via the existing `consult_blob_hash` flow with
+   **no re-fetch from arXiv**. A roaming laptop carries warm cache between
+   networks, and the upstream is hit *once for both meshes combined*.
+5. **The galaxy broker reregisters lazily.** `galaxy::client` heartbeats
+   every `heartbeat_secs` with current `ingress` endpoints. After the move
+   the heartbeat sends the new Network 2 IPs; the broker's TTL expires the
+   old Network 1 registration. Other constellations pulling the directory
+   get the new endpoints. Until the heartbeat fires (typically minutes),
+   peers pulled via galaxy still see the laptop's old endpoints — same
+   prune logic catches that.
+
+**Practical edges**:
+
+- **Rate-limit counters survive the move** (same process). A peer-id that
+  hit its delegation quota on Network 1 stays at quota when it reappears
+  on Network 2.
+- **Reputations** stay in memory across the move; `state_file` only
+  persists across *restarts*.
+- **No mDNS, no galaxy, no static peers configured on the new network** →
+  laptop runs as a single-node constellation until something is reachable.
+  Its caches keep serving locally to any skill on the same node, which is
+  often enough.
+- **The home mesh forgets the laptop** about 2-3 minutes after it
+  disappears (one full `sync_secs` × `MAX_PEER_MISSES`).
+
+```mermaid
+sequenceDiagram
+  participant L as Laptop
+  participant H as Home peers (A1, A2)<br/>constellation "alpha"
+  participant O as Office peers (B1, B2)<br/>constellation "beta"
+  participant Gx as Galaxy broker (optional)
+
+  Note over L,H: at home — converged on "alpha"
+  L<<->>H: digests every 30s, cache shared
+
+  Note over L: ===== moves networks =====
+  L--xH: digest fetches fail (5×)
+  Note over L,H: H prunes L from its table<br/>L prunes H from its table
+
+  Note over L,O: mDNS announce on new LAN
+  L<<->>O: digest exchange
+  Note over L,O: maybe_adopt_id picks min("alpha","beta")<br/>= "alpha" → office mesh merges into "alpha"
+  L-->>O: serves home-cached arxiv / wayback bytes<br/>(no upstream re-fetch)
+
+  opt galaxy broker configured
+    L->>Gx: heartbeat with new Network 2 ingress
+    Gx-->>L: stale Network 1 reg ages out
+  end
+```
+
+Short version: the constellation auto-heals, the moving node carries warm
+cache between networks, and meshes converge by id when they meet — so two
+co-located meshes a bridging node touches merge cleanly into one.
+
 ## Configuration
 
 See [`config/06-network.toml`](../config/06-network.toml) for every option with
