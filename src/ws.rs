@@ -82,6 +82,15 @@ pub struct ServerStatus {
     /// the memory tools). Useful in the UI as a "you have N tools hidden;
     /// here's which families" panel.
     pub tools_disabled: usize,
+    /// The actual names of every active tool. The dashboard renders a
+    /// drillable list grouped by family prefix so an operator can see
+    /// *which* tools are reachable without calling `tools/list` over
+    /// MCP. Ordered alphabetically.
+    pub tools_active_names: Vec<String>,
+    /// Names of tools gated off by the resolved config. Same shape as
+    /// `tools_active_names`. Together the two lists cover every tool
+    /// the build knows about.
+    pub tools_disabled_names: Vec<String>,
     /// Active search providers — one entry per `(kind, id)`.
     pub providers: Vec<ProviderEntry>,
 }

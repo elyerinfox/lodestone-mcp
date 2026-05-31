@@ -13,6 +13,8 @@ export interface ServerStatus {
   uptime_secs: number
   tools_active: number
   tools_disabled: number
+  tools_active_names: string[]
+  tools_disabled_names: string[]
   providers: ProviderEntry[]
 }
 

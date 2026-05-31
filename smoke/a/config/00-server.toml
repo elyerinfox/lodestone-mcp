@@ -17,14 +17,14 @@ backend = "memory"
 redis_url = ""
 
 [memory]
-enabled = false
+enabled = true
 
 [network]
 enabled = true
 bind = ""
 peers = ["http://127.0.0.1:18102"]
 mdns = false
-token = "smoke-token"
+token = ""
 sync_secs = 5
 request_timeout_ms = 2000
 max_peers = 4

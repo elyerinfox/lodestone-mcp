@@ -34,6 +34,14 @@
     </section>
 
     <section>
+      <SectionHeading>Topology</SectionHeading>
+      <ConstellationGraph
+        :node-id="snapshot.constellation.node_id"
+        :peers="snapshot.constellation.peers"
+      />
+    </section>
+
+    <section>
       <SectionHeading>Peers</SectionHeading>
       <div
         class="overflow-hidden rounded-lg border border-slate-800 bg-surface-1"

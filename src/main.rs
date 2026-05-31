@@ -389,12 +389,24 @@ impl Lodestone {
                 id: id.to_string(),
             })
             .collect();
+        // Partition the static tool name list into active vs config-gated
+        // sets. Sorting once here lets the frontend skip a re-sort and
+        // diff cleanly when the snapshot refreshes.
+        let mut tools_active_names: Vec<String> = skills::registered_tool_names()
+            .into_iter()
+            .filter(|n| !self.disabled_tools.iter().any(|d| d == n))
+            .collect();
+        tools_active_names.sort();
+        let mut tools_disabled_names: Vec<String> = (*self.disabled_tools).clone();
+        tools_disabled_names.sort();
         let server = crate::ws::ServerStatus {
             name: "lodestone-mcp",
             version: env!("CARGO_PKG_VERSION"),
             uptime_secs: self.started_at.elapsed().as_secs(),
-            tools_active: skills::registered_tool_names().len() - self.disabled_tools.len(),
-            tools_disabled: self.disabled_tools.len(),
+            tools_active: tools_active_names.len(),
+            tools_disabled: tools_disabled_names.len(),
+            tools_active_names,
+            tools_disabled_names,
             providers,
         };
         // Memory. Internal struct uses i64 (SQLite native); convert to u64

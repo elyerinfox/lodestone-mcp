@@ -73,6 +73,7 @@ import { computed } from 'vue'
 
 const navItems = [
   { to: '/', label: 'Overview' },
+  { to: '/tools', label: 'Tools' },
   { to: '/memory', label: 'Memory' },
   { to: '/constellation', label: 'Constellation' },
 ]
