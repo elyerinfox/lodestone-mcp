@@ -88,5 +88,8 @@ object = { version = "0.36", default-features = false, features = ["read", "std"
 # Pcap-file parsing for the `pcap_*` skill (off by default). Reads existing
 # .pcap / .pcapng files; no native libpcap needed.
 pcap-file = "2"
+# EXIF metadata parsing for the `image_*` skills. Pure Rust, no native deps.
+# Handles JPEG and TIFF containers + all standard tag types including GPS.
+kamadak-exif = "0.6"
 # x86/x64 disassembly for the `disasm_*` skill (off by default).
 iced-x86 = { version = "1", default-features = false, features = ["std", "decoder", "nasm", "fast_fmt"] }

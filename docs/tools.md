@@ -388,6 +388,10 @@ client). Gated by `[tasks]`. Currently backgrounds searches.
 | `chart_canvas` | `commands`, `width?`, `height?`, `background?`, `title?` | Procedural drawing canvas (turtle / Logo style): line / rect / circle / polygon / polyline / text primitives drawn in order. |
 | `chart_interactive` | `library` (chartjs/plotly), `config`, `title?`, `width?`, `height?` | Self-contained HTML wrapping Chart.js or Plotly. Clients that render HTML get full interactivity; others see source. |
 | `chart_mermaid` | `source`, `title?` | Wrap mermaid source in a markdown code fence. Every modern MCP client renders mermaid blocks natively. |
+| `image_info` | `path` | Format / dimensions / color / animation from structural headers (JPEG SOFn, PNG IHDR, GIF LSD, WebP VP8, BMP DIB, TIFF, HEIF, JPEG-XL). |
+| `image_exif` | `path` | Full EXIF tag dump (IFD0 / Exif / GPS / Interop) with GPS decoded to signed decimal degrees + OSM link; flags timestamp-divergence and editor-branded Software tags. |
+| `image_jpeg_analyze` | `path` | Walk every JPEG marker — APP segments by identifier (JFIF / EXIF / XMP / ICC / 8BIM / MPF), DQT / DHT, SOFn, scan headers. |
+| `image_png_analyze` | `path` | Walk every PNG chunk — IHDR / tEXt / iTXt / eXIf / iCCP / tIME / pHYs / gAMA / sRGB / acTL with private-chunk flagging. |
 | `fcc_callsign` | `callsign` | US amateur callsign lookup via the keyless callook.info JSON API. Returns name, class, trustee, FRN, grant/expire dates, grid square. Non-amateur callsigns (GMRS / commercial) get a ULS web-search hint. |
 | `fcc_amateur_bands` | `band?`, `license_class?` | Full US amateur band plan (2200m → 1.25cm) with per-class privileges. `band` matches wavelength (`40m`), region (`HF`), or a frequency in MHz. |
 | `fcc_radio_service` | `service?`, `channel?` | FRS / GMRS / MURS / CB reference: license, power, channels, antenna rules, spectrum sharing. `service="compare"` for the side-by-side. |

@@ -409,6 +409,17 @@ fn families() -> Vec<Family> {
             extra: |_c| vec![],
         },
         Family {
+            key: "image",
+            section: "[image]",
+            description:
+                "Image forensics + EXIF parsing — format / dimensions, full EXIF dump (incl. \
+                 GPS + forensic divergence flags), JPEG / PNG marker walk, embedded-thumbnail \
+                 extraction. Read-only, paths confined to [filesystem].roots.",
+            tool_match: &["image_"],
+            enabled: |c| c.image.enabled,
+            extra: |_c| vec![],
+        },
+        Family {
             key: "signal",
             section: "[signal]",
             description: "Signal-processing (FFT, RMS, windowing).",

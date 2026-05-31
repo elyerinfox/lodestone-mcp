@@ -8,6 +8,42 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Image forensics + EXIF skills** (`src/skills/image.rs`, on by default
+  via `[image].enabled`). Four read-only tools, all paths confined to
+  `[filesystem].roots`:
+  - **`image_info`** — format / dimensions / color / animation from the
+    container's structural headers (JPEG SOFn, PNG IHDR, GIF LSD, WebP
+    VP8/VP8L/VP8X, BMP DIB, TIFF magic, HEIF brand, JPEG-XL signature).
+    Pure binary parsing, no full-image decode.
+  - **`image_exif`** — full EXIF tag dump from IFD0 / Exif / GPS /
+    Interop via `kamadak-exif`. GPS coordinates are decoded to signed
+    decimal degrees with an OSM map link. **Forensic divergence flags**
+    fire when `DateTimeOriginal` / `DateTime` / `DateTimeDigitized`
+    disagree (re-save / scan workflow indicator) or when the `Software`
+    tag is editor-branded (Photoshop / GIMP / Lightroom / Capture One /
+    Affinity / Pixelmator).
+  - **`image_jpeg_analyze`** — walk every JPEG marker: APP segments by
+    identifier (JFIF / Exif / XMP / ICC_PROFILE / MPF / Photoshop / Adobe),
+    DQT (quantization tables — encoder fingerprint), DHT counts, DRI,
+    SOFn payload (dims / depth / components), SOS. Useful for
+    camera-vs-editor source identification and tamper checks.
+  - **`image_png_analyze`** — walk every PNG chunk with decoded payloads:
+    IHDR, tEXt / iTXt / zTXt (textual metadata — software, comments),
+    eXIf, iCCP, tIME, pHYs (with DPI conversion), gAMA, sRGB, acTL
+    (APNG animation control). Flags unknown private chunks.
+
+  New dependency: `kamadak-exif = "0.6"` (pure Rust, no native deps).
+
+### Changed
+
+- **`chart_line` accepts ISO-8601 date strings as x values.** A point's
+  `x` can now be a number *or* a string like `"2026-01-15"` /
+  `"2026-01-15T12:34:56Z"` / `"2026-01-15 12:34:56"`. Strings are
+  auto-parsed to Unix timestamps for scaling and the x-axis is rendered
+  with date-formatted tick labels (rotated 30° for legibility) instead
+  of raw numbers. Closes the "stock chart fails because dates aren't
+  numbers" usability gap.
+
 - **Chart / plot rendering skills** (`src/skills/chart.rs`, on by default via
   `[chart].enabled`). Pure-Rust SVG generation — no external dependencies,
   no headless browser, no network. Ten tools total:

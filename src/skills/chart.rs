@@ -230,6 +230,48 @@ fn render_x_axis(
     }
 }
 
+/// Variant of [`render_x_axis`] that uses a pre-computed label per tick
+/// (e.g. date-formatted strings). Labels are rotated 30° for readability.
+#[allow(clippy::too_many_arguments)]
+fn render_x_axis_with_labels(
+    out: &mut String,
+    ticks: &[f64],
+    labels: &[String],
+    domain: (f64, f64),
+    range: (f64, f64),
+    baseline_y: f64,
+    plot_top: f64,
+) {
+    let (dmin, dmax) = domain;
+    let (rmin, rmax) = range;
+    let scale = |v: f64| -> f64 {
+        if (dmax - dmin).abs() < f64::EPSILON {
+            (rmin + rmax) / 2.0
+        } else {
+            rmin + (v - dmin) / (dmax - dmin) * (rmax - rmin)
+        }
+    };
+    let _ = writeln!(
+        out,
+        "<line x1=\"{rmin}\" y1=\"{baseline_y}\" x2=\"{rmax}\" y2=\"{baseline_y}\" \
+         stroke=\"#999\" stroke-width=\"1\"/>"
+    );
+    for (t, lbl) in ticks.iter().zip(labels.iter()) {
+        let x = scale(*t);
+        let _ = writeln!(
+            out,
+            "<line x1=\"{x}\" y1=\"{plot_top}\" x2=\"{x}\" y2=\"{baseline_y}\" \
+             stroke=\"#eee\" stroke-width=\"1\"/>\n\
+             <line x1=\"{x}\" y1=\"{baseline_y}\" x2=\"{x}\" y2=\"{tick_top}\" stroke=\"#999\" stroke-width=\"1\"/>\n\
+             <text x=\"{x}\" y=\"{label_y}\" text-anchor=\"end\" font-size=\"10\" fill=\"#444\" \
+             transform=\"rotate(-30 {x} {label_y})\">{txt}</text>",
+            tick_top = baseline_y + 4.0,
+            label_y = baseline_y + 18.0,
+            txt = esc(lbl),
+        );
+    }
+}
+
 /// Y axis. Mirror of `render_x_axis`. `domain` is bottom→top; `range`
 /// pixel-space is top→bottom (smaller pixel y = higher value).
 fn render_y_axis(
@@ -412,12 +454,93 @@ fn svg_result(svg: String, description: String) -> CallToolResult {
 // chart_line
 // ---------------------------------------------------------------------------
 
+/// A line / scatter / candle data point. JSON shape: a 2-element array.
+///
+/// **First element (x)** can be a **number** *or* a **string**:
+///   - Number → used directly as the x-coordinate.
+///   - String → parsed as a date / datetime (ISO-8601 forms accepted:
+///     `"2026-01-15"`, `"2026-01-15T12:34:56Z"`, `"2026-01-15 12:34:56"`).
+///     The Unix timestamp drives the x-scale; the original string is kept
+///     as the rendered tick label, so the axis shows dates instead of
+///     timestamps.
+///
+/// **Second element (y)** must be a number.
+///
+/// Model-friendly: the JSON schema doesn't strictly type the element,
+/// which lets the model emit e.g. `[["2026-01-15", 685.69], …]` without a
+/// type-mismatch reject.
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct LineSeries {
     /// Label shown in the legend.
     label: String,
-    /// `(x, y)` data points. Must contain at least 2 points.
-    points: Vec<[f64; 2]>,
+    /// `[x, y]` data points. `x` is a number OR an ISO-8601 date/datetime
+    /// string. `y` is a number. Must contain at least 2 points.
+    points: Vec<Vec<serde_json::Value>>,
+}
+
+/// Parse a `[x, y]` JSON pair. Returns the numeric coordinates and, when
+/// the x was a date string, the original string for use as the tick label.
+fn parse_xy(pair: &[serde_json::Value]) -> Option<(f64, f64, Option<String>)> {
+    if pair.len() != 2 {
+        return None;
+    }
+    let y = pair[1].as_f64()?;
+    if let Some(n) = pair[0].as_f64() {
+        return Some((n, y, None));
+    }
+    let s = pair[0].as_str()?.trim();
+    if let Ok(n) = s.parse::<f64>() {
+        return Some((n, y, None));
+    }
+    let ts = parse_date_to_ts(s)?;
+    Some((ts, y, Some(s.to_string())))
+}
+
+/// Parse a flexible date/datetime string to a Unix timestamp (seconds).
+/// Accepts a few common shapes the model is likely to emit:
+///   * `YYYY-MM-DD`
+///   * `YYYY-MM-DDTHH:MM:SS` and `…HH:MM:SSZ`
+///   * `YYYY-MM-DD HH:MM:SS`
+///   * `YYYY/MM/DD`
+fn parse_date_to_ts(s: &str) -> Option<f64> {
+    use chrono::{NaiveDate, NaiveDateTime, TimeZone, Utc};
+    let trimmed = s.trim().trim_end_matches('Z');
+    let date_formats = ["%Y-%m-%d", "%Y/%m/%d", "%Y-%m"];
+    let dt_formats = [
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%dT%H:%M:%S%.f",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d %H:%M",
+        "%Y/%m/%d %H:%M:%S",
+    ];
+    for f in dt_formats {
+        if let Ok(ndt) = NaiveDateTime::parse_from_str(trimmed, f) {
+            return Some(Utc.from_utc_datetime(&ndt).timestamp() as f64);
+        }
+    }
+    for f in date_formats {
+        if let Ok(nd) = NaiveDate::parse_from_str(trimmed, f) {
+            if let Some(ndt) = nd.and_hms_opt(0, 0, 0) {
+                return Some(Utc.from_utc_datetime(&ndt).timestamp() as f64);
+            }
+        }
+    }
+    None
+}
+
+/// Format a Unix timestamp (seconds) as a compact human-readable date.
+/// Picks `YYYY-MM-DD` for ranges spanning ≥ 2 days, otherwise adds time.
+fn fmt_ts(ts: f64, span_secs: f64) -> String {
+    use chrono::TimeZone;
+    let dt = chrono::Utc
+        .timestamp_opt(ts as i64, 0)
+        .single()
+        .unwrap_or_else(|| chrono::Utc.timestamp_opt(0, 0).single().unwrap());
+    if span_secs >= 2.0 * 86_400.0 {
+        dt.format("%Y-%m-%d").to_string()
+    } else {
+        dt.format("%m-%d %H:%M").to_string()
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -464,11 +587,32 @@ impl Skill for ChartLine {
                     "`series` must contain at least one entry".to_string(),
                 ));
             }
-            let series_xy: Vec<Vec<(f64, f64)>> = args
-                .series
-                .iter()
-                .map(|s| s.points.iter().map(|p| (p[0], p[1])).collect())
-                .collect();
+            // Parse points with flexible x (number OR ISO date string).
+            // We collect numeric (x, y) for scaling AND a parallel "was the
+            // x originally a date string?" flag so the axis can show dates
+            // instead of raw seconds.
+            let mut series_xy: Vec<Vec<(f64, f64)>> = Vec::with_capacity(args.series.len());
+            let mut x_is_date = false;
+            for (i, s) in args.series.iter().enumerate() {
+                let mut row: Vec<(f64, f64)> = Vec::with_capacity(s.points.len());
+                for (j, pt) in s.points.iter().enumerate() {
+                    let (x, y, date_label) = parse_xy(pt).ok_or_else(|| {
+                        invalid(format!(
+                            "series {} (\"{}\") point {}: expected [number-or-date-string, number], \
+                             got {}",
+                            i,
+                            s.label,
+                            j,
+                            serde_json::to_string(pt).unwrap_or_default()
+                        ))
+                    })?;
+                    if date_label.is_some() {
+                        x_is_date = true;
+                    }
+                    row.push((x, y));
+                }
+                series_xy.push(row);
+            }
             for (i, s) in series_xy.iter().enumerate() {
                 if s.len() < 2 {
                     return Err(invalid(format!(
@@ -505,14 +649,29 @@ impl Skill for ChartLine {
                 h,
                 &m,
             );
-            render_x_axis(
-                &mut svg,
-                &x_ticks,
-                xd,
-                (plot_left, plot_right),
-                plot_bottom,
-                plot_top,
-            );
+            if x_is_date {
+                // Re-render the x axis with date-formatted tick labels.
+                let span = xd.1 - xd.0;
+                let dated: Vec<String> = x_ticks.iter().map(|t| fmt_ts(*t, span)).collect();
+                render_x_axis_with_labels(
+                    &mut svg,
+                    &x_ticks,
+                    &dated,
+                    xd,
+                    (plot_left, plot_right),
+                    plot_bottom,
+                    plot_top,
+                );
+            } else {
+                render_x_axis(
+                    &mut svg,
+                    &x_ticks,
+                    xd,
+                    (plot_left, plot_right),
+                    plot_bottom,
+                    plot_top,
+                );
+            }
             render_y_axis(
                 &mut svg,
                 &y_ticks,

@@ -42,6 +42,7 @@ pub struct Config {
     pub ffmpeg: Ffmpeg,
     pub fcc: Fcc,
     pub chart: Chart,
+    pub image: Image,
     pub spreadsheet: Spreadsheet,
     pub sdr: Sdr,
     pub tasks: Tasks,
@@ -754,6 +755,24 @@ impl Default for Chart {
     }
 }
 
+/// Image forensics / EXIF skills (`src/skills/image.rs`). **On by default**.
+/// Read-only inspection of image files via paths confined to
+/// `[filesystem].roots`. EXIF, JPEG/PNG structural analysis, dimensions,
+/// embedded thumbnails. No image modification — purely investigative.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct Image {
+    /// Expose `image_info`, `image_exif`, `image_jpeg_analyze`,
+    /// `image_png_analyze`, `image_thumbnail_extract`.
+    pub enabled: bool,
+}
+
+impl Default for Image {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
+}
+
 /// Spreadsheet skill (`src/skills/spreadsheet.rs`) — read/query/write CSV & XLSX.
 /// **Off by default**; paths are confined to `[filesystem].roots` and writes go
 /// through the confirmation guard.
@@ -1032,6 +1051,7 @@ impl Default for Config {
             ffmpeg: Ffmpeg::default(),
             fcc: Fcc::default(),
             chart: Chart::default(),
+            image: Image::default(),
             spreadsheet: Spreadsheet::default(),
             sdr: Sdr::default(),
             tasks: Tasks::default(),
@@ -1412,6 +1432,9 @@ impl Config {
         }
         if let Ok(v) = std::env::var("LODESTONE_CHART_ENABLED") {
             self.chart.enabled = is_truthy(&v);
+        }
+        if let Ok(v) = std::env::var("LODESTONE_IMAGE_ENABLED") {
+            self.image.enabled = is_truthy(&v);
         }
         if let Ok(v) = std::env::var("LODESTONE_SPREADSHEET_ENABLED") {
             self.spreadsheet.enabled = is_truthy(&v);

@@ -37,6 +37,7 @@ pub mod github;
 pub mod grid;
 pub mod guard;
 pub mod huggingface;
+pub mod image;
 pub mod kernel;
 pub mod kubernetes;
 pub mod memory;
@@ -356,6 +357,7 @@ fn all_skills() -> Vec<Box<dyn Skill>> {
     skills.extend(ffmpeg::skills());
     skills.extend(fcc::skills());
     skills.extend(chart::skills());
+    skills.extend(image::skills());
     skills.extend(spreadsheet::skills());
     skills.extend(shell::skills());
     skills.extend(git::skills());
@@ -443,6 +445,7 @@ pub fn disabled_by_config(cfg: &crate::config::Config) -> Vec<String> {
     hide_if_off(cfg.ffmpeg.enabled, ffmpeg::TOOL_NAMES);
     hide_if_off(cfg.fcc.enabled, fcc::TOOL_NAMES);
     hide_if_off(cfg.chart.enabled, chart::TOOL_NAMES);
+    hide_if_off(cfg.image.enabled, image::TOOL_NAMES);
     // Spreadsheet read/query/write — off by default (file I/O).
     hide_if_off(cfg.spreadsheet.enabled, spreadsheet::TOOL_NAMES);
     // Database tools (ad-hoc connections, no preconfiguration) — off by default.
