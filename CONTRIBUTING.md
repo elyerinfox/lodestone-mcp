@@ -390,6 +390,14 @@ cargo clippy --all-targets -- -D warnings    # 3. Lint at deny-warnings.
 cargo test                                   # 4. (Recommended) Hermetic tests.
 ```
 
+There's a [`Makefile`](Makefile) that wraps these. `make check` runs the four
+steps in order and prints a green check on success; `make ci` runs exactly
+what CI runs (with `fmt --check` instead of `fmt`, so it fails on unformatted
+code rather than silently fixing it). `make` with no target prints the
+self-documenting help with every available target — `make help`. On Windows,
+run it from Git Bash or WSL, or invoke the cargo commands directly from
+PowerShell.
+
 If any of these fails, **fix the underlying problem**. Never `--no-verify` past
 a failing check (golden rules say so explicitly), never silence a clippy lint
 with a blanket `#[allow]` without understanding what it caught, never let an
@@ -483,8 +491,9 @@ You can shift the entire triad into the background:
   - **`cargo-watch`** ([`cargo-watch`][cargo-watch]) — for a terminal-driven
     loop: `cargo install cargo-watch`, then
     `cargo watch -x 'fmt --all' -x 'clippy --all-targets -- -D warnings' -x test`.
-- **Pre-commit hook.** Drop the triad into `.git/hooks/pre-commit` so a `git
-  commit` that would fail CI never lands. A minimal version:
+- **Pre-commit hook.** `make install-hooks` drops a one-line wrapper
+  (`exec make ci`) into `.git/hooks/pre-commit` so a `git commit` that would
+  fail CI never lands. Or drop your own version in — a minimal one is:
 
   ```sh
   #!/bin/sh

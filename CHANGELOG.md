@@ -8,6 +8,14 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Documentation
 
+- **[`Makefile`](Makefile)** wraps the pre-commit triad and the CI gate as
+  named targets. `make check` runs `fmt + build + clippy + test` (golden rule
+  10); `make ci` runs exactly what CI runs (`fmt --check` instead of `fmt`);
+  `make docker` builds the image and runs the same `/health` smoke test the
+  CI `docker` job does; `make install-hooks` drops a `.git/hooks/pre-commit`
+  wrapper around `make ci`. `make help` (the default target) shows every
+  available target self-documenting from its `## …` comment. Mirrors
+  `.github/workflows/ci.yml` so locally-green ≈ CI-green.
 - **Two new golden rules** ([`docs/golden-rules.md`](docs/golden-rules.md)).
   - **Rule 10:** `cargo fmt` and `cargo clippy --all-targets -- -D warnings`
     must pass before every commit (CI enforces both). The expanded
