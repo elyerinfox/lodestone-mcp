@@ -249,6 +249,63 @@ hits (you can't recompute a search ranking the way you can recompute a
 content hash), so a single (potentially malicious) peer could otherwise
 inject results.
 
+### Retrieval delegation (opt-in)
+
+When local cache + peer-cache both miss and the direct upstream fetch fails
+(rate-limited, geo-blocked, captive-portalled), a peer that has opted into
+delegation can perform the fetch on the consumer's behalf. The asking node
+POSTs `/constellation/retrieve { url, max_bytes, source }`; the serving
+node fetches from upstream, caches the body locally (so it serves the mesh
+via the Bloom-gated `consult_blob_hash` path going forward), and returns
+the bytes. The rate-limited upstream is hit **once for the mesh**, not
+once per node.
+
+**Lookup order for `fetch_bytes_shared` is therefore:**
+
+1. **Local file store** — already-downloaded bytes.
+2. **Peer cache** (via `consult_blob`) — a peer that has it served the
+   bytes; consensus / verification applies per source.
+3. **Direct upstream fetch** — plain HTTP. On any error (typically 429),
+   fall through.
+4. **Peer-delegated fetch** — ask a peer that advertised
+   `delegation_enabled = true` to fetch it for us.
+
+Steps 2 and 4 require `[network].enabled` and at least one peer; step 4
+additionally requires at least one peer that advertised
+`delegation_enabled = true` on its most recent digest. The path collapses
+gracefully — with none of those configured, this is just a plain HTTP
+download.
+
+**Cross-constellation delegation** works automatically through the galaxy
+broker's directory mechanism: when a foreign constellation's endpoints are
+added as peers via `galaxy::client::sync_once`, their digests start being
+fetched, the `delegation_enabled` flag becomes visible, and
+`delegated_fetch` walks all peers regardless of constellation origin. The
+broker itself is **not a proxy** — bytes flow constellation-to-constellation
+direct, the broker only made the introduction.
+
+**Guardrails (server side).** When a serving node opts in
+(`[network].delegation_enabled = true`), three sliding-hour-window counters
+protect it from being used as someone else's exit:
+
+| Knob | Default | What it caps |
+| --- | --- | --- |
+| `delegation_max_jobs_per_peer_per_hour` | 30 | Jobs any one peer can request per hour. A misbehaving peer fills its own quota first. |
+| `delegation_max_bytes_per_job` | 8 MiB | Body size of a single delegated fetch. |
+| `delegation_total_bytes_per_hour` | 256 MiB | Aggregate bytes served via delegation per hour. Protects local egress. |
+| `delegation_max_cache_bytes` | 64 MiB | Summed body size of all retrieval-cache entries (delegated or not). Eviction is oldest-by-expiry. 0 = unlimited. |
+
+Rejected requests return HTTP 429 (peer-jobs / global-bytes) or 413 (per-job
+size) with a JSON body carrying a machine-readable `reason` and a
+`Retry-After` hint in seconds, so requesters back off intelligently rather
+than re-bombard the peer.
+
+**Privacy.** The requested URL **does** cross the wire here — the serving
+node has to know what to fetch — so delegation is strictly opt-in for the
+serving node, never on by default. The requester has no privacy obligation
+since it knows the URL it asked for; the constellation `token` gates who
+can ask in the first place.
+
 ### Anti-tampering
 
 A peer could serve corrupted or malicious bytes, so blobs are **corroborated, then

@@ -8,6 +8,81 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Retrieval delegation** — opt-in "go fetch this URL for me" service over
+  the constellation, with cross-constellation transfer via the existing
+  galaxy peering. Closes the rate-limit gap: when local cache + peer-cache
+  both miss and the direct upstream fetch fails (429 / blocked /
+  captive-portalled), a peer in the same or a peered constellation can
+  perform the fetch on the consumer's behalf and the rate-limited upstream
+  is hit **once for the mesh** instead of once per node.
+  - **`POST /constellation/retrieve`** (`src/main.rs`, served by
+    `Constellation::serve_retrieve` in `src/constellation/mod.rs`). Body:
+    `{ url, max_bytes, source }`. Gated by `[network].token` AND
+    `[network].delegation_enabled = true` (off by default — never serve
+    outbound traffic for someone else without choosing to). The serving
+    node fetches from upstream, caches the body in
+    [`IndexedRetrievalCache`](src/retrieval.rs) under the requester-
+    supplied `Source` (so the mesh now has it cached behind the digest
+    Bloom for everyone), and streams the bytes back. The requester
+    identifies itself via `X-Lodestone-Peer-Id: <node_id>` so the
+    sliding-window rate limiter can account per-peer.
+  - **`Constellation::delegated_fetch`** — the client side. Walks
+    Bloom-reachable peers that advertised `delegation_enabled = true` on
+    their most recent digest (sorted by reputation, capped at
+    `max_peers`), POSTs `/constellation/retrieve` to each in turn, and
+    returns the bytes from the first successful response. 429 / 403
+    responses log the reason at debug.
+  - **`Digest.delegation_enabled`** — peers carry their opt-in flag in the
+    digest so requesters only contact willing servers. `serde(default)`
+    keeps older peers (which omit it) defaulting to `false`.
+  - **`fetch_bytes_shared`** lookup order now: local store → peer cache
+    via `consult_blob` → direct upstream → **delegated peer fetch**. The
+    delegation step only fires on direct-fetch failure (so a happy path
+    doesn't even touch peers); on success the bytes also land in the
+    local file store. With no peers configured this is just a plain HTTP
+    download — no behaviour change for single-node setups.
+  - **Cross-constellation transfer** works automatically through the
+    galaxy broker's existing directory model. Foreign-constellation
+    endpoints added by `galaxy::client::sync_once` get their digests
+    fetched on the next sync, their `delegation_enabled` becomes visible,
+    and `delegated_fetch` walks all peers regardless of constellation
+    origin. The broker itself is **not a proxy** — bytes flow direct,
+    constellation-to-constellation. No new galaxy endpoints needed.
+  - **Sliding-hour-window rate limiter** (`src/constellation/delegation.rs`)
+    with four knobs:
+    - `delegation_max_jobs_per_peer_per_hour` (default 30) — caps how
+      many delegated fetches any single peer can request per hour.
+    - `delegation_max_bytes_per_job` (default 8 MiB) — caps the body size
+      of a single fetch.
+    - `delegation_total_bytes_per_hour` (default 256 MiB) — global
+      aggregate-byte cap. Protects local egress.
+    - `delegation_max_cache_bytes` (default 64 MiB) — caps the summed body
+      size of all retrieval-cache entries (delegated or not). Eviction is
+      oldest-by-expiry. 0 = unlimited.
+    Rejected requests return HTTP 429 (peer-jobs / global-bytes) or 413
+    (per-job size) with a JSON `RetrieveReject { reason, retry_after_secs,
+    detail }` body + a `Retry-After` header so requesters can back off
+    intelligently. The limiter uses reservation slots that roll back on
+    failed fetches (a `Drop` impl returns the reservation to the budget),
+    so a bad URL doesn't permanently burn the requester's quota.
+  - **Cache byte budget on `IndexedRetrievalCache`** — added third
+    constructor argument `max_bytes`. The cache now tracks summed body
+    size + evicts oldest-by-expiry when the cap would be exceeded by a
+    `put`. Single bodies larger than the whole cap are refused outright
+    rather than evicting the entire cache for an entry that wouldn't fit.
+    0 = unlimited (matches prior behavior).
+  - All env overrides via `LODESTONE_NETWORK_DELEGATION_*`.
+
+  See [`docs/constellation.md`](docs/constellation.md) §"Retrieval
+  delegation (opt-in)" for the lookup order, the guardrail table, the
+  cross-constellation transfer flow, and the privacy posture (the URL
+  crosses the wire — that's why it's opt-in for the serving side).
+  7 new unit tests for the rate limiter (disabled rejection, per-job
+  byte cap, per-peer jobs cap, global bytes cap, slot rollback on drop,
+  commit-updates-actual-bytes, retry-after hints); 3 new unit tests for
+  the cache byte budget (eviction-oldest-first, oversized-body refusal,
+  zero-means-unlimited).
+
 - **Multi-identifier retrieval cache + per-source consensus policy** for the
   constellation. Closes the alignment gap that made the mesh useless for
   long-tail rate-limited content (a specific arXiv paper, a specific Wayback

@@ -19,6 +19,7 @@
 //! consumer that gets unusable bytes simply re-fetches from the authoritative source.
 
 mod bloom;
+pub mod delegation;
 pub mod identifiers;
 mod mdns;
 
@@ -54,6 +55,13 @@ pub(crate) struct Digest {
     pub bloom: BloomFilter,
     #[serde(default)]
     pub peers: Vec<String>,
+    /// `true` if this node opted into retrieval delegation — peers may POST
+    /// `/constellation/retrieve` asking it to fetch a URL on their behalf,
+    /// subject to its per-peer / per-job / per-hour rate limits.
+    /// Older peers that omit this field land on `false` so requesters
+    /// don't accidentally hammer a peer that hasn't advertised willingness.
+    #[serde(default)]
+    pub delegation_enabled: bool,
 }
 
 /// Max peer URLs advertised per digest, and the upper bound on the peer table —
@@ -94,6 +102,39 @@ pub(crate) struct BlobInfo {
     pub size: u64,
 }
 
+/// `POST /constellation/retrieve` — "go fetch this URL for me" delegation
+/// request. The serving node performs the fetch, caches the body locally
+/// (so this AND every peer benefits from the result), and streams it back.
+/// `source` lets the requester carry the per-source policy hint over the
+/// wire so the serving node caches with the right TTL.
+#[derive(Debug, Serialize, Deserialize)]
+pub(crate) struct RetrieveReq {
+    /// The URL to fetch.
+    pub url: String,
+    /// Maximum body bytes the requester wants. Must be `<=
+    /// [network].delegation_max_bytes_per_job` on the serving node.
+    pub max_bytes: u64,
+    /// The classifier the requester believes applies. Defaults to `Other`.
+    #[serde(default)]
+    pub source: identifiers::Source,
+}
+
+/// `RetrieveReq` rejection body (HTTP 429 / 400 / 403) — JSON payload telling
+/// the requester *why* and how long to back off, so clients don't blindly
+/// re-bombard a peer that's already at capacity.
+#[derive(Debug, Serialize, Deserialize)]
+pub(crate) struct RetrieveReject {
+    /// Machine-readable reason: `"disabled"` / `"per_job_too_large"` /
+    /// `"peer_jobs_exceeded"` / `"global_bytes_exceeded"` / `"fetch_failed"`.
+    pub reason: &'static str,
+    /// Suggested seconds to wait before retrying, or 0 if not retryable.
+    #[serde(default)]
+    pub retry_after_secs: u64,
+    /// Human-readable detail (logged + shown in tracing breadcrumbs).
+    #[serde(default)]
+    pub detail: String,
+}
+
 /// Per-blob seed accounting (BitTorrent-style): how much we've served to peers vs.
 /// fetched from them. `ratio = served_bytes / fetched_bytes`.
 #[derive(Debug, Default, Clone)]
@@ -128,6 +169,10 @@ struct Peer {
     misses: u32,
     /// Peers this peer advertised (its neighbors) — forms the mesh graph.
     known: Vec<String>,
+    /// This peer advertised `delegation_enabled = true` on its most recent
+    /// digest, so it'll accept `POST /constellation/retrieve`. `false` until
+    /// we've seen a digest that says otherwise.
+    delegation_enabled: bool,
 }
 
 impl Peer {
@@ -139,6 +184,7 @@ impl Peer {
             reputation,
             misses: 0,
             known: Vec::new(),
+            delegation_enabled: false,
         }
     }
 
@@ -174,6 +220,10 @@ pub(crate) struct Constellation {
     recent_relays: Mutex<HashMap<String, Instant>>,
     /// Reputations loaded from `state_file` at startup; seeds peers as they appear.
     loaded_reps: HashMap<String, f64>,
+    /// Retrieval-delegation rate limiter. Active only when
+    /// `[network].delegation_enabled = true`; the limiter itself is built
+    /// regardless so its `Disabled` reason is the consistent rejection path.
+    delegation: delegation::DelegationLimiter,
 }
 
 impl Constellation {
@@ -212,6 +262,12 @@ impl Constellation {
                 peers.insert(u.clone(), Peer::with_reputation(u, rep));
             }
         }
+        let delegation = delegation::DelegationLimiter::new(
+            cfg.delegation_enabled,
+            cfg.delegation_max_jobs_per_peer_per_hour,
+            cfg.delegation_max_bytes_per_job,
+            cfg.delegation_total_bytes_per_hour,
+        );
         Arc::new(Self {
             cfg: cfg.clone(),
             node_id,
@@ -224,6 +280,7 @@ impl Constellation {
             seeds: Mutex::new(HashMap::new()),
             recent_relays: Mutex::new(HashMap::new()),
             loaded_reps,
+            delegation,
         })
     }
 
@@ -268,6 +325,7 @@ impl Constellation {
             constellation_id: self.constellation_id.lock().unwrap().clone(),
             generation: now_secs(),
             count: keys.len(),
+            delegation_enabled: self.cfg.delegation_enabled,
             bloom: BloomFilter::from_keys(&keys),
             peers,
         }
@@ -336,6 +394,222 @@ impl Constellation {
     /// Seed accounting for one blob hash (served vs. fetched), if tracked.
     pub(crate) fn seed_for(&self, key_hash: &str) -> Option<BlobStat> {
         self.seeds.lock().unwrap().get(key_hash).cloned()
+    }
+
+    /// Ask one constellation peer to fetch `url` on our behalf. Iterates
+    /// reachable peers that advertised `delegation_enabled = true` on their
+    /// most recent digest, sorted by reputation, and POSTs
+    /// `/constellation/retrieve` to each until one accepts. Returns the
+    /// fetched bytes on success, or `None` if every willing peer rejected
+    /// (rate-limited, the fetch failed upstream, or no peers advertised
+    /// delegation at all).
+    ///
+    /// `source` is forwarded over the wire so the serving node caches with
+    /// the right per-source TTL — the entry then sits behind the existing
+    /// Bloom-gated `consult_blob_hash` flow for everyone else in the mesh.
+    /// `max_bytes` caps both how much the serving node is willing to
+    /// download for us AND how much we'll accept back.
+    ///
+    /// The requester identifies itself via `X-Lodestone-Peer-Id` carrying
+    /// `self.node_id`; the constellation `token` (if any) still gates who
+    /// can request at all.
+    pub(crate) async fn delegated_fetch(
+        &self,
+        url: &str,
+        max_bytes: u64,
+        source: identifiers::Source,
+    ) -> Option<Vec<u8>> {
+        // Snapshot the reachable, delegation-enabled peers (reputation-sorted).
+        let mut targets: Vec<(String, f64)> = {
+            let peers = self.peers.lock().unwrap();
+            peers
+                .values()
+                .filter(|p| p.reachable() && p.delegation_enabled)
+                .map(|p| (p.url.clone(), p.reputation))
+                .collect()
+        };
+        if targets.is_empty() {
+            return None;
+        }
+        targets.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        targets.truncate(self.cfg.max_peers.max(1));
+
+        let req = RetrieveReq {
+            url: url.to_string(),
+            max_bytes,
+            source,
+        };
+        for (peer_url, _rep) in targets {
+            let mut post = self
+                .http
+                .post(format!("{peer_url}/constellation/retrieve"))
+                .json(&req)
+                .header("X-Lodestone-Peer-Id", &self.node_id);
+            if !self.cfg.token.is_empty() {
+                post = post.bearer_auth(&self.cfg.token);
+            }
+            let resp = match post.send().await {
+                Ok(r) => r,
+                Err(e) => {
+                    tracing::debug!(peer = %peer_url, error = %e, "delegated_fetch peer unreachable");
+                    continue;
+                }
+            };
+            let status = resp.status();
+            if status.is_success() {
+                match resp.bytes().await {
+                    Ok(b) if !b.is_empty() && (b.len() as u64) <= max_bytes => {
+                        self.record_fetched(url, b.len());
+                        return Some(b.to_vec());
+                    }
+                    Ok(b) => {
+                        tracing::debug!(
+                            peer = %peer_url,
+                            len = b.len(),
+                            "delegated_fetch peer returned empty or oversized body"
+                        );
+                    }
+                    Err(e) => {
+                        tracing::debug!(peer = %peer_url, error = %e, "delegated_fetch body read failed");
+                    }
+                }
+            } else {
+                // 429 / 403 / 502 — log the reason so an operator running
+                // `[tracing] = debug` can see which peers refused and why.
+                let body = resp.text().await.unwrap_or_default();
+                tracing::debug!(
+                    peer = %peer_url,
+                    status = %status,
+                    reason = %body,
+                    "delegated_fetch peer refused"
+                );
+            }
+        }
+        None
+    }
+
+    /// Serve a delegated `POST /constellation/retrieve` request:
+    /// 1. Reserve a delegation slot on the rate limiter (rejects if
+    ///    delegation is disabled, this peer is over its per-hour job
+    ///    quota, the per-job byte cap would be exceeded, or the global
+    ///    hourly byte budget is saturated).
+    /// 2. Fetch the URL using the constellation's HTTP client. Honors the
+    ///    per-job byte cap by capping the response read at `max_bytes`.
+    /// 3. Cache the body in [`crate::retrieval::IndexedRetrievalCache`]
+    ///    under the requester-supplied [`identifiers::Source`] so this
+    ///    node, the requester, and every other peer in the mesh can
+    ///    serve it via the existing `consult_blob_hash` path after.
+    /// 4. Commit the limiter slot with the actual byte count and return
+    ///    the bytes.
+    ///
+    /// On `Err(RetrieveReject)` no fetch happens and no cache entry is
+    /// produced. The `Reject` carries a machine-readable reason + a
+    /// suggested Retry-After hint so the requester can back off
+    /// intelligently or try a different peer.
+    pub(crate) async fn serve_retrieve(
+        &self,
+        peer_id: &str,
+        req: &RetrieveReq,
+    ) -> Result<Vec<u8>, RetrieveReject> {
+        use delegation::RejectReason;
+        // Reservation comes first — saturated peers don't get to spend our
+        // egress trying.
+        let slot = match self.delegation.try_acquire(peer_id, req.max_bytes) {
+            Ok(slot) => slot,
+            Err(RejectReason::Disabled) => {
+                return Err(RetrieveReject {
+                    reason: "disabled",
+                    retry_after_secs: 0,
+                    detail: "this node has [network].delegation_enabled = false".to_string(),
+                });
+            }
+            Err(RejectReason::PerJobBytesExceeded { limit, requested }) => {
+                return Err(RetrieveReject {
+                    reason: "per_job_too_large",
+                    retry_after_secs: 0,
+                    detail: format!("requested {requested} bytes; cap is {limit}"),
+                });
+            }
+            Err(RejectReason::PeerJobsExceeded { retry_after_secs }) => {
+                return Err(RetrieveReject {
+                    reason: "peer_jobs_exceeded",
+                    retry_after_secs,
+                    detail: "your peer has hit its hourly delegation quota".to_string(),
+                });
+            }
+            Err(RejectReason::GlobalBytesExceeded { retry_after_secs }) => {
+                return Err(RetrieveReject {
+                    reason: "global_bytes_exceeded",
+                    retry_after_secs,
+                    detail: "this node's hourly delegation byte budget is saturated".to_string(),
+                });
+            }
+        };
+
+        // Fetch from upstream. The slot is held throughout; on any error
+        // path we just let it drop, rolling the reservation back so a
+        // bad URL doesn't burn the requester's quota.
+        let resp = match self.http.get(&req.url).send().await {
+            Ok(r) => r,
+            Err(e) => {
+                return Err(RetrieveReject {
+                    reason: "fetch_failed",
+                    retry_after_secs: 0,
+                    detail: format!("upstream fetch failed: {e}"),
+                });
+            }
+        };
+        if !resp.status().is_success() {
+            let status = resp.status();
+            return Err(RetrieveReject {
+                reason: "fetch_failed",
+                retry_after_secs: 0,
+                detail: format!("upstream returned {status}"),
+            });
+        }
+        let bytes = match resp.bytes().await {
+            Ok(b) => b,
+            Err(e) => {
+                return Err(RetrieveReject {
+                    reason: "fetch_failed",
+                    retry_after_secs: 0,
+                    detail: format!("body read failed: {e}"),
+                });
+            }
+        };
+
+        // Enforce the per-job byte cap (upstream might have ignored
+        // Content-Length / Range hints).
+        if bytes.len() as u64 > req.max_bytes {
+            return Err(RetrieveReject {
+                reason: "per_job_too_large",
+                retry_after_secs: 0,
+                detail: format!(
+                    "upstream returned {} bytes; cap is {}",
+                    bytes.len(),
+                    req.max_bytes
+                ),
+            });
+        }
+
+        // Cache + commit. The cache write uses the same identifier path
+        // that local retrieval uses, so the entry is reachable via the
+        // existing `consult_blob_hash` flow with no additional plumbing.
+        if let Some(ret) = &self.retrieval {
+            // We need a text body for the IndexedRetrievalCache; bytes
+            // that aren't valid UTF-8 lose information here but we keep
+            // them in the file store path (a separate concern). The
+            // delegated-fetch path is primarily for page text / JSON /
+            // PDF-extracted text, all UTF-8-safe.
+            let text = String::from_utf8_lossy(&bytes).into_owned();
+            let ids = identifiers::Identifiers::new(format!("delegated|{}", req.url))
+                .with_source(req.source)
+                .with_url(&req.url);
+            ret.put(&ids, &text);
+        }
+        let actual = bytes.len() as u64;
+        slot.commit(actual);
+        Ok(bytes.to_vec())
     }
 
     /// `consult_blob`, given a URL (hashed internally). No source hint — uses
@@ -798,6 +1072,7 @@ impl Constellation {
             match fetch_digest(&self.http, &url, &self.cfg.token).await {
                 Ok(d) if d.node_id != self.node_id && d.bloom.is_valid() => {
                     let peer_cid = d.constellation_id.clone();
+                    let peer_delegation = d.delegation_enabled;
                     gossiped.extend(d.peers.iter().take(MAX_GOSSIP_PEERS).cloned());
                     {
                         let mut peers = self.peers.lock().unwrap();
@@ -806,6 +1081,7 @@ impl Constellation {
                             p.misses = 0;
                             p.known = d.peers;
                             p.node_id = Some(d.node_id);
+                            p.delegation_enabled = peer_delegation;
                         }
                     }
                     // Converge to the smallest constellation id seen, so nodes that can

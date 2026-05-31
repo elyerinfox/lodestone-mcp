@@ -297,12 +297,21 @@ impl Lodestone {
         }
     }
 
-    /// Fetch a URL's bytes, dodging the source when possible: the local file store
-    /// first, then a constellation peer that already has it (so a cached PDF/file from arXiv,
-    /// IETF, … isn't re-downloaded from the rate-limited source), then finally the
-    /// source — caching the result in the store so this node and the mesh can serve
-    /// it next time. With no `[store]`/`[network]` configured this is just a plain
-    /// download.
+    /// Fetch a URL's bytes, **lookup order**:
+    /// 1. **Local file store** — already-downloaded bytes.
+    /// 2. **Peer cache** (via constellation `consult_blob`) — a peer that
+    ///    has it served the bytes without anyone re-hitting upstream.
+    /// 3. **Direct upstream fetch** — try plain HTTP first; on failure
+    ///    (which typically means rate-limit / 429), fall through to step 4.
+    /// 4. **Peer-delegated fetch** — ask a peer that advertised
+    ///    `delegation_enabled = true` to fetch it for us, subject to that
+    ///    peer's per-hour rate limits. The serving peer caches the result
+    ///    too, so the mesh now has it cached behind the Bloom for everyone.
+    ///
+    /// Steps 2 and 4 require `[network].enabled` and a peer in the
+    /// constellation. Step 4 additionally requires at least one peer with
+    /// `delegation_enabled = true`. The path collapses gracefully — with
+    /// none of those configured this is just a plain HTTP download.
     pub(crate) async fn fetch_bytes_shared(&self, url: &str) -> anyhow::Result<Vec<u8>> {
         if let Some(store) = &self.store {
             if let Some(bytes) = store.get(url).await {
@@ -317,19 +326,46 @@ impl Lodestone {
                 return Ok(bytes);
             }
         }
-        let bytes = self
+        // Direct upstream fetch.
+        let direct = self
             .http
             .get(url)
             .send()
-            .await?
-            .error_for_status()?
-            .bytes()
-            .await?
-            .to_vec();
-        if let Some(store) = &self.store {
-            let _ = store.put(url, &bytes).await;
+            .await
+            .and_then(|r| r.error_for_status());
+        match direct {
+            Ok(resp) => {
+                let bytes = resp.bytes().await?.to_vec();
+                if let Some(store) = &self.store {
+                    let _ = store.put(url, &bytes).await;
+                }
+                Ok(bytes)
+            }
+            Err(direct_err) => {
+                // Direct fetch failed — typically rate-limited (429) or
+                // geo-blocked. Try delegating to a willing peer.
+                if let Some(constellation) = self.registry.constellation() {
+                    if let Some(bytes) = constellation
+                        .delegated_fetch(
+                            url,
+                            self.max_chars as u64 * 4, // a chars-budget cap converts roughly to bytes
+                            crate::constellation::Source::Other,
+                        )
+                        .await
+                    {
+                        if let Some(store) = &self.store {
+                            let _ = store.put(url, &bytes).await;
+                        }
+                        tracing::info!(
+                            url,
+                            "fetch_bytes_shared: served via peer delegation after direct fetch failed"
+                        );
+                        return Ok(bytes);
+                    }
+                }
+                Err(anyhow::anyhow!(direct_err))
+            }
         }
-        Ok(bytes)
     }
 }
 
@@ -543,11 +579,56 @@ fn constellation_routes(constellation: Arc<constellation::Constellation>) -> axu
         axum::Json(constellation::QueryResp { hits }).into_response()
     }
 
+    /// `POST /constellation/retrieve` — the "go fetch this URL for me"
+    /// delegation endpoint. Gated by `[network].token` and
+    /// `[network].delegation_enabled`. The requester identifies itself via
+    /// `X-Lodestone-Peer-Id` (its node id) so the sliding-window rate
+    /// limiter can account per-peer; the cluster token already gates who
+    /// can ask in the first place, so spoofing the peer-id only burns the
+    /// requester's own quota faster than necessary.
+    async fn retrieve(
+        State(constellation): State<Arc<constellation::Constellation>>,
+        headers: HeaderMap,
+        axum::Json(req): axum::Json<constellation::RetrieveReq>,
+    ) -> axum::response::Response {
+        if !constellation.token_ok(bearer_token(&headers)) {
+            return (StatusCode::UNAUTHORIZED, "unauthorized\n").into_response();
+        }
+        let peer_id = headers
+            .get("x-lodestone-peer-id")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("unknown")
+            .to_string();
+        match constellation.serve_retrieve(&peer_id, &req).await {
+            Ok(bytes) => bytes.into_response(),
+            Err(reject) => {
+                // `disabled` and `per_job_too_large` aren't retryable; the
+                // others carry a Retry-After hint. Map both to the standard
+                // HTTP semantics so clients without machine-readable
+                // handling still do something sensible.
+                let status = match reject.reason {
+                    "disabled" => StatusCode::FORBIDDEN,
+                    "per_job_too_large" => StatusCode::PAYLOAD_TOO_LARGE,
+                    "peer_jobs_exceeded" | "global_bytes_exceeded" => StatusCode::TOO_MANY_REQUESTS,
+                    _ => StatusCode::BAD_GATEWAY,
+                };
+                let mut resp = (status, axum::Json(&reject)).into_response();
+                if reject.retry_after_secs > 0 {
+                    if let Ok(val) = reject.retry_after_secs.to_string().parse() {
+                        resp.headers_mut().insert("Retry-After", val);
+                    }
+                }
+                resp
+            }
+        }
+    }
+
     axum::Router::new()
         .route("/constellation/digest", get(digest))
         .route("/constellation/query", post(query))
         .route("/constellation/blob", post(blob))
         .route("/constellation/blobinfo", post(blobinfo))
+        .route("/constellation/retrieve", post(retrieve))
         .with_state(constellation)
 }
 
@@ -614,6 +695,11 @@ async fn main() -> anyhow::Result<()> {
         Some(Arc::new(retrieval::IndexedRetrievalCache::new(
             cfg.cache.ttl_secs.max(1),
             cfg.cache.max_entries,
+            // The body-byte cap doubles as the size guardrail for the
+            // delegation feature — operators that opt into delegation
+            // typically want to bound how much delegated traffic can
+            // bloat the cache. 0 = unlimited.
+            cfg.network.delegation_max_cache_bytes,
         )))
     } else {
         None

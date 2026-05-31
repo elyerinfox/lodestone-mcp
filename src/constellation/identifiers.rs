@@ -37,7 +37,7 @@ pub const MAX_IDENTIFIERS_PER_ENTRY: usize = 8;
 
 /// The kind of upstream that produced a cache entry. Drives per-source TTL and
 /// the consensus floor for trusting peer-served bytes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Source {
     /// Internet Archive Wayback Machine snapshots. Content is identified by
@@ -56,6 +56,7 @@ pub enum Source {
     /// Fallback — uses the global cache TTL and the existing global
     /// `min_agreement`. Existing call sites that don't classify their content
     /// land here so nothing changes for them.
+    #[default]
     Other,
 }
 

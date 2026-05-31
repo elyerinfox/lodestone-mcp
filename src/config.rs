@@ -484,6 +484,28 @@ pub struct Network {
     /// Optional path to persist peer reputations across restarts (JSON). Empty
     /// disables persistence.
     pub state_file: String,
+
+    // --- Retrieval delegation: opt-in "go fetch this for me" service ---
+    /// Opt-in: when `true` this node advertises and serves
+    /// `POST /constellation/retrieve`, allowing a peer to ask us to fetch
+    /// from an upstream on its behalf. **Off by default** — never publish
+    /// outbound traffic for someone else unless you've explicitly chosen to.
+    pub delegation_enabled: bool,
+    /// Max delegated **jobs** any single remote peer may request per hour.
+    /// Each `POST /constellation/retrieve` consumes one. Excess returns 429.
+    /// Default 30.
+    pub delegation_max_jobs_per_peer_per_hour: u32,
+    /// Max bytes accepted from any single delegated fetch (caps the worst-
+    /// case body size we'll buffer + cache for a peer). Default 8 MiB.
+    pub delegation_max_bytes_per_job: u64,
+    /// Global cap on bytes served via delegation per hour (sum across all
+    /// peers). Protects local egress budget. Default 256 MiB.
+    pub delegation_total_bytes_per_hour: u64,
+    /// Cap on bytes stored in the retrieval cache from delegated fetches
+    /// (separate from the global cache size cap, so a delegation flood
+    /// can't push out locally-fetched entries). 0 disables the separate
+    /// budget. Default 64 MiB.
+    pub delegation_max_cache_bytes: u64,
 }
 
 impl Default for Network {
@@ -504,6 +526,11 @@ impl Default for Network {
             node_id: String::new(),
             id: String::new(),
             state_file: String::new(),
+            delegation_enabled: false,
+            delegation_max_jobs_per_peer_per_hour: 30,
+            delegation_max_bytes_per_job: 8 * 1024 * 1024,
+            delegation_total_bytes_per_hour: 256 * 1024 * 1024,
+            delegation_max_cache_bytes: 64 * 1024 * 1024,
         }
     }
 }
@@ -1304,6 +1331,26 @@ impl Config {
         env_apply_str(&mut self.network.id, "LODESTONE_NETWORK_ID");
         env_apply_str(&mut self.network.node_id, "LODESTONE_NETWORK_NODE_ID");
         env_apply_str(&mut self.network.state_file, "LODESTONE_NETWORK_STATE_FILE");
+        env_apply_bool(
+            &mut self.network.delegation_enabled,
+            "LODESTONE_NETWORK_DELEGATION_ENABLED",
+        );
+        env_apply_parse(
+            &mut self.network.delegation_max_jobs_per_peer_per_hour,
+            "LODESTONE_NETWORK_DELEGATION_MAX_JOBS_PER_PEER_PER_HOUR",
+        );
+        env_apply_parse(
+            &mut self.network.delegation_max_bytes_per_job,
+            "LODESTONE_NETWORK_DELEGATION_MAX_BYTES_PER_JOB",
+        );
+        env_apply_parse(
+            &mut self.network.delegation_total_bytes_per_hour,
+            "LODESTONE_NETWORK_DELEGATION_TOTAL_BYTES_PER_HOUR",
+        );
+        env_apply_parse(
+            &mut self.network.delegation_max_cache_bytes,
+            "LODESTONE_NETWORK_DELEGATION_MAX_CACHE_BYTES",
+        );
         if let Some(servers) = env_list("LODESTONE_GALAXY_SERVERS") {
             self.galaxy.servers = servers;
         }

@@ -72,27 +72,42 @@ pub struct IndexedRetrievalCache {
     inner: Mutex<Inner>,
     ttl_default: Duration,
     max_entries: usize,
+    /// Cap on the *summed body size* of all live entries. 0 = no byte cap
+    /// (rely solely on `max_entries`). When the cap would be exceeded by
+    /// a `put`, oldest-by-expiry entries are evicted until the new entry
+    /// fits. Operators set this to protect cache memory against
+    /// large-body delegation traffic — see
+    /// `[network].delegation_max_cache_bytes`.
+    max_bytes: u64,
     next_id: AtomicU64,
 }
 
 struct Inner {
     entries: HashMap<EntryId, Entry>,
     by_hash: HashMap<String, EntryId>,
+    /// Sum of `entries[*].body.len()` — incremented in `put`, decremented
+    /// at every eviction so the byte cap accounting stays consistent
+    /// with the actual entry table without an O(N) scan.
+    bytes_used: u64,
 }
 
 impl IndexedRetrievalCache {
     /// Build a fresh in-memory indexed retrieval cache. `ttl_secs` is the
     /// default lifetime (per-entry overrides from
-    /// [`Source::ttl_secs_override`] take precedence). `max_entries`
-    /// bounds memory; oldest-by-expiry is dropped first when the cap fires.
-    pub fn new(ttl_secs: u64, max_entries: usize) -> Self {
+    /// [`Source::ttl_secs_override`] take precedence). `max_entries` bounds
+    /// the entry count; `max_bytes` (0 = unlimited) bounds the summed body
+    /// size. Oldest-by-expiry entries are evicted first whenever either
+    /// cap fires.
+    pub fn new(ttl_secs: u64, max_entries: usize, max_bytes: u64) -> Self {
         Self {
             inner: Mutex::new(Inner {
                 entries: HashMap::new(),
                 by_hash: HashMap::new(),
+                bytes_used: 0,
             }),
             ttl_default: Duration::from_secs(ttl_secs),
             max_entries: max_entries.max(1),
+            max_bytes,
             next_id: AtomicU64::new(1),
         }
     }
@@ -133,6 +148,7 @@ impl IndexedRetrievalCache {
             expires,
         };
 
+        let body_len = body.len() as u64;
         let mut inner = self.inner.lock().unwrap();
 
         // Evict any prior entry that any of these identifiers point at. A
@@ -147,6 +163,9 @@ impl IndexedRetrievalCache {
                 }
                 already_removed.push(prev_id);
                 if let Some(prev_entry) = inner.entries.remove(&prev_id) {
+                    inner.bytes_used = inner
+                        .bytes_used
+                        .saturating_sub(prev_entry.body.len() as u64);
                     for prev_hash in &prev_entry.identifier_hashes {
                         if inner.by_hash.get(prev_hash) == Some(&prev_id) {
                             inner.by_hash.remove(prev_hash);
@@ -156,15 +175,30 @@ impl IndexedRetrievalCache {
             }
         }
 
-        // Respect the size cap. Drop the expired-soonest entry first.
+        // Respect the byte-budget cap. If the body alone is larger than the
+        // whole cap, refuse the write *before* evicting anything — nuking
+        // the cache for an entry that wouldn't fit anyway is the worst of
+        // both worlds.
+        if self.max_bytes > 0 && body_len > self.max_bytes {
+            return;
+        }
+        // Respect the entry-count cap. Drop the expired-soonest entry first.
         if inner.entries.len() >= self.max_entries {
             self.evict_one_locked(&mut inner);
+        }
+        // Then enforce the byte cap by evicting oldest-by-expiry until the
+        // new entry fits. `max_bytes == 0` means unlimited.
+        if self.max_bytes > 0 {
+            while inner.bytes_used + body_len > self.max_bytes && !inner.entries.is_empty() {
+                self.evict_one_locked(&mut inner);
+            }
         }
 
         // Install the new entry + all secondary mappings.
         for h in &identifier_hashes {
             inner.by_hash.insert(h.clone(), id);
         }
+        inner.bytes_used = inner.bytes_used.saturating_add(body_len);
         inner.entries.insert(id, entry);
     }
 
@@ -181,6 +215,7 @@ impl IndexedRetrievalCache {
             .unwrap_or(true);
         if expired {
             if let Some(e) = inner.entries.remove(&id) {
+                inner.bytes_used = inner.bytes_used.saturating_sub(e.body.len() as u64);
                 for h in &e.identifier_hashes {
                     if inner.by_hash.get(h) == Some(&id) {
                         inner.by_hash.remove(h);
@@ -218,6 +253,7 @@ impl IndexedRetrievalCache {
             .collect();
         for id in stale {
             if let Some(e) = inner.entries.remove(&id) {
+                inner.bytes_used = inner.bytes_used.saturating_sub(e.body.len() as u64);
                 for h in &e.identifier_hashes {
                     if inner.by_hash.get(h) == Some(&id) {
                         inner.by_hash.remove(h);
@@ -233,7 +269,9 @@ impl IndexedRetrievalCache {
     }
 
     /// Drop the entry that expires soonest. Called from `put` when the
-    /// size cap fires. Holds the mutex; caller passes its existing guard.
+    /// entry-count cap or the byte-budget cap fires. Holds the mutex;
+    /// caller passes its existing guard. Maintains `bytes_used` on each
+    /// removal so the byte-budget check stays accurate.
     fn evict_one_locked(&self, inner: &mut Inner) {
         let now = Instant::now();
         // First try the truly-expired set.
@@ -245,6 +283,7 @@ impl IndexedRetrievalCache {
             .collect();
         for id in &expired {
             if let Some(e) = inner.entries.remove(id) {
+                inner.bytes_used = inner.bytes_used.saturating_sub(e.body.len() as u64);
                 for h in &e.identifier_hashes {
                     if inner.by_hash.get(h) == Some(id) {
                         inner.by_hash.remove(h);
@@ -263,6 +302,7 @@ impl IndexedRetrievalCache {
             .map(|(id, _)| *id);
         if let Some(id) = victim {
             if let Some(e) = inner.entries.remove(&id) {
+                inner.bytes_used = inner.bytes_used.saturating_sub(e.body.len() as u64);
                 for h in &e.identifier_hashes {
                     if inner.by_hash.get(h) == Some(&id) {
                         inner.by_hash.remove(h);
@@ -299,14 +339,14 @@ mod tests {
 
     #[test]
     fn put_then_lookup_by_primary() {
-        let c = IndexedRetrievalCache::new(60, 16);
+        let c = IndexedRetrievalCache::new(60, 16, 0);
         c.put(&Identifiers::new("primary"), "the body");
         assert_eq!(c.lookup_by_hash(&h("primary")).as_deref(), Some("the body"));
     }
 
     #[test]
     fn put_then_lookup_by_url_alias() {
-        let c = IndexedRetrievalCache::new(60, 16);
+        let c = IndexedRetrievalCache::new(60, 16, 0);
         let ids = Identifiers::new("primary")
             .with_source(Source::Wayback)
             .with_url("https://example.com/")
@@ -327,7 +367,7 @@ mod tests {
 
     #[test]
     fn put_then_lookup_by_source_id() {
-        let c = IndexedRetrievalCache::new(60, 16);
+        let c = IndexedRetrievalCache::new(60, 16, 0);
         let ids = Identifiers::new("primary")
             .with_source(Source::Wayback)
             .with_source_id("wayback_ts", "20240101000000");
@@ -341,7 +381,7 @@ mod tests {
 
     #[test]
     fn put_then_lookup_by_content_hash() {
-        let c = IndexedRetrievalCache::new(60, 16);
+        let c = IndexedRetrievalCache::new(60, 16, 0);
         c.put(&Identifiers::new("primary"), "exactly-this-body");
         let ch = hash_bytes(b"exactly-this-body");
         assert_eq!(
@@ -352,7 +392,7 @@ mod tests {
 
     #[test]
     fn lookup_with_identifiers_finds_via_any_member() {
-        let c = IndexedRetrievalCache::new(60, 16);
+        let c = IndexedRetrievalCache::new(60, 16, 0);
         // First peer stores under URL.
         let store_ids = Identifiers::new("primary-A")
             .with_source(Source::Wayback)
@@ -374,7 +414,7 @@ mod tests {
 
     #[test]
     fn empty_body_is_dropped() {
-        let c = IndexedRetrievalCache::new(60, 16);
+        let c = IndexedRetrievalCache::new(60, 16, 0);
         c.put(&Identifiers::new("k"), "");
         c.put(&Identifiers::new("k2"), "   \n\t  ");
         assert!(c.lookup_by_hash(&h("k")).is_none());
@@ -383,7 +423,7 @@ mod tests {
 
     #[test]
     fn overwrite_primary_evicts_old_aliases() {
-        let c = IndexedRetrievalCache::new(60, 16);
+        let c = IndexedRetrievalCache::new(60, 16, 0);
         let v1 = Identifiers::new("primary")
             .with_source(Source::Wayback)
             .with_url("https://old-alias.example.com/");
@@ -407,7 +447,7 @@ mod tests {
 
     #[test]
     fn expired_entries_disappear_from_keys_and_lookup() {
-        let c = IndexedRetrievalCache::new(0, 16); // ttl 0 → already expired by read time
+        let c = IndexedRetrievalCache::new(0, 16, 0); // ttl 0 → already expired by read time
         c.put(&Identifiers::new("k"), "v");
         assert!(c.lookup_by_hash(&h("k")).is_none());
         assert!(c.keys().is_empty());
@@ -415,7 +455,7 @@ mod tests {
 
     #[test]
     fn evicts_to_stay_within_max() {
-        let c = IndexedRetrievalCache::new(60, 2);
+        let c = IndexedRetrievalCache::new(60, 2, 0);
         c.put(&Identifiers::new("a"), "1");
         c.put(&Identifiers::new("b"), "2");
         c.put(&Identifiers::new("c"), "3"); // forces eviction
@@ -426,7 +466,7 @@ mod tests {
 
     #[test]
     fn keys_returns_every_identifier_hash() {
-        let c = IndexedRetrievalCache::new(60, 16);
+        let c = IndexedRetrievalCache::new(60, 16, 0);
         let ids = Identifiers::new("primary")
             .with_source(Source::Wayback)
             .with_url("https://example.com/")
@@ -443,7 +483,7 @@ mod tests {
     #[test]
     fn per_source_ttl_override_is_applied() {
         // Wayback gets the 7-day floor regardless of a 1-second default.
-        let c = IndexedRetrievalCache::new(1, 16);
+        let c = IndexedRetrievalCache::new(1, 16, 0);
         c.put(
             &Identifiers::new("wayback-entry").with_source(Source::Wayback),
             "still here",
@@ -456,9 +496,52 @@ mod tests {
 
     #[test]
     fn primary_only_is_just_primary_plus_content_hash() {
-        let c = IndexedRetrievalCache::new(60, 16);
+        let c = IndexedRetrievalCache::new(60, 16, 0);
         c.put(&Identifiers::new("k"), "v");
         // primary + content hash = 2
         assert_eq!(c.keys().len(), 2);
+    }
+
+    #[test]
+    fn byte_budget_evicts_oldest_first_when_cap_exceeded() {
+        // 100-byte byte budget; entry-count cap is high so byte budget is
+        // the only thing firing.
+        let c = IndexedRetrievalCache::new(60, 1000, 100);
+        c.put(&Identifiers::new("first"), &"a".repeat(40));
+        c.put(&Identifiers::new("second"), &"b".repeat(40));
+        // Both fit so far (80 bytes total). Adding a 40-byte third pushes
+        // total to 120 — first should evict.
+        c.put(&Identifiers::new("third"), &"c".repeat(40));
+        assert!(c.lookup_by_hash(&h("first")).is_none());
+        assert!(c.lookup_by_hash(&h("second")).is_some());
+        assert!(c.lookup_by_hash(&h("third")).is_some());
+    }
+
+    #[test]
+    fn byte_budget_refuses_oversized_single_body() {
+        // 100-byte cap, but the body is 500 bytes. Even evicting everything
+        // wouldn't make room — so we refuse the write rather than nuke the
+        // cache for an entry that wouldn't fit anyway.
+        let c = IndexedRetrievalCache::new(60, 1000, 100);
+        c.put(&Identifiers::new("small"), "fits");
+        c.put(&Identifiers::new("oversize"), &"x".repeat(500));
+        assert!(c.lookup_by_hash(&h("small")).is_some());
+        assert!(c.lookup_by_hash(&h("oversize")).is_none());
+    }
+
+    #[test]
+    fn byte_budget_zero_means_unlimited() {
+        // 0 = no byte cap; only max_entries fires. Bodies are made distinct
+        // so the content-hash identifier doesn't dedupe them into one entry.
+        let c = IndexedRetrievalCache::new(60, 16, 0);
+        for i in 0..10 {
+            c.put(
+                &Identifiers::new(format!("k{i}")),
+                &format!("entry-{i}-{}", "x".repeat(1_000_000)),
+            );
+        }
+        for i in 0..10 {
+            assert!(c.lookup_by_hash(&h(&format!("k{i}"))).is_some());
+        }
     }
 }
