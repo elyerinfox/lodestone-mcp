@@ -372,6 +372,16 @@ client). Gated by `[tasks]`. Currently backgrounds searches.
 | Tool | Arguments | Purpose |
 | --- | --- | --- |
 | `features` | `name?` | Per-family enabled/disabled status plus every knob (allow_destructive, recall thresholds, retention policy, embedding endpoint, …) and live memory counts. With `name=<family>`, focused dump for one family. Use BEFORE assuming a family is reachable. |
+| `chart_line` | `series`, `title?`, `xlabel?`, `ylabel?`, `width?`, `height?` | Pure-Rust SVG multi-series line plot. Returns MCP image content (`image/svg+xml`) so clients render inline. Responsive via `viewBox`. |
+| `chart_bar` | `labels`, `values`, `title?`, … | SVG vertical bar chart. |
+| `chart_scatter` | `points`, `title?`, `point_size?`, … | SVG scatter plot. |
+| `chart_histogram` | `values`, `bins?`, `title?`, … | SVG histogram with auto-bin count (√n) if `bins` is omitted. |
+| `chart_pie` | `slices`, `title?`, … | SVG pie chart with a percentage legend. |
+| `chart_heatmap` | `matrix`, `row_labels?`, `col_labels?`, `colormap?`, … | 2D matrix as colored cells with a colorbar; colormaps: viridis (default), magma, plasma, coolwarm, grayscale. |
+| `chart_grafana` | `title?`, `series`, `unit?`, … | Dark-themed time-series panel with translucent area fills and last-value labels — operational telemetry feel. |
+| `chart_canvas` | `commands`, `width?`, `height?`, `background?`, `title?` | Procedural drawing canvas (turtle / Logo style): line / rect / circle / polygon / polyline / text primitives drawn in order. |
+| `chart_interactive` | `library` (chartjs/plotly), `config`, `title?`, `width?`, `height?` | Self-contained HTML wrapping Chart.js or Plotly. Clients that render HTML get full interactivity; others see source. |
+| `chart_mermaid` | `source`, `title?` | Wrap mermaid source in a markdown code fence. Every modern MCP client renders mermaid blocks natively. |
 | `fcc_callsign` | `callsign` | US amateur callsign lookup via the keyless callook.info JSON API. Returns name, class, trustee, FRN, grant/expire dates, grid square. Non-amateur callsigns (GMRS / commercial) get a ULS web-search hint. |
 | `fcc_amateur_bands` | `band?`, `license_class?` | Full US amateur band plan (2200m → 1.25cm) with per-class privileges. `band` matches wavelength (`40m`), region (`HF`), or a frequency in MHz. |
 | `fcc_radio_service` | `service?`, `channel?` | FRS / GMRS / MURS / CB reference: license, power, channels, antenna rules, spectrum sharing. `service="compare"` for the side-by-side. |

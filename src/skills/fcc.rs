@@ -95,7 +95,11 @@ impl Skill for FccCallsign {
             }
 
             let name = v.get("name").and_then(|x| x.as_str()).unwrap_or("");
-            let r_call = v.get("current").and_then(|c| c.get("callsign")).and_then(|x| x.as_str()).unwrap_or(&call);
+            let r_call = v
+                .get("current")
+                .and_then(|c| c.get("callsign"))
+                .and_then(|x| x.as_str())
+                .unwrap_or(&call);
             let op_class = v
                 .get("current")
                 .and_then(|c| c.get("operClass"))
@@ -121,16 +125,56 @@ impl Skill for FccCallsign {
                 .and_then(|p| p.get("callsign"))
                 .and_then(|x| x.as_str())
                 .filter(|s| !s.is_empty());
-            let granted = v.get("otherInfo").and_then(|o| o.get("grantDate")).and_then(|x| x.as_str()).unwrap_or("");
-            let expires = v.get("otherInfo").and_then(|o| o.get("expiryDate")).and_then(|x| x.as_str()).unwrap_or("");
-            let last_action = v.get("otherInfo").and_then(|o| o.get("lastActionDate")).and_then(|x| x.as_str()).unwrap_or("");
-            let frn = v.get("otherInfo").and_then(|o| o.get("frn")).and_then(|x| x.as_str()).unwrap_or("");
-            let ulsuri = v.get("otherInfo").and_then(|o| o.get("ulsUrl")).and_then(|x| x.as_str()).unwrap_or("");
-            let addr_line1 = v.get("address").and_then(|a| a.get("line1")).and_then(|x| x.as_str()).unwrap_or("");
-            let addr_line2 = v.get("address").and_then(|a| a.get("line2")).and_then(|x| x.as_str()).unwrap_or("");
-            let grid = v.get("location").and_then(|l| l.get("gridsquare")).and_then(|x| x.as_str()).unwrap_or("");
-            let latitude = v.get("location").and_then(|l| l.get("latitude")).and_then(|x| x.as_str()).unwrap_or("");
-            let longitude = v.get("location").and_then(|l| l.get("longitude")).and_then(|x| x.as_str()).unwrap_or("");
+            let granted = v
+                .get("otherInfo")
+                .and_then(|o| o.get("grantDate"))
+                .and_then(|x| x.as_str())
+                .unwrap_or("");
+            let expires = v
+                .get("otherInfo")
+                .and_then(|o| o.get("expiryDate"))
+                .and_then(|x| x.as_str())
+                .unwrap_or("");
+            let last_action = v
+                .get("otherInfo")
+                .and_then(|o| o.get("lastActionDate"))
+                .and_then(|x| x.as_str())
+                .unwrap_or("");
+            let frn = v
+                .get("otherInfo")
+                .and_then(|o| o.get("frn"))
+                .and_then(|x| x.as_str())
+                .unwrap_or("");
+            let ulsuri = v
+                .get("otherInfo")
+                .and_then(|o| o.get("ulsUrl"))
+                .and_then(|x| x.as_str())
+                .unwrap_or("");
+            let addr_line1 = v
+                .get("address")
+                .and_then(|a| a.get("line1"))
+                .and_then(|x| x.as_str())
+                .unwrap_or("");
+            let addr_line2 = v
+                .get("address")
+                .and_then(|a| a.get("line2"))
+                .and_then(|x| x.as_str())
+                .unwrap_or("");
+            let grid = v
+                .get("location")
+                .and_then(|l| l.get("gridsquare"))
+                .and_then(|x| x.as_str())
+                .unwrap_or("");
+            let latitude = v
+                .get("location")
+                .and_then(|l| l.get("latitude"))
+                .and_then(|x| x.as_str())
+                .unwrap_or("");
+            let longitude = v
+                .get("location")
+                .and_then(|l| l.get("longitude"))
+                .and_then(|x| x.as_str())
+                .unwrap_or("");
 
             let mut out = format!("{r_call} — {name}\n");
             if !status.is_empty() {

@@ -8,6 +8,40 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Chart / plot rendering skills** (`src/skills/chart.rs`, on by default via
+  `[chart].enabled`). Pure-Rust SVG generation — no external dependencies,
+  no headless browser, no network. Ten tools total:
+  - **`chart_line`**, **`chart_bar`**, **`chart_scatter`**,
+    **`chart_histogram`**, **`chart_pie`** — the matplotlib / pyplot
+    equivalents. Multi-series line gets a tab10 palette and a legend; the
+    histogram auto-bins (√n) when `bins` is omitted; the scatter takes an
+    optional point size.
+  - **`chart_heatmap`** — 2D matrix as colored cells with a built-in
+    colorbar. Colormaps: viridis (default, perceptually uniform), magma,
+    plasma, coolwarm (diverging, good for signed data), grayscale. Covers
+    correlation / confusion / attention / image-intensity visualizations.
+  - **`chart_grafana`** — dark-themed time-series panel with translucent
+    area fills, last-value labels, low-contrast grid. For when "this is
+    operational telemetry" needs to read at a glance.
+  - **`chart_canvas`** — turtle / Logo / matplotlib.patches procedural
+    drawing. Issue a sequence of `line`, `rect`, `circle`, `polygon`,
+    `polyline`, `text` commands; the tool emits a self-contained SVG.
+  - **`chart_interactive`** — wraps Chart.js or Plotly. Returns a
+    self-contained HTML snippet that loads the library from a CDN and
+    renders the supplied native config. Clients that render HTML get full
+    interactivity (hover tooltips, zoom, pan, legend toggling, responsive
+    resize); clients that show only text/images see the source.
+  - **`chart_mermaid`** — wraps user-supplied mermaid source in a markdown
+    code fence. Every modern MCP client (Claude Code, LM Studio, Cursor)
+    renders ```mermaid blocks natively, so no server-side rasterization is
+    needed and the result re-themes / scales with the client.
+
+  All static outputs are SVG with a `viewBox`, so they scale to the
+  renderer's viewport — responsive layout without JavaScript. SVG is
+  delivered as MCP `image/svg+xml` content (clients render inline) plus a
+  one-line text fallback (clients that don't render images get a
+  description). Charts gate via `LODESTONE_CHART_ENABLED`.
+
 - **FCC / amateur radio reference skills** (`src/skills/fcc.rs`, on by default
   via `[fcc].enabled`). Three tools:
   - **`fcc_callsign { callsign }`** — US amateur callsign lookup via the

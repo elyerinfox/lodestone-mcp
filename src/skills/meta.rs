@@ -398,6 +398,17 @@ fn families() -> Vec<Family> {
             extra: |_c| vec![],
         },
         Family {
+            key: "chart",
+            section: "[chart]",
+            description:
+                "Chart / plot rendering — pure-Rust SVG (line, bar, scatter, histogram, pie), \
+                 procedural canvas, heatmaps, and interactive HTML via Chart.js / Plotly. \
+                 Output is responsive (SVG viewBox + HTML viewports) and embeddable.",
+            tool_match: &["chart_"],
+            enabled: |c| c.chart.enabled,
+            extra: |_c| vec![],
+        },
+        Family {
             key: "signal",
             section: "[signal]",
             description: "Signal-processing (FFT, RMS, windowing).",

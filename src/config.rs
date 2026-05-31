@@ -41,6 +41,7 @@ pub struct Config {
     pub sysinfo: Sysinfo,
     pub ffmpeg: Ffmpeg,
     pub fcc: Fcc,
+    pub chart: Chart,
     pub spreadsheet: Spreadsheet,
     pub sdr: Sdr,
     pub tasks: Tasks,
@@ -734,6 +735,25 @@ impl Default for Fcc {
     }
 }
 
+/// Chart / plot rendering skills (`src/skills/chart.rs`). **On by default** —
+/// pure-Rust SVG generation, no external deps, no network. Tools emit
+/// responsive SVG via MCP `image/svg+xml` content so a compliant client
+/// renders the chart inline; a text fallback describes the figure for
+/// clients that don't render images.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct Chart {
+    /// Expose `chart_line`, `chart_bar`, `chart_scatter`, `chart_histogram`,
+    /// `chart_pie`, and `chart_mermaid`.
+    pub enabled: bool,
+}
+
+impl Default for Chart {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
+}
+
 /// Spreadsheet skill (`src/skills/spreadsheet.rs`) — read/query/write CSV & XLSX.
 /// **Off by default**; paths are confined to `[filesystem].roots` and writes go
 /// through the confirmation guard.
@@ -1011,6 +1031,7 @@ impl Default for Config {
             sysinfo: Sysinfo::default(),
             ffmpeg: Ffmpeg::default(),
             fcc: Fcc::default(),
+            chart: Chart::default(),
             spreadsheet: Spreadsheet::default(),
             sdr: Sdr::default(),
             tasks: Tasks::default(),
@@ -1388,6 +1409,9 @@ impl Config {
         }
         if let Ok(v) = std::env::var("LODESTONE_FCC_ENABLED") {
             self.fcc.enabled = is_truthy(&v);
+        }
+        if let Ok(v) = std::env::var("LODESTONE_CHART_ENABLED") {
+            self.chart.enabled = is_truthy(&v);
         }
         if let Ok(v) = std::env::var("LODESTONE_SPREADSHEET_ENABLED") {
             self.spreadsheet.enabled = is_truthy(&v);
