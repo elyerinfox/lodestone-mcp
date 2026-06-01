@@ -235,9 +235,28 @@ pub fn shared_global() -> &'static ChromiumRenderer {
     SHARED.get_or_init(|| ChromiumRenderer::new(OPTIONS.get().cloned().unwrap_or_default()))
 }
 
-struct BrowserHandle {
+pub struct BrowserHandle {
     browser: Browser,
     _driver: tokio::task::JoinHandle<()>,
+}
+
+impl BrowserHandle {
+    /// Access the underlying chromiumoxide `Browser` for CDP calls the
+    /// session manager needs (per-session contexts, raw target params).
+    /// Internal helper only — every caller is in this crate.
+    pub fn as_chromiumoxide(&self) -> &Browser {
+        &self.browser
+    }
+}
+
+impl ChromiumRenderer {
+    /// Public accessor for the session manager: hands back a live
+    /// browser handle, launching one if there isn't one yet. Mirrors
+    /// `handle()` but lifts it out of the private impl block so a
+    /// sibling module can call it.
+    pub async fn handle_for_session(&self) -> Result<Arc<BrowserHandle>> {
+        self.handle().await
+    }
 }
 
 async fn launch(options: &BrowserOptions) -> Result<BrowserHandle> {

@@ -607,7 +607,7 @@ touches. Each tool the skill exposes is a struct that implements the
 ```mermaid
 flowchart TD
   start([New skill]) --> mod
-  mod["1. Create src/skills/&lt;name&gt;.rs<br/>· pub const TOOL_NAMES<br/>· struct + impl Skill (name/description/schema/call)<br/>· pub fn skills() -&gt; Vec&lt;Box&lt;dyn Skill&gt;&gt;"]
+  mod["1. Create src/skills/&lt;name&gt;.rs<br/>· struct + impl Skill (name/description/schema/call)<br/>· pub fn skills() -&gt; Vec&lt;Box&lt;dyn Skill&gt;&gt;"]
   mod --> wire
   wire["2. Wire it up (3 edits)"]
   wire --> wire_mod["src/skills/mod.rs<br/>· pub mod &lt;name&gt;;<br/>· skills.extend(&lt;name&gt;::skills());"]
@@ -640,10 +640,6 @@ use serde::Deserialize;
 use crate::skills::{schema_for, Skill, SkillCtx};
 use crate::{invalid, text_result};
 
-/// Tool names this module contributes — `meta::features` walks this so the
-/// "how many <family> tools are active?" counter can answer authoritatively.
-pub const TOOL_NAMES: &[&str] = &["<name>_<verb>"];
-
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct DoThingArgs {
     /// Rustdoc on each field becomes its JSON-schema description, which the
@@ -669,6 +665,17 @@ impl Skill for DoThing {
         })
     }
 }
+```
+
+> **Where `description()` actually goes**: this string is **piped straight into
+> the MCP `tools/list` response** at `src/skills/mod.rs::route` — it's the
+> primary signal the LLM uses to pick which tool to call. Write it as
+> model-facing copy: concise, specific, mentions inputs / outputs / limits, and
+> matches the schema's field docs. The dashboard's Tools page also renders it
+> below each tool name; the same string serves both audiences.
+
+```rust
+// (rest of the module)
 
 /// Every skill module exposes one `skills()` function returning its skills as
 /// boxed trait objects. `mod.rs::all_skills()` extends from each.
@@ -694,6 +701,142 @@ Three small edits, all mechanical:
 - An entry under "Added" in [`CHANGELOG.md`](CHANGELOG.md)'s `[Unreleased]`.
 - For destructive tools: register them with the [`guard`](src/skills/guard.rs)
   and verify the `allow_destructive` knob actually pre-authorizes the action.
+
+### 4. (When the family needs a host resource) Implement `FamilyMeta`
+
+Configurability — `[<family>].enabled` — says the operator *wants* the tools
+exposed. A separate **capability probe** answers "does this host actually have
+what the family needs to run?" That's covered by the [`FamilyMeta`
+trait](src/skills/mod.rs) under `src/skills/mod.rs`.
+
+Skip this step when your family is pure-Rust (chart, regex, arithmetic, the
+formula domains, etc.) — you simply don't register a `FamilyMeta`. Dispatch
+treats unregistered families as implicitly `Ready` and the dashboard shows
+them under their tool prefix without a host-capability badge.
+
+Implement it when your family:
+- shells out to a binary on `$PATH` (`docker`, `git`, `ffmpeg`, `python`, …);
+- talks to an OS subsystem (`systemd`, `serial`, `printer`, `sdr`); or
+- needs a reachable resource (`kubernetes` kubeconfig, `docker` socket, …).
+
+```rust
+pub struct Family;
+impl crate::skills::FamilyMeta for Family {
+    fn family(&self) -> &'static str { "<name>" }
+    // `tools()` derives the family's tool names from the same `skills()`
+    // registry every module declares — single source of truth, no risk of a
+    // separate `TOOL_NAMES` const drifting from the skill list.
+    fn tools(&self) -> Vec<&'static str> {
+        skills().iter().map(|s| s.name()).collect()
+    }
+    fn description(&self) -> &'static str {
+        "One-line summary of what this family does and the host requirement \
+         that makes it interesting (e.g. \"Inspect/control the local Docker \
+         daemon via the engine API\"). Shown verbatim on the dashboard's \
+         Tools page under the family group header."
+    }
+    fn check_capability(&self) -> crate::skills::SkillCapability {
+        use crate::skills::{binary_on_path, SkillCapability};
+        if binary_on_path("my-required-binary") {
+            SkillCapability::Ready
+        } else {
+            // Reason: one short sentence describing what's missing.
+            // Hint: one short sentence describing how to fix it.
+            SkillCapability::unavailable(
+                "no `my-required-binary` on PATH",
+                "install <pkg> via apt/brew/dnf or extend the container image",
+            )
+        }
+    }
+}
+```
+
+Then register your `Family` in `skills/mod.rs::families()` — one new line in
+the `vec![]` literal. The framework picks it up automatically:
+
+- **At startup**: the probe runs once and the result is cached on
+  `Lodestone.skill_capabilities`. `Unavailable` families log one `WARN` line
+  carrying the reason + hint.
+- **In dispatch**: the wrapper consults the cache before invoking the skill
+  body. If the family is `Unavailable`, the call returns an
+  `invalid_request` error with the reason + hint in the message, so the
+  model sees what's missing and can pick a different path.
+- **On the dashboard**: `ServerStatus.skill_capabilities` carries one row
+  per registered family — `family`, `tools`, `ready`, `description`,
+  `reason?`, `hint?`. The Tools page renders the family `description`
+  under the group header next to a Ready / Unavailable badge.
+
+> **`description()` vs `Skill::description()`**: family `description()` is
+> **dashboard-only** — operator-facing copy for the family group header. It
+> is *not* sent to the LLM (MCP has no concept of "tool family"). The model
+> still reads the per-tool `Skill::description()` for every tool in the
+> family — that's where the model-facing contract lives. `FamilyMeta` makes
+> both `description()` and `check_capability()` **required, no default**:
+> implementing the trait is itself an assertion that the dashboard /
+> operator / dispatch should care about this family, so the two fields
+> that make the framework care can't be skipped.
+
+Probe contract:
+- Stateless — look at env vars, `$PATH`, file existence, OS. Don't open
+  network connections; don't read server config. Anything operator-driven
+  stays under the `[<family>].enabled` flag.
+- Fast — runs synchronously at startup. No async, no waiting for a daemon
+  to respond.
+- One-line strings — `reason` and `hint` are rendered inline on the
+  dashboard and inside the LLM-facing error. Keep them short, keep them
+  actionable.
+
+Helper available: `crate::skills::binary_on_path(bin)` tries `bin`,
+`bin.exe`, and `bin.cmd` so probes work cross-platform without per-OS
+branches.
+
+### 4b. (When one tool in the family needs more) Override `Skill::check_capability`
+
+Sometimes a single tool inside an otherwise-Ready family has its own
+requirement — a stricter binary, an optional library, a compile-time
+feature, a specific resource. The same `SkillCapability` machinery lifts
+to the per-tool layer via the `Skill` trait:
+
+```rust
+impl Skill for SystemGpuNvidia {
+    fn name(&self) -> &'static str { "system_gpu_nvidia" }
+    // … name / description / schema / call …
+    fn check_capability(&self) -> crate::skills::SkillCapability {
+        use crate::skills::SkillCapability;
+        match nvml_wrapper::Nvml::init() {
+            Ok(_) => SkillCapability::Ready,
+            Err(e) => SkillCapability::unavailable(
+                format!("NVML not loadable: {e}"),
+                "install the NVIDIA driver (or `nvidia-utils` in containers)",
+            ),
+        }
+    }
+}
+```
+
+Note the **one tool per method** split: `system_gpu_nvidia` /
+`system_gpu_amd` / `system_gpu_intel` are separate tools, each with its own
+`check_capability`, because the backends (NVML library vs. Linux DRM sysfs)
+are genuinely different methodologies (golden rule 9). The capability
+machinery rewards that split — every backend gets its own clean Ready /
+Unavailable signal rather than one combined "any vendor works" answer.
+
+`Skill::check_capability` defaults to `Ready`, so the override only
+gets typed when the tool actually has a per-tool requirement.
+
+Combination rule at startup: **family Unavailable wins** (the family's
+hint is usually the more actionable one); otherwise the per-tool
+result applies. Net effect: a tool ends up `Unavailable` if either its
+family or its own check fails, with the family taking priority for the
+error message when both fail.
+
+The pipeline emits a separate WARN line for any per-tool override that
+downgrades a Ready family to Unavailable — those are easy to miss in
+code review and a contributor shipping one is the operator's most
+likely surprise.
+
+The same dispatch gate, the same dashboard panel, the same LLM-facing
+error message. Just narrower scope.
 
 That's the whole flow. `main.rs` does not change.
 

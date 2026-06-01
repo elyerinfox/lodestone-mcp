@@ -1,0 +1,40 @@
+# =============================================================================
+# config/20-meshtastic.toml — Meshtastic LoRa mesh skill (off by default)
+# =============================================================================
+#
+# v1 transport: **MQTT only** (the JSON topic format Meshtastic firmware emits
+# when its `MQTT` module has `json_enabled = true`). Requires [mqtt].enabled
+# plus a broker the mesh forwards to (often mqtt.meshtastic.org or your own).
+#
+# Topic shape (read + send): <root>/<region>/2/json/<channel>/<node>
+#
+# Tools: meshtastic_messages, meshtastic_nodes, meshtastic_send, meshtastic_status.
+# -----------------------------------------------------------------------------
+
+[meshtastic]
+# Expose the meshtastic_* tools.
+# Env: LODESTONE_MESHTASTIC_ENABLED
+enabled = false
+
+# Currently only "mqtt" is accepted. "serial" / "tcp" / "ble" are placeholders
+# for a follow-up that brings the protobuf path.
+# Env: LODESTONE_MESHTASTIC_TRANSPORT
+transport = "mqtt"
+
+# MQTT topic root. Meshtastic firmware default is "msh".
+# Env: LODESTONE_MESHTASTIC_MQTT_TOPIC_ROOT
+mqtt_topic_root = "msh"
+
+# Default region segment for outbound meshtastic_send.
+# Env: LODESTONE_MESHTASTIC_DEFAULT_REGION
+default_region = "US"
+
+# Default channel name for outbound meshtastic_send. "LongFast" is the
+# Meshtastic stock primary channel.
+# Env: LODESTONE_MESHTASTIC_DEFAULT_CHANNEL
+default_channel = "LongFast"
+
+# Auto-subscribe to <root>/+/2/json/# on startup so the recent-message buffer
+# is populated without an explicit mqtt_subscribe call.
+# Env: LODESTONE_MESHTASTIC_AUTO_SUBSCRIBE
+auto_subscribe = true

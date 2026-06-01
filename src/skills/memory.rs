@@ -50,42 +50,6 @@ use crate::skills::guard::Decision;
 use crate::skills::{schema_for, Skill, SkillCtx};
 use crate::{config, internal, invalid, text_result};
 
-/// Tool names (gated by `[memory].enabled` in `disabled_by_config`).
-pub const TOOL_NAMES: &[&str] = &[
-    // Memory
-    "memory_save",
-    "memory_get",
-    "memory_list",
-    "memory_search",
-    "memory_forget",
-    // Solutions
-    "solution_record",
-    "solution_find",
-    "solution_show",
-    "solution_list",
-    "solution_update",
-    "solution_forget",
-    // Solution graph
-    "solution_link",
-    "solution_unlink",
-    "solution_graph",
-    "solution_related",
-    // Solution phrasings (alt-phrasing recall + semantic search)
-    "solution_alias_add",
-    "solution_alias_remove",
-    // Learned synonyms
-    "synonym_add",
-    "synonym_remove",
-    "synonym_list",
-    // Conversation traversal — read-only.
-    "conversation_list",
-    "conversation_show",
-    "solution_conversations",
-    // Conversation destructive controls.
-    "conversation_forget",
-    "conversation_prune",
-];
-
 const DEFAULT_DIR: &str = ".lodestone-memory";
 const DB_FILE: &str = "store.db";
 
@@ -363,6 +327,19 @@ pub(crate) struct Memory {
     /// Active conversation tracker. `None` until the first tool call (or after
     /// a long idle gap rotates the id).
     active_conv: Arc<std::sync::Mutex<Option<ActiveConversation>>>,
+    /// Runtime overrides for the three knobs the dashboard can flip
+    /// without restarting the server. `None` = use the static `cfg`
+    /// value, `Some(v)` = override is in effect. Mutated by the
+    /// settings drawer; never persisted, so a restart restores the
+    /// config-file values.
+    runtime: Arc<std::sync::Mutex<RuntimeOverrides>>,
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+pub(crate) struct RuntimeOverrides {
+    pub enabled: Option<bool>,
+    pub auto_recall: Option<bool>,
+    pub record_conversations: Option<bool>,
 }
 
 /// One scored prior-solution hit returned by [`Memory::auto_recall`]. Used by
@@ -423,16 +400,61 @@ impl RecallHit {
 impl Memory {
     /// `true` if the `memory_*` / `solution_*` / `synonym_*` family is enabled —
     /// the dispatch wrapper checks this before running auto-recall so the cost
-    /// is zero when memory is off.
+    /// is zero when memory is off. Honors the runtime override when set.
     pub(crate) fn enabled(&self) -> bool {
-        self.cfg.enabled
+        self.runtime
+            .lock()
+            .unwrap()
+            .enabled
+            .unwrap_or(self.cfg.enabled)
+    }
+
+    /// Effective auto-recall setting (config OR runtime override). The
+    /// dispatch wrapper reads this instead of `cfg.auto_recall` so the
+    /// settings drawer can silence the preamble at runtime without
+    /// disabling the memory family.
+    pub(crate) fn auto_recall_enabled(&self) -> bool {
+        self.runtime
+            .lock()
+            .unwrap()
+            .auto_recall
+            .unwrap_or(self.cfg.auto_recall)
+    }
+
+    /// Effective conversation-recording setting. The dispatch wrapper
+    /// reads this instead of `cfg.record_conversations`.
+    pub(crate) fn record_conversations_enabled(&self) -> bool {
+        self.runtime
+            .lock()
+            .unwrap()
+            .record_conversations
+            .unwrap_or(self.cfg.record_conversations)
     }
 
     /// Read-only handle to the resolved `[memory]` config. Used by the
-    /// dispatch wrapper to decide whether to run auto-recall, record
-    /// conversation turns, etc.
+    /// dispatch wrapper for everything *other* than the runtime-tunable
+    /// booleans (recall_threshold, embedding endpoint, etc.).
     pub(crate) fn config(&self) -> &config::Memory {
         &self.cfg
+    }
+
+    /// Apply a sparse patch to the runtime overrides. `None` fields
+    /// keep their current state. `Some(true)/Some(false)` set an
+    /// override. To clear an override and revert to the config value
+    /// the dashboard should re-send the config value explicitly — there
+    /// is no separate "clear" action in this round.
+    pub(crate) fn apply_runtime_patch(&self, patch: RuntimeOverrides) -> RuntimeOverrides {
+        let mut r = self.runtime.lock().unwrap();
+        if let Some(v) = patch.enabled {
+            r.enabled = Some(v);
+        }
+        if let Some(v) = patch.auto_recall {
+            r.auto_recall = Some(v);
+        }
+        if let Some(v) = patch.record_conversations {
+            r.record_conversations = Some(v);
+        }
+        *r
     }
 
     /// Fetch an embedding for `text` if the embedding endpoint is configured
@@ -455,6 +477,51 @@ impl Memory {
     ///
     /// Returns at most `max` hits with `score â‰¥ 30`. Threshold avoids drowning
     /// the response in marginal substring matches.
+    /// Memo-side of the auto-recall preamble. Cheap LIKE search over
+    /// the memo store; returns a rendered "📝 N facts you noted" block
+    /// or an empty string when nothing matches. The dispatch wrapper
+    /// concatenates this onto the solution preamble so a query-bearing
+    /// tool call surfaces BOTH halves of the memory family at once.
+    pub(crate) async fn memo_recall_block(&self, query: &str, max_hits: usize) -> String {
+        if !self.enabled() || query.trim().is_empty() || max_hits == 0 {
+            return String::new();
+        }
+        let like = format!("%{}%", query.trim().to_ascii_lowercase());
+        let rows: Vec<(String, String, String)> = match sqlx::query_as(
+            "SELECT key, scope, value FROM memory \
+             WHERE (LOWER(key) LIKE ? OR LOWER(value) LIKE ? OR LOWER(tags_json) LIKE ?) \
+             ORDER BY updated_at DESC LIMIT ?",
+        )
+        .bind(&like)
+        .bind(&like)
+        .bind(&like)
+        .bind(max_hits as i64)
+        .fetch_all(&self.pool)
+        .await
+        {
+            Ok(r) => r,
+            Err(_) => return String::new(),
+        };
+        if rows.is_empty() {
+            return String::new();
+        }
+        let mut out = format!(
+            "📝 {} fact{} you noted about this (advisory):\n",
+            rows.len(),
+            if rows.len() == 1 { "" } else { "s" }
+        );
+        for (key, scope, value) in rows {
+            let scope_tag = if scope.is_empty() {
+                String::new()
+            } else {
+                format!(" [{scope}]")
+            };
+            let v: String = value.replace('\n', " ").chars().take(160).collect();
+            out.push_str(&format!("  • {key}{scope_tag}: {v}\n"));
+        }
+        out
+    }
+
     pub(crate) async fn auto_recall(
         &self,
         http: &reqwest::Client,
@@ -715,6 +782,119 @@ impl Memory {
         crate::provider::concept_tokens(query).len()
     }
 
+    /// Snapshot of the solution graph for the dashboard explorer
+    /// (`/api/memory/graph`). Three modes:
+    ///
+    /// - `Mode::All`: every solution + every typed edge.
+    /// - `Mode::Filter`: tag + free-text + hide-superseded filters
+    ///   applied SQL-side so the wire payload is bounded.
+    /// - `Mode::Focus`: BFS from a focus node out to `depth` hops,
+    ///   returning every node reached + every edge between them.
+    ///
+    /// Returns empty when memory is disabled or the DB read fails;
+    /// the caller (the HTTP handler) renders that as a 200 with an
+    /// empty graph rather than an error.
+    pub(crate) async fn graph_snapshot(&self, mode: GraphMode) -> GraphSnapshot {
+        if !self.enabled() {
+            return GraphSnapshot::default();
+        }
+        // Pull every solution + edge once; filter / focus modes prune
+        // afterward. The store caps at `max_entries` (default 10 000),
+        // so the worst-case payload is small enough to keep this
+        // simple. If the cap ever grows past ~50 000 rows, push the
+        // filter into SQL with parameterized queries.
+        let solutions: Vec<SolutionGraphRow> =
+            sqlx::query_as("SELECT id, problem, canon_key, updated_at FROM solutions")
+                .fetch_all(&self.pool)
+                .await
+                .unwrap_or_default();
+        let edges: Vec<EdgeRow> = sqlx::query_as("SELECT from_id, kind, to_id FROM solution_links")
+            .fetch_all(&self.pool)
+            .await
+            .unwrap_or_default();
+        // Latest revision per solution → summary + tags + supersession head.
+        let revs: Vec<RevRow> = sqlx::query_as(
+            "SELECT solution_id, MAX(rev) AS rev, summary FROM solution_revisions \
+             GROUP BY solution_id",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .unwrap_or_default();
+        let mut rev_by_id: HashMap<String, (i64, String)> = HashMap::new();
+        for r in revs {
+            rev_by_id.insert(r.solution_id, (r.rev, r.summary));
+        }
+        let tag_rows: Vec<TagRow> = sqlx::query_as("SELECT solution_id, tag FROM solution_tags")
+            .fetch_all(&self.pool)
+            .await
+            .unwrap_or_default();
+        let mut tags_by_id: HashMap<String, Vec<String>> = HashMap::new();
+        for t in tag_rows {
+            tags_by_id.entry(t.solution_id).or_default().push(t.tag);
+        }
+        // Supersession-head walk: for each solution, walk superseded-by
+        // edges forward to find the current head (the one nothing
+        // supersedes). Capped at 16 hops to avoid pathological cycles.
+        let mut superseded_by: HashMap<String, String> = HashMap::new();
+        for e in &edges {
+            if e.kind == "superseded-by" {
+                superseded_by.insert(e.from_id.clone(), e.to_id.clone());
+            }
+        }
+        let mut head_by_id: HashMap<String, Option<String>> = HashMap::new();
+        for s in &solutions {
+            let mut cur = s.id.clone();
+            let mut moved = false;
+            for _ in 0..16 {
+                if let Some(next) = superseded_by.get(&cur) {
+                    cur = next.clone();
+                    moved = true;
+                } else {
+                    break;
+                }
+            }
+            head_by_id.insert(s.id.clone(), if moved { Some(cur) } else { None });
+        }
+
+        let nodes: Vec<GraphNode> = solutions
+            .into_iter()
+            .map(|s| {
+                let (revision_count, summary) = rev_by_id
+                    .get(&s.id)
+                    .map(|(r, sm)| (*r as u32, sm.clone()))
+                    .unwrap_or_default();
+                GraphNode {
+                    tags: tags_by_id.get(&s.id).cloned().unwrap_or_default(),
+                    superseded_by_head: head_by_id.get(&s.id).cloned().flatten(),
+                    id: s.id,
+                    problem: s.problem,
+                    summary,
+                    updated_at: s.updated_at,
+                    revision_count,
+                }
+            })
+            .collect();
+        let edges: Vec<GraphEdge> = edges
+            .into_iter()
+            .map(|e| GraphEdge {
+                from: e.from_id,
+                to: e.to_id,
+                kind: e.kind,
+            })
+            .collect();
+
+        let full = GraphSnapshot { nodes, edges };
+        match mode {
+            GraphMode::All => full,
+            GraphMode::Filter {
+                tag,
+                query,
+                hide_superseded,
+            } => filter_snapshot(full, tag.as_deref(), query.as_deref(), hide_superseded),
+            GraphMode::Focus { id, depth } => focus_snapshot(full, &id, depth.clamp(1, 5)),
+        }
+    }
+
     /// Live counts across the memory store. Used by the `features` tool to
     /// show operators / models what's actually been recorded; gracefully
     /// returns zeros when memory is disabled or the DB is unreachable.
@@ -753,6 +933,168 @@ impl Memory {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Graph snapshot for /api/memory/graph (dashboard explorer)
+// ---------------------------------------------------------------------------
+
+/// Selector for what the explorer wants to render. Mirrors the
+/// `?mode=` query parameter on `/api/memory/graph`.
+#[derive(Debug, Clone)]
+pub(crate) enum GraphMode {
+    /// Every solution + every typed edge.
+    All,
+    /// Optional tag filter (exact match) + optional free-text
+    /// filter (substring of problem or summary) + optional
+    /// hide-superseded.
+    Filter {
+        tag: Option<String>,
+        query: Option<String>,
+        hide_superseded: bool,
+    },
+    /// BFS from `id` out to `depth` hops (clamped 1..=5).
+    Focus { id: String, depth: u32 },
+}
+
+#[derive(Debug, Default, serde::Serialize)]
+pub(crate) struct GraphSnapshot {
+    pub nodes: Vec<GraphNode>,
+    pub edges: Vec<GraphEdge>,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub(crate) struct GraphNode {
+    pub id: String,
+    pub problem: String,
+    pub summary: String,
+    pub tags: Vec<String>,
+    pub revision_count: u32,
+    pub updated_at: i64,
+    /// `Some(head_id)` when this node has been superseded; the head is
+    /// the current canonical solution to walk to. `None` when this
+    /// node IS the head (or has no supersession chain).
+    pub superseded_by_head: Option<String>,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub(crate) struct GraphEdge {
+    pub from: String,
+    pub to: String,
+    pub kind: String,
+}
+
+// Private row types the sqlx queries deserialize into.
+#[derive(sqlx::FromRow)]
+struct SolutionGraphRow {
+    id: String,
+    problem: String,
+    #[allow(dead_code)]
+    canon_key: String,
+    updated_at: i64,
+}
+
+#[derive(sqlx::FromRow)]
+struct EdgeRow {
+    from_id: String,
+    kind: String,
+    to_id: String,
+}
+
+#[derive(sqlx::FromRow)]
+struct RevRow {
+    solution_id: String,
+    rev: i64,
+    summary: String,
+}
+
+#[derive(sqlx::FromRow)]
+struct TagRow {
+    solution_id: String,
+    tag: String,
+}
+
+fn filter_snapshot(
+    full: GraphSnapshot,
+    tag: Option<&str>,
+    query: Option<&str>,
+    hide_superseded: bool,
+) -> GraphSnapshot {
+    let needle = query.map(|q| q.to_ascii_lowercase());
+    let tag_lc = tag.map(|t| t.to_ascii_lowercase());
+    let nodes: Vec<GraphNode> = full
+        .nodes
+        .into_iter()
+        .filter(|n| {
+            if hide_superseded && n.superseded_by_head.is_some() {
+                return false;
+            }
+            if let Some(t) = &tag_lc {
+                if !n.tags.iter().any(|x| x.to_ascii_lowercase() == *t) {
+                    return false;
+                }
+            }
+            if let Some(q) = &needle {
+                let haystack = format!(
+                    "{} {}",
+                    n.problem.to_ascii_lowercase(),
+                    n.summary.to_ascii_lowercase()
+                );
+                if !haystack.contains(q) {
+                    return false;
+                }
+            }
+            true
+        })
+        .collect();
+    let kept: std::collections::HashSet<String> = nodes.iter().map(|n| n.id.clone()).collect();
+    let edges = full
+        .edges
+        .into_iter()
+        .filter(|e| kept.contains(&e.from) && kept.contains(&e.to))
+        .collect();
+    GraphSnapshot { nodes, edges }
+}
+
+fn focus_snapshot(full: GraphSnapshot, focus_id: &str, depth: u32) -> GraphSnapshot {
+    // Build adjacency for undirected BFS — links are directional in
+    // the DB but the explorer treats them as bidirectional so
+    // "supersedes" surfaces both endpoints when you focus on either.
+    use std::collections::{HashMap, HashSet, VecDeque};
+    let mut adj: HashMap<&str, Vec<&str>> = HashMap::new();
+    for e in &full.edges {
+        adj.entry(e.from.as_str()).or_default().push(e.to.as_str());
+        adj.entry(e.to.as_str()).or_default().push(e.from.as_str());
+    }
+    let mut reached: HashSet<String> = HashSet::new();
+    let mut queue: VecDeque<(String, u32)> = VecDeque::new();
+    if full.nodes.iter().any(|n| n.id == focus_id) {
+        queue.push_back((focus_id.to_string(), 0));
+        reached.insert(focus_id.to_string());
+    }
+    while let Some((cur, d)) = queue.pop_front() {
+        if d >= depth {
+            continue;
+        }
+        if let Some(neighbors) = adj.get(cur.as_str()) {
+            for n in neighbors {
+                if reached.insert(n.to_string()) {
+                    queue.push_back((n.to_string(), d + 1));
+                }
+            }
+        }
+    }
+    let nodes = full
+        .nodes
+        .into_iter()
+        .filter(|n| reached.contains(&n.id))
+        .collect::<Vec<_>>();
+    let edges = full
+        .edges
+        .into_iter()
+        .filter(|e| reached.contains(&e.from) && reached.contains(&e.to))
+        .collect();
+    GraphSnapshot { nodes, edges }
+}
+
 /// Aggregate counts emitted by [`Memory::stats`].
 #[derive(Debug, Default, Clone)]
 pub(crate) struct MemoryStats {
@@ -779,7 +1121,7 @@ impl Memory {
     /// turned off — callers should treat that as "no conversation context"
     /// and skip the bookkeeping entirely.
     pub(crate) async fn current_conversation_id(&self) -> Option<String> {
-        if !self.cfg.enabled || !self.cfg.record_conversations {
+        if !self.enabled() || !self.record_conversations_enabled() {
             return None;
         }
         let now = now_secs();
@@ -830,7 +1172,7 @@ impl Memory {
         query: Option<&str>,
         response_excerpt: &str,
     ) {
-        if !self.cfg.enabled || !self.cfg.record_conversations {
+        if !self.enabled() || !self.record_conversations_enabled() {
             return;
         }
         // `record_only_query_calls=true` keeps the log focused on intent:
@@ -1078,6 +1420,7 @@ impl Memory {
             pool,
             synonyms,
             active_conv: Arc::new(std::sync::Mutex::new(None)),
+            runtime: Arc::new(std::sync::Mutex::new(RuntimeOverrides::default())),
         })
     }
 }
@@ -1099,6 +1442,595 @@ struct MemoryRow {
 impl MemoryRow {
     fn tags(&self) -> Vec<String> {
         serde_json::from_str(&self.tags_json).unwrap_or_default()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Remember — low-ceremony "just remember this" entry points
+// ---------------------------------------------------------------------------
+//
+// `remember` is the frictionless entry point: pass one free-form `text`
+// and the server picks a sensible storage shape automatically — a memo
+// key derived from the content, a few tags extracted from the tokens,
+// and either a memo (default) or a solution (when the text reads like
+// a problem → resolution recipe). The model that knows the intent can
+// skip the classifier with `remember_fact` (always memo) or
+// `remember_solution` (always solution).
+//
+// All three tools live alongside the structured `memory_save` /
+// `solution_record` pair — those keep being the right call when you
+// want full control over scope, tags, problem text, summary, etc.
+// The new tools are a more ergonomic on-ramp for the "I noted this in
+// passing, remember it" pattern.
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct RememberArgs {
+    /// The text to remember. Free-form; markdown is fine. The first
+    /// few words become the auto-key, the remaining tokens become
+    /// tags, and (when classification picks `solution`) the first
+    /// sentence becomes the problem statement.
+    text: String,
+    /// Optional hint that skips the auto-classifier. Pass `"fact"` to
+    /// force a memo, `"solution"` to force a solution_record. Default
+    /// `"auto"` runs a heuristic: text starting with `to `/`when `/
+    /// `if ` or containing `→`/`->` is treated as a solution; anything
+    /// else lands as a memo.
+    #[serde(default)]
+    r#as: Option<String>,
+    /// Optional grouping namespace for the memo path. Ignored on the
+    /// solution path. Default `""`.
+    #[serde(default)]
+    scope: Option<String>,
+    /// Optional tags. When omitted, tags are auto-extracted from the
+    /// text (stop-word-filtered, top 5).
+    #[serde(default)]
+    tags: Option<Vec<String>>,
+}
+
+pub struct Remember;
+impl Skill for Remember {
+    fn name(&self) -> &'static str {
+        "remember"
+    }
+    fn description(&self) -> &'static str {
+        "Remember some free-form text without picking a key, tags, or shape. The server \
+         auto-derives a key from the first words, extracts tags from the content, and writes a \
+         MEMO by default. Text that reads like a recipe (`to do X, use Y` / `X → Y` / \
+         starts with `to`/`when`/`if`) is recorded as a SOLUTION instead so it shows up in the \
+         dispatch wrapper's prior-solutions preamble. Force the shape with `as=\"fact\"` or \
+         `as=\"solution\"`. When the model wants full control over key / scope / problem / \
+         summary, call `memory_save` or `solution_record` directly."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<RememberArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (server, args) = ctx.parse::<RememberArgs>()?;
+            let text = args.text.trim().to_string();
+            if text.is_empty() {
+                return Err(invalid("text must not be empty"));
+            }
+            let kind = classify(&args.r#as, &text);
+            match kind {
+                RememberKind::Fact => {
+                    write_memo(server, text, args.scope.unwrap_or_default(), args.tags).await
+                }
+                RememberKind::Solution => write_solution(server, text, args.tags).await,
+            }
+        })
+    }
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct RememberFactArgs {
+    /// The text to remember as a memo.
+    text: String,
+    /// Optional grouping namespace (default `""`).
+    #[serde(default)]
+    scope: Option<String>,
+    /// Optional tags. Auto-extracted from the text when omitted.
+    #[serde(default)]
+    tags: Option<Vec<String>>,
+}
+
+pub struct RememberFact;
+impl Skill for RememberFact {
+    fn name(&self) -> &'static str {
+        "remember_fact"
+    }
+    fn description(&self) -> &'static str {
+        "Remember free-form text as a MEMO with no ceremony — auto-derived key, auto-extracted \
+         tags, default scope. Use this when you know the text is a standalone fact (not a \
+         problem→resolution recipe). For full control over key / scope / tags, call `memory_save`."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<RememberFactArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (server, args) = ctx.parse::<RememberFactArgs>()?;
+            let text = args.text.trim().to_string();
+            if text.is_empty() {
+                return Err(invalid("text must not be empty"));
+            }
+            write_memo(server, text, args.scope.unwrap_or_default(), args.tags).await
+        })
+    }
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct RememberSolutionArgs {
+    /// The text to record as a solution. First sentence becomes the
+    /// problem statement; the rest becomes the content. Override with
+    /// `problem` / `summary` when you want explicit control.
+    text: String,
+    /// Optional explicit problem statement (used by recall scoring).
+    /// Falls back to the first sentence of `text`.
+    #[serde(default)]
+    problem: Option<String>,
+    /// Optional one-line summary shown in recall previews. Falls back
+    /// to a truncated `text`.
+    #[serde(default)]
+    summary: Option<String>,
+    /// Optional tags. Auto-extracted from the text when omitted.
+    #[serde(default)]
+    tags: Option<Vec<String>>,
+}
+
+pub struct RememberSolution;
+impl Skill for RememberSolution {
+    fn name(&self) -> &'static str {
+        "remember_solution"
+    }
+    fn description(&self) -> &'static str {
+        "Record a problem→resolution recipe as a SOLUTION with no ceremony — the first sentence \
+         of `text` becomes the problem, the rest becomes the content, tags auto-extract. The \
+         solution surfaces in the dispatch wrapper's prior-solutions preamble on similar future \
+         queries. Use `problem` / `summary` to override the auto-derived fields. For full control, \
+         call `solution_record`."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<RememberSolutionArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (server, args) = ctx.parse::<RememberSolutionArgs>()?;
+            let text = args.text.trim().to_string();
+            if text.is_empty() {
+                return Err(invalid("text must not be empty"));
+            }
+            let problem = args.problem.unwrap_or_else(|| first_sentence(&text));
+            let summary = args
+                .summary
+                .unwrap_or_else(|| truncate_remember(&text, 120));
+            write_solution_full(server, problem, summary, text, args.tags).await
+        })
+    }
+}
+
+// --------------------- internals shared by the three -----------------------
+
+enum RememberKind {
+    Fact,
+    Solution,
+}
+
+fn classify(hint: &Option<String>, text: &str) -> RememberKind {
+    match hint.as_deref().map(str::to_ascii_lowercase).as_deref() {
+        Some("fact") | Some("memo") => return RememberKind::Fact,
+        Some("solution") | Some("recipe") => return RememberKind::Solution,
+        _ => {}
+    }
+    let lower = text.trim_start().to_ascii_lowercase();
+    // Explicit arrow OR action-recipe shape → solution.
+    if text.contains('→') || text.contains("->") {
+        return RememberKind::Solution;
+    }
+    for prefix in ["to ", "when ", "if ", "fix:", "solution:", "use "] {
+        if lower.starts_with(prefix) {
+            return RememberKind::Solution;
+        }
+    }
+    RememberKind::Fact
+}
+
+/// Derive a kebab-case key from the first words of `text`. Falls back
+/// to `note-<short hash>` when nothing usable is in the text. The key
+/// is suffixed with a short hash so two `remember` calls with the
+/// same opening words don't collide.
+fn derive_key(text: &str) -> String {
+    let stem: String = text.chars().take_while(|c| !".!?\n".contains(*c)).collect();
+    let mut words: Vec<String> = stem
+        .split_whitespace()
+        .filter(|w| !is_stop_word(w))
+        .map(|w| {
+            w.chars()
+                .filter(|c| c.is_alphanumeric())
+                .flat_map(|c| c.to_lowercase())
+                .collect::<String>()
+        })
+        .filter(|w| !w.is_empty())
+        .take(5)
+        .collect();
+    let suffix = short_hash(text);
+    if words.is_empty() {
+        words.push("note".to_string());
+    }
+    format!("{}-{}", words.join("-"), suffix)
+}
+
+fn extract_tags(text: &str) -> Vec<String> {
+    let mut tags: Vec<String> = Vec::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for word in text.split_whitespace() {
+        let cleaned: String = word
+            .chars()
+            .filter(|c| c.is_alphanumeric())
+            .flat_map(|c| c.to_lowercase())
+            .collect();
+        if cleaned.len() < 3 || is_stop_word(&cleaned) {
+            continue;
+        }
+        if seen.insert(cleaned.clone()) {
+            tags.push(cleaned);
+        }
+        if tags.len() >= 5 {
+            break;
+        }
+    }
+    tags
+}
+
+fn is_stop_word(w: &str) -> bool {
+    matches!(
+        w.to_ascii_lowercase().as_str(),
+        "the"
+            | "a"
+            | "an"
+            | "and"
+            | "or"
+            | "to"
+            | "of"
+            | "in"
+            | "on"
+            | "at"
+            | "for"
+            | "is"
+            | "are"
+            | "was"
+            | "were"
+            | "be"
+            | "been"
+            | "this"
+            | "that"
+            | "it"
+            | "as"
+            | "with"
+            | "by"
+            | "from"
+            | "but"
+            | "if"
+            | "then"
+            | "so"
+            | "do"
+            | "does"
+            | "did"
+            | "will"
+            | "would"
+            | "can"
+            | "could"
+            | "should"
+            | "i"
+            | "you"
+            | "we"
+            | "they"
+    )
+}
+
+fn short_hash(text: &str) -> String {
+    // FNV-1a 64-bit → first 6 hex chars. Enough to disambiguate the
+    // common case (two `remember` calls with the same opening words)
+    // without making the key unreadable.
+    let mut h: u64 = 0xcbf29ce484222325;
+    for b in text.as_bytes() {
+        h ^= *b as u64;
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    format!("{:06x}", h & 0xffffff)
+}
+
+fn first_sentence(text: &str) -> String {
+    let end = text.find(['.', '!', '?', '\n']).unwrap_or(text.len());
+    text[..end].trim().to_string()
+}
+
+fn truncate_remember(s: &str, max: usize) -> String {
+    if s.chars().count() <= max {
+        return s.to_string();
+    }
+    let truncated: String = s.chars().take(max - 1).collect();
+    format!("{truncated}…")
+}
+
+async fn write_memo(
+    server: &crate::Lodestone,
+    text: String,
+    scope: String,
+    tags: Option<Vec<String>>,
+) -> Result<CallToolResult, McpError> {
+    let mem = &server.memory;
+    let cap = mem.cfg.max_value_chars.max(1);
+    if text.chars().count() > cap {
+        return Err(invalid(format!(
+            "text too long: {} chars (max {cap})",
+            text.chars().count()
+        )));
+    }
+    let key = derive_key(&text);
+    let tags = clean_tags(tags.unwrap_or_else(|| extract_tags(&text)));
+    let tags_json = serde_json::to_string(&tags).unwrap_or_else(|_| "[]".to_string());
+    let now = now_secs() as i64;
+    let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM memory")
+        .fetch_one(&mem.pool)
+        .await
+        .map_err(|e| internal(e.into()))?;
+    if (count.0 as usize) >= mem.cfg.max_entries.max(1) {
+        return Err(invalid(format!(
+            "memory full: max_entries = {} (forget some to make room)",
+            mem.cfg.max_entries
+        )));
+    }
+    sqlx::query(
+        "INSERT INTO memory (scope, key, value, tags_json, created_at, updated_at) \
+         VALUES (?, ?, ?, ?, ?, ?) \
+         ON CONFLICT(scope, key) DO UPDATE SET value = excluded.value, \
+             tags_json = excluded.tags_json, updated_at = excluded.updated_at",
+    )
+    .bind(&scope)
+    .bind(&key)
+    .bind(&text)
+    .bind(&tags_json)
+    .bind(now)
+    .bind(now)
+    .execute(&mem.pool)
+    .await
+    .map_err(|e| internal(e.into()))?;
+    Ok(text_result(format!(
+        "Remembered as memo key=\"{key}\"{scope_note} with tags=[{tags_csv}].",
+        scope_note = if scope.is_empty() {
+            String::new()
+        } else {
+            format!(" scope=\"{scope}\"")
+        },
+        tags_csv = tags.join(", "),
+    )))
+}
+
+async fn write_solution(
+    server: &crate::Lodestone,
+    text: String,
+    tags: Option<Vec<String>>,
+) -> Result<CallToolResult, McpError> {
+    let problem = first_sentence(&text);
+    let summary = truncate_remember(&text, 120);
+    write_solution_full(server, problem, summary, text, tags).await
+}
+
+async fn write_solution_full(
+    server: &crate::Lodestone,
+    problem: String,
+    summary: String,
+    content: String,
+    tags: Option<Vec<String>>,
+) -> Result<CallToolResult, McpError> {
+    let mem = &server.memory;
+    let cap = mem.cfg.max_value_chars.max(1);
+    if content.chars().count() > cap {
+        return Err(invalid(format!(
+            "content too long: {} chars (max {cap})",
+            content.chars().count()
+        )));
+    }
+    if problem.trim().is_empty() {
+        return Err(invalid("problem statement is empty after extraction"));
+    }
+    let now = now_secs() as i64;
+    let canon = crate::provider::canonical_query(&problem);
+    let concept = concept_key_of(&problem);
+    let tags = clean_tags(tags.unwrap_or_else(|| extract_tags(&content)));
+    let mut tx = mem.pool.begin().await.map_err(|e| internal(e.into()))?;
+    let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM solutions")
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|e| internal(e.into()))?;
+    if (count.0 as usize) >= mem.cfg.max_entries.max(1) {
+        return Err(invalid(format!(
+            "solution store full: max_entries = {}",
+            mem.cfg.max_entries
+        )));
+    }
+    let id = next_solution_id(&mut tx).await?;
+    let conv_id = mem.current_conversation_id().await;
+    sqlx::query(
+        "INSERT INTO solutions (id, problem, canon_key, concept_key, created_at, updated_at) \
+         VALUES (?, ?, ?, ?, ?, ?)",
+    )
+    .bind(&id)
+    .bind(&problem)
+    .bind(&canon)
+    .bind(&concept)
+    .bind(now)
+    .bind(now)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| internal(e.into()))?;
+    sqlx::query(
+        "INSERT INTO solution_revisions (solution_id, rev, ts, summary, content, notes, \
+         conversation_id) VALUES (?, 1, ?, ?, ?, ?, ?)",
+    )
+    .bind(&id)
+    .bind(now)
+    .bind(&summary)
+    .bind(&content)
+    .bind("")
+    .bind(conv_id.as_deref())
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| internal(e.into()))?;
+    for tag in &tags {
+        sqlx::query("INSERT INTO solution_tags (solution_id, tag, label) VALUES (?, ?, ?)")
+            .bind(&id)
+            .bind(tag.to_ascii_lowercase())
+            .bind(tag)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| internal(e.into()))?;
+    }
+    tx.commit().await.map_err(|e| internal(e.into()))?;
+    Ok(text_result(format!(
+        "Remembered as solution id={id}.\n  problem: {problem}\n  tags: [{}]",
+        tags.join(", "),
+    )))
+}
+
+// ---------------------------------------------------------------------------
+// Recall — unified search across memos + solutions + phrasings
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct RecallArgs {
+    /// The text to search for. Matched against memo keys/values/tags,
+    /// solution problems/summaries/content, and solution_phrasings.
+    query: String,
+    /// Optional comma-separated subset of kinds to search. Default
+    /// `"memo,solution"`. Pass `"memo"` or `"solution"` to scope to
+    /// one store.
+    #[serde(default)]
+    kinds: Option<String>,
+    /// Maximum hits to return across all kinds. Clamped to [1, 50].
+    /// Default 10.
+    #[serde(default)]
+    limit: Option<usize>,
+}
+
+pub struct Recall;
+impl Skill for Recall {
+    fn name(&self) -> &'static str {
+        "recall"
+    }
+    fn description(&self) -> &'static str {
+        "Search memos AND prior solutions (and solution phrasings) in one call, merged + ranked \
+         by relevance. Each hit is labeled with its `kind` so the model can disambiguate. Use \
+         this instead of calling `memory_search` and `solution_find` separately. The auto-recall \
+         preamble that fires on query-bearing tools uses the same merge under the hood, so \
+         what you see in `recall` is what would surface as advisory hints elsewhere."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<RecallArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (server, args) = ctx.parse::<RecallArgs>()?;
+            let query = args.query.trim().to_string();
+            if query.is_empty() {
+                return Err(invalid("query must not be empty"));
+            }
+            let limit = args.limit.unwrap_or(10).clamp(1, 50);
+            let kinds = args.kinds.unwrap_or_else(|| "memo,solution".to_string());
+            let want_memo = kinds
+                .split(',')
+                .any(|k| k.trim().eq_ignore_ascii_case("memo"));
+            let want_solution = kinds
+                .split(',')
+                .any(|k| k.trim().eq_ignore_ascii_case("solution"));
+
+            let mut out = String::new();
+
+            // Solutions side — reuse the existing auto_recall machinery
+            // so token + semantic scoring matches the dispatch-wrapper
+            // preamble exactly.
+            let solution_hits = if want_solution {
+                server.memory.auto_recall(&server.http, &query, limit).await
+            } else {
+                Vec::new()
+            };
+
+            // Memos side — same LIKE search the memory_search tool uses.
+            let memo_hits: Vec<MemoryRow> = if want_memo {
+                let like = format!("%{}%", query.to_ascii_lowercase());
+                sqlx::query_as(
+                    "SELECT key, scope, value, tags_json, created_at, updated_at \
+                     FROM memory \
+                     WHERE (LOWER(key) LIKE ? OR LOWER(value) LIKE ? OR LOWER(tags_json) LIKE ?) \
+                     ORDER BY updated_at DESC LIMIT ?",
+                )
+                .bind(&like)
+                .bind(&like)
+                .bind(&like)
+                .bind(limit as i64)
+                .fetch_all(&server.memory.pool)
+                .await
+                .map_err(|e| internal(e.into()))?
+            } else {
+                Vec::new()
+            };
+
+            if solution_hits.is_empty() && memo_hits.is_empty() {
+                return Ok(text_result(format!("Nothing recalled for \"{query}\".")));
+            }
+
+            // Render. Solutions first (higher signal — they're
+            // problem→resolution patterns), then memos. Each capped
+            // independently at `limit` but the total is also capped.
+            let mut shown = 0usize;
+            if !solution_hits.is_empty() {
+                out.push_str(&format!(
+                    "{} prior solution{} match:\n",
+                    solution_hits.len(),
+                    if solution_hits.len() == 1 { "" } else { "s" }
+                ));
+                for hit in &solution_hits {
+                    if shown >= limit {
+                        break;
+                    }
+                    out.push_str(&format!(
+                        "\n  [solution {id}] {problem}\n    summary: {summary}\n    score: token={ts:.2} semantic={ss:.2}\n",
+                        id = hit.id,
+                        problem = hit.problem,
+                        summary = hit.summary,
+                        ts = hit.token_score,
+                        ss = hit.semantic_score,
+                    ));
+                    shown += 1;
+                }
+            }
+            if !memo_hits.is_empty() && shown < limit {
+                if shown > 0 {
+                    out.push('\n');
+                }
+                let memo_take = limit - shown;
+                out.push_str(&format!(
+                    "{} memo{} match:\n",
+                    memo_hits.len().min(memo_take),
+                    if memo_hits.len().min(memo_take) == 1 {
+                        ""
+                    } else {
+                        "s"
+                    }
+                ));
+                for row in memo_hits.iter().take(memo_take) {
+                    let scope = if row.scope.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" [{}]", row.scope)
+                    };
+                    let value = truncate_remember(&row.value, 160);
+                    out.push_str(&format!("\n  [memo {key}{scope}] {value}\n", key = row.key,));
+                }
+            }
+            Ok(text_result(out))
+        })
     }
 }
 
@@ -3562,6 +4494,10 @@ impl Skill for ConversationPrune {
 /// The skills this module contributes (gating happens in `disabled_by_config`).
 pub fn skills() -> Vec<Box<dyn Skill>> {
     vec![
+        Box::new(Remember),
+        Box::new(RememberFact),
+        Box::new(RememberSolution),
+        Box::new(Recall),
         Box::new(MemorySave),
         Box::new(MemoryGet),
         Box::new(MemoryList),

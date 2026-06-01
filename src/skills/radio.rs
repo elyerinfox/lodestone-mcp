@@ -17,12 +17,6 @@ use serde::Deserialize;
 use crate::skills::{schema_for, Skill, SkillCtx};
 use crate::{invalid, text_result};
 
-pub const TOOL_NAMES: &[&str] = &[
-    "radio_link_budget",
-    "radio_max_range",
-    "radio_range_for_bandwidth",
-];
-
 /// Speed of light, m/s.
 const C: f64 = 299_792_458.0;
 

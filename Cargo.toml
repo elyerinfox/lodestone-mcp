@@ -4,8 +4,17 @@ version = "0.1.0"
 edition = "2021"
 description = "MCP server that searches and retrieves code from the web by scraping search engines (no API keys)."
 license = "MIT"
+# Triggers `build.rs`, which (when npm is installed) runs the Nuxt
+# dashboard build so the resulting static files get embedded into the
+# binary via `include_dir!` and served at `/dashboard`. Builds still
+# succeed without npm — the dashboard route returns a "not built" page.
+build = "build.rs"
 
 [dependencies]
+# Embeds the Nuxt SPA output (`frontend/.output/public/`) at compile
+# time. include_dir is a no-op when the directory is empty, so the build
+# still succeeds for contributors without Node.
+include_dir = "0.7"
 rmcp = { version = "1.7", features = [
     "server",
     "macros",
@@ -14,7 +23,7 @@ rmcp = { version = "1.7", features = [
 ] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "net"] }
 tokio-util = "0.7"
-axum = "0.8"
+axum = { version = "0.8", features = ["ws"] }
 reqwest = { version = "0.13", default-features = true, features = ["gzip", "brotli", "json", "query", "form", "socks"] }
 scraper = "0.21"
 html2text = "0.12"
@@ -29,6 +38,8 @@ regex = "1"
 futures = "0.3"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+# Used by `browser_screenshot` to encode PNG bytes into a JSON-safe string.
+base64 = "0.22"
 
 # Headless-Chrome automation: powers the renderer (per-call `render`), the
 # Google engine, and StackOverflow render-scraping. Compiled in unconditionally;
@@ -93,3 +104,9 @@ pcap-file = "2"
 kamadak-exif = "0.6"
 # x86/x64 disassembly for the `disasm_*` skill (off by default).
 iced-x86 = { version = "1", default-features = false, features = ["std", "decoder", "nasm", "fast_fmt"] }
+# MQTT pub/sub client for the `mqtt_*` skill (off by default). Drives a single
+# background event loop; publish/subscribe handles are cheap clones. The
+# meshtastic skill layers on top — it reads Meshtastic-emitted JSON messages
+# from the same MQTT subscription buffer and publishes back through the same
+# client when sending mesh traffic.
+rumqttc = { version = "0.24", default-features = false, features = ["use-rustls"] }

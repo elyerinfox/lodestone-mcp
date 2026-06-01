@@ -62,6 +62,15 @@ pub(crate) struct Digest {
     /// don't accidentally hammer a peer that hasn't advertised willingness.
     #[serde(default)]
     pub delegation_enabled: bool,
+    /// Per-feature opt-in advertisement: query / retrieval / blob /
+    /// browser. Used by `constellation_capabilities` and by the
+    /// delegation paths to filter peers. Mirrors the local
+    /// `[network].capabilities` config. `delegation_enabled` above is
+    /// kept as a backward-compat alias for `capabilities.retrieval`.
+    /// Older peers that omit this field land on the default
+    /// (`query=true, retrieval=false, blob=true, browser=false`).
+    #[serde(default)]
+    pub capabilities: crate::config::Capabilities,
     /// **Full** count of reachable peers this node knows about, used as the
     /// primary signal in `maybe_adopt_id`: when two constellations meet, the
     /// **larger** mesh wins so the smaller mesh adopts the larger one's id
@@ -131,6 +140,37 @@ pub(crate) struct RetrieveReq {
     pub source: identifiers::Source,
 }
 
+/// `POST /constellation/browser_persona` — "drive your browser session for
+/// me" delegation (#128). The peer is asked to navigate its named persona
+/// to a URL and return a compact observation. Sessions DO NOT
+/// transport across the wire — each node maintains its own warm personas.
+/// The peer's `capabilities.browser` must be ON or the request is
+/// refused. The peer's local SSRF guard (#130) refuses any URL that
+/// resolves to its local network.
+#[derive(Debug, Serialize, Deserialize)]
+pub(crate) struct BrowserPersonaReq {
+    pub persona_name: String,
+    pub url: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub(crate) struct BrowserPersonaResp {
+    pub url: String,
+    pub title: String,
+    /// Compact observation tree as the browser session manager produces
+    /// it — list of interactive elements with stable selectors. Empty
+    /// vec when nothing matched.
+    pub tree: Vec<crate::skills::browser_session::TreeNode>,
+}
+
+/// `BrowserPersonaReq` rejection body. Same shape as `RetrieveReject` so
+/// requesters can branch on the same `reason` field.
+#[derive(Debug, Serialize, Deserialize)]
+pub(crate) struct BrowserPersonaReject {
+    pub reason: &'static str,
+    pub message: String,
+}
+
 /// `RetrieveReq` rejection body (HTTP 429 / 400 / 403) — JSON payload telling
 /// the requester *why* and how long to back off, so clients don't blindly
 /// re-bombard a peer that's already at capacity.
@@ -185,6 +225,10 @@ struct Peer {
     /// digest, so it'll accept `POST /constellation/retrieve`. `false` until
     /// we've seen a digest that says otherwise.
     delegation_enabled: bool,
+    /// Per-feature opt-in set this peer advertised on its most recent
+    /// digest. `None` means we haven't seen a digest yet (treat as the
+    /// default — query+blob on, retrieval+browser off).
+    capabilities: Option<crate::config::Capabilities>,
 }
 
 impl Peer {
@@ -197,6 +241,7 @@ impl Peer {
             misses: 0,
             known: Vec::new(),
             delegation_enabled: false,
+            capabilities: None,
         }
     }
 
@@ -237,6 +282,44 @@ pub(crate) struct Constellation {
     /// `[network].delegation_enabled = true`; the limiter itself is built
     /// regardless so its `Disabled` reason is the consistent rejection path.
     delegation: delegation::DelegationLimiter,
+    /// URLs that *resolve to this very node* — populated at startup with
+    /// `http://localhost:<port>` / `http://127.0.0.1:<port>` (and the IPv6
+    /// equivalent), then extended dynamically when mDNS resolves our own
+    /// service announcement so we learn every LAN-interface address mDNS
+    /// advertised us on. `add_peer` checks this set before inserting so a
+    /// peer that gossips our address back, an mDNS self-resolution that
+    /// slips past the node-id dedup, or a misconfigured static peer entry
+    /// can't accidentally make us our own peer.
+    local_urls: Mutex<HashSet<String>>,
+    /// Runtime-tunable overrides for a small subset of [network] knobs.
+    /// Dashboard settings drawer writes here; reads inside the constellation
+    /// consult these instead of the static `cfg` values. Ephemeral by
+    /// design — never persisted, so a restart restores the config file's
+    /// values. Knobs that require subsystem lifecycle changes (mdns,
+    /// sync_secs, request_timeout_ms) live in `cfg` only; the UI shows
+    /// them read-only as "restart required".
+    runtime: Mutex<RuntimeOverrides>,
+}
+
+/// The subset of [network] knobs the dashboard can mutate without
+/// restarting subsystems. Every read site inside the constellation
+/// reads through this, not through `self.cfg`, when a runtime
+/// override is allowed.
+#[derive(Debug, Clone)]
+pub(crate) struct RuntimeOverrides {
+    pub delegation_enabled: bool,
+    pub max_peers: usize,
+    pub min_agreement: usize,
+}
+
+/// Sparse PATCH body — every field is optional so the dashboard can
+/// send only the knob it actually changed. Anything outside the
+/// allowed set lives on `cfg` and isn't representable here.
+#[derive(Debug, Default, Deserialize)]
+pub(crate) struct RuntimeOverridesPatch {
+    pub delegation_enabled: Option<bool>,
+    pub max_peers: Option<usize>,
+    pub min_agreement: Option<usize>,
 }
 
 impl Constellation {
@@ -295,7 +378,45 @@ impl Constellation {
             recent_relays: Mutex::new(HashMap::new()),
             loaded_reps,
             delegation,
+            local_urls: Mutex::new(HashSet::new()),
+            runtime: Mutex::new(RuntimeOverrides {
+                delegation_enabled: cfg.delegation_enabled,
+                max_peers: cfg.max_peers,
+                min_agreement: cfg.min_agreement,
+            }),
         })
+    }
+
+    /// Apply a sparse patch to runtime overrides. Fields the caller
+    /// didn't set keep their current value. Returns the post-patch
+    /// snapshot so the dashboard can confirm what stuck. Values are
+    /// clamped to safe ranges so a typo in the dashboard can't disable
+    /// the consensus check or starve the peer table.
+    pub(crate) fn apply_runtime_patch(&self, patch: RuntimeOverridesPatch) -> RuntimeOverrides {
+        let mut r = self.runtime.lock().unwrap();
+        if let Some(v) = patch.delegation_enabled {
+            r.delegation_enabled = v;
+        }
+        if let Some(v) = patch.max_peers {
+            r.max_peers = v.clamp(1, 256);
+        }
+        if let Some(v) = patch.min_agreement {
+            r.min_agreement = v.clamp(1, 16);
+        }
+        r.clone()
+    }
+
+    /// Effective runtime values — used at every hot-path read site
+    /// instead of `self.cfg.*`, so dashboard edits take effect on the
+    /// next call without a restart.
+    fn delegation_enabled(&self) -> bool {
+        self.runtime.lock().unwrap().delegation_enabled
+    }
+    fn max_peers(&self) -> usize {
+        self.runtime.lock().unwrap().max_peers
+    }
+    fn min_agreement(&self) -> usize {
+        self.runtime.lock().unwrap().min_agreement
     }
 
     pub(crate) fn node_id(&self) -> &str {
@@ -343,10 +464,26 @@ impl Constellation {
             constellation_id: self.constellation_id.lock().unwrap().clone(),
             generation: now_secs(),
             count: keys.len(),
-            delegation_enabled: self.cfg.delegation_enabled,
+            delegation_enabled: self.delegation_enabled(),
             bloom: BloomFilter::from_keys(&keys),
             peers,
             peer_count,
+            capabilities: self.effective_capabilities(),
+        }
+    }
+
+    /// What this node currently advertises as its per-feature opt-in
+    /// set. Reads through the runtime override for `retrieval` so the
+    /// existing dashboard toggle for `delegation_enabled` keeps
+    /// flipping the matching capability bit.
+    pub(crate) fn effective_capabilities(&self) -> crate::config::Capabilities {
+        crate::config::Capabilities {
+            query: self.cfg.capabilities.query,
+            // Runtime-tunable via the constellation settings drawer;
+            // the static cfg value is the starting point.
+            retrieval: self.delegation_enabled(),
+            blob: self.cfg.capabilities.blob,
+            browser: self.cfg.capabilities.browser,
         }
     }
 
@@ -474,7 +611,7 @@ impl Constellation {
             return None;
         }
         targets.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-        targets.truncate(self.cfg.max_peers.max(1));
+        targets.truncate(self.max_peers().max(1));
 
         let req = RetrieveReq {
             url: url.to_string(),
@@ -716,7 +853,7 @@ impl Constellation {
             return None;
         }
         targets.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-        targets.truncate(self.cfg.max_peers.max(1));
+        targets.truncate(self.max_peers().max(1));
 
         // 1. Gather each candidate's claimed content hash (cheap).
         let infos: Vec<(String, f64, String)> =
@@ -749,7 +886,7 @@ impl Constellation {
             identifiers::Source::Wayback
             | identifiers::Source::Arxiv
             | identifiers::Source::Github => source.min_agreement_floor(),
-            _ => self.cfg.min_agreement.max(source.min_agreement_floor()),
+            _ => self.min_agreement().max(source.min_agreement_floor()),
         }
         .max(1);
         let mut tally: HashMap<String, (usize, f64)> = HashMap::new();
@@ -838,6 +975,14 @@ impl Constellation {
         if u.is_empty() {
             return;
         }
+        // Refuse to add ourselves. Covers every discovery path: mDNS
+        // self-resolution that slips past the node-id dedup, gossip that
+        // carries our address back, or a misconfigured static peer entry.
+        // `local_urls` is seeded with localhost variants at startup and
+        // extended with each LAN-interface address as mDNS resolves us.
+        if self.local_urls.lock().unwrap().contains(&u) {
+            return;
+        }
         let mut peers = self.peers.lock().unwrap();
         if peers.contains_key(&u) || peers.len() >= MAX_GOSSIP_PEERS {
             return;
@@ -856,6 +1001,190 @@ impl Constellation {
     /// galaxy client to tell when local discovery has produced a constellation.
     pub(crate) fn known_peer_count(&self) -> usize {
         self.peers.lock().unwrap().len()
+    }
+
+    /// Build a privacy-safe snapshot of the constellation state for the
+    /// dashboard WebSocket feed. Contains no secrets — never the cluster
+    /// token, never the request body of any cached entry, never any peer
+    /// auth material. Per-peer rows carry just URL + node_id + reputation
+    /// + reachability + advertised-delegation flag.
+    pub(crate) fn ws_state(&self) -> crate::ws::ConstellationState {
+        let peers: Vec<crate::ws::PeerEntry> = {
+            let table = self.peers.lock().unwrap();
+            table
+                .values()
+                .map(|p| crate::ws::PeerEntry {
+                    url: p.url.clone(),
+                    node_id: p.node_id.clone(),
+                    reputation: p.reputation,
+                    reachable: p.reachable(),
+                    delegation_enabled: p.delegation_enabled,
+                    known_peers: p.known.clone(),
+                    capabilities: p.capabilities.clone(),
+                })
+                .collect()
+        };
+        let local_urls: Vec<String> = {
+            let mut v: Vec<String> = self.local_urls.lock().unwrap().iter().cloned().collect();
+            v.sort();
+            v
+        };
+        let (served, fetched) = {
+            let seeds = self.seeds.lock().unwrap();
+            seeds.values().fold((0u64, 0u64), |(s, f), st| {
+                (s + st.served_bytes, f + st.fetched_bytes)
+            })
+        };
+        crate::ws::ConstellationState {
+            enabled: true,
+            node_id: self.node_id.clone(),
+            constellation_id: self.constellation_id.lock().unwrap().clone(),
+            peer_count: peers.len(),
+            peers,
+            delegation_enabled: self.delegation_enabled(),
+            delegation_max_jobs_per_peer_per_hour: self.cfg.delegation_max_jobs_per_peer_per_hour,
+            delegation_max_bytes_per_job: self.cfg.delegation_max_bytes_per_job,
+            delegation_total_bytes_per_hour: self.cfg.delegation_total_bytes_per_hour,
+            total_served_bytes: served,
+            total_fetched_bytes: fetched,
+            local_urls,
+            max_peers: self.max_peers(),
+            min_agreement: self.min_agreement(),
+            mdns_configured: self.cfg.mdns,
+            sync_secs_configured: self.cfg.sync_secs,
+            request_timeout_ms_configured: self.cfg.request_timeout_ms,
+            local_capabilities: self.effective_capabilities(),
+        }
+    }
+
+    /// Inbound handler for `POST /constellation/browser_persona`. Refuses
+    /// the request if `[network].capabilities.browser` is false (the
+    /// node hasn't opted in to delegated browser work). Otherwise,
+    /// fetches-or-creates a persona isolated by the requesting peer's
+    /// node id — `delegated:<peer_id>:<name>` — so peers A and B
+    /// don't share cookies on the same logical persona name. The session
+    /// is SSRF-guarded (#130). Navigates and returns the compact
+    /// observation tree.
+    pub(crate) async fn answer_browser_persona(
+        &self,
+        peer_id: &str,
+        req: &BrowserPersonaReq,
+    ) -> Result<BrowserPersonaResp, BrowserPersonaReject> {
+        if !self.cfg.capabilities.browser {
+            return Err(BrowserPersonaReject {
+                reason: "disabled",
+                message: "this node hasn't opted in to delegated browser work \
+                          ([network.capabilities].browser = false)"
+                    .to_string(),
+            });
+        }
+        let mgr = crate::skills::browser_session::manager().await;
+        let (session_id, _state) = mgr
+            .guest_session_get(peer_id, &req.persona_name)
+            .await
+            .map_err(|e| BrowserPersonaReject {
+                reason: "persona_unavailable",
+                message: format!("{e:?}"),
+            })?;
+        if let Err(e) = mgr.navigate(&session_id, &req.url).await {
+            return Err(BrowserPersonaReject {
+                reason: "navigate_failed",
+                message: format!("{e:?}"),
+            });
+        }
+        let obs = mgr
+            .observe(
+                &session_id,
+                crate::skills::browser_session::ObserveMode::Tree,
+            )
+            .await
+            .unwrap_or_default();
+        let url = mgr
+            .session_url(&session_id)
+            .await
+            .unwrap_or_else(|| req.url.clone());
+        let title = mgr.session_title(&session_id).await.unwrap_or_default();
+        Ok(BrowserPersonaResp {
+            url,
+            title,
+            tree: obs.tree.unwrap_or_default(),
+        })
+    }
+
+    /// Outbound delegator: pick a peer whose advertised capability set
+    /// includes `browser`, POST our request, return the response. The
+    /// candidate list is shuffled-by-reputation so a busy peer doesn't
+    /// always get picked first. Returns the first successful response;
+    /// on every-peer-failure, wraps the last error.
+    pub(crate) async fn delegate_browser_persona(
+        &self,
+        req: BrowserPersonaReq,
+    ) -> Result<BrowserPersonaResp, String> {
+        let candidates = self.peers_with_capability("browser");
+        if candidates.is_empty() {
+            return Err(
+                "no peer in the constellation has capabilities.browser = true; \
+                        the local request is the only option"
+                    .to_string(),
+            );
+        }
+        let timeout = std::time::Duration::from_millis(self.cfg.request_timeout_ms * 4);
+        let mut last_err = String::from("no peer responded");
+        for peer_url in candidates {
+            let mut rq = self
+                .http
+                .post(format!("{peer_url}/constellation/browser_persona"))
+                .header("x-lodestone-peer-id", &self.node_id)
+                .json(&req)
+                .timeout(timeout);
+            if !self.cfg.token.is_empty() {
+                rq = rq.bearer_auth(&self.cfg.token);
+            }
+            match rq.send().await {
+                Ok(resp) if resp.status().is_success() => {
+                    match resp.json::<BrowserPersonaResp>().await {
+                        Ok(body) => return Ok(body),
+                        Err(e) => {
+                            last_err = format!("{peer_url}: invalid response body: {e}");
+                        }
+                    }
+                }
+                Ok(resp) => {
+                    let status = resp.status();
+                    let body = resp.text().await.unwrap_or_default();
+                    last_err = format!("{peer_url}: {status} {body}");
+                }
+                Err(e) => {
+                    last_err = format!("{peer_url}: {e}");
+                }
+            }
+        }
+        Err(last_err)
+    }
+
+    /// Return the URLs of reachable peers whose advertised capability
+    /// set has `cap` enabled. Used by the outbound-delegation paths
+    /// (#128) to filter peer candidates so we never ask a peer to do
+    /// something it didn't opt into.
+    pub(crate) fn peers_with_capability(&self, cap: &str) -> Vec<String> {
+        let table = self.peers.lock().unwrap();
+        table
+            .values()
+            .filter(|p| p.reachable())
+            .filter(|p| match (cap, p.capabilities.as_ref()) {
+                ("query", Some(c)) => c.query,
+                ("retrieval", Some(c)) => c.retrieval,
+                ("blob", Some(c)) => c.blob,
+                ("browser", Some(c)) => c.browser,
+                // No digest yet — treat conservatively as "not opted
+                // in" for everything except query/blob, which default
+                // to true.
+                ("query", None) => true,
+                ("blob", None) => true,
+                _ => false,
+            })
+            .map(|p| p.url.clone())
+            .collect()
     }
 
     /// Answer an incoming `/constellation/query`: serve from our own cache, else (while
@@ -909,7 +1238,7 @@ impl Constellation {
                 .values()
                 .filter(|p| p.bloom.as_ref().is_some_and(|b| b.maybe_contains(key)))
                 .map(|p| p.url.clone())
-                .take(self.cfg.max_peers.max(1))
+                .take(self.max_peers().max(1))
                 .collect()
         };
         let cap = self.cfg.max_results_per_peer.max(1);
@@ -950,7 +1279,7 @@ impl Constellation {
     /// answered, so a relay can't fabricate corroboration. Bounded by `max_peers`,
     /// the per-request timeout, and capped result lists; `seen` stops loops.
     pub(crate) async fn consult(&self, key_hash: &str) -> Vec<PeerHit> {
-        let max = self.cfg.max_peers.max(1);
+        let max = self.max_peers().max(1);
         let mut direct: Vec<(String, f64)> = Vec::new();
         let mut relay: Vec<(String, f64)> = Vec::new();
         {
@@ -1116,6 +1445,7 @@ impl Constellation {
                     let peer_cid = d.constellation_id.clone();
                     let peer_delegation = d.delegation_enabled;
                     let peer_peer_count = d.peer_count;
+                    let peer_caps = d.capabilities.clone();
                     gossiped.extend(d.peers.iter().take(MAX_GOSSIP_PEERS).cloned());
                     {
                         let mut peers = self.peers.lock().unwrap();
@@ -1125,6 +1455,7 @@ impl Constellation {
                             p.known = d.peers;
                             p.node_id = Some(d.node_id);
                             p.delegation_enabled = peer_delegation;
+                            p.capabilities = Some(peer_caps);
                         }
                     }
                     // Merge to the LARGER mesh; alphabetical id is only a
@@ -1143,14 +1474,40 @@ impl Constellation {
                 Err(_) => {
                     // Unreachable: decay reputation toward neutral, drop stale bloom,
                     // and prune after too many consecutive misses (keeps gossiped or
-                    // dead peers from accumulating).
-                    let mut peers = self.peers.lock().unwrap();
-                    if let Some(p) = peers.get_mut(&url) {
-                        p.reputation = 0.5 + (p.reputation - 0.5) * 0.8;
-                        p.bloom = None;
-                        p.misses += 1;
-                        if p.misses >= MAX_PEER_MISSES {
-                            peers.remove(&url);
+                    // dead peers from accumulating). Capture the departing peer's
+                    // node_id BEFORE dropping so we can evict any delegated
+                    // browser personas it left behind.
+                    let evicted_node_id = {
+                        let mut peers = self.peers.lock().unwrap();
+                        if let Some(p) = peers.get_mut(&url) {
+                            p.reputation = 0.5 + (p.reputation - 0.5) * 0.8;
+                            p.bloom = None;
+                            p.misses += 1;
+                            if p.misses >= MAX_PEER_MISSES {
+                                let id = p.node_id.clone();
+                                peers.remove(&url);
+                                id
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    };
+                    if let Some(node_id) = evicted_node_id {
+                        // Tear down browser personas the departing peer
+                        // owned. Lazy: only does work if the browser
+                        // session manager has been initialized AND
+                        // some delegated persona actually matches the id.
+                        if let Some(mgr) = crate::skills::browser_session::manager_if_init() {
+                            let dropped = mgr.evict_guest_sessions_for_peer(&node_id).await;
+                            if dropped > 0 {
+                                tracing::info!(
+                                    peer_node_id = %node_id,
+                                    guest_sessions = dropped,
+                                    "peer departed — evicted its guest browser sessions",
+                                );
+                            }
                         }
                     }
                 }
@@ -1229,6 +1586,74 @@ impl Constellation {
     /// gossip graph (direct peers = 1 hop; nodes only reachable through a neighbor's
     /// advertised peer list are 2+). Direct peers also show their machine id,
     /// reputation, and reachability.
+    /// Human-readable capability matrix: this node, then each peer
+    /// we've seen a digest from, with a row of ON/OFF flags for every
+    /// capability. `cap_filter` (when set) hides rows where the named
+    /// capability is OFF — answering "who can do X?".
+    pub(crate) fn capabilities_report(&self, cap_filter: Option<&str>) -> String {
+        use std::fmt::Write as _;
+        let own = self.effective_capabilities();
+        let mut out = String::new();
+        let _ = writeln!(
+            out,
+            "Constellation node {}  (constellation_id={})\n",
+            self.node_id,
+            self.constellation_id.lock().unwrap()
+        );
+        let _ = writeln!(out, "Capabilities a column shows:");
+        let _ = writeln!(
+            out,
+            "  query     — answer cache consults\n  retrieval — fetch URLs for peers \
+             (POST /constellation/retrieve)\n  blob      — serve file-store blobs to peers\n  \
+             browser   — accept delegated browser actions"
+        );
+        let _ = writeln!(out);
+        fn yn(b: bool) -> &'static str {
+            if b {
+                "ON"
+            } else {
+                "off"
+            }
+        }
+        let cap_str = |c: &crate::config::Capabilities| -> String {
+            format!(
+                "query={} retrieval={} blob={} browser={}",
+                yn(c.query),
+                yn(c.retrieval),
+                yn(c.blob),
+                yn(c.browser),
+            )
+        };
+        let cap_match = |c: &crate::config::Capabilities| -> bool {
+            match cap_filter {
+                Some("query") => c.query,
+                Some("retrieval") => c.retrieval,
+                Some("blob") => c.blob,
+                Some("browser") => c.browser,
+                _ => true,
+            }
+        };
+        if cap_match(&own) {
+            let _ = writeln!(out, "  [self]              {}", cap_str(&own));
+        }
+        let peers = self.peers.lock().unwrap();
+        let mut rows: Vec<_> = peers.values().collect();
+        rows.sort_by(|a, b| a.url.cmp(&b.url));
+        for p in rows {
+            let label = p.node_id.as_deref().unwrap_or(p.url.as_str());
+            match &p.capabilities {
+                Some(c) if cap_match(c) => {
+                    let _ = writeln!(out, "  {label:<20} {}", cap_str(c));
+                }
+                None if cap_filter.is_none() => {
+                    let _ = writeln!(out, "  {label:<20} (digest not yet seen)");
+                }
+                _ => {}
+            }
+        }
+        out
+    }
+
     pub(crate) fn peers_report(&self) -> String {
         let peers = self.peers.lock().unwrap();
         if peers.is_empty() {
@@ -1283,10 +1708,39 @@ impl Constellation {
     /// Start background tasks (digest sync + mDNS discovery). `bind_port` is the
     /// local HTTP port, used when advertising via mDNS.
     pub(crate) fn start(self: Arc<Self>, bind_port: u16) {
+        // Seed the self-URL set with the loopback addresses our
+        // advertised port resolves through. mDNS will add the LAN
+        // addresses dynamically as it resolves our own service.
+        let port = self.advertise_port(bind_port);
+        {
+            let mut set = self.local_urls.lock().unwrap();
+            for url in [
+                format!("http://localhost:{port}"),
+                format!("http://127.0.0.1:{port}"),
+                format!("http://[::1]:{port}"),
+            ] {
+                let n = normalize_base(&url);
+                if !n.is_empty() {
+                    set.insert(n);
+                }
+            }
+        }
         if self.cfg.mdns {
             mdns::spawn(self.clone(), bind_port);
         }
         self.spawn_sync();
+    }
+
+    /// Record a URL that resolves to this node so future `add_peer` calls
+    /// skip it. Called from the mDNS resolution loop when our own service
+    /// announcement comes back — every LAN-interface address mDNS chose
+    /// to advertise us on lands here, so a peer that gossips any of
+    /// those addresses back can't accidentally make us our own peer.
+    pub(crate) fn mark_local_url(&self, url: &str) {
+        let n = normalize_base(url);
+        if !n.is_empty() {
+            self.local_urls.lock().unwrap().insert(n);
+        }
     }
 }
 

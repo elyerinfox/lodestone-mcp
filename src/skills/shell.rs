@@ -31,11 +31,6 @@ use crate::skills::{schema_for, Skill, SkillCtx};
 use crate::util::truncate_chars;
 use crate::{internal, invalid, text_result};
 
-/// Gating data (consumed by `skills::disabled_by_config`). The whole tool is
-/// gated by `[shell].enabled`; the allowlist/unrestricted policy is enforced at
-/// call time.
-pub const TOOL_NAMES: &[&str] = &["shell_run"];
-
 /// Program name to match against the allowlist: the first token's basename (split
 /// on `/` and `\` on every platform), with a Windows-style executable suffix
 /// stripped.

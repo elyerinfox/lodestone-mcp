@@ -14,13 +14,6 @@ use serde::Deserialize;
 use crate::skills::{fs_read_bytes, schema_for, Skill, SkillCtx};
 use crate::{invalid, text_result};
 
-pub const TOOL_NAMES: &[&str] = &[
-    "binary_info",
-    "binary_strings",
-    "binary_entropy",
-    "binary_hexdump",
-];
-
 // ----- binary_info -----
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]

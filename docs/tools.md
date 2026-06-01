@@ -203,7 +203,53 @@ no NVIDIA GPU / NVML library is present. See
 | --- | --- | --- |
 | `system_info` | — | Host name, OS/kernel, uptime, CPU (model/cores/usage), memory/swap. |
 | `system_disks` | — | Mounted disks: filesystem, total/used/free space. |
-| `system_gpu` | — | NVIDIA GPU name, memory, utilization, temperature (via NVML). |
+| `system_gpu_nvidia` | — | NVIDIA GPU name, memory, utilization, temperature (via NVML). |
+| `system_gpu_amd` | — | AMD GPU model, VRAM, busy %, temperature (Linux DRM sysfs via `amdgpu`). |
+| `system_gpu_intel` | — | Intel GPU model, frequency, temperature (Linux DRM sysfs via `i915`/`xe`). |
+| `system_os_release` | — | Parse `/etc/os-release` (Linux distro identifier per the systemd spec). |
+
+## Messaging (off by default)
+
+MQTT pub/sub against a configured broker, plus the Meshtastic LoRa mesh decoder
+that rides on it. Both **off by default**. See
+[`config/19-mqtt.toml`](../config/19-mqtt.toml) and
+[`config/20-meshtastic.toml`](../config/20-meshtastic.toml).
+
+| Tool | Arguments | Purpose |
+| --- | --- | --- |
+| `mqtt_publish` | `topic`, `payload?` or `payload_base64?`, `qos?`, `retain?` | Publish a message to the broker. |
+| `mqtt_subscribe` | `topic`, `qos?` | Subscribe (supports `+` / `#` wildcards); buffer fills as messages arrive. |
+| `mqtt_unsubscribe` | `topic` | Drop a prior subscription. |
+| `mqtt_recent` | `topic?`, `limit?` | Recent buffered messages, newest first. |
+| `mqtt_status` | — | Broker URL, credentials presence (`<set>`/`<unset>`), subscriptions, buffer size. |
+| `meshtastic_messages` | `channel?`, `from?`, `limit?` | Text messages decoded from the Meshtastic JSON-over-MQTT topic format. |
+| `meshtastic_nodes` | — | Mesh nodes recently heard (id / longname / shortname / RSSI / SNR / last-seen). |
+| `meshtastic_send` | `text`, `channel?`, `region?`, `to?` | Publish a text message onto the mesh through the bridging node. |
+| `meshtastic_status` | — | Transport, topic root, defaults, MQTT-wiring status, mesh buffer count. |
+
+## Package managers (off by default)
+
+OS / distro package managers — one set of tools that target each PM via an
+explicit `kind` argument. Off by default `[packages]`. Destructive ops
+(`install`/`upgrade`/`remove`) go through the confirmation guard. **No `sudo`** —
+privilege is the operator's choice. See
+[`config/21-packages.toml`](../config/21-packages.toml) and
+[`docs/skills/packages.md`](skills/packages.md).
+
+| Tool | Arguments | Access | Purpose |
+| --- | --- | --- | --- |
+| `package_managers` | — | read | List supported PMs with ✓ / · for whether the binary is on `$PATH`. |
+| `package_search` | `kind`, `query` | read | PM-native search. |
+| `package_info` | `kind`, `name` | read | PM-native package metadata. |
+| `package_list` | `kind` | read | Installed packages. |
+| `package_updates` | `kind` | read | Available updates (without applying). |
+| `package_install` | `kind`, `name`, `confirm?`, `trust?` | **destructive** | Install via the named PM. |
+| `package_upgrade` | `kind`, `name?`, `confirm?`, `trust?` | **destructive** | Upgrade one package (or all when `name` is omitted). |
+| `package_remove` | `kind`, `name`, `confirm?`, `trust?` | **destructive** | Remove a named package. |
+
+`kind` values: `winget`, `chocolatey` (alias `choco`), `brew` (alias `homebrew`),
+`apt` (alias `apt-get`), `dnf`, `yum`, `apk`, `pacman`, `yay` (alias `aur`),
+`zypper`, `pkg`.
 
 ## Devices (off by default)
 
@@ -327,23 +373,38 @@ the rate limit.
 | `sat_position` | `tle_line1`, `tle_line2`, `at?` | SGP4 sub-point: latitude, longitude, altitude, speed. |
 | `sat_observe` | `tle_line1`, `tle_line2`, `observer_lat`, `observer_lon`, `observer_alt_km?`, `at?` | Azimuth/elevation/range from an observer. |
 
-## Background tasks (off by default)
+## Async search (off by default)
 
-Run long work off the request path and poll for results (model-polled — works on any
-client). Gated by `[tasks]`. Currently backgrounds searches.
+Launch a search in the background and get a `task_id`. Manage via the MCP-spec
+`tasks_*` tools below (`tasks_list` / `tasks_get` / `tasks_result` / `tasks_cancel`)
+— they read the same runtime. Gated by `[tasks]`.
 
 | Tool | Arguments | Purpose |
 | --- | --- | --- |
-| `task_run` | `op?`, `kind`, `query`, `max_results?` | Start a background search (`kind` = web/code/docs/qa); returns a task id. |
-| `task_list` | — | List background tasks (id, status, label, age). |
-| `task_status` | `id` | A task's status (running/done/failed/cancelled). |
-| `task_result` | `id` | A task's result (or still-running / error). |
-| `task_cancel` | `id` | Cancel a running task. |
+| `search_async` | `kind` (`web`/`code`/`docs`/`qa`), `query`, `max_results?` | Start a background search; returns a `task_id`. |
+
+## MCP Tasks primitive (always on)
+
+The 2025-11-25 spec's task management methods (`tasks/list`, `tasks/get`,
+`tasks/result`, `tasks/cancel`) exposed as tools so every MCP client can
+drive them today. Backed by the same `TaskRuntime` as `search_async`,
+`mqtt_listen`, and `meshtastic_listen`.
+
+| Tool | Arguments | Purpose |
+| --- | --- | --- |
+| `tasks_list` | — | List tracked async tasks (newest first). |
+| `tasks_get` | `task_id` | One task's metadata (status, last progress, timestamps). |
+| `tasks_result` | `task_id` | Terminal result (or in-progress log replay). |
+| `tasks_cancel` | `task_id` | Cancel a running task; pushes `notifications/tasks/status`. |
 
 ## Persistent memory & solutions (on by default `[memory]`)
 
 | Tool | Arguments | Purpose |
 | --- | --- | --- |
+| `remember` | `text`, `as?`, `scope?`, `tags?` | Frictionless write — auto-derives a key (kebab-case from first words + short hash), auto-extracts tags. Defaults to a memo; text shaped like a recipe (`→`, starts with `to`/`when`/`if`/`fix:`/`solution:`/`use`) auto-classifies as a solution. Override with `as: "fact" \| "solution"`. |
+| `remember_fact` | `text`, `scope?`, `tags?` | Always writes a memo. No classifier. |
+| `remember_solution` | `text`, `problem?`, `summary?`, `tags?` | Always writes a solution. First sentence becomes the problem, rest becomes the content, unless explicitly overridden. |
+| `recall` | `query`, `kinds?`, `limit?` | One merged hit list across memos + solutions + phrasings. Each row tagged by kind. Replaces calling `memory_search` and `solution_find` separately. |
 | `memory_save` | `key`, `value`, `scope?`, `tags?` | Save/upsert a key→value memory persisted across sessions. |
 | `memory_get` | `key`, `scope?` | Exact lookup by key (and optional scope). |
 | `memory_list` | `scope?`, `prefix?`, `max?` | List memories with previews, newest-updated first. |
@@ -498,6 +559,28 @@ FFT-of-decoded-audio.
 | `radio_link_budget` | `tx_power_dbm`, `tx_gain_dbi`, `rx_gain_dbi`, `frequency_hz`, `distance_m`, `cable_loss_db?`, `other_losses_db?` | Compute received power and link margin against a noise floor. |
 | `radio_antenna` | `frequency_hz`, `gain_dbi?`, `effective_aperture_m2?` | Convert antenna gain ↔ effective aperture. |
 
+## Browser sessions (on by default when Chrome/Chromium is available)
+
+See [`docs/skills/browser_session.md`](skills/browser_session.md) for the
+session / persona / guest-session conceptual split.
+
+| Tool | Arguments | Purpose |
+| --- | --- | --- |
+| `browser_open` | — | Open a new isolated Chromium tab; returns a `session_id`. |
+| `browser_navigate` | `session_id`, `url`, `observe?` | Navigate the session; waits 15 s for nav to settle. `observe` is `"none"` / `"tree"` / `"screenshot"` / `"both"`. |
+| `browser_click` | `session_id`, `selector`, `observe?` | Click the first element matching `selector`. |
+| `browser_type` | `session_id`, `selector`, `text`, `submit?`, `observe?` | Focus + type. `submit: true` calls `form.requestSubmit()`. |
+| `browser_wait` | `session_id`, `selector`, `timeout_ms?` | Poll until the selector exists, or time out. Returns `{matched}`. |
+| `browser_extract` | `session_id`, `selector`, `attr?`, `limit?` | innerText or attribute for every match; capped at `limit`. |
+| `browser_eval` | `session_id`, `script` | Arbitrary JS, returns JSON. Refused on guest sessions. |
+| `browser_screenshot` | `session_id`, `full_page?` | Viewport (or full scroll) PNG as base64. |
+| `browser_list` | — | Every open session with URL + title + age + idle. |
+| `browser_close` | `session_id` | Dispose the tab and its isolated context. |
+| `browser_persona_get` | `name` | Get-or-create the named LOCAL persona's session; cookies persist across calls. |
+| `browser_persona_list` | — | List LOCAL personas only (guest sessions are dashboard-only). |
+| `browser_persona_reset` | `name` | Force a fresh session on the named persona — state returns to `healthy`. |
+| `browser_persona_delegate` | `persona_name`, `url` | Ask a constellation peer (with `[network.capabilities].browser = true`) to run a navigate on ITS persona. Sessions don't transport; the peer's SSRF guard refuses local-network URLs. |
+
 ## Meta
 
 | Tool | Arguments | Purpose |
@@ -507,6 +590,7 @@ FFT-of-decoded-audio.
 | `constellation_status` | — | Show the peer-to-peer constellation graph (peers, machine ids, reputation, edges); says disabled when off. |
 | `constellation_peers` | — | List constellation nodes and how many **hops** away each is (direct = 1), with machine id/reputation. |
 | `constellation_seeds` | — | Per-blob **seed ratio** (bytes served to peers vs. fetched from them), BitTorrent-style. |
+| `constellation_capabilities` | `cap?` | Per-feature opt-in set every node advertises (`query` / `retrieval` / `blob` / `browser`). With `cap=<name>`, filter to nodes that have the named capability ON — answers "who can do browser work?". |
 
 ## Per-provider
 

@@ -139,12 +139,14 @@ compression. Files: `src/skills/memory.rs`, `src/provider.rs`,
 
 - [x] **System information skill.** Done: `src/skills/sysinfo.rs` exposes `system_info`
   (host/OS/kernel/uptime, CPU model+cores+usage, memory/swap), `system_disks`
-  (mount/fs/total/used/free), and `system_gpu` (NVIDIA via NVML: name/memory/
-  utilization/temperature). Cross-platform via the `sysinfo` crate (Linux /proc+/sys,
-  Windows OS APIs); GPU uses `nvml-wrapper` loaded at runtime — absent driver/library
-  yields a clear message (dependency safeguard), not a failure. Gated by `[sysinfo]`
-  (read-only, on by default); blocking work runs on `spawn_blocking`. Docs + config
-  (`config/13-sysinfo.toml`) added.
+  (mount/fs/total/used/free), `system_os_release`, and three per-vendor GPU tools:
+  `system_gpu_nvidia` (NVML, cross-platform), `system_gpu_amd` and
+  `system_gpu_intel` (Linux DRM sysfs via `amdgpu` / `i915` / `xe`). One tool per
+  method (golden rule 9): each backend has its own per-tool `check_capability`
+  so the LLM picks the available one without guessing. Cross-platform via the
+  `sysinfo` crate (Linux /proc+/sys, Windows OS APIs); NVML loaded at runtime.
+  Gated by `[sysinfo]` (read-only, on by default); blocking work runs on
+  `spawn_blocking`. Docs + config (`config/13-sysinfo.toml`) added.
 
 - [x] **Search resilience: per-provider circuit breaker + latency budget.** Under
   sustained scraping, engines start blocking the server's egress IP (DuckDuckGo

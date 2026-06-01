@@ -28,8 +28,6 @@ use crate::browser::{shared_global, PageRenderer, RenderInput};
 use crate::skills::{schema_for, Skill, SkillCtx};
 use crate::{internal, invalid, text_result};
 
-pub const TOOL_NAMES: &[&str] = &["html_render"];
-
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct HtmlRenderArgs {
     /// Raw HTML to render. Use this for verifying generated UIs, charts,

@@ -124,9 +124,6 @@ impl Skill for StockQuote {
     }
 }
 
-/// Tool name (gated by `[stocks].enabled`).
-pub const TOOL_NAMES: &[&str] = &["stock_quote"];
-
 /// The skills this module contributes.
 pub fn skills() -> Vec<Box<dyn Skill>> {
     vec![Box::new(StockQuote)]

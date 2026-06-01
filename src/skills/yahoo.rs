@@ -384,9 +384,6 @@ impl Skill for YahooSearch {
     }
 }
 
-/// Tool names (gated by `[stocks].enabled`, shared with `stock_quote`).
-pub const TOOL_NAMES: &[&str] = &["yahoo_quote", "yahoo_history", "yahoo_search"];
-
 /// The skills this module contributes.
 #[cfg(test)]
 mod live {

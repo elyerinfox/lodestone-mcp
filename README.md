@@ -146,7 +146,8 @@ and plug into ~85 named formulas across fields (`physics_formula`, `geometry_for
   read the exact source; `docs_search` across crates.io / npm / MDN and framework
   docs; `github_releases` to summarize what changed between versions.
 - **DevOps & SRE** — triage a box without a shell: `docker_ps` → `docker_logs`,
-  `k8s_get` → `k8s_logs` → `k8s_scale`, `system_info` / `system_disks` / `system_gpu`,
+  `k8s_get` → `k8s_logs` → `k8s_scale`, `system_info` / `system_disks` /
+  `system_gpu_nvidia` / `system_gpu_amd` / `system_gpu_intel`,
   `git_run`, and a guarded `db_query` / `redis_command` to inspect state. Destructive
   steps (delete/remove/exec) pause for confirmation.
 - **Containers & registries** — image/tag/manifest lookups across Docker Hub, any OCI
@@ -183,19 +184,32 @@ defaulted sensibly):
 - **Scale out** — run several instances as a [constellation](docs/constellation.md)
   that serves each other's cached results/PDFs (hash-only on the wire), optionally
   linked across networks by a [galaxy](docs/constellation.md#galaxy--linking-constellations)
-  broker. Long work can run in the background (`task_run` → `task_result`).
+  broker. Long work can run in the background (`search_async` → `tasks_result`).
 
 ## Quick start
 
-Requires a recent Rust toolchain.
+Requires a recent Rust toolchain. Node is **not** needed for the MCP server —
+the dashboard is an optional operator view, built separately.
 
 ```sh
-cargo run
+cargo run                            # MCP server. /dashboard serves a "not built" page.
+# Or, if you want the dashboard embedded too:
+make build-with-dashboard            # host Node builds the SPA, cargo embeds it
+make build-with-dashboard-docker     # frontend built in node:22-bookworm, no host Node
 ```
 
 Listens on `http://127.0.0.1:8000/mcp` (and `GET /health` returns `ok`). Keyless out
-of the box. The headless browser is always compiled in; the `google` engine and
-per-call `render=true` additionally need a local **Chrome/Chromium** at runtime.
+of the box. The headless browser is always compiled in; the `google` engine,
+per-call `render=true`, and the `browser_*` tools additionally need a local
+**Chrome/Chromium** at runtime.
+
+The MCP endpoints (`/mcp`, `/ws/status`, `/api/settings/*`,
+`/constellation/*`) are exposed identically whether the dashboard SPA is
+embedded or not. Full options (backend only, embedded dashboard, Docker, dev
+workflow with HMR) + common build issues live in
+**[docs/building.md](docs/building.md)**. Every crate and npm package the
+project pulls in, by purpose, is in
+**[docs/dependencies.md](docs/dependencies.md)**.
 
 **LM Studio** — add to `%USERPROFILE%\.lmstudio\mcp.json` (or `~/.lmstudio/mcp.json`):
 
@@ -205,11 +219,17 @@ per-call `render=true` additionally need a local **Chrome/Chromium** at runtime.
 
 (See `mcp.example.json`.)
 
-**Docker** — the image bundles Chromium:
+**Docker** — two services, two images, one command:
 
 ```sh
-docker compose up --build      # or: docker build -t lodestone-mcp . && docker run --rm -p 8000:8000 lodestone-mcp
+docker compose up --build
+# → MCP server   http://localhost:8000   (lodestone-mcp,   built from ./Dockerfile)
+# → Dashboard    http://localhost:3000   (lodestone-dashboard, built from frontend/Dockerfile)
 ```
+
+Skip the dashboard with `docker compose up --build lodestone`. To bake
+both into a single binary instead of running them separately, see
+`make build-with-dashboard-docker` in [docs/building.md](docs/building.md).
 
 ## Configuration
 
@@ -223,6 +243,8 @@ strategies, caching, forges/doc-sites: **[docs/configuration.md](docs/configurat
 
 | Doc | What's in it |
 | --- | --- |
+| [building.md](docs/building.md) | Backend-only / backend+dashboard / Docker / dev workflow + common build issues. |
+| [dependencies.md](docs/dependencies.md) | Every crate and npm package, by purpose. License + audit notes. |
 | [skills.md](docs/skills.md) | Every skill family, grouped, with a page each. |
 | [tools.md](docs/tools.md) | Every tool, its arguments, and purpose. |
 | [providers.md](docs/providers.md) | Every search provider, by family, with a page each. |

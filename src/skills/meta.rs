@@ -92,6 +92,43 @@ impl Skill for HiveSeeds {
     }
 }
 
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+struct HiveCapabilitiesArgs {
+    /// Optional capability name to filter by — `query`, `retrieval`,
+    /// `blob`, or `browser`. When set, the report only shows nodes
+    /// (this one + every known peer) whose published capability set
+    /// includes the named capability turned ON. Answers "who can do
+    /// browser work?" with a single call.
+    #[serde(default)]
+    cap: Option<String>,
+}
+
+pub struct HiveCapabilities;
+impl Skill for HiveCapabilities {
+    fn name(&self) -> &'static str {
+        "constellation_capabilities"
+    }
+    fn description(&self) -> &'static str {
+        "Show the per-feature opt-in set every constellation node currently advertises. Each row is \
+         `node_id : query=ON retrieval=off blob=ON browser=off`. Use `cap=\"browser\"` (or `query` \
+         / `retrieval` / `blob`) to filter to nodes that have that capability ON — handy for \
+         picking a delegate before issuing a delegated request. Delegation rejects requests for a \
+         capability the target peer hasn't opted in to, so this tool is the right first step."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<HiveCapabilitiesArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (server, args) = ctx.parse::<HiveCapabilitiesArgs>()?;
+            let report = server
+                .registry
+                .constellation_capabilities_report(args.cap.as_deref());
+            Ok(text_result(report))
+        })
+    }
+}
+
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct FeaturesArgs {
     /// Show detail for just one family — case-insensitive match against the
@@ -696,5 +733,6 @@ pub fn skills() -> Vec<Box<dyn Skill>> {
         Box::new(HiveStatus),
         Box::new(HivePeers),
         Box::new(HiveSeeds),
+        Box::new(HiveCapabilities),
     ]
 }

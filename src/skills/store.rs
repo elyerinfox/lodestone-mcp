@@ -18,7 +18,6 @@ use crate::{internal, invalid, text_result};
 
 /// Store tools gated by `[store].enabled`. (`cache_status` is intentionally not
 /// listed — it stays available to report whatever caches exist.)
-pub const TOOL_NAMES: &[&str] = &["store_fetch", "store_get", "store_list", "store_purge"];
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct FetchArgs {
@@ -40,6 +39,12 @@ struct PurgeArgs {
     /// A specific entry key to remove. Omit to purge the entire store.
     #[serde(default)]
     key: Option<String>,
+    /// One-time token from a prior call's confirmation prompt. Omit on the first call.
+    #[serde(default)]
+    confirm: Option<String>,
+    /// With `confirm`, stop asking for `store_purge` for the rest of the session.
+    #[serde(default)]
+    trust: Option<bool>,
 }
 
 fn store_of(server: &crate::Lodestone) -> Result<&Arc<crate::store::FileStore>, McpError> {
@@ -171,16 +176,35 @@ impl Skill for StorePurge {
         "store_purge"
     }
     fn description(&self) -> &'static str {
-        "Remove a file-store entry by key, or purge the whole store when no key is given."
+        "Remove a file-store entry by key, or purge the whole store when no key is given. \
+        **Destructive** — deletes cached bytes on disk. First call returns a confirmation token \
+        and does nothing; call again with `confirm=<token>` to delete (or `confirm + trust=true`). \
+        `[store].allow_destructive=true` pre-authorizes."
     }
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<PurgeArgs>()
     }
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
+            use crate::skills::guard::Decision;
             let (server, args) = ctx.parse::<PurgeArgs>()?;
             let store = store_of(server)?;
-            match args.key.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+            let key_clean = args.key.as_deref().map(str::trim).filter(|s| !s.is_empty());
+            let summary = match key_clean {
+                Some(key) => format!("remove '{key}' from the file store"),
+                None => "purge the entire file store".to_string(),
+            };
+            if let Decision::Challenge(msg) = server.guard.check(
+                "store_purge",
+                "store_purge",
+                server.cfg.store.allow_destructive,
+                &summary,
+                args.confirm.as_deref(),
+                args.trust.unwrap_or(false),
+            ) {
+                return Ok(text_result(msg));
+            }
+            match key_clean {
                 Some(key) => {
                     let existed = store.remove(key).await;
                     Ok(text_result(if existed {

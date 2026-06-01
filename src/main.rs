@@ -18,7 +18,10 @@ mod providers;
 mod retrieval;
 mod skills;
 mod store;
+mod tasks;
+mod tracing_control;
 mod util;
+mod ws;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -97,9 +100,6 @@ pub(crate) struct Lodestone {
     /// Per-session confirmation state for destructive actions (the client-agnostic
     /// alternative to MCP elicitation). Shared across cloned handles.
     pub(crate) guard: skills::guard::Guard,
-    /// Background-job registry (model-polled): `task_*` tools spawn long work and
-    /// poll for results here. Shared across cloned handles.
-    pub(crate) tasks: skills::tasks::Tasks,
     /// Persistent memory & solution-history store (the `memory_*` / `solution_*`
     /// tools). On-disk JSONL under `[memory].dir`. Shared across cloned handles.
     pub(crate) memory: skills::memory::Memory,
@@ -107,16 +107,54 @@ pub(crate) struct Lodestone {
     pub(crate) python: Arc<config::Python>,
     /// systemd skill settings.
     pub(crate) systemd: Arc<config::Systemd>,
+    /// Shared MQTT client (`Some` iff `[mqtt].enabled` and the broker
+    /// URL parsed at startup). Used by the standalone `mqtt_*` tools
+    /// AND by the meshtastic skill — same connection, same event loop,
+    /// same ring buffer.
+    pub(crate) mqtt: Option<Arc<skills::mqtt::MqttClient>>,
+    /// Global task runtime — the MCP **Tasks** primitive (2025-11-25)
+    /// Lodestone-side. Skills spawn long work into it and receive a
+    /// `taskId`; lifecycle changes push `notifications/tasks/status`
+    /// (via [`rmcp::model::CustomNotification`]) and per-tick
+    /// progress pushes `notifications/progress`. Shared across cloned
+    /// `Lodestone` handles.
+    pub(crate) task_runtime: tasks::TaskRuntime,
     /// Whole resolved server configuration, shared by `Arc`. Held so
     /// introspection tools (the `features` skill) can report every gateable
     /// family's on/off state and key knobs without dragging individual config
     /// sections into the constructor signature one-by-one.
     pub(crate) cfg: Arc<config::Config>,
+    /// Server boot time. Captured at `Lodestone::new`; consumed by the
+    /// `/ws/status` dashboard feed to compute uptime without dragging the
+    /// server's local clock into the wire format.
+    pub(crate) started_at: std::time::Instant,
     /// The set of tool names the resolved config has gated off. Precomputed
     /// at startup (the source of truth used to build the tool router) so the
     /// `features` skill can map families to "any of these tools hidden?"
     /// without re-running the resolution.
     pub(crate) disabled_tools: Arc<Vec<String>>,
+    /// Tools the dashboard's settings drawer has flipped off at runtime.
+    /// Empty at startup; mutated by `POST /api/settings/tools`. The
+    /// dispatch wrapper (`skills::route`) checks this set before
+    /// running each call and returns a "tool disabled" error if hit.
+    /// Ephemeral — never persisted, so a restart restores the resolved
+    /// active set from config.
+    pub(crate) runtime_disabled_tools: Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
+    /// Per-family capability probe results, cached at startup.
+    /// Surfaced on the WS snapshot for the dashboard's "Host
+    /// capabilities" panel. Pure-Rust families that didn't register a
+    /// `FamilyMeta` impl don't appear here.
+    pub(crate) skill_capabilities:
+        Arc<std::collections::HashMap<&'static str, skills::SkillCapability>>,
+    /// Per-tool capability after combining family + per-skill checks
+    /// (family `Unavailable` wins; otherwise the skill's own override
+    /// applies). The dispatch wrapper consults this to refuse blocked
+    /// calls with the reason + hint inline so the LLM sees what's
+    /// missing. Every registered tool has an entry; tools whose
+    /// family and own check both returned `Ready` map to `Ready`
+    /// (storing them keeps the dispatch hot path branch-free).
+    pub(crate) tool_capabilities:
+        Arc<std::collections::HashMap<&'static str, skills::SkillCapability>>,
     // The filtered tool router; `#[tool_handler(router = self.tool_router)]`
     // uses it for both tool listing and dispatch.
     tool_router: ToolRouter<Lodestone>,
@@ -148,6 +186,7 @@ impl Lodestone {
         memory: skills::memory::Memory,
         python: config::Python,
         systemd: config::Systemd,
+        mqtt: Option<Arc<skills::mqtt::MqttClient>>,
         cfg: Arc<config::Config>,
         tools_enabled: &[String],
         tools_disabled: &[String],
@@ -179,12 +218,19 @@ impl Lodestone {
             databases: Arc::new(databases),
             store,
             guard: skills::guard::Guard::default(),
-            tasks: skills::tasks::Tasks::new(),
             memory,
             python: Arc::new(python),
             systemd: Arc::new(systemd),
+            mqtt,
+            task_runtime: tasks::TaskRuntime::new(),
             disabled_tools: Arc::new(tools_disabled.to_vec()),
+            runtime_disabled_tools: Arc::new(std::sync::Mutex::new(
+                std::collections::HashSet::new(),
+            )),
+            skill_capabilities: Arc::new(probe_families()),
+            tool_capabilities: Arc::new(probe_tools()),
             cfg,
+            started_at: std::time::Instant::now(),
             tool_router,
         }
     }
@@ -367,6 +413,164 @@ impl Lodestone {
             }
         }
     }
+
+    /// Build a privacy-safe snapshot of server / memory / constellation
+    /// state for the `/ws/status` dashboard feed. Counts only — no row
+    /// bodies, no secrets, no peer auth material. The frontend renders
+    /// the dashboard from this; nothing else flows through this channel.
+    pub(crate) async fn ws_snapshot(&self) -> crate::ws::Snapshot {
+        // Server.
+        let providers: Vec<crate::ws::ProviderEntry> = self
+            .registry
+            .list()
+            .into_iter()
+            .map(|(kind, id)| crate::ws::ProviderEntry {
+                kind: format!("{kind:?}").to_lowercase(),
+                id: id.to_string(),
+            })
+            .collect();
+        // Partition the static tool name list into active vs config-gated
+        // sets. Sorting once here lets the frontend skip a re-sort and
+        // diff cleanly when the snapshot refreshes.
+        let mut tools_active_names: Vec<String> = skills::registered_tool_names()
+            .into_iter()
+            .filter(|n| !self.disabled_tools.iter().any(|d| d == n))
+            .collect();
+        tools_active_names.sort();
+        let mut tools_disabled_names: Vec<String> = (*self.disabled_tools).clone();
+        tools_disabled_names.sort();
+        let mut tools_runtime_disabled_names: Vec<String> = self
+            .runtime_disabled_tools
+            .lock()
+            .unwrap()
+            .iter()
+            .cloned()
+            .collect();
+        tools_runtime_disabled_names.sort();
+        let server = crate::ws::ServerStatus {
+            name: "lodestone-mcp",
+            version: env!("CARGO_PKG_VERSION"),
+            uptime_secs: self.started_at.elapsed().as_secs(),
+            tools_active: tools_active_names.len(),
+            tools_disabled: tools_disabled_names.len(),
+            tools_active_names,
+            tools_disabled_names,
+            tools_runtime_disabled_names,
+            providers,
+            bind: self.cfg.bind.clone(),
+            constellation_bind: self.cfg.network.bind.clone(),
+            secrets: crate::ws::SecretPresence {
+                auth_token: !self.cfg.auth_token.trim().is_empty(),
+                network_token: !self.cfg.network.token.trim().is_empty(),
+                github_token: !self.github_token.trim().is_empty(),
+                nasa_key: !self.nasa_key.trim().is_empty(),
+                eia_key: !self.eia_key.trim().is_empty(),
+            },
+            log_level: tracing_control::current(),
+            skill_capabilities: {
+                // Rebuild the family→tools map fresh so the row order is
+                // deterministic. Capability results come from the cache
+                // populated at startup. Pure-Rust families that
+                // didn't register a FamilyMeta impl are absent — the
+                // dashboard renders the existing flat list for those.
+                let mut rows: Vec<crate::ws::SkillCapabilityEntry> = Vec::new();
+                for fam in skills::families() {
+                    let cap = self.skill_capabilities.get(fam.family());
+                    let (ready, reason, hint) = match cap {
+                        Some(skills::SkillCapability::Ready) | None => (true, None, None),
+                        Some(skills::SkillCapability::Unavailable { reason, hint }) => {
+                            (false, Some(reason.clone()), hint.clone())
+                        }
+                    };
+                    rows.push(crate::ws::SkillCapabilityEntry {
+                        family: fam.family().to_string(),
+                        tools: fam.tools().into_iter().map(|s| s.to_string()).collect(),
+                        ready,
+                        description: fam.description().to_string(),
+                        reason,
+                        hint,
+                    });
+                }
+                rows.sort_by(|a, b| a.family.cmp(&b.family));
+                rows
+            },
+            tool_descriptions: {
+                // Sourced from `Skill::description()` for every registered
+                // skill — both active (post-config-gating) and disabled
+                // tools, so the dashboard can describe what a gated tool
+                // would do too. Sorted by name for deterministic display
+                // and stable diffs.
+                let mut rows: Vec<crate::ws::ToolDescription> = skills::all_skills()
+                    .into_iter()
+                    .map(|s| crate::ws::ToolDescription {
+                        name: s.name().to_string(),
+                        description: s.description().to_string(),
+                    })
+                    .collect();
+                rows.sort_by(|a, b| a.name.cmp(&b.name));
+                rows
+            },
+        };
+        // Memory. Internal struct uses i64 (SQLite native); convert to u64
+        // for the wire format (negatives can't happen — these are
+        // COUNT(*) results).
+        let mem_stats = self.memory.stats().await;
+        let memory_enabled = self.memory.enabled();
+        let memory = crate::ws::MemoryStats {
+            enabled: memory_enabled,
+            memos: mem_stats.memos.max(0) as u64,
+            solutions: mem_stats.solutions.max(0) as u64,
+            solution_revisions: mem_stats.solution_revisions.max(0) as u64,
+            solution_tags: mem_stats.solution_tags.max(0) as u64,
+            solution_links: mem_stats.solution_links.max(0) as u64,
+            solution_phrasings: mem_stats.solution_phrasings.max(0) as u64,
+            conversations: mem_stats.conversations.max(0) as u64,
+            conversation_turns: mem_stats.conversation_turns.max(0) as u64,
+            synonyms: mem_stats.synonyms.max(0) as u64,
+            db_path: if memory_enabled {
+                self.cfg.memory.dir.clone()
+            } else {
+                String::new()
+            },
+            embedding_model: if memory_enabled {
+                self.cfg.memory.embedding_model.clone()
+            } else {
+                String::new()
+            },
+            auto_recall: self.memory.auto_recall_enabled(),
+            record_conversations: self.memory.record_conversations_enabled(),
+        };
+        // Constellation. When the network is off, return a sensible
+        // "disabled" snapshot so the frontend can show "constellation
+        // disabled" without trying to parse missing fields.
+        let constellation = match self.registry.constellation() {
+            Some(c) => c.ws_state(),
+            None => crate::ws::ConstellationState::default(),
+        };
+        // Browser sessions are lazily initialized: the manager exists
+        // (`browser_open` would have created it on first call) only if
+        // some tool has touched it. Skip the OnceCell init here so the
+        // snapshot is cheap when the model never used the browser.
+        let browser = match crate::skills::browser_session::manager_if_init() {
+            Some(mgr) => {
+                let cfg = mgr.config().await;
+                crate::ws::BrowserState {
+                    sessions: mgr.list_live().await,
+                    personas: mgr.persona_list().await,
+                    guest_sessions: mgr.guest_session_list().await,
+                    idle_timeout_secs: cfg.idle_timeout_secs,
+                    max_concurrent: cfg.max_concurrent,
+                }
+            }
+            None => crate::ws::BrowserState::default(),
+        };
+        crate::ws::Snapshot {
+            server,
+            memory,
+            constellation,
+            browser,
+        }
+    }
 }
 
 #[tool_handler(router = self.tool_router)]
@@ -393,6 +597,85 @@ fn effective_disabled(cfg: &Config) -> Vec<String> {
     let mut disabled = cfg.tools.disabled.clone();
     disabled.extend(skills::disabled_by_config(cfg));
     disabled
+}
+
+/// Run every registered `FamilyMeta::check_capability` once. Logs a
+/// WARN line per Unavailable family with reason + hint so operators
+/// see what's missing during boot. Returns the cache the WS snapshot
+/// publishes for the dashboard.
+fn probe_families() -> std::collections::HashMap<&'static str, skills::SkillCapability> {
+    let mut map = std::collections::HashMap::new();
+    for fam in skills::families() {
+        let cap = fam.check_capability();
+        if let skills::SkillCapability::Unavailable { reason, hint } = &cap {
+            match hint {
+                Some(h) => tracing::warn!(
+                    family = fam.family(),
+                    reason = %reason,
+                    hint = %h,
+                    "skill family unavailable on this host — \
+                     calls into it will be refused at dispatch"
+                ),
+                None => tracing::warn!(
+                    family = fam.family(),
+                    reason = %reason,
+                    "skill family unavailable on this host"
+                ),
+            }
+        }
+        map.insert(fam.family(), cap);
+    }
+    map
+}
+
+/// Build the per-tool capability cache. For each tool: start from its
+/// family probe (or Ready if the family didn't register one), then
+/// apply the tool's own `Skill::check_capability`. The combination
+/// rule: family Unavailable wins (the family hint is usually the
+/// actionable one); otherwise the per-tool result applies. Emits a
+/// WARN per per-tool override that downgrades a Ready family to
+/// Unavailable — those are easy to miss in code review and shipping
+/// one is the operator's most likely surprise.
+fn probe_tools() -> std::collections::HashMap<&'static str, skills::SkillCapability> {
+    use skills::SkillCapability;
+    let family_caps: std::collections::HashMap<&'static str, SkillCapability> = skills::families()
+        .into_iter()
+        .map(|f| (f.family(), f.check_capability()))
+        .collect();
+    let mut tool_to_family: std::collections::HashMap<&'static str, &'static str> =
+        std::collections::HashMap::new();
+    for fam in skills::families() {
+        let name = fam.family();
+        for t in fam.tools() {
+            tool_to_family.insert(t, name);
+        }
+    }
+    let mut map: std::collections::HashMap<&'static str, SkillCapability> =
+        std::collections::HashMap::new();
+    for skill in skills::all_skills() {
+        let tool_name = skill.name();
+        let family_cap = tool_to_family
+            .get(tool_name)
+            .and_then(|f| family_caps.get(f))
+            .cloned()
+            .unwrap_or(SkillCapability::Ready);
+        let skill_cap = skill.check_capability();
+        let merged = match (&family_cap, &skill_cap) {
+            (SkillCapability::Unavailable { .. }, _) => family_cap,
+            (SkillCapability::Ready, SkillCapability::Unavailable { reason, hint }) => {
+                tracing::warn!(
+                    tool = tool_name,
+                    reason = %reason,
+                    hint = hint.as_deref().unwrap_or(""),
+                    "per-tool capability override — tool blocked while its family is Ready"
+                );
+                skill_cap
+            }
+            (SkillCapability::Ready, SkillCapability::Ready) => SkillCapability::Ready,
+        };
+        map.insert(tool_name, merged);
+    }
+    map
 }
 
 /// Build the tool router exposing only the configured subset of tools (skills).
@@ -623,23 +906,590 @@ fn constellation_routes(constellation: Arc<constellation::Constellation>) -> axu
         }
     }
 
+    /// `POST /constellation/browser_persona` — the "drive your browser
+    /// session for me" delegation endpoint (#128). Gated by
+    /// `[network].token` and `[network.capabilities].browser`.
+    /// Sessions do NOT transport; each node uses its OWN persona. The
+    /// peer's SSRF guard refuses any URL that resolves to its local
+    /// network so a delegated request can't be a LAN-enumeration vector.
+    async fn browser_persona(
+        State(constellation): State<Arc<constellation::Constellation>>,
+        headers: HeaderMap,
+        axum::Json(req): axum::Json<constellation::BrowserPersonaReq>,
+    ) -> axum::response::Response {
+        if !constellation.token_ok(bearer_token(&headers)) {
+            return (StatusCode::UNAUTHORIZED, "unauthorized\n").into_response();
+        }
+        // The cluster token already gates *who* can ask; the peer id
+        // header is for per-peer persona ISOLATION — peer A's "google"
+        // and peer B's "google" become separate browser contexts.
+        // A spoofed id only buys the requester someone else's
+        // cookies on their own logical persona name, never a leak across
+        // legitimate peers (each gets `delegated:<their-id>:<name>`).
+        let peer_id = headers
+            .get("x-lodestone-peer-id")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("unknown")
+            .to_string();
+        match constellation.answer_browser_persona(&peer_id, &req).await {
+            Ok(body) => axum::Json(body).into_response(),
+            Err(reject) => {
+                let status = match reject.reason {
+                    "disabled" => StatusCode::FORBIDDEN,
+                    "navigate_failed" => StatusCode::BAD_GATEWAY,
+                    "persona_unavailable" => StatusCode::SERVICE_UNAVAILABLE,
+                    _ => StatusCode::BAD_REQUEST,
+                };
+                (status, axum::Json(&reject)).into_response()
+            }
+        }
+    }
+
     axum::Router::new()
         .route("/constellation/digest", get(digest))
         .route("/constellation/query", post(query))
         .route("/constellation/blob", post(blob))
         .route("/constellation/blobinfo", post(blobinfo))
         .route("/constellation/retrieve", post(retrieve))
+        .route("/constellation/browser_persona", post(browser_persona))
         .with_state(constellation)
+}
+
+/// `/ws/status` — the dashboard WebSocket feed. One-way push: snapshot on
+/// connect, then a fresh snapshot every [`ws::PUSH_INTERVAL`]. Auth via
+/// the `[network].token` (passed as `?token=…` since the browser's
+/// `WebSocket` constructor can't set custom headers); open when no token
+/// is configured. See `src/ws.rs` for the message envelope.
+fn ws_routes(server: Arc<Lodestone>) -> axum::Router {
+    use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
+    use axum::extract::{Query, State};
+    use axum::response::IntoResponse;
+    use serde::Deserialize;
+
+    #[derive(Deserialize)]
+    struct AuthQuery {
+        #[serde(default)]
+        token: String,
+    }
+
+    async fn handler(
+        ws: WebSocketUpgrade,
+        State(server): State<Arc<Lodestone>>,
+        Query(auth): Query<AuthQuery>,
+    ) -> axum::response::Response {
+        let configured = server.cfg.network.token.trim();
+        if !configured.is_empty()
+            && !util::ct_eq(auth.token.trim().as_bytes(), configured.as_bytes())
+        {
+            return (axum::http::StatusCode::UNAUTHORIZED, "unauthorized\n").into_response();
+        }
+        ws.on_upgrade(|sock| run(server, sock))
+    }
+
+    async fn run(server: Arc<Lodestone>, mut sock: WebSocket) {
+        // Send the initial snapshot immediately so the dashboard renders
+        // on connect, then loop pushing one every PUSH_INTERVAL until the
+        // client disconnects.
+        let mut tick = tokio::time::interval(ws::PUSH_INTERVAL);
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            let snap = server.ws_snapshot().await;
+            let msg = ws::WsMessage::Snapshot(snap);
+            match serde_json::to_string(&msg) {
+                Ok(payload) => {
+                    if sock.send(Message::Text(payload.into())).await.is_err() {
+                        return; // client gone
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "ws snapshot serialize failed");
+                }
+            }
+            // Wait for next tick OR a client message (we ignore inbound
+            // text for v1, but we DO need to drive the socket to detect
+            // clean closes).
+            tokio::select! {
+                _ = tick.tick() => {}
+                msg = sock.recv() => {
+                    match msg {
+                        Some(Ok(Message::Close(_))) | None => return,
+                        Some(Err(_)) => return,
+                        _ => {} // ignore other inbound; v1 is push-only
+                    }
+                }
+            }
+        }
+    }
+
+    axum::Router::new()
+        .route("/ws/status", axum::routing::get(handler))
+        .with_state(server)
+}
+
+/// `/api/settings/*` — ephemeral, per-subsystem runtime tuners that the
+/// dashboard's settings drawers POST to. Authenticated against the same
+/// `[network].token` as the WebSocket feed (constant-time compare).
+/// Changes apply to the running process only and are NOT persisted to
+/// disk, so a restart restores the config file's values. Knobs that
+/// require subsystem lifecycle changes (mDNS daemon, sync interval)
+/// are intentionally absent — see `ConstellationState.*_configured`.
+/// Secrets are never accepted here: the network token, auth token, and
+/// any future API keys can only be set via config or env.
+fn api_routes(
+    server: Arc<Lodestone>,
+    constellation: Arc<constellation::Constellation>,
+) -> axum::Router {
+    use axum::extract::State;
+    use axum::http::{HeaderMap, StatusCode};
+    use axum::response::IntoResponse;
+    use axum::Json;
+
+    /// Bundle the two handles a settings endpoint might need.
+    #[derive(Clone)]
+    struct ApiState {
+        #[allow(dead_code)] // used by handlers added in follow-up tasks
+        server: Arc<Lodestone>,
+        constellation: Arc<constellation::Constellation>,
+    }
+
+    fn presented_token(headers: &HeaderMap) -> Option<&str> {
+        let auth = headers.get(axum::http::header::AUTHORIZATION)?;
+        let s = auth.to_str().ok()?;
+        Some(s.strip_prefix("Bearer ").unwrap_or(s).trim())
+    }
+
+    async fn patch_constellation(
+        State(state): State<ApiState>,
+        headers: HeaderMap,
+        Json(patch): Json<constellation::RuntimeOverridesPatch>,
+    ) -> axum::response::Response {
+        if !state.constellation.token_ok(presented_token(&headers)) {
+            return (StatusCode::UNAUTHORIZED, "unauthorized\n").into_response();
+        }
+        let applied = state.constellation.apply_runtime_patch(patch);
+        Json(serde_json::json!({
+            "delegation_enabled": applied.delegation_enabled,
+            "max_peers": applied.max_peers,
+            "min_agreement": applied.min_agreement,
+        }))
+        .into_response()
+    }
+
+    #[derive(serde::Deserialize)]
+    struct ServerPatch {
+        log_level: Option<String>,
+    }
+
+    async fn patch_server(
+        State(state): State<ApiState>,
+        headers: HeaderMap,
+        Json(patch): Json<ServerPatch>,
+    ) -> axum::response::Response {
+        if !state.constellation.token_ok(presented_token(&headers)) {
+            return (StatusCode::UNAUTHORIZED, "unauthorized\n").into_response();
+        }
+        if let Some(lvl) = patch.log_level.as_deref() {
+            if let Err(e) = tracing_control::set_level(lvl) {
+                return (StatusCode::BAD_REQUEST, format!("{e}\n")).into_response();
+            }
+        }
+        Json(serde_json::json!({
+            "log_level": tracing_control::current(),
+        }))
+        .into_response()
+    }
+
+    #[derive(serde::Deserialize)]
+    struct MemoryPatch {
+        enabled: Option<bool>,
+        auto_recall: Option<bool>,
+        record_conversations: Option<bool>,
+    }
+
+    async fn patch_memory(
+        State(state): State<ApiState>,
+        headers: HeaderMap,
+        Json(patch): Json<MemoryPatch>,
+    ) -> axum::response::Response {
+        if !state.constellation.token_ok(presented_token(&headers)) {
+            return (StatusCode::UNAUTHORIZED, "unauthorized\n").into_response();
+        }
+        state
+            .server
+            .memory
+            .apply_runtime_patch(crate::skills::memory::RuntimeOverrides {
+                enabled: patch.enabled,
+                auto_recall: patch.auto_recall,
+                record_conversations: patch.record_conversations,
+            });
+        Json(serde_json::json!({
+            "enabled": state.server.memory.enabled(),
+            "auto_recall": state.server.memory.auto_recall_enabled(),
+            "record_conversations": state.server.memory.record_conversations_enabled(),
+        }))
+        .into_response()
+    }
+
+    /// `{ disabled: { "<tool_name>": true|false, ... } }` — sparse map
+    /// of toggles. `true` adds the tool to the runtime-disabled set,
+    /// `false` removes it. Names not in the map keep their current
+    /// state. Names that aren't real tools are silently ignored
+    /// (the dashboard never sends them, and accepting them would just
+    /// waste memory).
+    #[derive(serde::Deserialize)]
+    struct ToolsPatch {
+        #[serde(default)]
+        disabled: std::collections::HashMap<String, bool>,
+    }
+
+    async fn patch_tools(
+        State(state): State<ApiState>,
+        headers: HeaderMap,
+        Json(patch): Json<ToolsPatch>,
+    ) -> axum::response::Response {
+        if !state.constellation.token_ok(presented_token(&headers)) {
+            return (StatusCode::UNAUTHORIZED, "unauthorized\n").into_response();
+        }
+        let known: std::collections::HashSet<String> =
+            crate::skills::registered_tool_names().into_iter().collect();
+        let mut set = state.server.runtime_disabled_tools.lock().unwrap();
+        for (name, disabled) in patch.disabled {
+            if !known.contains(&name) {
+                continue;
+            }
+            if disabled {
+                set.insert(name);
+            } else {
+                set.remove(&name);
+            }
+        }
+        let mut current: Vec<String> = set.iter().cloned().collect();
+        current.sort();
+        Json(serde_json::json!({ "disabled": current })).into_response()
+    }
+
+    async fn patch_browser(
+        State(state): State<ApiState>,
+        headers: HeaderMap,
+        Json(patch): Json<crate::skills::browser_session::BrowserConfigPatch>,
+    ) -> axum::response::Response {
+        if !state.constellation.token_ok(presented_token(&headers)) {
+            return (StatusCode::UNAUTHORIZED, "unauthorized\n").into_response();
+        }
+        let mgr = crate::skills::browser_session::manager().await;
+        let cfg = mgr.apply_runtime_patch(patch).await;
+        Json(serde_json::json!({
+            "idle_timeout_secs": cfg.idle_timeout_secs,
+            "max_concurrent": cfg.max_concurrent,
+        }))
+        .into_response()
+    }
+
+    /// `DELETE /api/browser/sessions/:id` — kill a session from the
+    /// dashboard. Idempotent at the listing level (unknown session
+    /// returns 404; the dashboard refreshes from the next WS tick).
+    async fn close_browser_session(
+        State(state): State<ApiState>,
+        headers: HeaderMap,
+        axum::extract::Path(id): axum::extract::Path<String>,
+    ) -> axum::response::Response {
+        if !state.constellation.token_ok(presented_token(&headers)) {
+            return (StatusCode::UNAUTHORIZED, "unauthorized\n").into_response();
+        }
+        let mgr = match crate::skills::browser_session::manager_if_init() {
+            Some(m) => m,
+            None => return (StatusCode::NOT_FOUND, "no browser sessions\n").into_response(),
+        };
+        match mgr.close(&id).await {
+            Ok(()) => Json(serde_json::json!({ "closed": id })).into_response(),
+            Err(e) => (StatusCode::NOT_FOUND, format!("{e}\n")).into_response(),
+        }
+    }
+
+    /// `POST /api/browser/personas/:name/reset` — confirm-reset a poisoned
+    /// persona from the dashboard. Disposes the current session+context
+    /// and creates a fresh one; the persona state returns to healthy.
+    async fn reset_browser_persona(
+        State(state): State<ApiState>,
+        headers: HeaderMap,
+        axum::extract::Path(name): axum::extract::Path<String>,
+    ) -> axum::response::Response {
+        if !state.constellation.token_ok(presented_token(&headers)) {
+            return (StatusCode::UNAUTHORIZED, "unauthorized\n").into_response();
+        }
+        let mgr = match crate::skills::browser_session::manager_if_init() {
+            Some(m) => m,
+            None => return (StatusCode::NOT_FOUND, "no browser sessions\n").into_response(),
+        };
+        match mgr.persona_reset(&name).await {
+            Ok(sid) => Json(serde_json::json!({
+                "name": name,
+                "session_id": sid,
+                "state": "healthy",
+            }))
+            .into_response(),
+            Err(e) => (StatusCode::BAD_REQUEST, format!("{e}\n")).into_response(),
+        }
+    }
+
+    /// `GET /api/memory/graph` — solution graph snapshot for the
+    /// dashboard explorer. Query params:
+    /// - `mode`: `all` (default) | `filter` | `focus`
+    /// - `tag`, `query`, `hide_superseded` (for `filter` mode)
+    /// - `id`, `depth` (for `focus` mode)
+    ///
+    /// Returns `{ nodes: [...], edges: [...] }`. Auth: same bearer
+    /// as the WS feed and other /api/* endpoints.
+    #[derive(serde::Deserialize)]
+    struct GraphQuery {
+        #[serde(default)]
+        mode: Option<String>,
+        #[serde(default)]
+        tag: Option<String>,
+        #[serde(default)]
+        query: Option<String>,
+        #[serde(default)]
+        hide_superseded: Option<bool>,
+        #[serde(default)]
+        id: Option<String>,
+        #[serde(default)]
+        depth: Option<u32>,
+    }
+    async fn memory_graph(
+        State(state): State<ApiState>,
+        headers: HeaderMap,
+        axum::extract::Query(q): axum::extract::Query<GraphQuery>,
+    ) -> axum::response::Response {
+        if !state.constellation.token_ok(presented_token(&headers)) {
+            return (StatusCode::UNAUTHORIZED, "unauthorized\n").into_response();
+        }
+        let mode = match q.mode.as_deref() {
+            Some("filter") => crate::skills::memory::GraphMode::Filter {
+                tag: q.tag,
+                query: q.query,
+                hide_superseded: q.hide_superseded.unwrap_or(false),
+            },
+            Some("focus") => match q.id {
+                Some(id) if !id.trim().is_empty() => crate::skills::memory::GraphMode::Focus {
+                    id,
+                    depth: q.depth.unwrap_or(2),
+                },
+                _ => return (StatusCode::BAD_REQUEST, "focus mode requires id\n").into_response(),
+            },
+            _ => crate::skills::memory::GraphMode::All,
+        };
+        let snap = state.server.memory.graph_snapshot(mode).await;
+        Json(snap).into_response()
+    }
+
+    let state = ApiState {
+        server,
+        constellation,
+    };
+    axum::Router::new()
+        .route(
+            "/api/settings/constellation",
+            axum::routing::post(patch_constellation),
+        )
+        .route("/api/settings/server", axum::routing::post(patch_server))
+        .route("/api/settings/memory", axum::routing::post(patch_memory))
+        .route("/api/settings/tools", axum::routing::post(patch_tools))
+        .route("/api/settings/browser", axum::routing::post(patch_browser))
+        .route(
+            "/api/browser/sessions/{id}",
+            axum::routing::delete(close_browser_session),
+        )
+        .route(
+            "/api/browser/personas/{name}/reset",
+            axum::routing::post(reset_browser_persona),
+        )
+        .route("/api/memory/graph", axum::routing::get(memory_graph))
+        .with_state(state)
+        // The dashboard SPA may be served from a different origin
+        // (port-separated standalone container, remote deployment).
+        // The /api/* surface is already auth-gated by the bearer
+        // token, so the CORS layer just adds permissive headers + a
+        // 204 reply for OPTIONS preflights. Embedded same-origin
+        // requests get the same headers without ill effect.
+        .layer(axum::middleware::from_fn(api_cors))
+}
+
+/// CORS middleware for the /api/* surface. Echoes the request's
+/// `Origin`, allows GET/POST/DELETE + the headers the dashboard sends
+/// (Content-Type, Authorization), and short-circuits OPTIONS
+/// preflights with 204 so a cross-origin fetch from the standalone
+/// dashboard container actually completes.
+async fn api_cors(
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    use axum::http::{header, HeaderValue, Method, StatusCode};
+    use axum::response::IntoResponse;
+    let origin = req
+        .headers()
+        .get(header::ORIGIN)
+        .cloned()
+        .unwrap_or_else(|| HeaderValue::from_static("*"));
+    if req.method() == Method::OPTIONS {
+        let mut resp = StatusCode::NO_CONTENT.into_response();
+        let h = resp.headers_mut();
+        h.insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, origin);
+        h.insert(
+            header::ACCESS_CONTROL_ALLOW_METHODS,
+            HeaderValue::from_static("GET, POST, DELETE, OPTIONS"),
+        );
+        h.insert(
+            header::ACCESS_CONTROL_ALLOW_HEADERS,
+            HeaderValue::from_static("authorization, content-type"),
+        );
+        h.insert(
+            header::ACCESS_CONTROL_MAX_AGE,
+            HeaderValue::from_static("600"),
+        );
+        return resp;
+    }
+    let mut resp = next.run(req).await;
+    let h = resp.headers_mut();
+    h.insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, origin);
+    h.insert(
+        header::ACCESS_CONTROL_EXPOSE_HEADERS,
+        HeaderValue::from_static("content-type"),
+    );
+    resp
+}
+
+/// Static dashboard route — serves the Nuxt SPA embedded into the binary
+/// at compile time by `build.rs` (see [`ws::DASHBOARD`]). Path layout:
+/// - `GET /` → redirect to `/dashboard/`.
+/// - `GET /dashboard/` → `index.html`.
+/// - `GET /dashboard/{*path}` → the matching file under
+///   `frontend/.output/public/`.
+///
+/// When the dashboard wasn't built (no npm at compile time), the route
+/// returns a small HTML page telling the operator how to build it. The
+/// rest of the server (MCP, `/ws/status`, constellation endpoints)
+/// works regardless.
+fn dashboard_routes() -> axum::Router {
+    use axum::http::{header, StatusCode};
+    use axum::response::{Html, IntoResponse, Redirect};
+
+    async fn redirect_root() -> impl axum::response::IntoResponse {
+        Redirect::permanent("/dashboard/")
+    }
+
+    async fn serve(path: axum::extract::Path<String>) -> axum::response::Response {
+        serve_path(&path.0).await
+    }
+
+    async fn serve_index() -> axum::response::Response {
+        serve_path("index.html").await
+    }
+
+    async fn serve_path(raw: &str) -> axum::response::Response {
+        let path = if raw.is_empty() || raw.ends_with('/') {
+            format!("{raw}index.html")
+        } else {
+            raw.to_string()
+        };
+        if let Some(file) = ws::DASHBOARD.get_file(&path) {
+            let mime = mime_for(&path);
+            return ([(header::CONTENT_TYPE, mime)], file.contents()).into_response();
+        }
+        // No file at that path. If the dashboard wasn't built at all,
+        // show the "how to build" page; otherwise fall back to the
+        // SPA's index.html so client-side routing still works.
+        if ws::DASHBOARD.files().next().is_none() {
+            return Html(NOT_BUILT_PAGE).into_response();
+        }
+        if let Some(index) = ws::DASHBOARD.get_file("index.html") {
+            return (
+                [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
+                index.contents(),
+            )
+                .into_response();
+        }
+        (StatusCode::NOT_FOUND, "not found\n").into_response()
+    }
+
+    fn mime_for(path: &str) -> &'static str {
+        let lower = path.to_lowercase();
+        if lower.ends_with(".html") {
+            "text/html; charset=utf-8"
+        } else if lower.ends_with(".js") || lower.ends_with(".mjs") {
+            "application/javascript"
+        } else if lower.ends_with(".css") {
+            "text/css; charset=utf-8"
+        } else if lower.ends_with(".json") {
+            "application/json"
+        } else if lower.ends_with(".svg") {
+            "image/svg+xml"
+        } else if lower.ends_with(".png") {
+            "image/png"
+        } else if lower.ends_with(".jpg") || lower.ends_with(".jpeg") {
+            "image/jpeg"
+        } else if lower.ends_with(".gif") {
+            "image/gif"
+        } else if lower.ends_with(".webp") {
+            "image/webp"
+        } else if lower.ends_with(".ico") {
+            "image/x-icon"
+        } else if lower.ends_with(".woff2") {
+            "font/woff2"
+        } else if lower.ends_with(".woff") {
+            "font/woff"
+        } else if lower.ends_with(".map") {
+            "application/json"
+        } else {
+            "application/octet-stream"
+        }
+    }
+
+    const NOT_BUILT_PAGE: &str = r#"<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>lodestone-mcp dashboard — not built</title>
+  <style>
+    body { font-family: ui-monospace, Menlo, Consolas, monospace; background:#0f1115; color:#e2e8f0; max-width:780px; margin:6rem auto; padding:0 1.5rem; line-height:1.6; }
+    h1 { font-size:1.25rem; }
+    code, pre { background:#1d2230; border:1px solid #252b3c; border-radius:6px; padding:.15rem .35rem; }
+    pre { padding:1rem; overflow:auto; }
+    a { color:#60a5fa; }
+  </style>
+</head>
+<body>
+  <h1>Dashboard not built</h1>
+  <p>
+    The <code>lodestone-mcp</code> binary was built without the Nuxt
+    dashboard — usually because <code>npm</code> wasn't on <code>PATH</code>
+    at compile time. Install <a href="https://nodejs.org/">Node.js</a>
+    (≥ 18) and rebuild:
+  </p>
+  <pre>cargo clean &amp;&amp; cargo build</pre>
+  <p>
+    The MCP server, the <code>/ws/status</code> WebSocket feed, and the
+    <code>/constellation/*</code> endpoints all work without the
+    dashboard.
+  </p>
+  <p>
+    During dashboard development you can also run Nuxt's hot-reloading
+    dev server separately — see
+    <code>frontend/README.md</code>.
+  </p>
+</body>
+</html>
+"#;
+
+    axum::Router::new()
+        .route("/", axum::routing::get(redirect_root))
+        .route("/dashboard", axum::routing::get(serve_index))
+        .route("/dashboard/", axum::routing::get(serve_index))
+        .route("/dashboard/{*path}", axum::routing::get(serve))
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "lodestone_mcp=info,rmcp=warn".into()),
-        )
-        .init();
+    tracing_control::init();
 
     let mut cfg = Config::load();
     // Default the constellation node id to a stable, machine-derived id (mixed with the
@@ -760,6 +1610,47 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
+    // MQTT — one shared client serving both the standalone mqtt_* tools
+    // and the meshtastic decoder layer. Skipped when [mqtt] is disabled
+    // or the broker URL is empty/invalid; on failure we log a WARN and
+    // leave the tools wired but failing per-call with an actionable
+    // message (the dispatch wrapper surfaces it to the LLM).
+    let mqtt_client: Option<Arc<skills::mqtt::MqttClient>> = if cfg.mqtt.enabled {
+        match skills::mqtt::MqttClient::start(&cfg.mqtt).await {
+            Ok(client) => {
+                tracing::info!(
+                    target: "mqtt",
+                    broker = %client.broker(),
+                    "MQTT client connected"
+                );
+                // Meshtastic auto-subscribe rides on the same client.
+                if cfg.meshtastic.enabled && cfg.meshtastic.auto_subscribe {
+                    let topic = skills::meshtastic::topic_filter(&cfg.meshtastic);
+                    if let Err(e) = client.subscribe(&topic, cfg.mqtt.default_qos).await {
+                        tracing::warn!(
+                            target: "meshtastic",
+                            topic, error = %e,
+                            "meshtastic auto-subscribe failed"
+                        );
+                    } else {
+                        tracing::info!(
+                            target: "meshtastic",
+                            topic,
+                            "meshtastic auto-subscribed to mesh JSON topic"
+                        );
+                    }
+                }
+                Some(client)
+            }
+            Err(e) => {
+                tracing::warn!(target: "mqtt", error = %e, "MQTT startup failed; mqtt_* and meshtastic_* tools will return per-call errors");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     let server = Lodestone::new(
         registry,
         cfg.stackexchange.default_site.clone(),
@@ -783,11 +1674,17 @@ async fn main() -> anyhow::Result<()> {
         memory,
         cfg.python.clone(),
         cfg.systemd.clone(),
+        mqtt_client,
         cfg.clone(),
         &cfg.tools.enabled,
         &tools_disabled,
     );
     let ct = CancellationToken::new();
+
+    // Hold an Arc handle for the WebSocket dashboard feed BEFORE the MCP
+    // service closure moves `server`. The Lodestone struct's heavy fields
+    // are already `Arc`-shared internally, so cloning here is cheap.
+    let server_for_ws = Arc::new(server.clone());
 
     let service = StreamableHttpService::new(
         move || Ok(server.clone()),
@@ -805,10 +1702,24 @@ async fn main() -> anyhow::Result<()> {
     }
     let mut app = axum::Router::new()
         .route("/health", axum::routing::get(|| async { "ok" }))
-        .merge(mcp);
+        .merge(mcp)
+        // `/ws/status` — dashboard push feed. Auth via `?token=…` against
+        // `[network].token` (separate from `auth_token`, same trust domain
+        // as the constellation endpoints).
+        .merge(ws_routes(server_for_ws.clone()))
+        // `/dashboard/{*path}` + `/` redirect — Nuxt SPA embedded into the
+        // binary at compile time. When npm wasn't on PATH at build time
+        // the route returns a "not built — install Node and rebuild"
+        // page instead of the SPA.
+        .merge(dashboard_routes());
 
     // Constellation: mount peer endpoints and start discovery/sync (opt-in).
     if let Some(h) = &constellation {
+        // Per-subsystem ephemeral settings endpoints live on the MCP
+        // listener (the dashboard talks to them from the same origin
+        // it loads from). The constellation-port listener intentionally
+        // exposes only `/constellation/*`.
+        app = app.merge(api_routes(server_for_ws.clone(), h.clone()));
         let port_of = |addr: &str| addr.rsplit(':').next().and_then(|p| p.parse::<u16>().ok());
         let sep_bind = cfg.network.bind.trim();
         if sep_bind.is_empty() {

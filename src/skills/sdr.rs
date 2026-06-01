@@ -18,9 +18,6 @@ use tokio::process::Command;
 use crate::skills::{schema_for, NoArgs, Skill, SkillCtx};
 use crate::{internal, invalid, text_result};
 
-/// Tool names (gated by `[sdr].enabled` in `disabled_by_config`).
-pub const TOOL_NAMES: &[&str] = &["sdr_devices", "sdr_scan"];
-
 /// Run a command with a deadline, killing it on timeout (kill-on-drop). Returns
 /// stdout (lossy UTF-8) on success. Missing binary → a clear install hint.
 async fn run(program: &str, args: &[String], timeout_secs: u64) -> Result<String> {
@@ -232,6 +229,36 @@ fn format_peaks(bins: &[Bin], top: usize, bin_hz: i64) -> String {
         ));
     }
     lines.join("\n")
+}
+
+pub struct Family;
+impl crate::skills::FamilyMeta for Family {
+    fn family(&self) -> &'static str {
+        "sdr"
+    }
+    fn tools(&self) -> Vec<&'static str> {
+        skills().iter().map(|s| s.name()).collect()
+    }
+    fn description(&self) -> &'static str {
+        "Drive software-defined radios (rtl-sdr / hackrf / etc.) for spectrum sweeps and \
+         capture. Off by default; requires the device USB drivers plus the matching SDR \
+         CLI tools on `$PATH`."
+    }
+    fn check_capability(&self) -> crate::skills::SkillCapability {
+        use crate::skills::{binary_on_path, SkillCapability};
+        // SoapySDR is the userspace gateway most SDR tools shell out
+        // to. We accept either `SoapySDRUtil` (preferred) or the
+        // older `rtl_test` for an RTL-SDR-only setup. Either present
+        // → Ready.
+        if binary_on_path("SoapySDRUtil") || binary_on_path("rtl_test") {
+            SkillCapability::Ready
+        } else {
+            SkillCapability::unavailable(
+                "no SoapySDR / rtl-sdr utilities on PATH",
+                "install soapysdr-tools or rtl-sdr, or mount the USB SDR device",
+            )
+        }
+    }
 }
 
 /// The skills this module contributes (gating happens in `disabled_by_config`).

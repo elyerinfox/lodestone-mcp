@@ -14,10 +14,24 @@ model can reach for the right shape of memory without overloading one tool:
 3. **Synonyms** — single-token aliases that get folded everywhere queries are
    normalized, so a rewording finds the prior entry (`synonym_*`).
 
-A fourth piece sits *over* all of these: **intrinsic recall**, a dispatch
-wrapper that auto-prepends a "💡 prior solutions" preamble to every
-query-bearing tool call. The model never has to call `solution_find` — recall
-fires by itself.
+On top of those, a **frictionless on-ramp** lets the model not-think about
+which shape to use:
+
+- **`remember { text, as? }`** — auto-derives a key, auto-extracts tags,
+  writes a memo by default. Text shaped like a recipe (`→`, starts with
+  `to`/`when`/`if`/`fix:`/`solution:`/`use`) auto-classifies as a solution.
+  Force the shape with `as: "fact" | "solution"`.
+- **`remember_fact { text }`** — always a memo, no classifier.
+- **`remember_solution { text, problem?, summary? }`** — always a solution.
+  First sentence becomes the problem; rest becomes the content.
+- **`recall { query, kinds?, limit? }`** — one merged hit list across memos
+  + solutions + phrasings. Replaces calling `memory_search` and
+  `solution_find` separately.
+
+And another piece sits *over* all of these: **intrinsic recall**, a dispatch
+wrapper that auto-prepends a "💡 prior solutions" + "📝 N facts you noted"
+preamble to every query-bearing tool call. The model never has to call
+`solution_find` or `memory_search` — recall fires by itself.
 
 > All recall hits are **advisory**. Old solutions may be stale; the model is
 > instructed to verify before reusing, and to record an update when it learns
@@ -55,7 +69,7 @@ flowchart LR
 
 Every tool whose arguments carry a free-text `query` (the entire search family,
 arxiv / wikipedia / pubmed / openalex / hf_* / standards / rfc / news / osm_* /
-task_run / …) is wrapped at dispatch time. When the wrapper sees a non-empty
+search_async / …) is wrapped at dispatch time. When the wrapper sees a non-empty
 `query`, it:
 
 1. Canonicalizes the query (folding synonyms).
@@ -64,7 +78,12 @@ task_run / …) is wrapped at dispatch time. When the wrapper sees a non-empty
 3. For each kept hit, walks the `superseded-by` chain forward to find the
    current head.
 4. Pulls each hit's outgoing typed links.
-5. Prepends a "💡 N prior solutions" preamble block to the tool's response.
+5. Runs a LIKE search against the memo store for the same query (capped at
+   3 hits) when `[memory].auto_recall_facts` is on.
+6. Prepends two preamble blocks to the tool's response: "💡 N prior
+   solutions" from the solution store and "📝 N facts you noted" from the
+   memo store. Either half can be empty; the wrapper skips the block in
+   that case.
 
 ```mermaid
 sequenceDiagram
@@ -82,9 +101,33 @@ sequenceDiagram
     Wrapper-->>Model: result.content = [preamble, search results]
 ```
 
-Tools in the **memory / solution / synonym** family are excluded from the
-wrapper — otherwise calling `solution_find` would surface its own results as a
-recall preamble, recurse, and become noise.
+Tools in the **memory / solution / synonym / conversation / remember /
+recall** family are excluded from the wrapper — otherwise calling
+`solution_find` would surface its own results as a recall preamble, recurse,
+and become noise.
+
+### Backgrounded calls skip recall + recording (by design)
+
+When a call uses the global `background: true` flag (or the dedicated launcher
+tools `search_async` / `mqtt_listen` / `meshtastic_listen`), the dispatch
+wrapper spawns the skill body into the [`TaskRuntime`](../src/tasks.rs) and
+returns a `task_id` immediately. **The foreground side effects intentionally
+do NOT fire on the background path:**
+
+- **No auto-recall preamble** is prepended to the eventual `tasks_result`
+  body. The runtime body has no notion of the conversation that launched it,
+  and threading recall through asynchronously would race against the model's
+  next turn.
+- **No conversation-turn row** is written for the backgrounded call. The
+  task is its own observable record (`tasks_get`, `tasks_result`); duplicating
+  it as a conversation turn would double-count and confuse `conversation_show`.
+
+If the model wants either after a backgrounded result lands, it calls them
+directly: `recall { query: "<original query>" }` against whatever the result
+contained, and `conversation_show { id: "<current conv>" }` to walk what
+happened around it. This is intentional v1 behavior — purely additive to
+move later if cross-conversation task ownership gets defined. Documented
+inline in `src/skills/mod.rs::route`.
 
 ### What a preamble looks like
 
@@ -99,12 +142,19 @@ recall preamble, recurse, and become noise.
     summary: Single-binary alternative; ACME without certbot
     links: ─related-to→ sol-9  ─depends-on→ sol-7
     ↳ solution_graph id="sol-12" to walk further, solution_related id="sol-12" for ranked neighbors
+
+📝 1 fact you noted about this (advisory):
+  • lodestone-tls-cert-path: certs live under /etc/lodestone/tls/ — Caddy needs read access via the lodestone group
 ───
 ```
 
 The `⚠ superseded` line is load-bearing: surfacing an obsolete hit without
 pointing at the chain head would quietly steer the model into stale prior work,
 which is the opposite of what the memory layer is for.
+
+The `📝` half is gated by `[memory].auto_recall_facts` (default `true`) AND
+the master `[memory].auto_recall`. Turn the fact half off independently when
+the memo store is noisier than the solution store for a given session.
 
 ## Key→value notes — `memory_*`
 
@@ -463,7 +513,8 @@ max_entries        = 10000            # soft cap per store
 max_value_chars    = 64000            # per-value cap
 
 # --- Intrinsic recall --------------------------------------------------------
-auto_recall              = true       # auto-prepend "💡 prior solutions" preambles
+auto_recall              = true       # master switch for the dispatch-wrapper preamble
+auto_recall_facts        = true       # include the "📝 facts you noted" half of the preamble
 recall_threshold         = 30.0       # match score floor; lower = chattier
 recall_max_hits          = 3          # cap preamble length
 superseded_walk_max_hops = 5          # supersession-head walker; 0 disables warning

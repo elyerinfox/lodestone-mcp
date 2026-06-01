@@ -20,9 +20,6 @@ use crate::skills::{schema_for, NoArgs, Skill, SkillCtx};
 use crate::util::truncate_chars;
 use crate::{internal, text_result};
 
-/// Tool names (gated by `[serial].enabled` in `disabled_by_config`).
-pub const TOOL_NAMES: &[&str] = &["serial_ports", "serial_send", "serial_read"];
-
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct SendArgs {
     /// Port to open, e.g. `COM3` (Windows) or `/dev/ttyUSB0` (Linux).
@@ -97,7 +94,7 @@ impl Skill for SerialSend {
             if let Decision::Challenge(msg) = server.guard.check(
                 "serial_send",
                 "serial_send",
-                false, // no pre-authorize flag for serial; always confirm or trust
+                server.cfg.serial.allow_destructive,
                 &summary,
                 args.confirm.as_deref(),
                 args.trust.unwrap_or(false),
@@ -227,6 +224,36 @@ fn read(port: &str, baud: u32, timeout: Duration, max: usize) -> Result<Vec<u8>>
         }
     }
     Ok(out)
+}
+
+pub struct Family;
+impl crate::skills::FamilyMeta for Family {
+    fn family(&self) -> &'static str {
+        "serial"
+    }
+    fn tools(&self) -> Vec<&'static str> {
+        skills().iter().map(|s| s.name()).collect()
+    }
+    fn description(&self) -> &'static str {
+        "List, open, and (with confirmation) write to local serial ports — UART/USB-serial \
+         devices for microcontrollers, sensors, modems. Off by default; requires the host \
+         to actually expose serial devices the user account can access."
+    }
+    fn check_capability(&self) -> crate::skills::SkillCapability {
+        use crate::skills::SkillCapability;
+        // The serialport crate enumerates ports via the OS — an empty
+        // list is a legitimate "no devices attached", which we still
+        // report as Ready (the LLM might be expected to wait for a USB
+        // plug). We only flag unavailable when the enumeration itself
+        // fails (e.g. missing udev/libudev on a Linux container).
+        match serialport::available_ports() {
+            Ok(_) => SkillCapability::Ready,
+            Err(e) => SkillCapability::unavailable(
+                format!("serial port enumeration failed: {e}"),
+                "Linux containers need libudev1; the host needs a serial device subsystem",
+            ),
+        }
+    }
 }
 
 /// The skills this module contributes (gating happens in `disabled_by_config`).

@@ -8,17 +8,16 @@
 /lodestone.toml
 
 # On-disk file store ([store]) and any test store dirs — runtime data, not source.
-/.lodestone-store/
-/.store-test/
+# Unrooted so a stray `cargo test` / dev-binary run from a subdir doesn't slip
+# runtime DBs back into the tree.
+.lodestone-store/
+.store-test/
 
 # Memory/solution SQLite store ([memory]) — runtime data, never source.
-/.lodestone-memory/
+.lodestone-memory/
 
-# Smoke-harness runtime artifacts — the harness creates these in smoke/<node>/.
-# Only the configs (and the harness script itself) are committed.
-/smoke/*/.lodestone-memory/
-/smoke/*/.lodestone-store/
-/smoke/*/*.log
+# Local smoke/dev harness directory — runtime configs + state, never source.
+/smoke/
 
 # Claude Code session state.
 /.claude/

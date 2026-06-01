@@ -14,8 +14,6 @@ use serde_json::Value;
 use crate::skills::{fs_read_bytes, schema_for, Skill, SkillCtx};
 use crate::{invalid, text_result};
 
-pub const TOOL_NAMES: &[&str] = &["notebook_info", "notebook_cells"];
-
 fn load(server: &crate::Lodestone, path: &str) -> Result<(std::path::PathBuf, Value), McpError> {
     let (p, bytes) = fs_read_bytes(server, path)?;
     let json: Value =

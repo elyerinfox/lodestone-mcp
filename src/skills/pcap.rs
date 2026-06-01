@@ -14,8 +14,6 @@ use crate::skills::filesystem;
 use crate::skills::{schema_for, Skill, SkillCtx};
 use crate::{internal, text_result};
 
-pub const TOOL_NAMES: &[&str] = &["pcap_info", "pcap_packets"];
-
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct PathArgs {
     /// Path to a `.pcap` (or `.pcapng`) file inside `[filesystem].roots`.

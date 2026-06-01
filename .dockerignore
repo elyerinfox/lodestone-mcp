@@ -2,4 +2,17 @@
 .git
 .idea
 lodestone.toml
+
+# Heavy + machine-specific frontend artifacts. node_modules in
+# particular contains symlinks that Docker can't ship through the
+# build context on Windows. Stage 1 of the Dockerfile runs `npm ci`
+# inside the container, so we don't need the host's node_modules.
+frontend/node_modules
+frontend/.output
+frontend/.nuxt
+
+# Top-level markdown files (README, CONTRIBUTING, etc.) aren't
+# COPYed by the Dockerfile. This pattern matches only top-level
+# files — docs/*.md is still shipped because the Dockerfile's
+# `COPY docs ./docs` does include_str!()-needed files.
 *.md

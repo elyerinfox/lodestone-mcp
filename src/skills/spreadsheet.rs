@@ -19,9 +19,6 @@ use crate::skills::guard::Decision;
 use crate::skills::{schema_for, Skill, SkillCtx};
 use crate::{internal, invalid, text_result};
 
-/// Tool names (gated by `[spreadsheet].enabled` in `disabled_by_config`).
-pub const TOOL_NAMES: &[&str] = &["sheet_read", "sheet_query", "sheet_write"];
-
 /// Cap on rows/cols pulled into a single response so a huge sheet can't blow up output.
 const MAX_ROWS: usize = 1000;
 const MAX_COLS: usize = 64;
@@ -315,7 +312,7 @@ impl Skill for SheetWrite {
             if let Decision::Challenge(msg) = server.guard.check(
                 "sheet_write",
                 "sheet_write",
-                false,
+                server.cfg.spreadsheet.allow_destructive,
                 &summary,
                 args.confirm.as_deref(),
                 args.trust.unwrap_or(false),

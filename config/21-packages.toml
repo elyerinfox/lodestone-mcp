@@ -1,0 +1,31 @@
+# =============================================================================
+# config/21-packages.toml — OS / distro package managers (off by default)
+# =============================================================================
+#
+# Covers winget, chocolatey, apt, dnf, yum, apk, pacman, yay (AUR), brew,
+# zypper, pkg. The model picks the manager per call via the `kind` argument;
+# the family is `Ready` whenever at least one supported PM binary is on $PATH.
+#
+# Destructive operations (`package_install`, `package_upgrade`, `package_remove`)
+# route through the confirmation guard (golden rule 8) regardless of this flag.
+# `allow_destructive` pre-authorizes them for the session (skips the prompt) but
+# doesn't take them out of the guard's call path.
+#
+# Lodestone NEVER `sudo`s. Privilege escalation is the operator's choice —
+# passwordless sudo, container UID, doas wrapper, whatever. If a call needs
+# privilege it doesn't have, the PM's own error surfaces verbatim.
+#
+# Tools: package_managers, package_search, package_info, package_list,
+# package_updates, package_install, package_upgrade, package_remove.
+# -----------------------------------------------------------------------------
+
+[packages]
+# Expose the package_* tools. Env: LODESTONE_PACKAGES_ENABLED
+enabled = false
+
+# Pre-authorize package_install / package_upgrade / package_remove for the
+# session — the guard still fires but auto-decides "proceed" instead of
+# challenging. Set to true only when you trust the operator's judgment on
+# what the model is about to install/remove.
+# Env: LODESTONE_PACKAGES_ALLOW_DESTRUCTIVE
+allow_destructive = false

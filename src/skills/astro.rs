@@ -14,15 +14,6 @@ use serde::Deserialize;
 use crate::skills::{schema_for, Skill, SkillCtx};
 use crate::{invalid, text_result};
 
-pub const TOOL_NAMES: &[&str] = &[
-    "astro_sun",
-    "astro_moon",
-    "astro_star",
-    "astro_star_list",
-    "astro_visible_stars",
-    "astro_identify",
-];
-
 fn deg(r: f64) -> f64 {
     r.to_degrees()
 }

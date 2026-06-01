@@ -19,9 +19,6 @@ use crate::skills::guard::Decision;
 use crate::skills::{schema_for, NoArgs, Skill, SkillCtx};
 use crate::{internal, text_result};
 
-/// Tool names (gated by `[printer].enabled` in `disabled_by_config`).
-pub const TOOL_NAMES: &[&str] = &["printer_list", "printer_print"];
-
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct PrintArgs {
     /// Text to print.
@@ -78,7 +75,7 @@ impl Skill for PrinterPrint {
             if let Decision::Challenge(msg) = server.guard.check(
                 "printer_print",
                 "printer_print",
-                false,
+                server.cfg.printer.allow_destructive,
                 &summary,
                 args.confirm.as_deref(),
                 args.trust.unwrap_or(false),
@@ -203,6 +200,43 @@ async fn run_with_stdin(program: &str, args: &[&str], stdin: &[u8]) -> Result<()
         ));
     }
     Ok(())
+}
+
+pub struct Family;
+impl crate::skills::FamilyMeta for Family {
+    fn family(&self) -> &'static str {
+        "printer"
+    }
+    fn tools(&self) -> Vec<&'static str> {
+        skills().iter().map(|s| s.name()).collect()
+    }
+    fn description(&self) -> &'static str {
+        "List CUPS / Windows print queues and (with confirmation) submit jobs from local \
+         files. Off by default; requires a working print subsystem (`lp` / `lpstat` on \
+         Unix, the Windows print spooler) plus printer access."
+    }
+    fn check_capability(&self) -> crate::skills::SkillCapability {
+        use crate::skills::SkillCapability;
+        // The OS print stack: CUPS via `lpstat`/`lp` on Unix, Windows
+        // via builtin print API. Containers without CUPS report
+        // unavailable so operators know they need to install
+        // cups-client or extend the image.
+        #[cfg(windows)]
+        {
+            SkillCapability::Ready
+        }
+        #[cfg(not(windows))]
+        {
+            if crate::skills::binary_on_path("lpstat") {
+                SkillCapability::Ready
+            } else {
+                SkillCapability::unavailable(
+                    "no `lpstat` on PATH (CUPS missing)",
+                    "install cups-client (apt/brew/dnf) or extend the container image",
+                )
+            }
+        }
+    }
 }
 
 /// The skills this module contributes (gating happens in `disabled_by_config`).

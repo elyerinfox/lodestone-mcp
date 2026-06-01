@@ -22,8 +22,6 @@ use serde::Deserialize;
 use crate::skills::{schema_for, Skill, SkillCtx};
 use crate::{internal, invalid, text_result};
 
-pub const TOOL_NAMES: &[&str] = &["fcc_callsign", "fcc_amateur_bands", "fcc_radio_service"];
-
 // ---------------------------------------------------------------------------
 // fcc_callsign — live ULS lookup
 // ---------------------------------------------------------------------------

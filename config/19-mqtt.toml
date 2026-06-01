@@ -1,0 +1,57 @@
+# =============================================================================
+# config/19-mqtt.toml — MQTT pub/sub client (off by default)
+# =============================================================================
+#
+# One persistent connection to a configured broker. Publish/subscribe handles
+# are cheap clones; one background event-loop task receives messages into a
+# ring buffer that `mqtt_recent` reads. The meshtastic skill rides on top —
+# same client, same buffer.
+#
+# Tools: mqtt_publish, mqtt_subscribe, mqtt_unsubscribe, mqtt_recent, mqtt_status.
+#
+# Secrets: [mqtt].password is **never** logged or echoed back. mqtt_status
+# reports it as `<set>` / `<unset>` (golden rule 11).
+# -----------------------------------------------------------------------------
+
+[mqtt]
+# Expose the mqtt_* tools and start the broker connection at startup.
+# Env: LODESTONE_MQTT_ENABLED
+enabled = false
+
+# Broker URL — `tcp://host:port` for plain MQTT, `tls://host:port` for MQTTS
+# over rustls. Aliases: `mqtt://`, `mqtts://`.
+# Env: LODESTONE_MQTT_BROKER
+broker = ""
+
+# MQTT client id sent on CONNECT. Empty → `lodestone-<8hex>` auto-derived from
+# the process id so reconnects keep the same id.
+# Env: LODESTONE_MQTT_CLIENT_ID
+client_id = ""
+
+# Optional username on CONNECT.
+# Env: LODESTONE_MQTT_USERNAME
+username = ""
+
+# Optional password. **Secret** — never logged. mqtt_status reports presence as
+# `<set>` / `<unset>`.
+# Env: LODESTONE_MQTT_PASSWORD
+password = ""
+
+# Keep-alive interval in seconds (CONNECT). Default 60.
+# Env: LODESTONE_MQTT_KEEP_ALIVE_SECS
+keep_alive_secs = 60
+
+# Capacity of the in-memory ring buffer that mqtt_recent / meshtastic_messages
+# read from. Default 500. Oldest messages are evicted as new ones arrive.
+# Env: LODESTONE_MQTT_BUFFER_SIZE
+buffer_size = 500
+
+# Default QoS for mqtt_publish / mqtt_subscribe when the caller omits it
+# (0, 1, or 2). Default 1.
+# Env: LODESTONE_MQTT_DEFAULT_QOS
+default_qos = 1
+
+# Topics to subscribe to automatically on startup. Useful for "always-on"
+# feeds; equivalent to running mqtt_subscribe at boot.
+# Example: auto_subscribe = ["home/#", "sensors/+/temp"]
+auto_subscribe = []

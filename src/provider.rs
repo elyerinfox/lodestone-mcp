@@ -298,6 +298,18 @@ impl Registry {
         }
     }
 
+    /// Per-feature capability advertisement for this node and every
+    /// peer we've seen a digest from. Surfaced by the new
+    /// `constellation_capabilities` tool. `cap_filter` (if set) hides
+    /// rows where the named capability is OFF — useful for "who can
+    /// do browser work?" lookups.
+    pub fn constellation_capabilities_report(&self, cap_filter: Option<&str>) -> String {
+        match &self.constellation {
+            Some(h) => h.capabilities_report(cap_filter),
+            None => "Constellation is disabled ([network].enabled = false).".to_string(),
+        }
+    }
+
     /// Seed ratio (served/fetched bytes) for one blob key-hash, if the constellation tracks
     /// it. Used to annotate file-store listings.
     pub(crate) fn blob_seed_ratio(&self, key_hash: &str) -> Option<(u64, u64, Option<f64>)> {

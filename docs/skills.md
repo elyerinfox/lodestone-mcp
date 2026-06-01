@@ -65,8 +65,11 @@ behind the search tools see [providers.md](providers.md).
 | [git](skills/git.md) | on `[git]` | `git_run` | Run git in a repo (destructive subcommands guarded). |
 | [ffmpeg](skills/ffmpeg.md) | **off** `[ffmpeg]` | `ffmpeg_probe`, `ffmpeg_convert` | Probe/convert local media (paths confined to roots; convert guarded). |
 | [spreadsheet](skills/spreadsheet.md) | **off** `[spreadsheet]` | `sheet_read`, `sheet_query`, `sheet_write` | Read/query/write CSV & XLSX (paths confined to roots; write guarded). |
-| [sysinfo](skills/sysinfo.md) | on `[sysinfo]` | `system_info`, `system_disks`, `system_gpu` | Host/CPU/memory/disk + NVIDIA GPU (read-only). |
+| [sysinfo](skills/sysinfo.md) | on `[sysinfo]` | `system_info`, `system_disks`, `system_gpu_nvidia`, `system_gpu_amd`, `system_gpu_intel`, `system_os_release` | Host/CPU/memory/disk + per-vendor GPU (NVIDIA / AMD / Intel) + OS release (read-only). |
 | [databases](skills/databases.md) | **off** `[databases]` | `db_query`, `redis_command` | Query Postgres/MySQL/Redis via a connection URL passed in the call (no preconfig; writes guarded). |
+| [mqtt](skills/mqtt.md) | **off** `[mqtt]` | `mqtt_publish`, `mqtt_subscribe`, `mqtt_unsubscribe`, `mqtt_recent`, `mqtt_status` | Generic MQTT pub/sub against a configured broker. One persistent connection, shared ring buffer. |
+| [meshtastic](skills/meshtastic.md) | **off** `[meshtastic]` | `meshtastic_messages`, `meshtastic_nodes`, `meshtastic_send`, `meshtastic_status` | Read/send Meshtastic LoRa mesh traffic via the JSON-over-MQTT bridge (rides on `[mqtt]`). |
+| [packages](skills/packages.md) | **off** `[packages]` | `package_managers`, `package_search`, `package_info`, `package_list`, `package_updates` + **destructive** `package_install`, `package_upgrade`, `package_remove` | Distro / OS package managers — winget, choco, apt, dnf, yum, apk, pacman, yay (AUR), brew, zypper, pkg. Destructive ops guard-gated. |
 
 ## Devices (off by default)
 
@@ -110,6 +113,7 @@ signal-processing family pairs with `wave_*` for FFT-of-decoded-audio flows.
 | [image](skills/image.md) | `image_info`, `image_exif`, `image_jpeg_analyze`, `image_png_analyze` | Format / dimensions / EXIF (incl. GPS) / JPEG-marker / PNG-chunk walk. Forensic divergence flags. Paths confined to roots. |
 | [chart](skills/chart.md) | `chart_line`, `chart_bar`, `chart_scatter`, `chart_histogram`, `chart_pie`, `chart_heatmap`, `chart_grafana`, `chart_stat`, `chart_gauge`, `chart_bar_gauge`, `chart_state_timeline`, `chart_candlestick`, `chart_sparkline`, `chart_canvas`, `chart_interactive`, `chart_mermaid` | Pure-Rust SVG charts (matplotlib equivalents + Grafana-style operational panels) + procedural canvas + interactive HTML (Chart.js / Plotly) + mermaid passthrough. |
 | [html](skills/html.md) | `html_render` | Execute HTML / a URL in headless Chrome and return diagnostics: console events, JS exceptions, network failures, HTTP 4xx/5xx errors. |
+| [browser_session](skills/browser_session.md) | `browser_open`, `browser_navigate`, `browser_click`, `browser_type`, `browser_wait`, `browser_extract`, `browser_eval`, `browser_screenshot`, `browser_list`, `browser_close`, `browser_persona_get`, `browser_persona_list`, `browser_persona_reset`, `browser_persona_delegate` | Long-lived headless-Chromium tabs the model drives across multiple tool calls. Sessions are ephemeral; **personas** are named long-lived warm identities (accumulate cookies — rate-limit relief). Constellation peers can ask us to host **guest sessions** under `[network.capabilities].browser`; the SSRF guard restricts those to public hosts. |
 
 ## Weather, geo & infrastructure (keyless)
 
@@ -146,8 +150,8 @@ signal-processing family pairs with `wave_*` for FFT-of-decoded-audio flows.
 | Skill | Tools | What |
 | --- | --- | --- |
 | [store](skills/store.md) | `cache_status`, `store_fetch`, `store_get`, `store_list`, `store_purge` | On-disk file store (`[store]`, off by default) + cache stats; shared over the [constellation](constellation.md). |
-| [tasks](skills/tasks.md) | `task_run`, `task_list`, `task_status`, `task_result`, `task_cancel` | Background jobs (off by default `[tasks]`): run a search off the request path, poll for results. |
-| [memory](skills/memory.md) | `memory_save`/`get`/`list`/`search`/`forget`, `solution_record`/`find`/`show`/`list`/`update`/`forget`/`link`/`unlink`/`graph`/`related`, `synonym_*` | Persistent memos + advisory recall of prior **solutions** across sessions (revisions tracked, fuzzy + synonym + tag matching, typed relation graph). Intrinsic recall fires as a preamble on every query-bearing tool call. On by default `[memory]`. |
+| [tasks](skills/tasks.md) | `search_async` | Launch a background search and get a `task_id`; manage via the MCP-spec `tasks_*` tools (off by default `[tasks]`). |
+| [memory](skills/memory.md) | `remember`, `remember_fact`, `remember_solution`, `recall`, `memory_save`/`get`/`list`/`search`/`forget`, `solution_record`/`find`/`show`/`list`/`update`/`forget`/`link`/`unlink`/`graph`/`related`, `synonym_*` | Persistent memos + advisory recall of prior **solutions** across sessions (revisions tracked, fuzzy + synonym + tag matching, typed relation graph). Frictionless `remember` auto-classifies fact vs solution + auto-keys + auto-tags; symmetric `recall` merges memo + solution + phrasing hits. Intrinsic recall fires a "💡 prior solutions" + "📝 facts you noted" preamble on every query-bearing tool call. On by default `[memory]`. |
 
 ## Utilities (local; translate/currency keyless)
 
@@ -163,7 +167,9 @@ signal-processing family pairs with `wave_*` for FFT-of-decoded-audio flows.
 ## Math & science (local, by field)
 
 Named-formula registries (compute by id from a `{var: value}` map; discover with the
-matching `*_formula_list`) plus the expression evaluator and equation solver.
+matching `*_formula_list`) plus the expression evaluator and equation solver. The
+[`formula`](skills/formula.md) module is the shared engine each domain dispatches
+through — no tools of its own.
 
 | Skill | Tools | What |
 | --- | --- | --- |
@@ -172,6 +178,7 @@ matching `*_formula_list`) plus the expression evaluator and equation solver.
 | [geometry](skills/geometry.md) | `geo_distance`, `geo_azimuth`, `geometry_formula`, `geometry_formula_list` | Great-circle distance/bearing; areas, volumes, Pythagoras, Heron, law of cosines. |
 | [trigonometry](skills/trigonometry.md) | `trig_formula`, `trig_formula_list` | sin/cos/tan + inverses (degrees), deg↔rad, law of sines/cosines, arc/sector. |
 | [physics](skills/physics.md) | `physics_formula`, `physics_formula_list`, `physical_constant`, `wave_frequency` | ~70 physics formulas (mechanics→fluids) + SI constants + wave f/λ/T. |
+| [formula](skills/formula.md) | (infrastructure) | Shared registry engine: input validation, listing, uniform response shape. Every `*_formula` / `*_formula_list` tool dispatches through it. |
 
 ## Finance & markets (keyless)
 
@@ -191,4 +198,17 @@ matching `*_formula_list`) plus the expression evaluator and equation solver.
 
 | Skill | Tools | What |
 | --- | --- | --- |
-| [meta](skills/meta.md) | `list_providers`, `constellation_status`, `constellation_peers`, `constellation_seeds` | Active providers; the constellation graph, hop distances, and seed ratios. |
+| [meta](skills/meta.md) | `list_providers`, `constellation_status`, `constellation_peers`, `constellation_seeds`, `constellation_capabilities` | Active providers; the constellation graph, hop distances, seed ratios, and per-feature capability advertisement ("who can do X?"). |
+
+## Infrastructure (no tools — backs other skills)
+
+These modules don't expose tools directly; they're the shared engines /
+guards that other skill modules build on top of. Each has its own doc
+so other skill docs (and the security audit) can link into a single
+canonical reference.
+
+| Module | Doc | What |
+| --- | --- | --- |
+| `guard` | [guard.md](skills/guard.md) | Client-agnostic two-call confirmation for destructive actions. First call returns a one-time token; second call with `confirm` runs. Bypassed by `[<family>].allow_destructive`. |
+| `ssrf` | [skills/ssrf.md](skills/ssrf.md) | URL guard the browser session manager applies to **guest sessions** (peer-hosted). Refuses RFC1918 / loopback / link-local / CGNAT / IPv6 ULA / local TLDs. Synchronous for literal IPs, DNS-resolving for hostnames. |
+| `formula` | [formula.md](skills/formula.md) | Shared named-formula registry. Backs `algebra_formula` / `geometry_formula` / `trig_formula` / `physics_formula` so each domain's catalog can be one closure per formula instead of one tool per formula. |

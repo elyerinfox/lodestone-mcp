@@ -15,13 +15,6 @@ use serde::Deserialize;
 use crate::skills::{schema_for, Skill, SkillCtx};
 use crate::{invalid, text_result};
 
-pub const TOOL_NAMES: &[&str] = &[
-    "signal_fft",
-    "signal_dominant_frequencies",
-    "signal_rms",
-    "signal_window",
-];
-
 fn validate(values: &[f64]) -> Result<(), McpError> {
     if values.len() < 2 {
         return Err(invalid("need at least 2 samples"));
