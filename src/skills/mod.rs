@@ -68,6 +68,7 @@ pub mod serial;
 pub mod shell;
 pub mod signal;
 pub mod spreadsheet;
+pub mod ssrf;
 pub mod standards;
 pub mod stocks;
 pub mod store;

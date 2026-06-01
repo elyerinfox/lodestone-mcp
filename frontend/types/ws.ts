@@ -48,6 +48,13 @@ export interface MemoryStats {
   record_conversations: boolean
 }
 
+export interface Capabilities {
+  query: boolean
+  retrieval: boolean
+  blob: boolean
+  browser: boolean
+}
+
 export interface PeerEntry {
   url: string
   node_id: string | null
@@ -55,6 +62,7 @@ export interface PeerEntry {
   reachable: boolean
   delegation_enabled: boolean
   known_peers: string[]
+  capabilities?: Capabilities
 }
 
 export interface ConstellationState {
@@ -78,6 +86,7 @@ export interface ConstellationState {
   mdns_configured: boolean
   sync_secs_configured: number
   request_timeout_ms_configured: number
+  local_capabilities: Capabilities
 }
 
 export interface Snapshot {

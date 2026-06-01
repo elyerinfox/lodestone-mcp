@@ -62,6 +62,15 @@ pub(crate) struct Digest {
     /// don't accidentally hammer a peer that hasn't advertised willingness.
     #[serde(default)]
     pub delegation_enabled: bool,
+    /// Per-feature opt-in advertisement: query / retrieval / blob /
+    /// browser. Used by `constellation_capabilities` and by the
+    /// delegation paths to filter peers. Mirrors the local
+    /// `[network].capabilities` config. `delegation_enabled` above is
+    /// kept as a backward-compat alias for `capabilities.retrieval`.
+    /// Older peers that omit this field land on the default
+    /// (`query=true, retrieval=false, blob=true, browser=false`).
+    #[serde(default)]
+    pub capabilities: crate::config::Capabilities,
     /// **Full** count of reachable peers this node knows about, used as the
     /// primary signal in `maybe_adopt_id`: when two constellations meet, the
     /// **larger** mesh wins so the smaller mesh adopts the larger one's id
@@ -185,6 +194,10 @@ struct Peer {
     /// digest, so it'll accept `POST /constellation/retrieve`. `false` until
     /// we've seen a digest that says otherwise.
     delegation_enabled: bool,
+    /// Per-feature opt-in set this peer advertised on its most recent
+    /// digest. `None` means we haven't seen a digest yet (treat as the
+    /// default — query+blob on, retrieval+browser off).
+    capabilities: Option<crate::config::Capabilities>,
 }
 
 impl Peer {
@@ -197,6 +210,7 @@ impl Peer {
             misses: 0,
             known: Vec::new(),
             delegation_enabled: false,
+            capabilities: None,
         }
     }
 
@@ -423,6 +437,22 @@ impl Constellation {
             bloom: BloomFilter::from_keys(&keys),
             peers,
             peer_count,
+            capabilities: self.effective_capabilities(),
+        }
+    }
+
+    /// What this node currently advertises as its per-feature opt-in
+    /// set. Reads through the runtime override for `retrieval` so the
+    /// existing dashboard toggle for `delegation_enabled` keeps
+    /// flipping the matching capability bit.
+    pub(crate) fn effective_capabilities(&self) -> crate::config::Capabilities {
+        crate::config::Capabilities {
+            query: self.cfg.capabilities.query,
+            // Runtime-tunable via the constellation settings drawer;
+            // the static cfg value is the starting point.
+            retrieval: self.delegation_enabled(),
+            blob: self.cfg.capabilities.blob,
+            browser: self.cfg.capabilities.browser,
         }
     }
 
@@ -959,6 +989,7 @@ impl Constellation {
                     reachable: p.reachable(),
                     delegation_enabled: p.delegation_enabled,
                     known_peers: p.known.clone(),
+                    capabilities: p.capabilities.clone(),
                 })
                 .collect()
         };
@@ -992,7 +1023,52 @@ impl Constellation {
             mdns_configured: self.cfg.mdns,
             sync_secs_configured: self.cfg.sync_secs,
             request_timeout_ms_configured: self.cfg.request_timeout_ms,
+            local_capabilities: self.effective_capabilities(),
         }
+    }
+
+    /// Read-only view of every known peer's currently-advertised
+    /// capability set. Powers the `constellation_capabilities` tool
+    /// and the outbound-delegation filter. Each row is
+    /// `(node_id_or_url, capabilities, reachable)`. `capabilities` is
+    /// `None` until we've successfully fetched the peer's digest at
+    /// least once.
+    pub(crate) fn peer_capability_view(
+        &self,
+    ) -> Vec<(String, Option<crate::config::Capabilities>, bool)> {
+        let table = self.peers.lock().unwrap();
+        table
+            .values()
+            .map(|p| {
+                let label = p.node_id.clone().unwrap_or_else(|| p.url.clone());
+                (label, p.capabilities.clone(), p.reachable())
+            })
+            .collect()
+    }
+
+    /// Return the URLs of reachable peers whose advertised capability
+    /// set has `cap` enabled. Used by the outbound-delegation paths
+    /// (#128) to filter peer candidates so we never ask a peer to do
+    /// something it didn't opt into.
+    pub(crate) fn peers_with_capability(&self, cap: &str) -> Vec<String> {
+        let table = self.peers.lock().unwrap();
+        table
+            .values()
+            .filter(|p| p.reachable())
+            .filter(|p| match (cap, p.capabilities.as_ref()) {
+                ("query", Some(c)) => c.query,
+                ("retrieval", Some(c)) => c.retrieval,
+                ("blob", Some(c)) => c.blob,
+                ("browser", Some(c)) => c.browser,
+                // No digest yet — treat conservatively as "not opted
+                // in" for everything except query/blob, which default
+                // to true.
+                ("query", None) => true,
+                ("blob", None) => true,
+                _ => false,
+            })
+            .map(|p| p.url.clone())
+            .collect()
     }
 
     /// Answer an incoming `/constellation/query`: serve from our own cache, else (while
@@ -1253,6 +1329,7 @@ impl Constellation {
                     let peer_cid = d.constellation_id.clone();
                     let peer_delegation = d.delegation_enabled;
                     let peer_peer_count = d.peer_count;
+                    let peer_caps = d.capabilities.clone();
                     gossiped.extend(d.peers.iter().take(MAX_GOSSIP_PEERS).cloned());
                     {
                         let mut peers = self.peers.lock().unwrap();
@@ -1262,6 +1339,7 @@ impl Constellation {
                             p.known = d.peers;
                             p.node_id = Some(d.node_id);
                             p.delegation_enabled = peer_delegation;
+                            p.capabilities = Some(peer_caps);
                         }
                     }
                     // Merge to the LARGER mesh; alphabetical id is only a
@@ -1366,6 +1444,70 @@ impl Constellation {
     /// gossip graph (direct peers = 1 hop; nodes only reachable through a neighbor's
     /// advertised peer list are 2+). Direct peers also show their machine id,
     /// reputation, and reachability.
+    /// Human-readable capability matrix: this node, then each peer
+    /// we've seen a digest from, with a row of ON/OFF flags for every
+    /// capability. `cap_filter` (when set) hides rows where the named
+    /// capability is OFF — answering "who can do X?".
+    pub(crate) fn capabilities_report(&self, cap_filter: Option<&str>) -> String {
+        use std::fmt::Write as _;
+        let own = self.effective_capabilities();
+        let mut out = String::new();
+        let _ = writeln!(
+            out,
+            "Constellation node {}  (constellation_id={})\n",
+            self.node_id,
+            self.constellation_id.lock().unwrap()
+        );
+        let _ = writeln!(out, "Capabilities a column shows:");
+        let _ = writeln!(
+            out,
+            "  query     — answer cache consults\n  retrieval — fetch URLs for peers \
+             (POST /constellation/retrieve)\n  blob      — serve file-store blobs to peers\n  \
+             browser   — accept delegated browser actions"
+        );
+        let _ = writeln!(out);
+        fn yn(b: bool) -> &'static str {
+            if b { "ON" } else { "off" }
+        }
+        let cap_str = |c: &crate::config::Capabilities| -> String {
+            format!(
+                "query={} retrieval={} blob={} browser={}",
+                yn(c.query),
+                yn(c.retrieval),
+                yn(c.blob),
+                yn(c.browser),
+            )
+        };
+        let cap_match = |c: &crate::config::Capabilities| -> bool {
+            match cap_filter {
+                Some("query") => c.query,
+                Some("retrieval") => c.retrieval,
+                Some("blob") => c.blob,
+                Some("browser") => c.browser,
+                _ => true,
+            }
+        };
+        if cap_match(&own) {
+            let _ = writeln!(out, "  [self]              {}", cap_str(&own));
+        }
+        let peers = self.peers.lock().unwrap();
+        let mut rows: Vec<_> = peers.values().collect();
+        rows.sort_by(|a, b| a.url.cmp(&b.url));
+        for p in rows {
+            let label = p.node_id.as_deref().unwrap_or(p.url.as_str());
+            match &p.capabilities {
+                Some(c) if cap_match(c) => {
+                    let _ = writeln!(out, "  {label:<20} {}", cap_str(c));
+                }
+                None if cap_filter.is_none() => {
+                    let _ = writeln!(out, "  {label:<20} (digest not yet seen)");
+                }
+                _ => {}
+            }
+        }
+        out
+    }
+
     pub(crate) fn peers_report(&self) -> String {
         let peers = self.peers.lock().unwrap();
         if peers.is_empty() {

@@ -138,6 +138,14 @@ struct Session {
     created_at_ms: i64,
     last_used_ms: AtomicI64,
     serial: Mutex<()>,
+    /// SSRF guard switch. `false` for the model's own
+    /// `browser_open` (the operator opted in to running tools locally
+    /// so we don't restrict them). `true` for sessions created on
+    /// behalf of a constellation peer via `/constellation/browser_pool`
+    /// (#128) — every navigation goes through
+    /// [`crate::skills::ssrf::assert_public`] to refuse local-network
+    /// hosts.
+    restrict_to_public: bool,
 }
 
 impl Session {
@@ -166,6 +174,23 @@ impl BrowserSessionManager {
     }
 
     pub async fn open(&self) -> Result<(String, String, String), McpError> {
+        self.open_internal(false).await
+    }
+
+    /// Open a session that runs through the SSRF guard on every
+    /// navigation. Used by the constellation-delegation path (#128)
+    /// so a peer can drive our browser without being able to
+    /// enumerate our LAN or hit cloud-metadata endpoints.
+    pub async fn open_restricted(
+        &self,
+    ) -> Result<(String, String, String), McpError> {
+        self.open_internal(true).await
+    }
+
+    async fn open_internal(
+        &self,
+        restrict_to_public: bool,
+    ) -> Result<(String, String, String), McpError> {
         let cfg = self.config().await;
         {
             let table = self.sessions.read().await;
@@ -204,6 +229,7 @@ impl BrowserSessionManager {
             created_at_ms: now,
             last_used_ms: AtomicI64::new(now),
             serial: Mutex::new(()),
+            restrict_to_public,
         });
         self.sessions.write().await.insert(id.clone(), session);
         Ok((id, url, String::new()))
@@ -215,6 +241,9 @@ impl BrowserSessionManager {
         url: &str,
     ) -> Result<(String, String), McpError> {
         let session = self.lookup(session_id).await?;
+        if session.restrict_to_public {
+            crate::skills::ssrf::assert_public(url).await?;
+        }
         let _g = session.serial.lock().await;
         session.touch();
         session
@@ -265,12 +294,22 @@ impl BrowserSessionManager {
         )
         .await;
         session.touch();
-        Ok(session
+        let url = session
             .page
             .url()
             .await
             .unwrap_or_default()
-            .unwrap_or_default())
+            .unwrap_or_default();
+        // If the click navigated to a private host on a restricted
+        // session, back out to about:blank and refuse so a peer can't
+        // chain a public landing page into a private internal one.
+        if session.restrict_to_public && !url.is_empty() && url != "about:blank" {
+            if let Err(e) = crate::skills::ssrf::assert_public(&url).await {
+                let _ = session.page.goto("about:blank").await;
+                return Err(e);
+            }
+        }
+        Ok(url)
     }
 
     pub async fn type_text(
@@ -313,12 +352,19 @@ impl BrowserSessionManager {
             .await;
         }
         session.touch();
-        Ok(session
+        let url = session
             .page
             .url()
             .await
             .unwrap_or_default()
-            .unwrap_or_default())
+            .unwrap_or_default();
+        if session.restrict_to_public && !url.is_empty() && url != "about:blank" {
+            if let Err(e) = crate::skills::ssrf::assert_public(&url).await {
+                let _ = session.page.goto("about:blank").await;
+                return Err(e);
+            }
+        }
+        Ok(url)
     }
 
     /// Wait until at least one element matches `selector`, or `timeout_ms`
@@ -488,6 +534,19 @@ impl BrowserSessionManager {
         script: &str,
     ) -> Result<serde_json::Value, McpError> {
         let session = self.lookup(session_id).await?;
+        if session.restrict_to_public {
+            // Raw JS gives the caller a `fetch()` to anywhere — bypasses
+            // every URL guard we've put on `navigate`. The conservative
+            // policy on delegated sessions is "no eval", which still
+            // leaves click / type / extract / wait as the navigation
+            // surface. Future work (#130 follow-up): a CDP request
+            // interceptor that bans private hosts at the network layer
+            // so eval can come back on with safety.
+            return Err(invalid(
+                "browser_eval is disabled on delegated sessions to prevent SSRF via fetch()"
+                    .to_string(),
+            ));
+        }
         let _g = session.serial.lock().await;
         session.touch();
         let result = session

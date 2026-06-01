@@ -93,6 +93,27 @@ id = ""
 state_file = ""
 
 # -----------------------------------------------------------------------------
+# [network.capabilities] — per-feature opt-in for what THIS node offers peers.
+# -----------------------------------------------------------------------------
+# Each peer publishes its capability set on its digest; the
+# `constellation_capabilities` tool answers "who can do X?". Delegation requests
+# for a capability the target peer hasn't opted in to are refused with a clear
+# error. These flags only gate INBOUND requests from constellation peers —
+# this node's own MCP client is never affected by them.
+#
+# Defaults reflect "share the cheap stuff, refuse the expensive/risky stuff":
+#   query     = true   answer cache consults (the whole point of joining a mesh)
+#   retrieval = false  accept URL-fetching jobs (mirrors `delegation_enabled`)
+#   blob      = true   serve file-store blobs we already cached
+#   browser   = false  accept delegated browser actions (much higher trust
+#                      surface than serving a cached search result)
+[network.capabilities]
+query = true
+retrieval = false
+blob = true
+browser = false
+
+# -----------------------------------------------------------------------------
 # [galaxy] — link CONSTELLATIONS across networks via a rendezvous broker.
 # -----------------------------------------------------------------------------
 # ENTIRELY OPTIONAL and off by default. A constellation is fully functional without

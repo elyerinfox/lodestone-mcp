@@ -215,6 +215,10 @@ pub struct ConstellationState {
     pub mdns_configured: bool,
     pub sync_secs_configured: u64,
     pub request_timeout_ms_configured: u64,
+    /// What this node advertises to the rest of the constellation —
+    /// the per-feature `query` / `retrieval` / `blob` / `browser`
+    /// opt-in set. Mirrors `[network].capabilities`.
+    pub local_capabilities: crate::config::Capabilities,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -231,4 +235,8 @@ pub struct PeerEntry {
     /// recent digest. Drives the swarm view's peer-to-peer edges. Empty
     /// until we've fetched the peer's digest at least once.
     pub known_peers: Vec<String>,
+    /// Per-feature opt-in set this peer advertised. `None` until we've
+    /// successfully fetched its digest.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub capabilities: Option<crate::config::Capabilities>,
 }

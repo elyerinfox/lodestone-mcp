@@ -506,6 +506,55 @@ pub struct Network {
     /// can't push out locally-fetched entries). 0 disables the separate
     /// budget. Default 64 MiB.
     pub delegation_max_cache_bytes: u64,
+
+    /// Per-feature opt-in for what this node offers the rest of the
+    /// constellation. Peers see these on the digest and can pick
+    /// based on them when looking for a delegate. Local tool calls
+    /// from this node's own MCP client are NEVER affected — these
+    /// flags only gate INBOUND requests from constellation peers.
+    /// See [`Capabilities`].
+    pub capabilities: Capabilities,
+}
+
+/// Per-feature opt-in for what this node offers constellation peers.
+/// Each field is independent so an operator can, for example, offer
+/// cache consults but refuse browser work. Peers learn these via the
+/// digest and the `constellation_capabilities` tool answers "which
+/// peers can do X". Defaults reflect "share the cheap stuff, refuse
+/// the expensive/risky stuff":
+///
+/// - `query`     ON: we always answer cache consults (the whole point
+///                  of joining a constellation). Turn off to be a
+///                  pure consumer that pulls but never serves.
+/// - `retrieval` OFF: opt-in URL-fetching for peers (drives
+///                  `POST /constellation/retrieve`). Mirrors the
+///                  legacy `delegation_enabled` flag, which stays as
+///                  an alias for backward-compat.
+/// - `blob`      ON: serve file-store blobs (PDFs we already cached)
+///                  to peers that ask. Turning this off keeps our
+///                  blobs local-only.
+/// - `browser`   OFF: accept delegated browser actions (open a tab,
+///                  navigate, extract). Off by default — a peer
+///                  driving our browser is a much higher trust
+///                  surface than serving a cached search result.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct Capabilities {
+    pub query: bool,
+    pub retrieval: bool,
+    pub blob: bool,
+    pub browser: bool,
+}
+
+impl Default for Capabilities {
+    fn default() -> Self {
+        Self {
+            query: true,
+            retrieval: false,
+            blob: true,
+            browser: false,
+        }
+    }
 }
 
 impl Default for Network {
@@ -531,6 +580,7 @@ impl Default for Network {
             delegation_max_bytes_per_job: 8 * 1024 * 1024,
             delegation_total_bytes_per_hour: 256 * 1024 * 1024,
             delegation_max_cache_bytes: 64 * 1024 * 1024,
+            capabilities: Capabilities::default(),
         }
     }
 }
