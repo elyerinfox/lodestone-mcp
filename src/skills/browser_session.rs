@@ -403,6 +403,9 @@ impl BrowserSessionManager {
     }
 
     pub async fn list(&self) -> Vec<SessionSummary> {
+        // Snapshot the session metadata without touching the pages — the
+        // dashboard list endpoint enriches with live URL/title via the
+        // separate `list_live` call, keeping the cheap path cheap.
         let table = self.sessions.read().await;
         let now = now_ms();
         let mut rows: Vec<SessionSummary> = table
@@ -413,11 +416,65 @@ impl BrowserSessionManager {
                     session_id: s.id.clone(),
                     created_secs_ago: ((now - s.created_at_ms) / 1000).max(0) as u64,
                     idle_secs: ((now - last) / 1000).max(0) as u64,
+                    url: None,
+                    title: None,
                 }
             })
             .collect();
         rows.sort_by(|a, b| a.session_id.cmp(&b.session_id));
         rows
+    }
+
+    /// Same as `list`, but each row also carries the live page URL and
+    /// title. Used by the dashboard's snapshot push (one CDP round-trip
+    /// per session per 5s tick — cheap for the default cap of 8).
+    pub async fn list_live(&self) -> Vec<SessionSummary> {
+        let snapshots: Vec<Arc<Session>> = {
+            let table = self.sessions.read().await;
+            table.values().cloned().collect()
+        };
+        let now = now_ms();
+        let mut rows: Vec<SessionSummary> = Vec::with_capacity(snapshots.len());
+        for s in snapshots {
+            let last = s.last_used_ms.load(Ordering::Relaxed);
+            // Concurrent tools on the same session serialize via
+            // s.serial; we *try_lock* so a busy session doesn't stall
+            // the dashboard tick. Missing URL/title degrades the row
+            // but doesn't break it.
+            let (url, title) = match s.serial.try_lock() {
+                Ok(_g) => (
+                    s.page.url().await.unwrap_or_default(),
+                    s.page.get_title().await.unwrap_or_default(),
+                ),
+                Err(_) => (None, None),
+            };
+            rows.push(SessionSummary {
+                session_id: s.id.clone(),
+                created_secs_ago: ((now - s.created_at_ms) / 1000).max(0) as u64,
+                idle_secs: ((now - last) / 1000).max(0) as u64,
+                url,
+                title,
+            });
+        }
+        rows.sort_by(|a, b| a.session_id.cmp(&b.session_id));
+        rows
+    }
+
+    /// Apply a sparse patch to the runtime config. Same pattern as the
+    /// memory / constellation drawers. Values are clamped to safe
+    /// ranges. Returns the post-patch state.
+    pub async fn apply_runtime_patch(
+        &self,
+        patch: BrowserConfigPatch,
+    ) -> BrowserSessionConfig {
+        let mut cfg = self.cfg.write().await;
+        if let Some(v) = patch.idle_timeout_secs {
+            cfg.idle_timeout_secs = v.clamp(30, 24 * 3600);
+        }
+        if let Some(v) = patch.max_concurrent {
+            cfg.max_concurrent = v.clamp(1, 64);
+        }
+        cfg.clone()
     }
 
     /// Run an arbitrary JS expression in the page and return its result
@@ -521,14 +578,26 @@ impl BrowserSessionManager {
     }
 }
 
-/// Listing row for `browser_list` and the dashboard. URL + title are
-/// added in the interaction commit so the listing reflects the live
-/// page state; for v1 we only carry session bookkeeping.
+/// Listing row for `browser_list` and the dashboard. `url`+`title` are
+/// `None` when populated through the cheap `list` path; the dashboard
+/// fetches them via `list_live` which adds a CDP round-trip per row.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct SessionSummary {
     pub session_id: String,
     pub created_secs_ago: u64,
     pub idle_secs: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+}
+
+/// Sparse patch the dashboard sends to `/api/settings/browser`. Same
+/// shape as the memory / constellation patches.
+#[derive(Debug, Default, Deserialize)]
+pub struct BrowserConfigPatch {
+    pub idle_timeout_secs: Option<u64>,
+    pub max_concurrent: Option<usize>,
 }
 
 // ---------------------------------------------------------------------------
@@ -672,6 +741,13 @@ pub async fn manager() -> Arc<BrowserSessionManager> {
         .get_or_init(|| async { BrowserSessionManager::new(BrowserSessionConfig::default()) })
         .await
         .clone()
+}
+
+/// Non-initializing accessor used by the dashboard snapshot path —
+/// returns `None` when no browser tool has been called yet so the
+/// snapshot stays cheap when the model isn't using the browser.
+pub fn manager_if_init() -> Option<Arc<BrowserSessionManager>> {
+    MANAGER.get().cloned()
 }
 
 // ---------------------------------------------------------------------------

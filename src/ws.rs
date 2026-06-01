@@ -58,12 +58,27 @@ pub enum WsMessage {
     Snapshot(Snapshot),
 }
 
-/// The three-subsystem snapshot.
+/// The four-subsystem snapshot.
 #[derive(Debug, Clone, Serialize)]
 pub struct Snapshot {
     pub server: ServerStatus,
     pub memory: MemoryStats,
     pub constellation: ConstellationState,
+    pub browser: BrowserState,
+}
+
+/// Browser session manager snapshot — open sessions + runtime knobs.
+/// Empty `sessions` is normal (no model has opened anything yet). The
+/// dashboard renders this on the `/browser` page.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct BrowserState {
+    /// Live page URL + title + age + idle for every open session.
+    pub sessions: Vec<crate::skills::browser_session::SessionSummary>,
+    /// Runtime-tunable: close a session idle this long. Mirrors
+    /// `BrowserSessionConfig.idle_timeout_secs`.
+    pub idle_timeout_secs: u64,
+    /// Runtime-tunable: cap on concurrently open sessions.
+    pub max_concurrent: usize,
 }
 
 /// Server-level information: build, uptime, what's active.

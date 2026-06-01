@@ -76,6 +76,7 @@ const navItems = [
   { to: '/tools', label: 'Tools' },
   { to: '/memory', label: 'Memory' },
   { to: '/constellation', label: 'Constellation' },
+  { to: '/browser', label: 'Browser' },
 ]
 
 // Provide the feed at the layout level so child pages can `inject()` it

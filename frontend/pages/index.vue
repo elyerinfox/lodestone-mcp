@@ -122,6 +122,25 @@
     </section>
 
     <section>
+      <SectionHeading>Browser</SectionHeading>
+      <div v-if="snapshot.browser.sessions.length === 0" class="text-sm text-slate-500">
+        No sessions open — the model opens one with
+        <span class="font-mono">browser_open</span>.
+      </div>
+      <div v-else class="grid grid-cols-2 gap-3 md:grid-cols-3">
+        <StatCard
+          label="Open"
+          :value="snapshot.browser.sessions.length"
+          :sub="`max ${snapshot.browser.max_concurrent}`"
+        />
+        <StatCard
+          label="Idle timeout"
+          :value="`${snapshot.browser.idle_timeout_secs}s`"
+        />
+      </div>
+    </section>
+
+    <section>
       <SectionHeading>Constellation</SectionHeading>
       <div v-if="!snapshot.constellation.enabled" class="text-sm text-slate-500">
         Constellation disabled — set

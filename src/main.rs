@@ -475,10 +475,26 @@ impl Lodestone {
             Some(c) => c.ws_state(),
             None => crate::ws::ConstellationState::default(),
         };
+        // Browser sessions are lazily initialized: the manager exists
+        // (`browser_open` would have created it on first call) only if
+        // some tool has touched it. Skip the OnceCell init here so the
+        // snapshot is cheap when the model never used the browser.
+        let browser = match crate::skills::browser_session::manager_if_init() {
+            Some(mgr) => {
+                let cfg = mgr.config().await;
+                crate::ws::BrowserState {
+                    sessions: mgr.list_live().await,
+                    idle_timeout_secs: cfg.idle_timeout_secs,
+                    max_concurrent: cfg.max_concurrent,
+                }
+            }
+            None => crate::ws::BrowserState::default(),
+        };
         crate::ws::Snapshot {
             server,
             memory,
             constellation,
+            browser,
         }
     }
 }
@@ -958,6 +974,44 @@ fn api_routes(
         Json(serde_json::json!({ "disabled": current })).into_response()
     }
 
+    async fn patch_browser(
+        State(state): State<ApiState>,
+        headers: HeaderMap,
+        Json(patch): Json<crate::skills::browser_session::BrowserConfigPatch>,
+    ) -> axum::response::Response {
+        if !state.constellation.token_ok(presented_token(&headers)) {
+            return (StatusCode::UNAUTHORIZED, "unauthorized\n").into_response();
+        }
+        let mgr = crate::skills::browser_session::manager().await;
+        let cfg = mgr.apply_runtime_patch(patch).await;
+        Json(serde_json::json!({
+            "idle_timeout_secs": cfg.idle_timeout_secs,
+            "max_concurrent": cfg.max_concurrent,
+        }))
+        .into_response()
+    }
+
+    /// `DELETE /api/browser/sessions/:id` — kill a session from the
+    /// dashboard. Idempotent at the listing level (unknown session
+    /// returns 404; the dashboard refreshes from the next WS tick).
+    async fn close_browser_session(
+        State(state): State<ApiState>,
+        headers: HeaderMap,
+        axum::extract::Path(id): axum::extract::Path<String>,
+    ) -> axum::response::Response {
+        if !state.constellation.token_ok(presented_token(&headers)) {
+            return (StatusCode::UNAUTHORIZED, "unauthorized\n").into_response();
+        }
+        let mgr = match crate::skills::browser_session::manager_if_init() {
+            Some(m) => m,
+            None => return (StatusCode::NOT_FOUND, "no browser sessions\n").into_response(),
+        };
+        match mgr.close(&id).await {
+            Ok(()) => Json(serde_json::json!({ "closed": id })).into_response(),
+            Err(e) => (StatusCode::NOT_FOUND, format!("{e}\n")).into_response(),
+        }
+    }
+
     let state = ApiState { server, constellation };
     axum::Router::new()
         .route(
@@ -967,6 +1021,11 @@ fn api_routes(
         .route("/api/settings/server", axum::routing::post(patch_server))
         .route("/api/settings/memory", axum::routing::post(patch_memory))
         .route("/api/settings/tools", axum::routing::post(patch_tools))
+        .route("/api/settings/browser", axum::routing::post(patch_browser))
+        .route(
+            "/api/browser/sessions/{id}",
+            axum::routing::delete(close_browser_session),
+        )
         .with_state(state)
 }
 

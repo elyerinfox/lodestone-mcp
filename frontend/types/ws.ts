@@ -84,6 +84,21 @@ export interface Snapshot {
   server: ServerStatus
   memory: MemoryStats
   constellation: ConstellationState
+  browser: BrowserState
+}
+
+export interface BrowserSession {
+  session_id: string
+  created_secs_ago: number
+  idle_secs: number
+  url?: string
+  title?: string
+}
+
+export interface BrowserState {
+  sessions: BrowserSession[]
+  idle_timeout_secs: number
+  max_concurrent: number
 }
 
 // Tagged envelope: matches `#[serde(tag = "type", content = "data")]`.
