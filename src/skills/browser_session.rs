@@ -43,7 +43,61 @@ pub const TOOL_NAMES: &[&str] = &[
     "browser_navigate",
     "browser_close",
     "browser_list",
+    "browser_click",
+    "browser_type",
+    "browser_wait",
+    "browser_extract",
+    "browser_eval",
+    "browser_screenshot",
 ];
+
+/// What the model wants back after an action.
+///
+/// - `None`: just the action's direct result (url / matched / values).
+/// - `Tree`: a compact list of interactive elements with stable
+///   selectors — cheap, text-only, the default reactive surface.
+/// - `Screenshot`: a base64-encoded PNG of the viewport.
+/// - `Both`: tree + screenshot.
+///
+/// Tools that take this default to `None` so a multi-step flow doesn't
+/// pay the observation cost every step. Pass `tree` after the action
+/// where the model needs to decide what to do next.
+#[derive(Debug, Clone, Copy, Deserialize, schemars::JsonSchema, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ObserveMode {
+    #[default]
+    None,
+    Tree,
+    Screenshot,
+    Both,
+}
+
+/// What the manager hands back to a tool when the caller asks to
+/// observe. `tree` is a `Vec` of interactive-element rows; only the
+/// fields actually populated are serialized so the wire shape stays
+/// compact. `screenshot_b64` is a base64 PNG of the viewport.
+#[derive(Debug, Clone, Default, serde::Serialize)]
+pub struct Observation {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tree: Option<Vec<TreeNode>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub screenshot_b64: Option<String>,
+}
+
+/// One row in the compact accessibility-style tree. `selector` is what
+/// the model passes to `browser_click` / `browser_type` to act on this
+/// element. `role` is the element's effective ARIA role (or tag-name
+/// for non-ARIA elements like `a`/`button`/`input`). `name` is the
+/// element's accessible name — aria-label if set, otherwise trimmed
+/// inner text. `value` is populated for inputs.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct TreeNode {
+    pub role: String,
+    pub name: String,
+    pub selector: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
+}
 
 /// Runtime-tunable knobs for the session manager. Exposed read/write
 /// via `/api/settings/browser` in a later commit; here they only have
@@ -191,6 +245,139 @@ impl BrowserSessionManager {
         Ok((final_url, title))
     }
 
+    pub async fn click(&self, session_id: &str, selector: &str) -> Result<String, McpError> {
+        let session = self.lookup(session_id).await?;
+        let _g = session.serial.lock().await;
+        session.touch();
+        let el = session
+            .page
+            .find_element(selector)
+            .await
+            .map_err(|e| invalid(format!("find_element {selector:?}: {e}")))?;
+        el.click()
+            .await
+            .map_err(|e| invalid(format!("click {selector:?}: {e}")))?;
+        // Best-effort: a click can trigger navigation; bound the wait
+        // at 5s so a same-page click (no navigation) returns promptly.
+        let _ = tokio::time::timeout(
+            Duration::from_secs(5),
+            session.page.wait_for_navigation(),
+        )
+        .await;
+        session.touch();
+        Ok(session
+            .page
+            .url()
+            .await
+            .unwrap_or_default()
+            .unwrap_or_default())
+    }
+
+    pub async fn type_text(
+        &self,
+        session_id: &str,
+        selector: &str,
+        text: &str,
+        submit: bool,
+    ) -> Result<String, McpError> {
+        let session = self.lookup(session_id).await?;
+        let _g = session.serial.lock().await;
+        session.touch();
+        let el = session
+            .page
+            .find_element(selector)
+            .await
+            .map_err(|e| invalid(format!("find_element {selector:?}: {e}")))?;
+        el.focus()
+            .await
+            .map_err(|e| invalid(format!("focus {selector:?}: {e}")))?;
+        el.type_str(text)
+            .await
+            .map_err(|e| invalid(format!("type_str {selector:?}: {e}")))?;
+        if submit {
+            // Press Enter — chromiumoxide doesn't have a one-liner for
+            // this on Element, so we eval a tiny scriptlet that
+            // dispatches a keypress to the focused element.
+            let _ = session
+                .page
+                .evaluate(
+                    "document.activeElement && document.activeElement.form && \
+                     document.activeElement.form.requestSubmit && \
+                     document.activeElement.form.requestSubmit()",
+                )
+                .await;
+            let _ = tokio::time::timeout(
+                Duration::from_secs(15),
+                session.page.wait_for_navigation(),
+            )
+            .await;
+        }
+        session.touch();
+        Ok(session
+            .page
+            .url()
+            .await
+            .unwrap_or_default()
+            .unwrap_or_default())
+    }
+
+    /// Wait until at least one element matches `selector`, or `timeout_ms`
+    /// elapses. Returns `true` if a match was found, `false` on timeout.
+    /// Implementation polls every 100ms — chromiumoxide doesn't expose a
+    /// CDP-native `WaitForSelector` helper.
+    pub async fn wait(
+        &self,
+        session_id: &str,
+        selector: &str,
+        timeout_ms: u64,
+    ) -> Result<bool, McpError> {
+        let session = self.lookup(session_id).await?;
+        let _g = session.serial.lock().await;
+        session.touch();
+        let deadline = std::time::Instant::now() + Duration::from_millis(timeout_ms);
+        loop {
+            if session.page.find_element(selector).await.is_ok() {
+                session.touch();
+                return Ok(true);
+            }
+            if std::time::Instant::now() >= deadline {
+                return Ok(false);
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    }
+
+    /// Extract text or an attribute from every element matching `selector`.
+    /// When `attr` is `None`, returns each element's `innerText`; otherwise
+    /// the attribute's value (missing attributes are returned as empty
+    /// strings so the result list aligns with the selector match order).
+    pub async fn extract(
+        &self,
+        session_id: &str,
+        selector: &str,
+        attr: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<String>, McpError> {
+        let session = self.lookup(session_id).await?;
+        let _g = session.serial.lock().await;
+        session.touch();
+        let elements = session
+            .page
+            .find_elements(selector)
+            .await
+            .map_err(|e| invalid(format!("find_elements {selector:?}: {e}")))?;
+        let mut out: Vec<String> = Vec::with_capacity(elements.len().min(limit));
+        for el in elements.into_iter().take(limit) {
+            let value = match attr {
+                Some(a) => el.attribute(a).await.ok().flatten().unwrap_or_default(),
+                None => el.inner_text().await.ok().flatten().unwrap_or_default(),
+            };
+            out.push(value);
+        }
+        session.touch();
+        Ok(out)
+    }
+
     pub async fn close(&self, session_id: &str) -> Result<(), McpError> {
         let session = {
             let mut table = self.sessions.write().await;
@@ -233,6 +420,97 @@ impl BrowserSessionManager {
         rows
     }
 
+    /// Run an arbitrary JS expression in the page and return its result
+    /// as a `serde_json::Value`. The expression runs with `awaitPromise:
+    /// true` so async work resolves before we return. Use this for the
+    /// 1% of cases the granular tools don't cover — keyboard shortcuts,
+    /// scroll, mutation observer setup, etc.
+    pub async fn eval(
+        &self,
+        session_id: &str,
+        script: &str,
+    ) -> Result<serde_json::Value, McpError> {
+        let session = self.lookup(session_id).await?;
+        let _g = session.serial.lock().await;
+        session.touch();
+        let result = session
+            .page
+            .evaluate(script)
+            .await
+            .map_err(|e| invalid(format!("evaluate: {e}")))?;
+        session.touch();
+        Ok(result.into_value().unwrap_or(serde_json::Value::Null))
+    }
+
+    /// PNG screenshot of the viewport (or the full scroll height when
+    /// `full_page` is `true`). Returned as base64 so the JSON tool
+    /// response carries it directly.
+    pub async fn screenshot(
+        &self,
+        session_id: &str,
+        full_page: bool,
+    ) -> Result<String, McpError> {
+        use base64::Engine;
+        use chromiumoxide::cdp::browser_protocol::page::CaptureScreenshotFormat;
+        use chromiumoxide::page::ScreenshotParams;
+        let session = self.lookup(session_id).await?;
+        let _g = session.serial.lock().await;
+        session.touch();
+        let params = ScreenshotParams::builder()
+            .format(CaptureScreenshotFormat::Png)
+            .full_page(full_page)
+            .build();
+        let bytes = session
+            .page
+            .screenshot(params)
+            .await
+            .map_err(|e| internal(anyhow::anyhow!("screenshot: {e}")))?;
+        session.touch();
+        Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
+    }
+
+    /// Build the observation the caller asked for. `None` → empty; the
+    /// other modes run the JS scriptlet that walks the DOM picking
+    /// interactive elements with their effective ARIA role + name +
+    /// stable selector, and/or take a viewport PNG.
+    pub async fn observe(
+        &self,
+        session_id: &str,
+        mode: ObserveMode,
+    ) -> Result<Observation, McpError> {
+        if matches!(mode, ObserveMode::None) {
+            return Ok(Observation::default());
+        }
+        let session = self.lookup(session_id).await?;
+        let _g = session.serial.lock().await;
+        session.touch();
+        let mut obs = Observation::default();
+        if matches!(mode, ObserveMode::Tree | ObserveMode::Both) {
+            let value = session
+                .page
+                .evaluate(OBSERVATION_SCRIPT)
+                .await
+                .ok()
+                .and_then(|r| r.into_value::<Vec<TreeNode>>().ok());
+            obs.tree = value.or_else(|| Some(Vec::new()));
+        }
+        if matches!(mode, ObserveMode::Screenshot | ObserveMode::Both) {
+            use base64::Engine;
+            use chromiumoxide::cdp::browser_protocol::page::CaptureScreenshotFormat;
+            use chromiumoxide::page::ScreenshotParams;
+            let params = ScreenshotParams::builder()
+                .format(CaptureScreenshotFormat::Png)
+                .full_page(false)
+                .build();
+            if let Ok(bytes) = session.page.screenshot(params).await {
+                obs.screenshot_b64 =
+                    Some(base64::engine::general_purpose::STANDARD.encode(bytes));
+            }
+        }
+        session.touch();
+        Ok(obs)
+    }
+
     async fn lookup(&self, session_id: &str) -> Result<Arc<Session>, McpError> {
         self.sessions
             .read()
@@ -252,6 +530,106 @@ pub struct SessionSummary {
     pub created_secs_ago: u64,
     pub idle_secs: u64,
 }
+
+// ---------------------------------------------------------------------------
+// Observation scriptlet
+// ---------------------------------------------------------------------------
+//
+// Returns a JSON array of {role, name, selector, value?} for every
+// interactive element in the viewport (or near it). Runs entirely in
+// the page — no CDP calls during the walk — so it's cheap. Selector
+// strategy: id > [data-testid] > a path of nth-of-type fragments back
+// to the nearest ancestor with a stable id. Cap at 150 nodes so a
+// pathological page can't blow the response size.
+const OBSERVATION_SCRIPT: &str = r#"
+(() => {
+  const SELECTORS = [
+    'a[href]', 'button', 'input', 'select', 'textarea',
+    '[role=button]', '[role=link]', '[role=textbox]',
+    '[role=checkbox]', '[role=radio]', '[role=menuitem]',
+    '[role=tab]', '[role=combobox]', '[contenteditable=true]'
+  ];
+  const els = Array.from(document.querySelectorAll(SELECTORS.join(',')));
+  const visible = (el) => {
+    const r = el.getBoundingClientRect();
+    if (r.width === 0 || r.height === 0) return false;
+    const cs = window.getComputedStyle(el);
+    if (cs.visibility === 'hidden' || cs.display === 'none') return false;
+    return true;
+  };
+  const trim = (s, n) => {
+    const t = (s || '').replace(/\s+/g, ' ').trim();
+    return t.length > n ? t.slice(0, n - 1) + '…' : t;
+  };
+  const selectorFor = (el) => {
+    if (el.id) return '#' + CSS.escape(el.id);
+    const tid = el.getAttribute('data-testid');
+    if (tid) return '[data-testid="' + CSS.escape(tid).replace(/"/g, '\\"') + '"]';
+    const parts = [];
+    let cur = el;
+    while (cur && cur.nodeType === 1 && parts.length < 6) {
+      if (cur.id) { parts.unshift('#' + CSS.escape(cur.id)); break; }
+      let part = cur.tagName.toLowerCase();
+      const parent = cur.parentElement;
+      if (parent) {
+        const siblings = Array.from(parent.children).filter(c => c.tagName === cur.tagName);
+        if (siblings.length > 1) {
+          const idx = siblings.indexOf(cur) + 1;
+          part += ':nth-of-type(' + idx + ')';
+        }
+      }
+      parts.unshift(part);
+      cur = cur.parentElement;
+    }
+    return parts.join(' > ');
+  };
+  const roleOf = (el) => {
+    const r = el.getAttribute('role');
+    if (r) return r;
+    const t = el.tagName.toLowerCase();
+    if (t === 'a') return 'link';
+    if (t === 'button') return 'button';
+    if (t === 'input') {
+      const it = (el.getAttribute('type') || 'text').toLowerCase();
+      if (it === 'checkbox') return 'checkbox';
+      if (it === 'radio') return 'radio';
+      if (it === 'submit' || it === 'button') return 'button';
+      return 'textbox';
+    }
+    if (t === 'textarea') return 'textbox';
+    if (t === 'select') return 'combobox';
+    return t;
+  };
+  const nameOf = (el) => {
+    const al = el.getAttribute('aria-label');
+    if (al) return trim(al, 120);
+    const txt = el.innerText || el.textContent || '';
+    if (txt) return trim(txt, 120);
+    const ph = el.getAttribute('placeholder');
+    if (ph) return trim(ph, 120);
+    const tl = el.getAttribute('title');
+    if (tl) return trim(tl, 120);
+    return '';
+  };
+  const out = [];
+  for (const el of els) {
+    if (!visible(el)) continue;
+    const row = {
+      role: roleOf(el),
+      name: nameOf(el),
+      selector: selectorFor(el)
+    };
+    const tag = el.tagName.toLowerCase();
+    if (tag === 'input' || tag === 'textarea' || tag === 'select') {
+      const v = el.value;
+      if (v) row.value = trim(v, 120);
+    }
+    out.push(row);
+    if (out.length >= 150) break;
+  }
+  return out;
+})()
+"#;
 
 // ---------------------------------------------------------------------------
 // Reaper
@@ -358,7 +736,11 @@ impl Skill for BrowserOpen {
             let _ = ctx.parse::<NoArgs>()?;
             let mgr = manager().await;
             let (id, url, _) = mgr.open().await?;
-            Ok(json(serde_json::json!({ "session_id": id, "url": url })))
+            Ok(json(serde_json::json!({
+                "session_id": id,
+                "url": url,
+                "tip": "pass session_id to browser_navigate / browser_click / etc. Use `observe: \"tree\"` on those tools to get a list of interactive elements to act on."
+            })))
         })
     }
 }
@@ -371,6 +753,11 @@ struct NavigateArgs {
     /// most third-party trackers / extensions are not loaded (we run
     /// headless without persistent profile).
     url: String,
+    /// What to return after the navigation settles: `"none"` (just the
+    /// resulting URL + title), `"tree"` (interactive elements with
+    /// selectors), `"screenshot"`, or `"both"`. Default `"none"`.
+    #[serde(default)]
+    observe: ObserveMode,
 }
 
 pub struct BrowserNavigate;
@@ -391,7 +778,12 @@ impl Skill for BrowserNavigate {
             let (_server, args) = ctx.parse::<NavigateArgs>()?;
             let mgr = manager().await;
             let (url, title) = mgr.navigate(&args.session_id, &args.url).await?;
-            Ok(json(serde_json::json!({ "url": url, "title": title })))
+            let obs = mgr.observe(&args.session_id, args.observe).await?;
+            Ok(json(serde_json::json!({
+                "url": url,
+                "title": title,
+                "observation": obs,
+            })))
         })
     }
 }
@@ -448,11 +840,264 @@ impl Skill for BrowserList {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Interaction tools
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct ClickArgs {
+    /// Session id returned by `browser_open`.
+    session_id: String,
+    /// CSS selector for the element to click — e.g. `button[type=submit]`,
+    /// `a[href*="/sign-in"]`, `#login`, `[role=button][aria-label="Search"]`.
+    /// Falls back to no-match error if the element isn't on the page.
+    selector: String,
+    /// What to return after the click: `"none"`, `"tree"`, `"screenshot"`,
+    /// or `"both"`. Default `"none"`.
+    #[serde(default)]
+    observe: ObserveMode,
+}
+
+pub struct BrowserClick;
+impl Skill for BrowserClick {
+    fn name(&self) -> &'static str {
+        "browser_click"
+    }
+    fn description(&self) -> &'static str {
+        "Click the first element matching `selector` in the named session. If the click triggers \
+         navigation, waits up to 5s for it to settle before returning. Returns the resulting URL. \
+         If the element isn't on the page yet, use `browser_wait` first so the model can react to \
+         a load-failure rather than the click silently no-op'ing."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<ClickArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (_server, args) = ctx.parse::<ClickArgs>()?;
+            let mgr = manager().await;
+            let url = mgr.click(&args.session_id, &args.selector).await?;
+            let obs = mgr.observe(&args.session_id, args.observe).await?;
+            Ok(json(serde_json::json!({ "url": url, "observation": obs })))
+        })
+    }
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct TypeArgs {
+    /// Session id returned by `browser_open`.
+    session_id: String,
+    /// CSS selector for the input/textarea to focus and type into.
+    selector: String,
+    /// Text to type. Use literal characters; modifier keys aren't supported
+    /// here (use `browser_eval` for a keyboard event if you need them).
+    text: String,
+    /// When `true`, attempts to submit the enclosing form after typing
+    /// (calls `form.requestSubmit()`). Use for search boxes whose submit
+    /// is the Enter key. Default `false`.
+    #[serde(default)]
+    submit: bool,
+    /// Observation mode for the post-action snapshot. Default `"none"`.
+    #[serde(default)]
+    observe: ObserveMode,
+}
+
+pub struct BrowserType;
+impl Skill for BrowserType {
+    fn name(&self) -> &'static str {
+        "browser_type"
+    }
+    fn description(&self) -> &'static str {
+        "Focus the element matching `selector` and type `text` into it. With `submit: true`, \
+         submits the enclosing form via `form.requestSubmit()` and waits up to 15s for navigation \
+         to settle (so a search box round-trip is one call). Returns the resulting URL."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<TypeArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (_server, args) = ctx.parse::<TypeArgs>()?;
+            let mgr = manager().await;
+            let url = mgr
+                .type_text(&args.session_id, &args.selector, &args.text, args.submit)
+                .await?;
+            let obs = mgr.observe(&args.session_id, args.observe).await?;
+            Ok(json(serde_json::json!({ "url": url, "observation": obs })))
+        })
+    }
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct WaitArgs {
+    /// Session id returned by `browser_open`.
+    session_id: String,
+    /// CSS selector to wait for. The wait succeeds as soon as the first
+    /// match exists in the DOM (matches don't need to be visible — pair
+    /// with a selector that filters on visibility if that matters).
+    selector: String,
+    /// Max time to wait, in milliseconds. Clamped to [50, 60000].
+    /// Default 5000.
+    #[serde(default)]
+    timeout_ms: Option<u64>,
+}
+
+pub struct BrowserWait;
+impl Skill for BrowserWait {
+    fn name(&self) -> &'static str {
+        "browser_wait"
+    }
+    fn description(&self) -> &'static str {
+        "Poll until at least one element matches `selector`, or `timeout_ms` elapses (default \
+         5000, max 60000). Returns `{matched: true}` on success and `{matched: false}` on \
+         timeout — the model should branch on this rather than treating timeout as an error."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<WaitArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (_server, args) = ctx.parse::<WaitArgs>()?;
+            let timeout_ms = args.timeout_ms.unwrap_or(5000).clamp(50, 60_000);
+            let mgr = manager().await;
+            let matched = mgr
+                .wait(&args.session_id, &args.selector, timeout_ms)
+                .await?;
+            Ok(json(serde_json::json!({ "matched": matched })))
+        })
+    }
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct ExtractArgs {
+    /// Session id returned by `browser_open`.
+    session_id: String,
+    /// CSS selector. Every match contributes one entry to `values`.
+    selector: String,
+    /// Attribute name to extract. When omitted, returns `innerText` for
+    /// each match instead. Common attrs: `href`, `src`, `value`,
+    /// `aria-label`, `data-*`.
+    #[serde(default)]
+    attr: Option<String>,
+    /// Maximum results to return — extra matches are dropped. Clamped to
+    /// [1, 500]. Default 50.
+    #[serde(default)]
+    limit: Option<usize>,
+}
+
+pub struct BrowserExtract;
+impl Skill for BrowserExtract {
+    fn name(&self) -> &'static str {
+        "browser_extract"
+    }
+    fn description(&self) -> &'static str {
+        "Read text or attribute values from every element matching `selector`. With no `attr`, \
+         returns each element's `innerText` (visible text content). With `attr`, returns each \
+         element's value for that attribute (missing attributes yield empty strings, so the \
+         result list aligns with selector order). Capped at `limit` results (default 50, max \
+         500). Use this to scrape a page after navigation — search results, link hrefs, table \
+         cells, etc."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<ExtractArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (_server, args) = ctx.parse::<ExtractArgs>()?;
+            let limit = args.limit.unwrap_or(50).clamp(1, 500);
+            let mgr = manager().await;
+            let values = mgr
+                .extract(&args.session_id, &args.selector, args.attr.as_deref(), limit)
+                .await?;
+            Ok(json(serde_json::json!({ "values": values })))
+        })
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Observation tools
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct EvalArgs {
+    /// Session id returned by `browser_open`.
+    session_id: String,
+    /// JS expression to evaluate in the page. Wrap multi-statement
+    /// scripts in an IIFE (`(() => { ... })()`). The result is
+    /// serialized to JSON — Promises are awaited (`awaitPromise: true`),
+    /// non-JSON values (DOM nodes, functions) return `null`.
+    script: String,
+}
+
+pub struct BrowserEval;
+impl Skill for BrowserEval {
+    fn name(&self) -> &'static str {
+        "browser_eval"
+    }
+    fn description(&self) -> &'static str {
+        "Run an arbitrary JS expression in the page and return its result as JSON. Use this for \
+         the 1% of cases the granular tools don't cover — scrolling, keyboard shortcuts, mutation \
+         observer setup, reading window.* state. Promises are awaited. Wrap multi-statement \
+         scripts in an IIFE: `(() => { ...; return value; })()`. Returns `{result: <json>}`."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<EvalArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (_server, args) = ctx.parse::<EvalArgs>()?;
+            let mgr = manager().await;
+            let result = mgr.eval(&args.session_id, &args.script).await?;
+            Ok(json(serde_json::json!({ "result": result })))
+        })
+    }
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct ScreenshotArgs {
+    /// Session id returned by `browser_open`.
+    session_id: String,
+    /// When `true`, the screenshot captures the full scroll height of
+    /// the page (not just the viewport). Default `false`.
+    #[serde(default)]
+    full_page: bool,
+}
+
+pub struct BrowserScreenshot;
+impl Skill for BrowserScreenshot {
+    fn name(&self) -> &'static str {
+        "browser_screenshot"
+    }
+    fn description(&self) -> &'static str {
+        "Take a PNG screenshot of the session's current page. With `full_page: true`, the image \
+         covers the entire scroll height; otherwise just the viewport. Returned as base64 in \
+         `{png_b64}`. The other tools' `observe: \"screenshot\"`/`\"both\"` flag is usually a \
+         better fit — use this tool when you just want the image without driving an action."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<ScreenshotArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (_server, args) = ctx.parse::<ScreenshotArgs>()?;
+            let mgr = manager().await;
+            let png_b64 = mgr.screenshot(&args.session_id, args.full_page).await?;
+            Ok(json(serde_json::json!({ "png_b64": png_b64 })))
+        })
+    }
+}
+
 pub fn skills() -> Vec<Box<dyn Skill>> {
     vec![
         Box::new(BrowserOpen),
         Box::new(BrowserNavigate),
         Box::new(BrowserClose),
         Box::new(BrowserList),
+        Box::new(BrowserClick),
+        Box::new(BrowserType),
+        Box::new(BrowserWait),
+        Box::new(BrowserExtract),
+        Box::new(BrowserEval),
+        Box::new(BrowserScreenshot),
     ]
 }

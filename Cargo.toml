@@ -38,6 +38,8 @@ regex = "1"
 futures = "0.3"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+# Used by `browser_screenshot` to encode PNG bytes into a JSON-safe string.
+base64 = "0.22"
 
 # Headless-Chrome automation: powers the renderer (per-call `render`), the
 # Google engine, and StackOverflow render-scraping. Compiled in unconditionally;
