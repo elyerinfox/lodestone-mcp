@@ -168,13 +168,44 @@ Mounted only when `[network].enabled`. All require `Authorization: Bearer
 
 | Method | Path | Body | Response |
 | --- | --- | --- | --- |
-| `GET` | `/constellation/digest` | — | `{ node_id, generation, count, bloom: { m, k, bits }, peers: [...] }` |
+| `GET` | `/constellation/digest` | — | `{ node_id, generation, count, bloom: { m, k, bits }, peers: [...], capabilities: { query, retrieval, blob, browser } }` |
 | `POST` | `/constellation/query` | `{ "key": "<hash>", "ttl"?: n, "seen"?: [ids] }` | `{ "hits": [...] }` or `204` |
 | `POST` | `/constellation/blob` | `{ "key": "<hash>" }` | raw bytes (`application/octet-stream`) or `204` |
 | `POST` | `/constellation/blobinfo` | `{ "key": "<hash>" }` | `{ "hash": "<content-hash>", "size": n }` or `204` |
+| `POST` | `/constellation/retrieve` | `{ "url", "max_bytes", "source"? }` | raw bytes or JSON reject; gated by `[network.capabilities].retrieval` (mirrors the legacy `delegation_enabled`). |
+| `POST` | `/constellation/browser_persona` | `{ "persona_name", "url" }` | `{ "url", "title", "tree" }` or JSON reject; gated by `[network.capabilities].browser`. Per-peer pool isolation via `X-Lodestone-Peer-Id` (sessions never transport). SSRF guard refuses local-network URLs. |
 
 `ttl`/`seen` are optional (default 0 / empty) — a plain `{ "key": … }` works and
 just disables relay for that request.
+
+## Capabilities
+
+Each node publishes a per-feature opt-in set on its digest. Peers read
+the set on the next sync tick and can pick based on it when looking
+for a delegate. The local model's `constellation_capabilities` tool
+turns the set into a "who in the mesh can do X?" lookup.
+
+| Capability | Default | Gates |
+| --- | --- | --- |
+| `query` | ON | `/constellation/query` cache consults |
+| `retrieval` | OFF | `/constellation/retrieve` URL-fetching jobs (alias of legacy `delegation_enabled`) |
+| `blob` | ON | `/constellation/blob` + `/blobinfo` file-store bytes |
+| `browser` | OFF | `/constellation/browser_persona` peer-hosted browser sessions |
+
+Setting `[network.capabilities].browser = true` means peers can
+ask us to drive named browser sessions on their behalf via
+`/constellation/browser_persona`. The session manager tracks those in
+a separate "guest sessions" registry from the model's own personas,
+keyed by `(peer_id, persona_name)` so two peers never share cookies
+on the same logical name. Each request goes through the SSRF guard
+(refuses RFC1918 / loopback / link-local / .local etc.) and
+`browser_eval` is rejected on guest sessions outright. When the peer
+drops out of our peer table, its guest sessions are evicted in one
+sweep. See [`docs/skills/browser_session.md`](skills/browser_session.md)
+for the operator-facing detail.
+
+The constellation settings drawer on the dashboard can flip
+capabilities at runtime — no restart needed.
 
 ## File sharing (blobs)
 

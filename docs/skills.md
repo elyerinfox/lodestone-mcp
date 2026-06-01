@@ -110,6 +110,7 @@ signal-processing family pairs with `wave_*` for FFT-of-decoded-audio flows.
 | [image](skills/image.md) | `image_info`, `image_exif`, `image_jpeg_analyze`, `image_png_analyze` | Format / dimensions / EXIF (incl. GPS) / JPEG-marker / PNG-chunk walk. Forensic divergence flags. Paths confined to roots. |
 | [chart](skills/chart.md) | `chart_line`, `chart_bar`, `chart_scatter`, `chart_histogram`, `chart_pie`, `chart_heatmap`, `chart_grafana`, `chart_stat`, `chart_gauge`, `chart_bar_gauge`, `chart_state_timeline`, `chart_candlestick`, `chart_sparkline`, `chart_canvas`, `chart_interactive`, `chart_mermaid` | Pure-Rust SVG charts (matplotlib equivalents + Grafana-style operational panels) + procedural canvas + interactive HTML (Chart.js / Plotly) + mermaid passthrough. |
 | [html](skills/html.md) | `html_render` | Execute HTML / a URL in headless Chrome and return diagnostics: console events, JS exceptions, network failures, HTTP 4xx/5xx errors. |
+| [browser_session](skills/browser_session.md) | `browser_open`, `browser_navigate`, `browser_click`, `browser_type`, `browser_wait`, `browser_extract`, `browser_eval`, `browser_screenshot`, `browser_list`, `browser_close`, `browser_persona_get`, `browser_persona_list`, `browser_persona_reset`, `browser_persona_delegate` | Long-lived headless-Chromium tabs the model drives across multiple tool calls. Sessions are ephemeral; **personas** are named long-lived warm identities (accumulate cookies — rate-limit relief). Constellation peers can ask us to host **guest sessions** under `[network.capabilities].browser`; the SSRF guard restricts those to public hosts. |
 
 ## Weather, geo & infrastructure (keyless)
 
@@ -147,7 +148,7 @@ signal-processing family pairs with `wave_*` for FFT-of-decoded-audio flows.
 | --- | --- | --- |
 | [store](skills/store.md) | `cache_status`, `store_fetch`, `store_get`, `store_list`, `store_purge` | On-disk file store (`[store]`, off by default) + cache stats; shared over the [constellation](constellation.md). |
 | [tasks](skills/tasks.md) | `task_run`, `task_list`, `task_status`, `task_result`, `task_cancel` | Background jobs (off by default `[tasks]`): run a search off the request path, poll for results. |
-| [memory](skills/memory.md) | `memory_save`/`get`/`list`/`search`/`forget`, `solution_record`/`find`/`show`/`list`/`update`/`forget`/`link`/`unlink`/`graph`/`related`, `synonym_*` | Persistent memos + advisory recall of prior **solutions** across sessions (revisions tracked, fuzzy + synonym + tag matching, typed relation graph). Intrinsic recall fires as a preamble on every query-bearing tool call. On by default `[memory]`. |
+| [memory](skills/memory.md) | `remember`, `remember_fact`, `remember_solution`, `recall`, `memory_save`/`get`/`list`/`search`/`forget`, `solution_record`/`find`/`show`/`list`/`update`/`forget`/`link`/`unlink`/`graph`/`related`, `synonym_*` | Persistent memos + advisory recall of prior **solutions** across sessions (revisions tracked, fuzzy + synonym + tag matching, typed relation graph). Frictionless `remember` auto-classifies fact vs solution + auto-keys + auto-tags; symmetric `recall` merges memo + solution + phrasing hits. Intrinsic recall fires a "💡 prior solutions" + "📝 facts you noted" preamble on every query-bearing tool call. On by default `[memory]`. |
 
 ## Utilities (local; translate/currency keyless)
 

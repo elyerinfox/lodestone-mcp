@@ -344,6 +344,10 @@ client). Gated by `[tasks]`. Currently backgrounds searches.
 
 | Tool | Arguments | Purpose |
 | --- | --- | --- |
+| `remember` | `text`, `as?`, `scope?`, `tags?` | Frictionless write — auto-derives a key (kebab-case from first words + short hash), auto-extracts tags. Defaults to a memo; text shaped like a recipe (`→`, starts with `to`/`when`/`if`/`fix:`/`solution:`/`use`) auto-classifies as a solution. Override with `as: "fact" \| "solution"`. |
+| `remember_fact` | `text`, `scope?`, `tags?` | Always writes a memo. No classifier. |
+| `remember_solution` | `text`, `problem?`, `summary?`, `tags?` | Always writes a solution. First sentence becomes the problem, rest becomes the content, unless explicitly overridden. |
+| `recall` | `query`, `kinds?`, `limit?` | One merged hit list across memos + solutions + phrasings. Each row tagged by kind. Replaces calling `memory_search` and `solution_find` separately. |
 | `memory_save` | `key`, `value`, `scope?`, `tags?` | Save/upsert a key→value memory persisted across sessions. |
 | `memory_get` | `key`, `scope?` | Exact lookup by key (and optional scope). |
 | `memory_list` | `scope?`, `prefix?`, `max?` | List memories with previews, newest-updated first. |
@@ -498,6 +502,28 @@ FFT-of-decoded-audio.
 | `radio_link_budget` | `tx_power_dbm`, `tx_gain_dbi`, `rx_gain_dbi`, `frequency_hz`, `distance_m`, `cable_loss_db?`, `other_losses_db?` | Compute received power and link margin against a noise floor. |
 | `radio_antenna` | `frequency_hz`, `gain_dbi?`, `effective_aperture_m2?` | Convert antenna gain ↔ effective aperture. |
 
+## Browser sessions (on by default when Chrome/Chromium is available)
+
+See [`docs/skills/browser_session.md`](skills/browser_session.md) for the
+session / persona / guest-session conceptual split.
+
+| Tool | Arguments | Purpose |
+| --- | --- | --- |
+| `browser_open` | — | Open a new isolated Chromium tab; returns a `session_id`. |
+| `browser_navigate` | `session_id`, `url`, `observe?` | Navigate the session; waits 15 s for nav to settle. `observe` is `"none"` / `"tree"` / `"screenshot"` / `"both"`. |
+| `browser_click` | `session_id`, `selector`, `observe?` | Click the first element matching `selector`. |
+| `browser_type` | `session_id`, `selector`, `text`, `submit?`, `observe?` | Focus + type. `submit: true` calls `form.requestSubmit()`. |
+| `browser_wait` | `session_id`, `selector`, `timeout_ms?` | Poll until the selector exists, or time out. Returns `{matched}`. |
+| `browser_extract` | `session_id`, `selector`, `attr?`, `limit?` | innerText or attribute for every match; capped at `limit`. |
+| `browser_eval` | `session_id`, `script` | Arbitrary JS, returns JSON. Refused on guest sessions. |
+| `browser_screenshot` | `session_id`, `full_page?` | Viewport (or full scroll) PNG as base64. |
+| `browser_list` | — | Every open session with URL + title + age + idle. |
+| `browser_close` | `session_id` | Dispose the tab and its isolated context. |
+| `browser_persona_get` | `name` | Get-or-create the named LOCAL persona's session; cookies persist across calls. |
+| `browser_persona_list` | — | List LOCAL personas only (guest sessions are dashboard-only). |
+| `browser_persona_reset` | `name` | Force a fresh session on the named persona — state returns to `healthy`. |
+| `browser_persona_delegate` | `persona_name`, `url` | Ask a constellation peer (with `[network.capabilities].browser = true`) to run a navigate on ITS persona. Sessions don't transport; the peer's SSRF guard refuses local-network URLs. |
+
 ## Meta
 
 | Tool | Arguments | Purpose |
@@ -507,6 +533,7 @@ FFT-of-decoded-audio.
 | `constellation_status` | — | Show the peer-to-peer constellation graph (peers, machine ids, reputation, edges); says disabled when off. |
 | `constellation_peers` | — | List constellation nodes and how many **hops** away each is (direct = 1), with machine id/reputation. |
 | `constellation_seeds` | — | Per-blob **seed ratio** (bytes served to peers vs. fetched from them), BitTorrent-style. |
+| `constellation_capabilities` | `cap?` | Per-feature opt-in set every node advertises (`query` / `retrieval` / `blob` / `browser`). With `cap=<name>`, filter to nodes that have the named capability ON — answers "who can do browser work?". |
 
 ## Per-provider
 

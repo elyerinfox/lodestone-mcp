@@ -72,13 +72,18 @@ ttl_secs = 300           # freshness window
 max_entries = 512        # memory bound
 
 [network]                # opt-in peer-to-peer constellation (see constellation.md)
-enabled = false
+enabled = true           # default: participate, share cache, opt out per-feature below
 peers = []               # static peer base URLs (also gossiped + mDNS-discovered)
 mdns = true              # LAN auto-discovery (when enabled)
 token = ""               # optional shared secret for /constellation endpoints
 min_agreement = 2        # peers needed to trust a result without local search
 relay_hops = 1           # forward a query a hop or two across the mesh (max 2)
 state_file = ""          # persist peer reputations across restarts (path)
+[network.capabilities]   # per-feature opt-in for what we OFFER peers (see constellation.md)
+query     = true         # answer cache consults (the whole point of joining)
+retrieval = false        # accept URL-fetching jobs (alias of legacy delegation_enabled)
+blob      = true         # serve file-store blobs we already cached
+browser   = false        # accept peer-hosted browser sessions (much higher trust surface)
 
 # Register self-hosted forges as keyless code providers (config/04-forges.toml),
 # then add the id to [providers].code:

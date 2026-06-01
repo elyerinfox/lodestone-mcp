@@ -91,15 +91,28 @@ frontend/
                                    owns the WebSocket connection
   composables/
     useDashboardFeed.ts            WebSocket lifecycle + reconnect
+    useSettingsApi.ts              POST helper for /api/settings/*
   types/ws.ts                      typed envelope mirror of src/ws.rs
   pages/
-    index.vue                      Overview — headline stats
-    memory.vue                     Memory store counts
-    constellation.vue              Identity + peer table + delegation
-                                   knobs + seed accounting
+    index.vue                      Overview — headline stats + secret
+                                   presence + log-level switcher
+    tools.vue                      Active/disabled tool inventory +
+                                   per-tool runtime kill switch
+    memory.vue                     Memory store counts + auto-recall
+                                   toggles
+    constellation.vue              Identity + peer table + swarm
+                                   topology + delegation knobs
+    browser.vue                    Open sessions + your personas table
+                                   + hosted-for-peers table + idle/
+                                   max-concurrent knobs
   components/
     StatCard.vue                   big-number tile
     SectionHeading.vue             uppercase section header
+    PageHeader.vue                 title + gear icon for the drawer
+    SettingsDrawer.vue             slide-out ephemeral-knobs panel
+    ReadOnlyRow.vue                two-column label + value row
+    SecretRow.vue                  <set> / <unset> badge for one secret
+    ConstellationGraph.vue         pure-SVG swarm visualisation
   nuxt.config.ts                   Tailwind, runtime config (ws URL +
                                    token)
   tailwind.config.ts               dark / Grafana-ish palette
@@ -110,8 +123,48 @@ frontend/
 The layout owns the single WebSocket connection and `provide()`s the
 reactive snapshot down to all child pages. Each page `inject()`s the
 feed and binds the parts of the snapshot it cares about. Adding a
-fourth page = new `pages/<name>.vue` + a new entry in the nav-items
-list in `layouts/default.vue`.
+new page = new `pages/<name>.vue` + a new entry in the nav-items list
+in `layouts/default.vue`.
+
+### Per-page settings drawers
+
+Every page carries a gear icon next to its title that opens a
+slide-out drawer with the ephemeral runtime knobs for that subsystem.
+Drawer changes apply to the running process only — a restart restores
+config values. The endpoints are:
+
+| Page | Endpoint | What it tunes |
+| --- | --- | --- |
+| Overview | `POST /api/settings/server` | Tracing log level (reload-handled, no restart). |
+| Tools | `POST /api/settings/tools` | Per-tool runtime disable set. |
+| Memory | `POST /api/settings/memory` | `enabled`, `auto_recall`, `record_conversations`. |
+| Constellation | `POST /api/settings/constellation` | `delegation_enabled`, `max_peers`, `min_agreement`, plus capabilities (query / retrieval / blob / browser). |
+| Browser | `POST /api/settings/browser` | `idle_timeout_secs`, `max_concurrent`. |
+
+All five share the same `Bearer <[network].token>` auth (constant-time
+compare). Secrets are never accepted by these endpoints — they can
+only be set via config or `LODESTONE_*` env.
+
+### Browser page
+
+The browser page is split into three distinct surfaces, matching the
+three concepts in the [browser_session skill doc](skills/browser_session.md):
+
+1. **Active sessions** — every open Chromium tab the server is
+   tracking, with live URL + title + age + idle. Per-row "close" button
+   wires to `DELETE /api/browser/sessions/{id}`.
+2. **Your personas** — the model-owned long-lived warm tabs (one per
+   site). Per-row "reset" button wires to
+   `POST /api/browser/personas/{name}/reset`.
+3. **Hosted for peers** — guest sessions we're driving on behalf of
+   constellation peers via `/constellation/browser_persona`. Read-only
+   from the dashboard's perspective; the operator can see who they're
+   hosting for, what URL it's on, and the current state. Reaped
+   automatically; the lever is `[network.capabilities].browser` on
+   the Constellation settings drawer.
+
+Sections 2 and 3 are hidden when their lists are empty, so an idle
+node shows only "no sessions yet" copy.
 
 ## How to access it
 
