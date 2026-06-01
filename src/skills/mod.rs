@@ -18,6 +18,7 @@ pub mod artifacthub;
 pub mod arxiv;
 pub mod astro;
 pub mod binary;
+pub mod browser_session;
 pub mod chart;
 pub mod data;
 pub mod databases;
@@ -465,6 +466,7 @@ fn all_skills() -> Vec<Box<dyn Skill>> {
     skills.extend(chart::skills());
     skills.extend(image::skills());
     skills.extend(html::skills());
+    skills.extend(browser_session::skills());
     skills.extend(spreadsheet::skills());
     skills.extend(shell::skills());
     skills.extend(git::skills());
