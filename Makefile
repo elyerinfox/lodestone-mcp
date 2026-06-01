@@ -44,7 +44,6 @@ endif
         run run-galaxy clean docker docker-build docker-run docker-stop \
         docker-smoke install-hooks doc deps-check \
         frontend frontend-docker frontend-clean \
-        build-with-dashboard build-with-dashboard-docker \
         dashboard-image dashboard-run compose-up compose-down
 
 ## ─── Help ───────────────────────────────────────────────────────────────────
@@ -57,11 +56,13 @@ help: ## Show this help.
 	@printf "$(BOLD)Backend:$(RST)\n"
 	@printf "  $(BOLD)make build$(RST) / $(BOLD)make build-release$(RST)\n"
 	@printf "    Never touches Node. The dashboard is built separately (or not at all).\n\n"
-	@printf "$(BOLD)Dashboard (opt-in):$(RST)\n"
-	@printf "  $(BOLD)make frontend$(RST)                Build the SPA with host Node into frontend/.output/public/.\n"
-	@printf "  $(BOLD)make frontend-docker$(RST)         Build the SPA in node:22-bookworm (no host Node required).\n"
-	@printf "  $(BOLD)make build-with-dashboard$(RST)    frontend + build-release in one command.\n"
-	@printf "  $(BOLD)make build-with-dashboard-docker$(RST)  frontend-docker + build-release.\n\n"
+	@printf "$(BOLD)Dashboard (separate service):$(RST)\n"
+	@printf "  The dashboard SPA is NOT embedded into the MCP binary. It runs as its own\n"
+	@printf "  container (frontend/Dockerfile + the dashboard service in docker-compose.yml).\n"
+	@printf "  $(BOLD)make frontend$(RST)            Build the SPA with host Node into frontend/.output/public/.\n"
+	@printf "  $(BOLD)make frontend-docker$(RST)     Build the SPA in node:22-bookworm (no host Node required).\n"
+	@printf "  $(BOLD)make dashboard-image$(RST)     Build the standalone nginx + SPA container image.\n"
+	@printf "  $(BOLD)make compose-up$(RST)          Bring up both containers (MCP :8000, dashboard :8001).\n\n"
 	@printf "$(BOLD)All targets:$(RST)\n"
 	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z_-]+:.*##/ { printf "  $(BOLD)%-30s$(RST) %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
 	@printf "\n$(DIM)Overrides: CARGO=…  DOCKER=…  NODE_IMAGE=…  IMAGE=…  PORT=…  NO_COLOR=1$(RST)\n"
@@ -97,18 +98,16 @@ ci: fmt-check clippy build test ## What CI runs (.github/workflows/ci.yml).
 
 ## ─── Frontend (dashboard SPA) ──────────────────────────────────────────────
 #
-# The Rust binary embeds the dashboard via `include_dir!()` reading
-# `frontend/.output/public/`. The two targets here populate that
-# directory; one needs a host Node, the other shells the build out
-# into a temporary Node Docker container so the host stays Node-less.
-# Either way the output is on the host filesystem and the next
-# `cargo build` embeds it.
+# The dashboard runs as its OWN service (frontend/Dockerfile served by nginx,
+# wired into docker-compose.yml). The Rust binary does not embed or serve it.
+# These targets exist for dashboard development (host Node) and CI (Docker
+# Node); the standalone image and the compose stack build atop their output.
 
 frontend: ## Build the Nuxt dashboard locally (requires Node + npm on PATH).
 	@printf "$(BOLD)Building dashboard with host Node…$(RST)\n"
 	cd frontend && $(NPM) ci && $(NPM) run generate
 	@printf "$(BOLD)✔ Dashboard built into frontend/.output/public/.$(RST)\n"
-	@printf "  $(DIM)Next: 'make build-release' to embed it into the binary.$(RST)\n"
+	@printf "  $(DIM)Run with 'make dashboard-image && make dashboard-run', or 'make compose-up'.$(RST)\n"
 
 frontend-docker: ## Build the Nuxt dashboard inside a Node Docker container (no host Node required).
 	@printf "$(BOLD)Building dashboard with $(NODE_IMAGE) (no host Node)…$(RST)\n"
@@ -119,17 +118,11 @@ frontend-docker: ## Build the Nuxt dashboard inside a Node Docker container (no 
 		-v "$(CURDIR):/work" -w /work/frontend \
 		$(NODE_IMAGE) sh -c "npm ci --no-audit --no-fund && npm run generate"
 	@printf "$(BOLD)✔ Dashboard built into frontend/.output/public/ on the host.$(RST)\n"
-	@printf "  $(DIM)Next: 'make build-release' to embed it into the binary.$(RST)\n"
+	@printf "  $(DIM)Run with 'make dashboard-image && make dashboard-run', or 'make compose-up'.$(RST)\n"
 
 frontend-clean: ## Remove the Nuxt build output + node_modules.
 	rm -rf frontend/.output frontend/node_modules
 	@printf "$(BOLD)✔ Cleaned frontend/.output and frontend/node_modules.$(RST)\n"
-
-build-with-dashboard: frontend build-release ## Build the dashboard (host Node) then a release binary.
-	@printf "$(BOLD)✔ Release binary with embedded dashboard at target/release/lodestone-mcp.$(RST)\n"
-
-build-with-dashboard-docker: frontend-docker build-release ## Build the dashboard (Docker Node) then a release binary on the host.
-	@printf "$(BOLD)✔ Release binary with embedded dashboard at target/release/lodestone-mcp.$(RST)\n"
 
 dashboard-image: ## Build the standalone dashboard Docker image (frontend/Dockerfile) — served by nginx.
 	@printf "$(BOLD)Building lodestone-dashboard image (frontend/Dockerfile)…$(RST)\n"

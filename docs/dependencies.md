@@ -10,7 +10,7 @@ auditing or trimming.
 
 | Layer | Always needed | Optional |
 | --- | --- | --- |
-| **Build** | Rust toolchain (stable, edition 2021) | Node + npm (for the dashboard SPA — skip with `LODESTONE_SKIP_FRONTEND=1`) |
+| **Build** | Rust toolchain (stable, edition 2021) | Node + npm — only when you're building the dashboard SPA (separate container; not embedded in the MCP binary) |
 | **Runtime** | nothing beyond the single `lodestone-mcp` binary | Chrome/Chromium (for `render_page`, `html_render`, the `google` engine, `browser_*` tools); SQLite is bundled via `sqlx`; optional Linux packages for the `pdf-extract` crate (see below) |
 
 Default-on subsystems that need *runtime* infrastructure to actually
@@ -52,11 +52,12 @@ kubernetes, databases — all gated by their `[<family>].enabled` flag).
   reads would need vendor SDKs (ADL / IGCL / IOKit) that aren't
   integrated.
 
-### Required to build the dashboard SPA
+### Required to build the dashboard SPA (separate from the MCP binary)
 - **Node + npm.** Tested on Node 22. The Nuxt 3 build needs no system
-  packages beyond what npm pulls. Skip the dashboard build entirely
-  with `LODESTONE_SKIP_FRONTEND=1` — the route serves a "not built"
-  page and the binary still works for MCP clients.
+  packages beyond what npm pulls. The MCP binary doesn't embed or
+  serve the dashboard — only the standalone `lodestone-dashboard`
+  container does (built from `frontend/Dockerfile`). Skip Node
+  entirely if you're only running the MCP server.
 
 ## Rust crates
 
@@ -69,7 +70,7 @@ Categorized by purpose. The full pinned list is in
 - **`tokio-util`** — `CancellationToken` for graceful shutdown.
 - **`axum`** (`features = ["ws"]`) — HTTP + WebSocket framework for
   `/mcp`, `/health`, `/ws/status`, `/api/settings/*`,
-  `/constellation/*`, `/dashboard/*`.
+  `/constellation/*`, `/api/memory/graph`.
 - **`reqwest`** (`features = ["gzip", "brotli", "json", "query",
   "form", "socks"]`) — outbound HTTP client used by every provider
   and skill that hits the web.
@@ -106,13 +107,6 @@ Categorized by purpose. The full pinned list is in
   ["tokio-runtime"]`) — Chrome DevTools Protocol client. Powers the
   shared singleton browser + every `browser_*` tool + the rendering
   path on Google / StackOverflow.
-
-### Embedding the dashboard
-
-- **`include_dir`** — at compile time, embeds
-  `frontend/.output/public/` into the binary as static files served
-  by the `/dashboard/*` route. `build.rs` is the script that runs
-  Nuxt before this fires.
 
 ### Logging
 
@@ -170,7 +164,8 @@ The full list is in [`frontend/package.json`](../frontend/package.json).
 ### Build / dev framework
 - **`nuxt`** — Vue 3 meta-framework. Used in **SPA mode** (`ssr: false`)
   with static generation (`nuxt generate`) so the output is plain
-  static assets the Rust binary can embed via `include_dir!`.
+  static assets that nginx ships from the `lodestone-dashboard`
+  container.
 - **`vue`** + **`vue-router`** — the underlying view layer.
 - **`typescript`** — every page and composable is TS.
 - **`@types/node`** — Node typings for the build scripts.
@@ -210,10 +205,9 @@ MIT / Apache-2.0 / BSD-style permissive. If you add a dependency, hold
 to that — copyleft (GPL/AGPL) crates are out, because they would
 require relicensing.
 
-The binary embeds the dashboard SPA (`include_dir!`); the SPA depends
-only on permissive packages too. If you change that — say, by adding a
-GPL-only Vue plugin — the resulting binary inherits the GPL
-constraint and we'd have to relicense or split the build.
+The dashboard SPA (separate `lodestone-dashboard` image) depends only
+on permissive packages too. Keep it that way — a GPL-only Vue plugin
+would force a relicense of the dashboard image's distribution.
 
 ## Auditing tips
 

@@ -31,18 +31,18 @@
 
 use std::time::Duration;
 
-use include_dir::{include_dir, Dir};
 use serde::Serialize;
-
-/// The Nuxt SPA's static-build output, embedded at compile time via
-/// `build.rs`. When npm wasn't on PATH at compile time (or
-/// `LODESTONE_SKIP_FRONTEND=1`), this directory is empty and the
-/// `/dashboard` route returns a friendly "not built" page.
-pub static DASHBOARD: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/frontend/.output/public");
 
 /// How often the server pushes a fresh snapshot once a client is connected.
 /// Short enough that the dashboard feels live; long enough that it doesn't
 /// thrash a busy server.
+///
+/// The dashboard SPA is a SEPARATE service (`frontend/Dockerfile`, the
+/// `dashboard` entry in `docker-compose.yml`) — this binary serves only
+/// `/ws/status`, the MCP endpoint, the constellation endpoints, and
+/// `/api/*`. The SPA was historically embedded via `include_dir!` and
+/// served at `/dashboard/*`; that was removed when the dashboard moved
+/// into its own container.
 pub const PUSH_INTERVAL: Duration = Duration::from_secs(5);
 
 /// The tagged-enum message envelope. JSON shape:

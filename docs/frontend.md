@@ -168,32 +168,36 @@ node shows only "no sessions yet" copy.
 
 ## How to access it
 
-The dashboard is **served by the `lodestone-mcp` binary itself** — no
-separate Node runtime in production. After `cargo build`:
+The dashboard ships as a **separate service** — its own image
+(`lodestone-dashboard`, built from `frontend/Dockerfile`), its own
+nginx, its own container. The MCP binary does **not** serve the SPA
+(early versions embedded it via `include_dir!`; that path was removed
+when the dashboard moved into its own container).
+
+The fastest path is the bundled compose stack:
 
 ```sh
-cargo run
-# then open http://localhost:8000/    →   redirects to /dashboard/
-# or directly:                http://localhost:8000/dashboard/
+docker compose up --build
+# → MCP server   http://localhost:8000   (no SPA — endpoints only)
+# → Dashboard    http://localhost:8001   (the Nuxt SPA, talks to :8000)
 ```
 
-`build.rs` runs `npm install && npm run generate` in the `frontend/`
-directory and `include_dir!()` embeds the static output
-(`frontend/.output/public/`) into the binary at compile time. The
-dashboard's same-origin default lets the WebSocket find `/ws/status` on
-the same host:port automatically.
+The SPA's WebSocket URL is baked at build time via
+`NUXT_PUBLIC_WS_URL` (compose sets it; the standalone image's
+`Dockerfile` defaults it to `ws://localhost:8000/ws/status`). To point
+at a different MCP server, rebuild the dashboard image with
+`--build-arg NUXT_PUBLIC_WS_URL=...`.
 
-### Routes the binary exposes
+### Routes the MCP binary exposes (no dashboard among them)
 
 | Path | Purpose |
 | --- | --- |
-| `/` | 308 redirect to `/dashboard/`. |
-| `/dashboard/` | Nuxt SPA index. |
-| `/dashboard/{*path}` | Static asset under the embedded SPA, or SPA fallback for client-side routes. |
+| `/mcp` | MCP Streamable HTTP endpoint. |
 | `/ws/status` | Dashboard push feed. Auth via `?token=…`. |
+| `/api/settings/*` | Ephemeral runtime knobs the dashboard's settings drawers POST to. |
+| `/api/memory/graph` | Memory graph data used by the Memory page's explorer. |
+| `/constellation/*` | Peer endpoints. |
 | `/health` | Liveness probe — `ok`. |
-| `/mcp` | MCP Streamable HTTP endpoint (already existed). |
-| `/constellation/*` | Peer endpoints (already existed). |
 
 ### Dev workflow (hot reload on the frontend)
 
