@@ -187,15 +187,22 @@ defaulted sensibly):
 
 ## Quick start
 
-Requires a recent Rust toolchain.
+Requires a recent Rust toolchain. Optional but recommended: Node + npm for the embedded dashboard.
 
 ```sh
-cargo run
+cargo run                          # backend + dashboard (needs Node)
+LODESTONE_SKIP_FRONTEND=1 cargo run # backend only (no Node)
 ```
 
 Listens on `http://127.0.0.1:8000/mcp` (and `GET /health` returns `ok`). Keyless out
-of the box. The headless browser is always compiled in; the `google` engine and
-per-call `render=true` additionally need a local **Chrome/Chromium** at runtime.
+of the box. The headless browser is always compiled in; the `google` engine,
+per-call `render=true`, and the `browser_*` tools additionally need a local
+**Chrome/Chromium** at runtime.
+
+Full options (backend only, embedded dashboard, Docker, dev workflow with HMR) +
+common build issues live in **[docs/building.md](docs/building.md)**. Every crate
+and npm package the project pulls in, by purpose, is in
+**[docs/dependencies.md](docs/dependencies.md)**.
 
 **LM Studio** — add to `%USERPROFILE%\.lmstudio\mcp.json` (or `~/.lmstudio/mcp.json`):
 
@@ -223,6 +230,8 @@ strategies, caching, forges/doc-sites: **[docs/configuration.md](docs/configurat
 
 | Doc | What's in it |
 | --- | --- |
+| [building.md](docs/building.md) | Backend-only / backend+dashboard / Docker / dev workflow + common build issues. |
+| [dependencies.md](docs/dependencies.md) | Every crate and npm package, by purpose. License + audit notes. |
 | [skills.md](docs/skills.md) | Every skill family, grouped, with a page each. |
 | [tools.md](docs/tools.md) | Every tool, its arguments, and purpose. |
 | [providers.md](docs/providers.md) | Every search provider, by family, with a page each. |
