@@ -140,3 +140,38 @@ export interface BrowserState {
 export type WsMessage = { type: 'snapshot'; data: Snapshot }
 
 export type ConnectionStatus = 'connecting' | 'open' | 'closed' | 'reconnecting'
+
+// /api/memory/graph payload — mirrors src/skills/memory.rs::GraphSnapshot.
+export interface GraphNode {
+  id: string
+  problem: string
+  summary: string
+  tags: string[]
+  revision_count: number
+  updated_at: number
+  superseded_by_head: string | null
+}
+
+export interface GraphEdge {
+  from: string
+  to: string
+  kind: string
+}
+
+export interface MemoryGraph {
+  nodes: GraphNode[]
+  edges: GraphEdge[]
+}
+
+export type GraphMode = 'all' | 'filter' | 'focus'
+
+export interface FilterParams {
+  tag?: string
+  query?: string
+  hide_superseded?: boolean
+}
+
+export interface FocusParams {
+  id: string
+  depth: number
+}

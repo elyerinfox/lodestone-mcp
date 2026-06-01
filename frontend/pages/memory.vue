@@ -174,6 +174,16 @@
         />
       </div>
     </section>
+
+    <section>
+      <SectionHeading>Explorer</SectionHeading>
+      <p class="mb-3 text-xs text-slate-400">
+        Force-directed graph of recorded solutions and the typed links
+        between them. Search to filter, click a node for the detail
+        panel, double-click to re-root the view as a BFS focus subgraph.
+      </p>
+      <MemoryExplorer />
+    </section>
   </div>
 </template>
 
