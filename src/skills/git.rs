@@ -156,6 +156,27 @@ impl Skill for GitRun {
     }
 }
 
+pub struct Family;
+impl crate::skills::FamilyMeta for Family {
+    fn family(&self) -> &'static str {
+        "git"
+    }
+    fn tools(&self) -> &'static [&'static str] {
+        TOOL_NAMES
+    }
+    fn check_capability(&self) -> crate::skills::SkillCapability {
+        use crate::skills::{binary_on_path, SkillCapability};
+        if binary_on_path("git") {
+            SkillCapability::Ready
+        } else {
+            SkillCapability::unavailable(
+                "no `git` binary on PATH",
+                "install git or extend the container image",
+            )
+        }
+    }
+}
+
 /// The skills this module contributes (gating happens in `disabled_by_config`).
 pub fn skills() -> Vec<Box<dyn Skill>> {
     vec![Box::new(GitRun)]

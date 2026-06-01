@@ -234,6 +234,31 @@ fn format_peaks(bins: &[Bin], top: usize, bin_hz: i64) -> String {
     lines.join("\n")
 }
 
+pub struct Family;
+impl crate::skills::FamilyMeta for Family {
+    fn family(&self) -> &'static str {
+        "sdr"
+    }
+    fn tools(&self) -> &'static [&'static str] {
+        TOOL_NAMES
+    }
+    fn check_capability(&self) -> crate::skills::SkillCapability {
+        use crate::skills::{binary_on_path, SkillCapability};
+        // SoapySDR is the userspace gateway most SDR tools shell out
+        // to. We accept either `SoapySDRUtil` (preferred) or the
+        // older `rtl_test` for an RTL-SDR-only setup. Either present
+        // → Ready.
+        if binary_on_path("SoapySDRUtil") || binary_on_path("rtl_test") {
+            SkillCapability::Ready
+        } else {
+            SkillCapability::unavailable(
+                "no SoapySDR / rtl-sdr utilities on PATH",
+                "install soapysdr-tools or rtl-sdr, or mount the USB SDR device",
+            )
+        }
+    }
+}
+
 /// The skills this module contributes (gating happens in `disabled_by_config`).
 pub fn skills() -> Vec<Box<dyn Skill>> {
     vec![Box::new(SdrDevices), Box::new(SdrScan)]

@@ -205,6 +205,38 @@ async fn run_with_stdin(program: &str, args: &[&str], stdin: &[u8]) -> Result<()
     Ok(())
 }
 
+pub struct Family;
+impl crate::skills::FamilyMeta for Family {
+    fn family(&self) -> &'static str {
+        "printer"
+    }
+    fn tools(&self) -> &'static [&'static str] {
+        TOOL_NAMES
+    }
+    fn check_capability(&self) -> crate::skills::SkillCapability {
+        use crate::skills::SkillCapability;
+        // The OS print stack: CUPS via `lpstat`/`lp` on Unix, Windows
+        // via builtin print API. Containers without CUPS report
+        // unavailable so operators know they need to install
+        // cups-client or extend the image.
+        #[cfg(windows)]
+        {
+            SkillCapability::Ready
+        }
+        #[cfg(not(windows))]
+        {
+            if crate::skills::binary_on_path("lpstat") {
+                SkillCapability::Ready
+            } else {
+                SkillCapability::unavailable(
+                    "no `lpstat` on PATH (CUPS missing)",
+                    "install cups-client (apt/brew/dnf) or extend the container image",
+                )
+            }
+        }
+    }
+}
+
 /// The skills this module contributes (gating happens in `disabled_by_config`).
 pub fn skills() -> Vec<Box<dyn Skill>> {
     vec![Box::new(PrinterList), Box::new(PrinterPrint)]

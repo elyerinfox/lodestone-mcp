@@ -851,6 +851,45 @@ pub const TOOL_NAMES: &[&str] = &[
     "docker_build",
 ];
 
+/// Family metadata + host probe: does this machine have a reachable
+/// Docker daemon? Tries (1) `$DOCKER_HOST` if set, (2) `/var/run/
+/// docker.sock` on Unix, (3) the Windows named pipe. We don't open a
+/// connection here (that's async + risks a hang on a stuck daemon);
+/// existence is signal enough.
+pub struct Family;
+impl crate::skills::FamilyMeta for Family {
+    fn family(&self) -> &'static str {
+        "docker"
+    }
+    fn tools(&self) -> &'static [&'static str] {
+        TOOL_NAMES
+    }
+    fn check_capability(&self) -> crate::skills::SkillCapability {
+        use crate::skills::SkillCapability;
+        if let Ok(h) = std::env::var("DOCKER_HOST") {
+            if !h.trim().is_empty() {
+                return SkillCapability::Ready;
+            }
+        }
+        #[cfg(unix)]
+        {
+            if std::path::Path::new("/var/run/docker.sock").exists() {
+                return SkillCapability::Ready;
+            }
+        }
+        #[cfg(windows)]
+        {
+            if std::path::Path::new(r"\\.\pipe\docker_engine").exists() {
+                return SkillCapability::Ready;
+            }
+        }
+        SkillCapability::unavailable(
+            "Docker daemon socket not reachable",
+            "mount /var/run/docker.sock (Unix) or set DOCKER_HOST",
+        )
+    }
+}
+
 /// The skills this module contributes (gating happens in `disabled_by_config`).
 pub fn skills() -> Vec<Box<dyn Skill>> {
     vec![

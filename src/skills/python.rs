@@ -172,6 +172,28 @@ impl Skill for PythonRun {
     }
 }
 
+pub struct Family;
+impl crate::skills::FamilyMeta for Family {
+    fn family(&self) -> &'static str {
+        "python"
+    }
+    fn tools(&self) -> &'static [&'static str] {
+        TOOL_NAMES
+    }
+    fn check_capability(&self) -> crate::skills::SkillCapability {
+        use crate::skills::{binary_on_path, SkillCapability};
+        let bin = if cfg!(windows) { "python" } else { "python3" };
+        if binary_on_path(bin) || binary_on_path("python") {
+            SkillCapability::Ready
+        } else {
+            SkillCapability::unavailable(
+                format!("no `{bin}` interpreter on PATH"),
+                "install Python 3 or set [python].interpreter",
+            )
+        }
+    }
+}
+
 pub fn skills() -> Vec<Box<dyn Skill>> {
     vec![Box::new(PythonRun)]
 }

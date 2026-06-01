@@ -631,6 +631,44 @@ pub const TOOL_NAMES: &[&str] = &[
     "k8s_delete",
 ];
 
+pub struct Family;
+impl crate::skills::FamilyMeta for Family {
+    fn family(&self) -> &'static str {
+        "kubernetes"
+    }
+    fn tools(&self) -> &'static [&'static str] {
+        TOOL_NAMES
+    }
+    /// Host probe — do we have a kubeconfig the host could load?
+    /// `$KUBECONFIG` takes precedence; otherwise the default
+    /// `~/.kube/config` (Unix) or the `USERPROFILE` equivalent on
+    /// Windows. We don't actually parse the file here — `kube` itself
+    /// does that lazily; existence is the signal.
+    fn check_capability(&self) -> crate::skills::SkillCapability {
+        use crate::skills::SkillCapability;
+        if let Ok(kc) = std::env::var("KUBECONFIG") {
+            if !kc.trim().is_empty()
+                && kc.split(if cfg!(windows) { ';' } else { ':' }).any(|p| {
+                    !p.trim().is_empty() && std::path::Path::new(p.trim()).exists()
+                })
+            {
+                return SkillCapability::Ready;
+            }
+        }
+        let home_var = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
+        if let Ok(h) = std::env::var(home_var) {
+            let p = std::path::Path::new(&h).join(".kube").join("config");
+            if p.exists() {
+                return SkillCapability::Ready;
+            }
+        }
+        SkillCapability::unavailable(
+            "no kubeconfig found",
+            "set KUBECONFIG or mount ~/.kube/config into the container",
+        )
+    }
+}
+
 /// The skills this module contributes (gating happens in `disabled_by_config`).
 pub fn skills() -> Vec<Box<dyn Skill>> {
     vec![

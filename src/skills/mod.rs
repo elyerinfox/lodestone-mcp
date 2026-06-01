@@ -128,6 +128,132 @@ pub(crate) fn schema_for<T: JsonSchema + 'static>() -> Arc<JsonObject> {
     schema_for_type::<T>()
 }
 
+// ---------------------------------------------------------------------------
+// Capability framework — per-family runtime probes.
+// ---------------------------------------------------------------------------
+//
+// A skill family's *config* flag (`[<family>].enabled`) says the operator wants
+// the tools exposed. A separate *capability* check answers "does this host
+// have what the family actually needs to run?" — a Docker daemon socket, a
+// reachable kubeconfig, `python3` on `$PATH`, `ffmpeg` on `$PATH`, NVML for
+// `system_gpu`, etc. Both gates are independent: a tool only fires when its
+// family is enabled in config AND the capability probe returned `Ready`.
+//
+// The signal flows in three directions:
+//   1. The dispatch wrapper turns a missing capability into a clean
+//      `invalid_request` error with the reason + a one-line hint. That's what
+//      the LLM sees.
+//   2. Each missing capability is logged once at startup at `WARN`.
+//   3. The WS snapshot carries the per-family status so the dashboard's
+//      Tools page can render a badge + collapsed-by-default group with the
+//      reason inline.
+//
+// Probes are stateless: they look at the host (env vars, `$PATH`, file
+// existence, OS) — not at the resolved server config. Anything config-driven
+// is the operator's choice and stays gated by the family's `enabled` flag.
+
+#[derive(Debug, Clone)]
+pub enum SkillCapability {
+    /// Probe succeeded — the family's tools can run.
+    Ready,
+    /// Probe failed; the family's tools are blocked at dispatch and the
+    /// dashboard groups them under a collapsed "Unavailable" header. Both
+    /// strings are short enough to render inline.
+    Unavailable {
+        /// One-line description of what's missing, e.g.
+        /// `"Docker daemon socket not reachable"`.
+        reason: String,
+        /// One-line remediation, e.g.
+        /// `"mount /var/run/docker.sock or set DOCKER_HOST"`.
+        hint: Option<String>,
+    },
+}
+
+impl SkillCapability {
+    pub fn unavailable(reason: impl Into<String>, hint: impl Into<String>) -> Self {
+        Self::Unavailable {
+            reason: reason.into(),
+            hint: Some(hint.into()),
+        }
+    }
+    pub fn unavailable_no_hint(reason: impl Into<String>) -> Self {
+        Self::Unavailable {
+            reason: reason.into(),
+            hint: None,
+        }
+    }
+    pub fn is_ready(&self) -> bool {
+        matches!(self, Self::Ready)
+    }
+}
+
+/// The contract every skill **family** implements. Each family-level
+/// module under `src/skills/` exports a unit struct (conventionally
+/// `pub struct Family;`) that impls this trait, the registry lists it
+/// via [`families`], and the dispatch wrapper + dashboard + startup
+/// logs all flow off the same source of truth.
+///
+/// `check_capability` defaults to [`SkillCapability::Ready`] — most
+/// families are pure-Rust and have no host requirement. Families that
+/// shell out to a binary (`docker`, `git`, `ffmpeg`, …), depend on an
+/// OS subsystem (`systemd`, `serial`, `printer`, `sdr`), or need a
+/// reachable resource (`kubernetes` kubeconfig, `python` interpreter)
+/// override it. The probe runs ONCE at startup; the result is cached.
+pub trait FamilyMeta: Send + Sync + 'static {
+    /// Stable id used in logs, snapshot fields, dashboard groupings, and
+    /// the error messages the LLM sees on a blocked dispatch.
+    fn family(&self) -> &'static str;
+    /// The tools this family exposes. Lets the registry build the
+    /// `tool_name → family` reverse index in one pass.
+    fn tools(&self) -> &'static [&'static str];
+    /// Probe the host. Default = `Ready` (the common case). Override
+    /// when the family needs a binary on `$PATH`, a socket, a
+    /// kubeconfig, etc.
+    fn check_capability(&self) -> SkillCapability {
+        SkillCapability::Ready
+    }
+}
+
+/// Every family registered with the capability framework. Adding a
+/// family means: write its module, register its `Family` here, and the
+/// dispatch wrapper + dashboard + startup logs pick it up automatically.
+/// Order doesn't matter; the registry is consumed as a set.
+///
+/// Coverage today: the host-dependent families (those whose tools
+/// shell out / touch the OS) are all wired through here. Pure-Rust
+/// families (chart, arithmetic, regex, etc.) inherit the default
+/// `Ready` and can adopt the trait incrementally — until they do,
+/// their tools just behave as before (no gate, no badge change).
+pub fn families() -> Vec<Box<dyn FamilyMeta>> {
+    vec![
+        Box::new(docker::Family),
+        Box::new(kubernetes::Family),
+        Box::new(python::Family),
+        Box::new(systemd::Family),
+        Box::new(ffmpeg::Family),
+        Box::new(git::Family),
+        Box::new(serial::Family),
+        Box::new(printer::Family),
+        Box::new(sdr::Family),
+    ]
+}
+
+/// Probe helper used by ~all the families: is `bin` on `$PATH`?
+/// Cross-platform — tries `bin` then `bin.exe` / `bin.cmd` on Windows.
+pub(crate) fn binary_on_path(bin: &str) -> bool {
+    use std::process::Command;
+    for candidate in [bin, &format!("{bin}.exe"), &format!("{bin}.cmd")] {
+        if Command::new(candidate)
+            .arg("--version")
+            .output()
+            .is_ok_and(|o| o.status.success() || !o.stdout.is_empty() || !o.stderr.is_empty())
+        {
+            return true;
+        }
+    }
+    false
+}
+
 /// Empty argument set, for skills that take no parameters.
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub(crate) struct NoArgs {}

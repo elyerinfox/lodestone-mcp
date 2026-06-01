@@ -273,6 +273,33 @@ impl Skill for SystemdRestart {
     }
 }
 
+pub struct Family;
+impl crate::skills::FamilyMeta for Family {
+    fn family(&self) -> &'static str {
+        "systemd"
+    }
+    fn tools(&self) -> &'static [&'static str] {
+        TOOL_NAMES
+    }
+    fn check_capability(&self) -> crate::skills::SkillCapability {
+        use crate::skills::{binary_on_path, SkillCapability};
+        if !cfg!(target_os = "linux") {
+            return SkillCapability::unavailable(
+                "systemd only runs on Linux",
+                "no remediation — these tools are Linux-only",
+            );
+        }
+        if binary_on_path("systemctl") {
+            SkillCapability::Ready
+        } else {
+            SkillCapability::unavailable(
+                "no `systemctl` on PATH",
+                "the host needs systemd; container images don't have a systemd",
+            )
+        }
+    }
+}
+
 pub fn skills() -> Vec<Box<dyn Skill>> {
     vec![
         Box::new(SystemdList),

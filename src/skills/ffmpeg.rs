@@ -250,6 +250,27 @@ impl Skill for FfmpegConvert {
     }
 }
 
+pub struct Family;
+impl crate::skills::FamilyMeta for Family {
+    fn family(&self) -> &'static str {
+        "ffmpeg"
+    }
+    fn tools(&self) -> &'static [&'static str] {
+        TOOL_NAMES
+    }
+    fn check_capability(&self) -> crate::skills::SkillCapability {
+        use crate::skills::{binary_on_path, SkillCapability};
+        if binary_on_path("ffmpeg") && binary_on_path("ffprobe") {
+            SkillCapability::Ready
+        } else {
+            SkillCapability::unavailable(
+                "ffmpeg/ffprobe not on PATH",
+                "install ffmpeg (brew/apt) or extend the container image",
+            )
+        }
+    }
+}
+
 /// The skills this module contributes (gating happens in `disabled_by_config`).
 pub fn skills() -> Vec<Box<dyn Skill>> {
     vec![Box::new(FfmpegProbe), Box::new(FfmpegConvert)]
