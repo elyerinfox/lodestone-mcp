@@ -49,7 +49,76 @@ pub const TOOL_NAMES: &[&str] = &[
     "browser_extract",
     "browser_eval",
     "browser_screenshot",
+    "browser_pool_get",
+    "browser_pool_list",
+    "browser_pool_reset",
 ];
+
+// ---------------------------------------------------------------------------
+// Named-session pools (#127)
+// ---------------------------------------------------------------------------
+//
+// A pool is a long-lived, NAMED browser session that providers
+// (and the model) route through to ACCUMULATE warm state — cookies,
+// solved-CAPTCHA tokens, fingerprint — for one specific site or
+// vendor. Hitting `google.com` through the same pool 50 times in a
+// row looks like one persistent user; spinning up 50 fresh contexts
+// looks like a bot and gets rate-limited.
+//
+// Pools have a small state machine the operator can observe and act
+// on:
+//
+//   Healthy   normal use — every action goes through.
+//   Suspect   the detector flagged something (CAPTCHA selector,
+//             429/403 page, "challenge" in the URL). Outbound use
+//             still works but the dashboard shows the warning.
+//   Blocked   second strike. Calls return an error until the
+//             operator confirms a reset from the dashboard.
+//
+// Reset = dispose the pool's session + create a fresh one (fresh
+// context, fresh cookies). State returns to Healthy. The auto-flip
+// is conservative; the human-in-the-loop reset is what `BrowserPool`
+// is built around.
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PoolState {
+    Healthy,
+    Suspect,
+    Blocked,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct PoolSummary {
+    pub name: String,
+    pub state: PoolState,
+    pub session_id: Option<String>,
+    pub url: Option<String>,
+    pub last_warning: Option<String>,
+    pub age_secs: u64,
+}
+
+struct Pool {
+    name: String,
+    session_id: tokio::sync::RwLock<Option<String>>,
+    state: tokio::sync::RwLock<PoolState>,
+    strikes: AtomicI64,
+    last_warning: tokio::sync::RwLock<Option<String>>,
+    created_at_ms: i64,
+}
+
+impl Pool {
+    fn new(name: String) -> Self {
+        Self {
+            name,
+            session_id: tokio::sync::RwLock::new(None),
+            state: tokio::sync::RwLock::new(PoolState::Healthy),
+            strikes: AtomicI64::new(0),
+            last_warning: tokio::sync::RwLock::new(None),
+            created_at_ms: now_ms(),
+        }
+    }
+}
 
 /// What the model wants back after an action.
 ///
@@ -157,6 +226,11 @@ impl Session {
 pub struct BrowserSessionManager {
     sessions: RwLock<HashMap<String, Arc<Session>>>,
     cfg: RwLock<BrowserSessionConfig>,
+    pools: RwLock<HashMap<String, Arc<Pool>>>,
+    /// Reverse index session_id → pool_name. The navigation paths
+    /// consult this to know whether to run the heuristic CAPTCHA/
+    /// block detector after each navigation.
+    session_to_pool: RwLock<HashMap<String, String>>,
 }
 
 impl BrowserSessionManager {
@@ -164,6 +238,8 @@ impl BrowserSessionManager {
         let m = Arc::new(Self {
             sessions: RwLock::new(HashMap::new()),
             cfg: RwLock::new(cfg),
+            pools: RwLock::new(HashMap::new()),
+            session_to_pool: RwLock::new(HashMap::new()),
         });
         spawn_reaper(m.clone());
         m
@@ -271,7 +347,57 @@ impl BrowserSessionManager {
             .unwrap_or_default()
             .unwrap_or_default();
         session.touch();
+        // If this session is the live session for a pool, run the
+        // heuristic detector on the post-navigation page. The
+        // detector is cheap (URL + title pattern match) and reports
+        // are advisory — the state machine handles the throttling.
+        self.maybe_detect_poisoning(session_id, &final_url, &title)
+            .await;
         Ok((final_url, title))
+    }
+
+    /// If `session_id` belongs to a pool, scan the URL + title for
+    /// well-known CAPTCHA / block patterns and report a warning on the
+    /// pool when one matches. False positives are tolerable — the
+    /// operator just clicks "reset" in the dashboard.
+    async fn maybe_detect_poisoning(&self, session_id: &str, url: &str, title: &str) {
+        let pool_name = match self.session_to_pool.read().await.get(session_id).cloned() {
+            Some(n) => n,
+            None => return,
+        };
+        let lower_url = url.to_ascii_lowercase();
+        let lower_title = title.to_ascii_lowercase();
+        let url_signals = [
+            "captcha",
+            "challenge",
+            "checkpoint",
+            "blocked",
+            "ratelimit",
+            "rate-limit",
+            "/verify",
+        ];
+        let title_signals = [
+            "captcha",
+            "are you a robot",
+            "are you human",
+            "just a moment",
+            "checking your browser",
+            "access denied",
+            "403 forbidden",
+            "429",
+            "too many requests",
+            "verify you are human",
+            "attention required",
+        ];
+        let url_hit = url_signals.iter().find(|s| lower_url.contains(*s));
+        let title_hit = title_signals.iter().find(|s| lower_title.contains(*s));
+        if let Some(hit) = url_hit.or(title_hit) {
+            self.pool_report_warning(
+                &pool_name,
+                &format!("matched signature {hit:?} in url/title"),
+            )
+            .await;
+        }
     }
 
     pub async fn click(&self, session_id: &str, selector: &str) -> Result<String, McpError> {
@@ -431,6 +557,7 @@ impl BrowserSessionManager {
                 invalid(format!("unknown session_id: {session_id}"))
             })?
         };
+        self.session_to_pool.write().await.remove(session_id);
         // Dispose the context — that closes every page belonging to it
         // (per chromium's `Target.disposeBrowserContext` docs) without
         // firing beforeunload hooks, and frees the per-context
@@ -625,6 +752,133 @@ impl BrowserSessionManager {
         }
         session.touch();
         Ok(obs)
+    }
+
+    // ----------------------------------------------------------------
+    // Pool ops
+    // ----------------------------------------------------------------
+
+    /// Get or create the named pool's session and return its id +
+    /// state. A `Blocked` pool returns Err so callers don't keep
+    /// hammering a dead session until reset; `Suspect` is still
+    /// usable but the caller can choose to back off.
+    pub async fn pool_get(
+        &self,
+        name: &str,
+        restrict_to_public: bool,
+    ) -> Result<(String, PoolState), McpError> {
+        let pool = self.ensure_pool(name).await;
+        let state = *pool.state.read().await;
+        if state == PoolState::Blocked {
+            return Err(invalid(format!(
+                "pool {name:?} is blocked — reset from the dashboard before reusing"
+            )));
+        }
+        // Lock the pool's session slot so two concurrent callers don't
+        // each create a session in parallel.
+        let mut slot = pool.session_id.write().await;
+        if let Some(id) = slot.as_ref() {
+            if self.sessions.read().await.contains_key(id) {
+                return Ok((id.clone(), state));
+            }
+            // Session was reaped (idle); we'll spin up a new one.
+        }
+        let (id, _, _) = if restrict_to_public {
+            self.open_restricted().await?
+        } else {
+            self.open().await?
+        };
+        *slot = Some(id.clone());
+        self.session_to_pool
+            .write()
+            .await
+            .insert(id.clone(), name.to_string());
+        Ok((id, state))
+    }
+
+    /// Force a fresh session on the named pool. Disposes the old
+    /// session + context and creates a new one in `Healthy` state.
+    /// Bound to the dashboard's "reset" button. Returns the new
+    /// session id.
+    pub async fn pool_reset(&self, name: &str) -> Result<String, McpError> {
+        let pool = self.ensure_pool(name).await;
+        let old = {
+            let mut slot = pool.session_id.write().await;
+            slot.take()
+        };
+        if let Some(id) = old {
+            let _ = self.close(&id).await;
+        }
+        pool.strikes.store(0, Ordering::Relaxed);
+        *pool.state.write().await = PoolState::Healthy;
+        *pool.last_warning.write().await = None;
+        let (id, _, _) = self.open().await?;
+        *pool.session_id.write().await = Some(id.clone());
+        Ok(id)
+    }
+
+    /// Report a heuristic warning against a pool: a CAPTCHA appeared,
+    /// the page is a 429/403 challenge, etc. First strike → Suspect;
+    /// second → Blocked. Cheap callers can invoke this freely; the
+    /// state machine handles the throttling.
+    pub async fn pool_report_warning(&self, name: &str, reason: &str) {
+        let pool = self.ensure_pool(name).await;
+        let strikes = pool.strikes.fetch_add(1, Ordering::Relaxed) + 1;
+        *pool.last_warning.write().await = Some(reason.to_string());
+        let new_state = if strikes >= 2 {
+            PoolState::Blocked
+        } else {
+            PoolState::Suspect
+        };
+        *pool.state.write().await = new_state;
+        tracing::warn!(
+            pool = %name,
+            strikes,
+            state = ?new_state,
+            reason = %reason,
+            "browser pool warning"
+        );
+    }
+
+    /// Snapshot every pool's state for the dashboard.
+    pub async fn pool_list(&self) -> Vec<PoolSummary> {
+        let pools = self.pools.read().await;
+        let now = now_ms();
+        let mut rows: Vec<PoolSummary> = Vec::with_capacity(pools.len());
+        for p in pools.values() {
+            let session_id = p.session_id.read().await.clone();
+            let state = *p.state.read().await;
+            let url = if let Some(sid) = &session_id {
+                let table = self.sessions.read().await;
+                if let Some(sess) = table.get(sid) {
+                    sess.page.url().await.unwrap_or_default()
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+            rows.push(PoolSummary {
+                name: p.name.clone(),
+                state,
+                session_id,
+                url,
+                last_warning: p.last_warning.read().await.clone(),
+                age_secs: ((now - p.created_at_ms) / 1000).max(0) as u64,
+            });
+        }
+        rows.sort_by(|a, b| a.name.cmp(&b.name));
+        rows
+    }
+
+    async fn ensure_pool(&self, name: &str) -> Arc<Pool> {
+        if let Some(p) = self.pools.read().await.get(name) {
+            return p.clone();
+        }
+        let mut w = self.pools.write().await;
+        w.entry(name.to_string())
+            .or_insert_with(|| Arc::new(Pool::new(name.to_string())))
+            .clone()
     }
 
     async fn lookup(&self, session_id: &str) -> Result<Arc<Session>, McpError> {
@@ -1222,6 +1476,108 @@ impl Skill for BrowserScreenshot {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Pool tools (#127)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct PoolGetArgs {
+    /// Pool name — by convention, the bare hostname or vendor key
+    /// (e.g. `"google"`, `"stackoverflow"`, `"github"`). Routing all
+    /// queries against one site through one named pool accumulates a
+    /// warm session (cookies, solved-CAPTCHA tokens) that defeats most
+    /// per-IP rate limits.
+    name: String,
+}
+
+pub struct BrowserPoolGet;
+impl Skill for BrowserPoolGet {
+    fn name(&self) -> &'static str {
+        "browser_pool_get"
+    }
+    fn description(&self) -> &'static str {
+        "Return a session_id for the named long-lived pool, creating the pool if it doesn't exist. \
+         Subsequent `browser_navigate` / `browser_click` / etc. on that session reuse the pool's \
+         warm state. Returns `{session_id, state}`. A pool in `\"blocked\"` state (CAPTCHA stuck / \
+         403 challenge) returns an error — the operator must reset it from the dashboard. A pool \
+         in `\"suspect\"` state still works but the model should consider backing off / using a \
+         different provider for a few minutes."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<PoolGetArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (_server, args) = ctx.parse::<PoolGetArgs>()?;
+            let mgr = manager().await;
+            let (session_id, state) = mgr.pool_get(&args.name, false).await?;
+            Ok(json(serde_json::json!({
+                "session_id": session_id,
+                "state": state,
+            })))
+        })
+    }
+}
+
+pub struct BrowserPoolList;
+impl Skill for BrowserPoolList {
+    fn name(&self) -> &'static str {
+        "browser_pool_list"
+    }
+    fn description(&self) -> &'static str {
+        "List every named browser pool with its current state (`healthy` / `suspect` / `blocked`), \
+         the last warning that flipped it out of healthy (if any), and the underlying session id. \
+         Pools survive the model's individual flows so this is the right tool to check before a \
+         long scrape."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<NoArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let _ = ctx.parse::<NoArgs>()?;
+            let mgr = manager().await;
+            let pools = mgr.pool_list().await;
+            Ok(json(serde_json::json!({ "pools": pools })))
+        })
+    }
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct PoolResetArgs {
+    /// Pool name to reset. Disposes the current session + context and
+    /// starts a fresh one. State returns to `healthy`. Use this when
+    /// a pool is `blocked` (CAPTCHA didn't clear, account got flagged)
+    /// or to deliberately rotate the warm state.
+    name: String,
+}
+
+pub struct BrowserPoolReset;
+impl Skill for BrowserPoolReset {
+    fn name(&self) -> &'static str {
+        "browser_pool_reset"
+    }
+    fn description(&self) -> &'static str {
+        "Force a fresh session on the named pool: dispose the current tab + context and spin up a \
+         new one. State returns to `healthy`. Use this when a pool is `blocked` or when you want \
+         to deliberately rotate its warm state."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<PoolResetArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (_server, args) = ctx.parse::<PoolResetArgs>()?;
+            let mgr = manager().await;
+            let session_id = mgr.pool_reset(&args.name).await?;
+            Ok(json(serde_json::json!({
+                "session_id": session_id,
+                "state": "healthy",
+            })))
+        })
+    }
+}
+
 pub fn skills() -> Vec<Box<dyn Skill>> {
     vec![
         Box::new(BrowserOpen),
@@ -1234,5 +1590,8 @@ pub fn skills() -> Vec<Box<dyn Skill>> {
         Box::new(BrowserExtract),
         Box::new(BrowserEval),
         Box::new(BrowserScreenshot),
+        Box::new(BrowserPoolGet),
+        Box::new(BrowserPoolList),
+        Box::new(BrowserPoolReset),
     ]
 }

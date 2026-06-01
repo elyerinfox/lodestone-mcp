@@ -77,6 +77,73 @@
       </div>
     </section>
 
+    <section v-if="snapshot.browser.pools.length > 0">
+      <SectionHeading>Named pools</SectionHeading>
+      <p class="mb-3 text-xs text-slate-400">
+        Long-lived warm sessions for one site or vendor. The pool state
+        machine flags poisoned sessions (CAPTCHA / 403 challenge / 429)
+        as <span class="font-mono text-amber-300">suspect</span> on first
+        warning and <span class="font-mono text-accent-err">blocked</span>
+        on second. Reset disposes the session and starts fresh.
+      </p>
+      <div class="overflow-hidden rounded-lg border border-slate-800 bg-surface-1">
+        <table class="w-full text-sm">
+          <thead class="bg-surface-2 text-xs uppercase text-slate-400">
+            <tr>
+              <th class="px-4 py-2 text-left">Pool</th>
+              <th class="px-4 py-2 text-left">State</th>
+              <th class="px-4 py-2 text-left">URL</th>
+              <th class="px-4 py-2 text-left">Last warning</th>
+              <th class="px-4 py-2 text-right">Age</th>
+              <th class="px-4 py-2 text-center"></th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-800">
+            <tr
+              v-for="p in snapshot.browser.pools"
+              :key="p.name"
+              class="hover:bg-surface-2/60"
+            >
+              <td class="px-4 py-2 font-mono text-xs">{{ p.name }}</td>
+              <td class="px-4 py-2">
+                <span
+                  class="rounded px-2 py-0.5 text-xs"
+                  :class="
+                    p.state === 'healthy'
+                      ? 'bg-accent-ok/20 text-accent-ok'
+                      : p.state === 'suspect'
+                      ? 'bg-amber-700/20 text-amber-300'
+                      : 'bg-accent-err/20 text-accent-err'
+                  "
+                >{{ p.state }}</span>
+              </td>
+              <td class="px-4 py-2 font-mono text-xs text-slate-400 truncate max-w-md">
+                {{ p.url || '—' }}
+              </td>
+              <td class="px-4 py-2 text-xs text-slate-400 truncate max-w-xs">
+                {{ p.last_warning || '—' }}
+              </td>
+              <td class="px-4 py-2 text-right font-mono text-xs text-slate-400">
+                {{ fmtSecs(p.age_secs) }}
+              </td>
+              <td class="px-4 py-2 text-center">
+                <button
+                  type="button"
+                  class="rounded bg-accent-info/20 px-2 py-0.5 text-xs text-accent-info hover:bg-accent-info/30"
+                  @click="resetPool(p.name)"
+                >
+                  reset
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div v-if="resetError" class="mt-3 rounded border border-accent-err/40 bg-accent-err/10 p-2 text-xs text-accent-err">
+        {{ resetError }}
+      </div>
+    </section>
+
     <section>
       <SectionHeading>Sessions</SectionHeading>
       <div class="overflow-hidden rounded-lg border border-slate-800 bg-surface-1">
@@ -162,6 +229,24 @@ async function patch(body: Record<string, unknown>) {
 const cfg = useRuntimeConfig()
 const wsToken = (cfg.public.wsToken as string | undefined) ?? ''
 const closeError = ref<string | null>(null)
+const resetError = ref<string | null>(null)
+async function resetPool(name: string) {
+  resetError.value = null
+  try {
+    const headers: Record<string, string> = {}
+    if (wsToken) headers.Authorization = `Bearer ${wsToken}`
+    const res = await fetch(
+      `/api/browser/pools/${encodeURIComponent(name)}/reset`,
+      { method: 'POST', headers },
+    )
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '')
+      throw new Error(`${res.status} ${res.statusText}: ${detail}`.trim())
+    }
+  } catch (e) {
+    resetError.value = e instanceof Error ? e.message : String(e)
+  }
+}
 async function closeSession(id: string) {
   closeError.value = null
   try {

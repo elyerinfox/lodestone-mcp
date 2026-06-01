@@ -484,6 +484,7 @@ impl Lodestone {
                 let cfg = mgr.config().await;
                 crate::ws::BrowserState {
                     sessions: mgr.list_live().await,
+                    pools: mgr.pool_list().await,
                     idle_timeout_secs: cfg.idle_timeout_secs,
                     max_concurrent: cfg.max_concurrent,
                 }
@@ -1012,6 +1013,32 @@ fn api_routes(
         }
     }
 
+    /// `POST /api/browser/pools/:name/reset` — confirm-reset a poisoned
+    /// pool from the dashboard. Disposes the current session+context
+    /// and creates a fresh one; the pool state returns to healthy.
+    async fn reset_browser_pool(
+        State(state): State<ApiState>,
+        headers: HeaderMap,
+        axum::extract::Path(name): axum::extract::Path<String>,
+    ) -> axum::response::Response {
+        if !state.constellation.token_ok(presented_token(&headers)) {
+            return (StatusCode::UNAUTHORIZED, "unauthorized\n").into_response();
+        }
+        let mgr = match crate::skills::browser_session::manager_if_init() {
+            Some(m) => m,
+            None => return (StatusCode::NOT_FOUND, "no browser sessions\n").into_response(),
+        };
+        match mgr.pool_reset(&name).await {
+            Ok(sid) => Json(serde_json::json!({
+                "name": name,
+                "session_id": sid,
+                "state": "healthy",
+            }))
+            .into_response(),
+            Err(e) => (StatusCode::BAD_REQUEST, format!("{e}\n")).into_response(),
+        }
+    }
+
     let state = ApiState { server, constellation };
     axum::Router::new()
         .route(
@@ -1025,6 +1052,10 @@ fn api_routes(
         .route(
             "/api/browser/sessions/{id}",
             axum::routing::delete(close_browser_session),
+        )
+        .route(
+            "/api/browser/pools/{name}/reset",
+            axum::routing::post(reset_browser_pool),
         )
         .with_state(state)
 }
