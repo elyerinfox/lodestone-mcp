@@ -1,29 +1,38 @@
-# Build the server (the headless browser is always compiled in).
+# Stage 1 — build the Nuxt dashboard SPA.
+#
+# Decoupled from the Rust build (per the host-side workflow) but still
+# baked into the operator-facing Docker image, since `docker compose
+# up --build` is meant to ship a full experience without further steps.
+# Docker layer caching means this stage re-runs only when files under
+# frontend/ change.
+FROM node:22-bookworm-slim AS frontend
+WORKDIR /app/frontend
+# Install deps first so unchanged package-lock.json caches a layer.
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+# Then copy sources and produce the static export under .output/public.
+COPY frontend/ ./
+RUN npm run generate
+
+# Stage 2 — build the Rust binary, embedding the SPA from stage 1.
 FROM rust:1-bookworm AS build
 WORKDIR /app
 COPY Cargo.toml Cargo.lock build.rs ./
 COPY src ./src
-# build.rs orchestrates an `npm run generate` of the Nuxt dashboard
-# and then `include_dir!()` embeds the static output into the binary.
-# Skip that step in the Docker image — we don't ship Node here, and
-# the build script handles the missing-frontend case by writing a
-# "dashboard not built" page at runtime.
-ENV LODESTONE_SKIP_FRONTEND=1
-# include_str!() pulls in docs/instructions.md and migrations/*.sql at compile
-# time -- they have to be present in the build context for the binary to
-# embed them. Once the binary is built they're baked in and not needed at
-# runtime; the runtime image below doesn't copy them.
+# include_str!() pulls in docs/instructions.md and migrations/*.sql at
+# compile time — they have to be present in the build context for the
+# binary to embed them. Baked in; the runtime image doesn't copy them.
 COPY docs ./docs
 COPY migrations ./migrations
-# include_dir!() expects frontend/.output/public to exist at compile
-# time; build.rs creates it empty when LODESTONE_SKIP_FRONTEND is set,
-# but only if `frontend/` itself exists. Make the directory so the
-# embed succeeds without dragging the whole frontend tree into the
-# image.
-RUN mkdir -p frontend/.output/public
+# include_dir!() reads this path at compile time; copy the stage-1
+# output here so the binary ships with the dashboard. To produce a
+# dashboard-less binary, replace the COPY with
+# `RUN mkdir -p frontend/.output/public` — the binary will then
+# serve the small "not built" page on /dashboard at runtime.
+COPY --from=frontend /app/frontend/.output/public /app/frontend/.output/public
 RUN cargo build --release
 
-# Runtime image with Chromium for headless rendering.
+# Stage 3 — runtime image with Chromium for headless rendering.
 FROM debian:bookworm-slim AS runtime
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \

@@ -1,3 +1,19 @@
+# `docker compose up --build` produces a fully-bundled image:
+#
+#   - MCP endpoint        http://localhost:8000/mcp
+#   - Dashboard SPA       http://localhost:8000/dashboard/
+#   - WebSocket feed      ws://localhost:8000/ws/status
+#   - Health check        http://localhost:8000/health
+#
+# The Nuxt dashboard is built inside the image (Dockerfile stage 1,
+# node:22-bookworm-slim) and embedded into the binary at compile time.
+# No host Node / npm required. To build a dashboard-less image,
+# either pass `--target build` (stops before the runtime stage and
+# still has the dashboard) — or edit the Dockerfile to swap the
+# COPY for `RUN mkdir -p frontend/.output/public`, which produces a
+# binary that serves the "not built" page on /dashboard. The MCP
+# endpoints work in both cases.
+
 services:
   lodestone:
     build: .
@@ -14,7 +30,17 @@ services:
       # LODESTONE_SEARCH_STRATEGY: "aggregate"
       # LODESTONE_CODE_SITES: "github.com,gitlab.com,codeberg.org"
       # LODESTONE_GITHUB_TOKEN: "ghp_..."
+      # If you set [network].token (recommended when running on a LAN-reachable
+      # interface), pass the same value to the dashboard so the in-browser SPA
+      # can authenticate the /ws/status feed and /api/settings/* endpoints.
+      # NUXT_PUBLIC_WS_TOKEN: "your-shared-secret"
     # Or mount a full config instead of using env vars:
     # volumes:
     #   - ./lodestone.toml:/app/lodestone.toml:ro
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

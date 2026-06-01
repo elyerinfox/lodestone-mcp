@@ -187,11 +187,14 @@ defaulted sensibly):
 
 ## Quick start
 
-Requires a recent Rust toolchain. Optional but recommended: Node + npm for the embedded dashboard.
+Requires a recent Rust toolchain. Node is **not** needed for the MCP server —
+the dashboard is an optional operator view, built separately.
 
 ```sh
-cargo run                          # backend + dashboard (needs Node)
-LODESTONE_SKIP_FRONTEND=1 cargo run # backend only (no Node)
+cargo run                            # MCP server. /dashboard serves a "not built" page.
+# Or, if you want the dashboard embedded too:
+make build-with-dashboard            # host Node builds the SPA, cargo embeds it
+make build-with-dashboard-docker     # frontend built in node:22-bookworm, no host Node
 ```
 
 Listens on `http://127.0.0.1:8000/mcp` (and `GET /health` returns `ok`). Keyless out
@@ -199,9 +202,12 @@ of the box. The headless browser is always compiled in; the `google` engine,
 per-call `render=true`, and the `browser_*` tools additionally need a local
 **Chrome/Chromium** at runtime.
 
-Full options (backend only, embedded dashboard, Docker, dev workflow with HMR) +
-common build issues live in **[docs/building.md](docs/building.md)**. Every crate
-and npm package the project pulls in, by purpose, is in
+The MCP endpoints (`/mcp`, `/ws/status`, `/api/settings/*`,
+`/constellation/*`) are exposed identically whether the dashboard SPA is
+embedded or not. Full options (backend only, embedded dashboard, Docker, dev
+workflow with HMR) + common build issues live in
+**[docs/building.md](docs/building.md)**. Every crate and npm package the
+project pulls in, by purpose, is in
 **[docs/dependencies.md](docs/dependencies.md)**.
 
 **LM Studio** — add to `%USERPROFILE%\.lmstudio\mcp.json` (or `~/.lmstudio/mcp.json`):

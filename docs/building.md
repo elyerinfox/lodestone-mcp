@@ -1,12 +1,32 @@
 # Building lodestone-mcp
 
-Four paths in increasing order of how much you want set up:
+**The dashboard is optional.** The MCP server itself — `/mcp`,
+`/ws/status`, `/api/settings/*`, `/constellation/*` — exposes every
+endpoint with no Node toolchain involved at any stage. The Nuxt
+dashboard is a separate, opt-in operator view that *consumes* those
+endpoints. If you're running lodestone-mcp purely as an MCP server
+behind an MCP client, the dashboard is overhead you don't need.
 
-1. [Backend only](#1-backend-only) — Rust toolchain. Fastest. Dashboard
-   route serves a "not built" page, every MCP tool works.
-2. [Backend + dashboard](#2-backend--dashboard) — Rust + Node. The full
-   embedded experience. One binary at the end.
-3. [Docker](#3-docker) — no host toolchain needed; bundles Chromium.
+The mechanism: the binary always serves a `/dashboard/` route, but
+what it serves is determined by what's in `frontend/.output/public/`
+at compile time. Empty directory → a small "dashboard not built" page
+with build instructions. Populated directory (from `make frontend` or
+`make frontend-docker`) → the actual SPA. Cargo's `build.rs` only
+ensures the embed target exists; it never reaches into the frontend
+tree. `cargo build` produces a working binary either way.
+
+Five paths in increasing order of how much you want set up:
+
+1. [Backend only](#1-backend-only) — Rust toolchain. Fastest. The
+   dashboard route returns the "not built" page; every MCP tool works.
+2. [Backend + dashboard](#2-backend--dashboard) — Rust + Node. Build
+   the SPA, then build the binary; the binary embeds it.
+2b. [Backend on host, frontend in Docker](#2b-backend-on-host-frontend-built-in-docker)
+    — Rust on the host, no Node on the host. Frontend builds inside a
+    `node:22-bookworm` container that bind-mounts your repo and writes
+    `frontend/.output/public/` back to the host. Same final binary.
+3. [Docker (everything in containers)](#3-docker-everything-in-containers)
+    — no host toolchain at all; bundles Chromium.
 4. [Dev workflow](#4-dev-workflow) — `cargo run` for the backend +
    `npm run dev` for the dashboard with HMR pointing at the
    running backend.
@@ -19,12 +39,14 @@ and why each one is there.
 ```sh
 git clone https://github.com/elyerinfox/lodestone-mcp.git
 cd lodestone-mcp
-LODESTONE_SKIP_FRONTEND=1 cargo build --release
+make build-release          # or: cargo build --release
 ```
 
-`LODESTONE_SKIP_FRONTEND=1` tells [`build.rs`](../build.rs) not to
-attempt the Nuxt build. The `/dashboard/*` route at runtime serves a
-small "not built" page; every MCP tool works normally.
+No env vars, no opt-out. The Rust build never touches Node:
+`build.rs` only ensures the embed directory exists; whatever's there
+gets baked in. With nothing in the directory, the `/dashboard/`
+route serves a small "not built" page. Every MCP tool works
+normally.
 
 The binary lands at `target/release/lodestone-mcp`. Run it with
 `./target/release/lodestone-mcp` — listens on `127.0.0.1:8000/mcp` by
@@ -38,13 +60,20 @@ curl -s http://127.0.0.1:8000/health      # → ok
 
 ## 2. Backend + dashboard
 
-The Rust binary embeds the static Nuxt SPA via `include_dir!()`. The
-build script runs `npm run generate` first, then cargo embeds the
-output. End state: one binary, dashboard served from `/dashboard/`.
+Two explicit steps: build the SPA, then build the binary. The binary
+embeds whatever's in `frontend/.output/public/` at compile time.
 
 ```sh
 git clone https://github.com/elyerinfox/lodestone-mcp.git
 cd lodestone-mcp
+make build-with-dashboard
+```
+
+That target chains `make frontend` (host Node builds the SPA) and
+`make build-release`. Equivalent to:
+
+```sh
+cd frontend && npm ci && npm run generate && cd ..
 cargo build --release
 ```
 
@@ -52,34 +81,58 @@ Required on `PATH`:
 - **Rust** (stable).
 - **Node + npm** (tested on Node 22).
 
-What `build.rs` does, in order:
-1. Creates `frontend/.output/public/` (always — `include_dir!()`
-   needs a directory).
-2. Honors `LODESTONE_SKIP_FRONTEND=1` if set, skips everything else.
-3. Falls through if `frontend/package.json` is missing or `npm` is not
-   on `PATH` — prints a `cargo:warning` and skips the build.
-4. `npm ci` (or `npm install` if the lockfile drifted) under
-   `frontend/`.
-5. `npm run generate` (Nuxt's static export).
-6. Cargo then `include_dir!()`s `frontend/.output/public/` into the
-   binary.
-
 ### Re-runs
 
-`build.rs` declares `cargo:rerun-if-changed` for every source path
-Nuxt consumes (`package.json`, `nuxt.config.ts`, `tailwind.config.ts`,
-`tsconfig.json`, `app.vue`, `types/`, `composables/`, `layouts/`,
-`pages/`, `components/`), so editing a Rust file doesn't re-run npm.
-Editing a Vue file does.
+`build.rs` declares `cargo:rerun-if-changed=frontend/.output/public`,
+so editing a Vue file → `make frontend` → next `cargo build`
+re-embeds the binary without a manual `cargo clean`. The build
+script doesn't know about `frontend/` source files — npm runs only
+when you ask for it.
 
 To force a clean dashboard rebuild:
 ```sh
-rm -rf frontend/.output frontend/node_modules
-touch build.rs
-cargo build --release
+make frontend-clean         # rm -rf frontend/.output frontend/node_modules
+make frontend               # or: make frontend-docker
+make build-release
 ```
 
-## 3. Docker
+## 2b. Backend on host, frontend built in Docker
+
+The Rust binary embeds the dashboard via `include_dir!()` reading
+`frontend/.output/public/`. The directory lives on your filesystem
+either way — the question is just *how* you populate it. If you don't
+want Node on the host, shell the frontend build out to a Node
+container, mount your repo into it, and let it write the output back
+to your disk. Then build the binary normally.
+
+The Makefile wraps this in one command:
+
+```sh
+make frontend-docker     # populate frontend/.output/public/ via node:22-bookworm
+make build-release       # cargo build --release embeds it
+# or in one shot:
+make build-with-dashboard-docker
+```
+
+What `make frontend-docker` runs:
+```sh
+docker run --rm \
+  -v "$PWD:/work" -w /work/frontend \
+  node:22-bookworm sh -c "npm ci && npm run generate"
+```
+
+Result: dashboard built inside the container, output written to your
+host's `frontend/.output/public/`, no Node ever installed on the
+host. Then the host's `cargo build --release` picks it up and embeds
+it. The resulting binary is identical to one built with host Node.
+
+Pin the Node version by overriding `NODE_IMAGE=node:22.10-bookworm`.
+
+If `node_modules` was last installed inside the container (root-owned
+inside the bind mount), `make frontend-clean` is the easy reset —
+it's `rm -rf frontend/.output frontend/node_modules`.
+
+## 3. Docker (everything in containers)
 
 ```sh
 docker compose up --build
@@ -88,15 +141,37 @@ docker build -t lodestone-mcp .
 docker run --rm -p 8000:8000 lodestone-mcp
 ```
 
-The image is two-stage:
+The shipped image is **three-stage** and bundles the dashboard:
 
-- **Build stage** — `rust:1-bookworm` base. Skips the dashboard
-  (`LODESTONE_SKIP_FRONTEND=1` baked in) so we don't need Node in the
-  image. The dashboard route at runtime serves the "not built" page.
-- **Runtime stage** — `debian:bookworm-slim` plus `chromium`,
+- **Stage 1 — `frontend`** — `node:22-bookworm-slim`. Runs `npm ci`
+  then `npm run generate` to produce `frontend/.output/public/`.
+  Docker layer caching means this stage only re-runs when files
+  under `frontend/` actually change.
+- **Stage 2 — `build`** — `rust:1-bookworm`. `cargo build --release`,
+  copying the stage-1 SPA into `frontend/.output/public/` so
+  `include_dir!()` embeds it.
+- **Stage 3 — `runtime`** — `debian:bookworm-slim` plus `chromium`,
   `ca-certificates`, `fonts-liberation`. Sets `LODESTONE_BIND=
   0.0.0.0:8000`, `LODESTONE_CHROME_PATH=/usr/bin/chromium`, and
   `LODESTONE_CHROME_NO_SANDBOX=1` (root containers need that flag).
+
+The resulting image serves both `/mcp` and the embedded dashboard at
+`/dashboard/` from the same port.
+
+### Building a dashboard-less Docker image
+
+If you want a lighter image without the SPA — for an MCP-only
+deployment — edit the Dockerfile's build stage:
+
+```dockerfile
+# Replace this line:
+COPY --from=frontend /app/frontend/.output/public /app/frontend/.output/public
+# with:
+RUN mkdir -p frontend/.output/public
+```
+
+The binary still serves `/dashboard/` but it returns the "not built"
+page. Removes the Node stage from your rebuild path entirely.
 
 ### Mounting a custom config
 ```sh
@@ -242,6 +317,24 @@ cargo test
 The integration tests behind `#[ignore]` hit live external services
 and are skipped by default; run them with `cargo test --
 --include-ignored` if you have network and want full coverage.
+
+## Makefile cheat-sheet
+
+| Target | What |
+| --- | --- |
+| `make check` | `cargo fmt --all && cargo build && cargo clippy --all-targets -- -D warnings && cargo test` — the pre-commit triad. |
+| `make ci` | What CI runs: `fmt --check` (not `fmt`) + clippy + build + test. |
+| `make build` / `make build-release` | `cargo build` / `cargo build --release`. The dashboard is built only if Node is on PATH (or skipped via `LODESTONE_SKIP_FRONTEND=1`). |
+| `make frontend` | Build the dashboard SPA with **host Node** into `frontend/.output/public/`. |
+| `make frontend-docker` | Build the dashboard inside `node:22-bookworm` with the repo bind-mounted — no host Node required. Output lands on the host. |
+| `make frontend-clean` | `rm -rf frontend/.output frontend/node_modules`. |
+| `make build-with-dashboard` | `make frontend` then `make build-release`. Single command for the full embedded build. |
+| `make build-with-dashboard-docker` | `make frontend-docker` then `make build-release`. Same final binary, no host Node. |
+| `make docker` | `docker build` the image + run the `/health` smoke test. |
+| `make run` | `cargo run` (debug profile). |
+
+Override on the command line: `make frontend-docker NODE_IMAGE=node:22.10-bookworm`,
+`make docker IMAGE=myorg/lodestone-mcp:dev`, etc.
 
 ## See also
 
