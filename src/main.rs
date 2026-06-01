@@ -1158,6 +1158,57 @@ fn api_routes(
         )
         .route("/api/memory/graph", axum::routing::get(memory_graph))
         .with_state(state)
+        // The dashboard SPA may be served from a different origin
+        // (port-separated standalone container, remote deployment).
+        // The /api/* surface is already auth-gated by the bearer
+        // token, so the CORS layer just adds permissive headers + a
+        // 204 reply for OPTIONS preflights. Embedded same-origin
+        // requests get the same headers without ill effect.
+        .layer(axum::middleware::from_fn(api_cors))
+}
+
+/// CORS middleware for the /api/* surface. Echoes the request's
+/// `Origin`, allows GET/POST/DELETE + the headers the dashboard sends
+/// (Content-Type, Authorization), and short-circuits OPTIONS
+/// preflights with 204 so a cross-origin fetch from the standalone
+/// dashboard container actually completes.
+async fn api_cors(
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    use axum::http::{header, HeaderValue, Method, StatusCode};
+    use axum::response::IntoResponse;
+    let origin = req
+        .headers()
+        .get(header::ORIGIN)
+        .cloned()
+        .unwrap_or_else(|| HeaderValue::from_static("*"));
+    if req.method() == Method::OPTIONS {
+        let mut resp = StatusCode::NO_CONTENT.into_response();
+        let h = resp.headers_mut();
+        h.insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, origin);
+        h.insert(
+            header::ACCESS_CONTROL_ALLOW_METHODS,
+            HeaderValue::from_static("GET, POST, DELETE, OPTIONS"),
+        );
+        h.insert(
+            header::ACCESS_CONTROL_ALLOW_HEADERS,
+            HeaderValue::from_static("authorization, content-type"),
+        );
+        h.insert(
+            header::ACCESS_CONTROL_MAX_AGE,
+            HeaderValue::from_static("600"),
+        );
+        return resp;
+    }
+    let mut resp = next.run(req).await;
+    let h = resp.headers_mut();
+    h.insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, origin);
+    h.insert(
+        header::ACCESS_CONTROL_EXPOSE_HEADERS,
+        HeaderValue::from_static("content-type"),
+    );
+    resp
 }
 
 /// Static dashboard route — serves the Nuxt SPA embedded into the binary
