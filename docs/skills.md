@@ -164,7 +164,9 @@ signal-processing family pairs with `wave_*` for FFT-of-decoded-audio flows.
 ## Math & science (local, by field)
 
 Named-formula registries (compute by id from a `{var: value}` map; discover with the
-matching `*_formula_list`) plus the expression evaluator and equation solver.
+matching `*_formula_list`) plus the expression evaluator and equation solver. The
+[`formula`](skills/formula.md) module is the shared engine each domain dispatches
+through — no tools of its own.
 
 | Skill | Tools | What |
 | --- | --- | --- |
@@ -173,6 +175,7 @@ matching `*_formula_list`) plus the expression evaluator and equation solver.
 | [geometry](skills/geometry.md) | `geo_distance`, `geo_azimuth`, `geometry_formula`, `geometry_formula_list` | Great-circle distance/bearing; areas, volumes, Pythagoras, Heron, law of cosines. |
 | [trigonometry](skills/trigonometry.md) | `trig_formula`, `trig_formula_list` | sin/cos/tan + inverses (degrees), deg↔rad, law of sines/cosines, arc/sector. |
 | [physics](skills/physics.md) | `physics_formula`, `physics_formula_list`, `physical_constant`, `wave_frequency` | ~70 physics formulas (mechanics→fluids) + SI constants + wave f/λ/T. |
+| [formula](skills/formula.md) | (infrastructure) | Shared registry engine: input validation, listing, uniform response shape. Every `*_formula` / `*_formula_list` tool dispatches through it. |
 
 ## Finance & markets (keyless)
 
@@ -192,4 +195,17 @@ matching `*_formula_list`) plus the expression evaluator and equation solver.
 
 | Skill | Tools | What |
 | --- | --- | --- |
-| [meta](skills/meta.md) | `list_providers`, `constellation_status`, `constellation_peers`, `constellation_seeds` | Active providers; the constellation graph, hop distances, and seed ratios. |
+| [meta](skills/meta.md) | `list_providers`, `constellation_status`, `constellation_peers`, `constellation_seeds`, `constellation_capabilities` | Active providers; the constellation graph, hop distances, seed ratios, and per-feature capability advertisement ("who can do X?"). |
+
+## Infrastructure (no tools — backs other skills)
+
+These modules don't expose tools directly; they're the shared engines /
+guards that other skill modules build on top of. Each has its own doc
+so other skill docs (and the security audit) can link into a single
+canonical reference.
+
+| Module | Doc | What |
+| --- | --- | --- |
+| `guard` | [guard.md](skills/guard.md) | Client-agnostic two-call confirmation for destructive actions. First call returns a one-time token; second call with `confirm` runs. Bypassed by `[<family>].allow_destructive`. |
+| `ssrf` | [skills/ssrf.md](skills/ssrf.md) | URL guard the browser session manager applies to **guest sessions** (peer-hosted). Refuses RFC1918 / loopback / link-local / CGNAT / IPv6 ULA / local TLDs. Synchronous for literal IPs, DNS-resolving for hostnames. |
+| `formula` | [formula.md](skills/formula.md) | Shared named-formula registry. Backs `algebra_formula` / `geometry_formula` / `trig_formula` / `physics_formula` so each domain's catalog can be one closure per formula instead of one tool per formula. |
