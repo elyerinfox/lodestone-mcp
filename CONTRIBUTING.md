@@ -695,6 +695,71 @@ Three small edits, all mechanical:
 - For destructive tools: register them with the [`guard`](src/skills/guard.rs)
   and verify the `allow_destructive` knob actually pre-authorizes the action.
 
+### 4. (When the family needs a host resource) Implement `FamilyMeta`
+
+Configurability — `[<family>].enabled` — says the operator *wants* the tools
+exposed. A separate **capability probe** answers "does this host actually have
+what the family needs to run?" That's covered by the [`FamilyMeta`
+trait](src/skills/mod.rs) under `src/skills/mod.rs`.
+
+Skip this step when your family is pure-Rust (chart, regex, arithmetic, the
+formula domains, etc.) — the trait's default `check_capability` returns
+`Ready` and you don't need a `Family` impl.
+
+Implement it when your family:
+- shells out to a binary on `$PATH` (`docker`, `git`, `ffmpeg`, `python`, …);
+- talks to an OS subsystem (`systemd`, `serial`, `printer`, `sdr`); or
+- needs a reachable resource (`kubernetes` kubeconfig, `docker` socket, …).
+
+```rust
+pub struct Family;
+impl crate::skills::FamilyMeta for Family {
+    fn family(&self) -> &'static str { "<name>" }
+    fn tools(&self) -> &'static [&'static str] { TOOL_NAMES }
+    fn check_capability(&self) -> crate::skills::SkillCapability {
+        use crate::skills::{binary_on_path, SkillCapability};
+        if binary_on_path("my-required-binary") {
+            SkillCapability::Ready
+        } else {
+            // Reason: one short sentence describing what's missing.
+            // Hint: one short sentence describing how to fix it.
+            SkillCapability::unavailable(
+                "no `my-required-binary` on PATH",
+                "install <pkg> via apt/brew/dnf or extend the container image",
+            )
+        }
+    }
+}
+```
+
+Then register your `Family` in `skills/mod.rs::families()` — one new line in
+the `vec![]` literal. The framework picks it up automatically:
+
+- **At startup**: the probe runs once and the result is cached on
+  `Lodestone.skill_capabilities`. `Unavailable` families log one `WARN` line
+  carrying the reason + hint.
+- **In dispatch**: the wrapper consults the cache before invoking the skill
+  body. If the family is `Unavailable`, the call returns an
+  `invalid_request` error with the reason + hint in the message, so the
+  model sees what's missing and can pick a different path.
+- **On the dashboard**: `ServerStatus.skill_capabilities` carries one row
+  per registered family; the Tools page renders a "Host capabilities" panel
+  with a Ready / Unavailable badge per family + the inline reason + hint.
+
+Probe contract:
+- Stateless — look at env vars, `$PATH`, file existence, OS. Don't open
+  network connections; don't read server config. Anything operator-driven
+  stays under the `[<family>].enabled` flag.
+- Fast — runs synchronously at startup. No async, no waiting for a daemon
+  to respond.
+- One-line strings — `reason` and `hint` are rendered inline on the
+  dashboard and inside the LLM-facing error. Keep them short, keep them
+  actionable.
+
+Helper available: `crate::skills::binary_on_path(bin)` tries `bin`,
+`bin.exe`, and `bin.cmd` so probes work cross-platform without per-OS
+branches.
+
 That's the whole flow. `main.rs` does not change.
 
 ## Shared helpers — use these before rolling your own

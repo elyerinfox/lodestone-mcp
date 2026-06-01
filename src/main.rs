@@ -130,6 +130,19 @@ pub(crate) struct Lodestone {
     /// Ephemeral — never persisted, so a restart restores the resolved
     /// active set from config.
     pub(crate) runtime_disabled_tools: Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
+    /// Per-family capability probe results, cached at startup. The
+    /// dispatch wrapper consults this to refuse calls whose family is
+    /// `Unavailable` with a clean error (carrying the probe's reason +
+    /// hint so the LLM sees what's missing). The WS snapshot exposes it
+    /// to the dashboard. Pure-Rust families that didn't register a
+    /// `FamilyMeta` impl don't appear here and dispatch without a gate
+    /// — same behavior as before this feature shipped.
+    pub(crate) skill_capabilities:
+        Arc<std::collections::HashMap<&'static str, skills::SkillCapability>>,
+    /// `tool_name → family_name` reverse index built alongside
+    /// `skill_capabilities` so the dispatch wrapper can look up the
+    /// owning family in O(1).
+    pub(crate) tool_to_family: Arc<std::collections::HashMap<&'static str, &'static str>>,
     // The filtered tool router; `#[tool_handler(router = self.tool_router)]`
     // uses it for both tool listing and dispatch.
     tool_router: ToolRouter<Lodestone>,
@@ -200,6 +213,42 @@ impl Lodestone {
             runtime_disabled_tools: Arc::new(std::sync::Mutex::new(
                 std::collections::HashSet::new(),
             )),
+            skill_capabilities: {
+                let mut map: std::collections::HashMap<&'static str, skills::SkillCapability> =
+                    std::collections::HashMap::new();
+                for fam in skills::families() {
+                    let cap = fam.check_capability();
+                    if let skills::SkillCapability::Unavailable { reason, hint } = &cap {
+                        match hint {
+                            Some(h) => tracing::warn!(
+                                family = fam.family(),
+                                reason = %reason,
+                                hint = %h,
+                                "skill family unavailable on this host — \
+                                 calls into it will be refused at dispatch"
+                            ),
+                            None => tracing::warn!(
+                                family = fam.family(),
+                                reason = %reason,
+                                "skill family unavailable on this host"
+                            ),
+                        }
+                    }
+                    map.insert(fam.family(), cap);
+                }
+                Arc::new(map)
+            },
+            tool_to_family: {
+                let mut map: std::collections::HashMap<&'static str, &'static str> =
+                    std::collections::HashMap::new();
+                for fam in skills::families() {
+                    let name = fam.family();
+                    for t in fam.tools() {
+                        map.insert(*t, name);
+                    }
+                }
+                Arc::new(map)
+            },
             cfg,
             started_at: std::time::Instant::now(),
             tool_router,
@@ -438,6 +487,32 @@ impl Lodestone {
                 eia_key: !self.eia_key.trim().is_empty(),
             },
             log_level: tracing_control::current(),
+            skill_capabilities: {
+                // Rebuild the family→tools map fresh so the row order is
+                // deterministic. Capability results come from the cache
+                // populated at startup. Pure-Rust families that
+                // didn't register a FamilyMeta impl are absent — the
+                // dashboard renders the existing flat list for those.
+                let mut rows: Vec<crate::ws::SkillCapabilityEntry> = Vec::new();
+                for fam in skills::families() {
+                    let cap = self.skill_capabilities.get(fam.family());
+                    let (ready, reason, hint) = match cap {
+                        Some(skills::SkillCapability::Ready) | None => (true, None, None),
+                        Some(skills::SkillCapability::Unavailable { reason, hint }) => {
+                            (false, Some(reason.clone()), hint.clone())
+                        }
+                    };
+                    rows.push(crate::ws::SkillCapabilityEntry {
+                        family: fam.family().to_string(),
+                        tools: fam.tools().iter().map(|s| s.to_string()).collect(),
+                        ready,
+                        reason,
+                        hint,
+                    });
+                }
+                rows.sort_by(|a, b| a.family.cmp(&b.family));
+                rows
+            },
         };
         // Memory. Internal struct uses i64 (SQLite native); convert to u64
         // for the wire format (negatives can't happen — these are
@@ -1083,9 +1158,10 @@ fn api_routes(
 
     /// `GET /api/memory/graph` — solution graph snapshot for the
     /// dashboard explorer. Query params:
-    ///   - `mode`: `all` (default) | `filter` | `focus`
-    ///   - `tag`, `query`, `hide_superseded` (for `filter` mode)
-    ///   - `id`, `depth` (for `focus` mode)
+    /// - `mode`: `all` (default) | `filter` | `focus`
+    /// - `tag`, `query`, `hide_superseded` (for `filter` mode)
+    /// - `id`, `depth` (for `focus` mode)
+    ///
     /// Returns `{ nodes: [...], edges: [...] }`. Auth: same bearer
     /// as the WS feed and other /api/* endpoints.
     #[derive(serde::Deserialize)]
@@ -1118,16 +1194,11 @@ fn api_routes(
                 hide_superseded: q.hide_superseded.unwrap_or(false),
             },
             Some("focus") => match q.id {
-                Some(id) if !id.trim().is_empty() => {
-                    crate::skills::memory::GraphMode::Focus {
-                        id,
-                        depth: q.depth.unwrap_or(2),
-                    }
-                }
-                _ => {
-                    return (StatusCode::BAD_REQUEST, "focus mode requires id\n")
-                        .into_response()
-                }
+                Some(id) if !id.trim().is_empty() => crate::skills::memory::GraphMode::Focus {
+                    id,
+                    depth: q.depth.unwrap_or(2),
+                },
+                _ => return (StatusCode::BAD_REQUEST, "focus mode requires id\n").into_response(),
             },
             _ => crate::skills::memory::GraphMode::All,
         };

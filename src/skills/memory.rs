@@ -844,17 +844,15 @@ impl Memory {
         // so the worst-case payload is small enough to keep this
         // simple. If the cap ever grows past ~50 000 rows, push the
         // filter into SQL with parameterized queries.
-        let solutions: Vec<SolutionGraphRow> = sqlx::query_as(
-            "SELECT id, problem, canon_key, updated_at FROM solutions",
-        )
-        .fetch_all(&self.pool)
-        .await
-        .unwrap_or_default();
-        let edges: Vec<EdgeRow> =
-            sqlx::query_as("SELECT from_id, kind, to_id FROM solution_links")
+        let solutions: Vec<SolutionGraphRow> =
+            sqlx::query_as("SELECT id, problem, canon_key, updated_at FROM solutions")
                 .fetch_all(&self.pool)
                 .await
                 .unwrap_or_default();
+        let edges: Vec<EdgeRow> = sqlx::query_as("SELECT from_id, kind, to_id FROM solution_links")
+            .fetch_all(&self.pool)
+            .await
+            .unwrap_or_default();
         // Latest revision per solution → summary + tags + supersession head.
         let revs: Vec<RevRow> = sqlx::query_as(
             "SELECT solution_id, MAX(rev) AS rev, summary FROM solution_revisions \
@@ -867,11 +865,10 @@ impl Memory {
         for r in revs {
             rev_by_id.insert(r.solution_id, (r.rev, r.summary));
         }
-        let tag_rows: Vec<TagRow> =
-            sqlx::query_as("SELECT solution_id, tag FROM solution_tags")
-                .fetch_all(&self.pool)
-                .await
-                .unwrap_or_default();
+        let tag_rows: Vec<TagRow> = sqlx::query_as("SELECT solution_id, tag FROM solution_tags")
+            .fetch_all(&self.pool)
+            .await
+            .unwrap_or_default();
         let mut tags_by_id: HashMap<String, Vec<String>> = HashMap::new();
         for t in tag_rows {
             tags_by_id.entry(t.solution_id).or_default().push(t.tag);

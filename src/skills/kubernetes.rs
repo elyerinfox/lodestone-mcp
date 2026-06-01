@@ -648,9 +648,9 @@ impl crate::skills::FamilyMeta for Family {
         use crate::skills::SkillCapability;
         if let Ok(kc) = std::env::var("KUBECONFIG") {
             if !kc.trim().is_empty()
-                && kc.split(if cfg!(windows) { ';' } else { ':' }).any(|p| {
-                    !p.trim().is_empty() && std::path::Path::new(p.trim()).exists()
-                })
+                && kc
+                    .split(if cfg!(windows) { ';' } else { ':' })
+                    .any(|p| !p.trim().is_empty() && std::path::Path::new(p.trim()).exists())
             {
                 return SkillCapability::Ready;
             }

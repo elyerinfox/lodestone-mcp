@@ -21,6 +21,15 @@ export interface ServerStatus {
   constellation_bind: string
   secrets: SecretPresence
   log_level: string
+  skill_capabilities: SkillCapabilityEntry[]
+}
+
+export interface SkillCapabilityEntry {
+  family: string
+  tools: string[]
+  ready: boolean
+  reason?: string
+  hint?: string
 }
 
 export interface SecretPresence {

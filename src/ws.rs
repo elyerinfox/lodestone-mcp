@@ -139,6 +139,26 @@ pub struct ServerStatus {
     /// Active tracing filter directive (e.g. `lodestone_mcp=info,rmcp=warn`).
     /// Mutated at runtime via `POST /api/settings/server { log_level }`.
     pub log_level: String,
+    /// Per-family host-capability status. One entry for every family
+    /// that registered a `FamilyMeta` impl. Pure-Rust families that
+    /// don't need a probe stay implicit. Dashboard groups its tool
+    /// list by family + renders a badge per group based on this.
+    pub skill_capabilities: Vec<SkillCapabilityEntry>,
+}
+
+/// One row on `ServerStatus.skill_capabilities`. `ready=true` means
+/// the family's tools are dispatchable; `false` carries the probe's
+/// one-line `reason` and (optionally) `hint` so the operator and the
+/// LLM both see what's missing and how to fix it.
+#[derive(Debug, Clone, Serialize)]
+pub struct SkillCapabilityEntry {
+    pub family: String,
+    pub tools: Vec<String>,
+    pub ready: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hint: Option<String>,
 }
 
 /// One bit per secret the server might be configured with. The

@@ -176,12 +176,18 @@ impl SkillCapability {
             hint: Some(hint.into()),
         }
     }
+    /// Variant for probes whose failure mode has no actionable hint
+    /// (e.g. "x86 disasm only on x86 hosts"). Used by some of the
+    /// not-yet-wired families; kept here so adding them doesn't need
+    /// another helper.
+    #[allow(dead_code)]
     pub fn unavailable_no_hint(reason: impl Into<String>) -> Self {
         Self::Unavailable {
             reason: reason.into(),
             hint: None,
         }
     }
+    #[allow(dead_code)]
     pub fn is_ready(&self) -> bool {
         matches!(self, Self::Ready)
     }
@@ -503,6 +509,29 @@ fn route(skill: Box<dyn Skill>) -> ToolRoute<Lodestone> {
                 None,
             );
             return Box::pin(async move { Err(err) });
+        }
+        // Capability gate. If the tool's family registered a FamilyMeta
+        // impl that returned Unavailable at startup, refuse the call
+        // with the reason + hint so the LLM sees what's missing and
+        // can pick a different path. Pure-Rust families (no Family
+        // impl registered) don't appear in the map and pass through.
+        if let Some(family) = server.tool_to_family.get(tool_name) {
+            if let Some(SkillCapability::Unavailable { reason, hint }) =
+                server.skill_capabilities.get(*family)
+            {
+                let msg = match hint {
+                    Some(h) => format!(
+                        "tool '{tool_name}' (family '{family}') is unavailable on this host: \
+                         {reason} — {h}"
+                    ),
+                    None => format!(
+                        "tool '{tool_name}' (family '{family}') is unavailable on this host: \
+                         {reason}"
+                    ),
+                };
+                let err = rmcp::ErrorData::invalid_request(msg, None);
+                return Box::pin(async move { Err(err) });
+            }
         }
         let sctx = SkillCtx { server, args };
         let fut = skill.call(sctx);

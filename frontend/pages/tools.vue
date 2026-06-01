@@ -109,6 +109,58 @@
       </div>
     </SettingsDrawer>
 
+    <!-- Host capability summary. One row per registered family with a
+         badge for Ready / Unavailable; Unavailable rows expand to show
+         the probe's reason + remediation hint. Pure-Rust families that
+         didn't register a probe don't appear here — they pass dispatch
+         without a gate. -->
+    <section v-if="snapshot.server.skill_capabilities.length > 0" class="space-y-3">
+      <SectionHeading>Host capabilities</SectionHeading>
+      <p class="text-xs text-slate-400">
+        Per-family host probes ran at startup. <span class="text-accent-ok">Ready</span>
+        families' tools dispatch normally; <span class="text-accent-err">Unavailable</span>
+        families' tools return an error explaining what's missing so the
+        model can pick a different path.
+      </p>
+      <div class="space-y-2">
+        <div
+          v-for="cap in snapshot.server.skill_capabilities"
+          :key="cap.family"
+          class="rounded-lg border bg-surface-1 p-3"
+          :class="cap.ready ? 'border-slate-800' : 'border-accent-err/40'"
+        >
+          <div class="flex items-center justify-between gap-3">
+            <div class="flex items-center gap-3">
+              <span
+                class="rounded px-2 py-0.5 text-xs font-medium"
+                :class="
+                  cap.ready
+                    ? 'bg-accent-ok/20 text-accent-ok'
+                    : 'bg-accent-err/20 text-accent-err'
+                "
+              >
+                {{ cap.ready ? 'Ready' : 'Unavailable' }}
+              </span>
+              <span class="font-mono text-sm text-slate-200">{{ cap.family }}</span>
+              <span class="text-xs text-slate-500"
+                >{{ cap.tools.length }} tool{{ cap.tools.length === 1 ? '' : 's' }}</span
+              >
+            </div>
+          </div>
+          <div v-if="!cap.ready" class="mt-2 space-y-1 text-xs">
+            <div class="text-accent-err">
+              <span class="uppercase tracking-wide text-slate-500">reason:</span>
+              {{ cap.reason }}
+            </div>
+            <div v-if="cap.hint" class="text-slate-300">
+              <span class="uppercase tracking-wide text-slate-500">hint:</span>
+              {{ cap.hint }}
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <section class="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
       <div>
         <SectionHeading>Tools</SectionHeading>
