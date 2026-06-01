@@ -52,6 +52,7 @@ pub const TOOL_NAMES: &[&str] = &[
     "browser_pool_get",
     "browser_pool_list",
     "browser_pool_reset",
+    "browser_pool_delegate",
 ];
 
 // ---------------------------------------------------------------------------
@@ -105,19 +106,38 @@ struct Pool {
     strikes: AtomicI64,
     last_warning: tokio::sync::RwLock<Option<String>>,
     created_at_ms: i64,
+    /// Wall-clock ms of the most recent touch (any pool op). Used by
+    /// the pool reaper to drop orphaned per-peer pools whose owner has
+    /// gone away without explicitly closing their delegated session.
+    last_touched_ms: AtomicI64,
 }
 
 impl Pool {
     fn new(name: String) -> Self {
+        let now = now_ms();
         Self {
             name,
             session_id: tokio::sync::RwLock::new(None),
             state: tokio::sync::RwLock::new(PoolState::Healthy),
             strikes: AtomicI64::new(0),
             last_warning: tokio::sync::RwLock::new(None),
-            created_at_ms: now_ms(),
+            created_at_ms: now,
+            last_touched_ms: AtomicI64::new(now),
         }
     }
+    fn touch(&self) {
+        self.last_touched_ms.store(now_ms(), Ordering::Relaxed);
+    }
+}
+
+/// Pool name used internally for a delegated request. Namespacing
+/// includes the requesting peer id so peer A's `google` pool and peer
+/// B's `google` pool are isolated browser contexts — neither can see
+/// the other's cookies, even though they share the underlying name.
+/// Local (model-issued) pool names stay un-namespaced so the model's
+/// own warm state is reused across calls.
+fn delegated_pool_name(peer_id: &str, name: &str) -> String {
+    format!("delegated:{peer_id}:{name}")
 }
 
 /// What the model wants back after an action.
@@ -754,6 +774,21 @@ impl BrowserSessionManager {
         Ok(obs)
     }
 
+    /// Live URL of the named session. `None` if the session doesn't
+    /// exist (was reaped, was never opened). Used by the constellation
+    /// delegation path (#128) to enrich the response after a remote
+    /// navigate.
+    pub async fn session_url(&self, session_id: &str) -> Option<String> {
+        let session = self.sessions.read().await.get(session_id).cloned()?;
+        session.page.url().await.unwrap_or_default()
+    }
+
+    /// Live title of the named session. Counterpart to `session_url`.
+    pub async fn session_title(&self, session_id: &str) -> Option<String> {
+        let session = self.sessions.read().await.get(session_id).cloned()?;
+        session.page.get_title().await.unwrap_or_default()
+    }
+
     // ----------------------------------------------------------------
     // Pool ops
     // ----------------------------------------------------------------
@@ -768,6 +803,7 @@ impl BrowserSessionManager {
         restrict_to_public: bool,
     ) -> Result<(String, PoolState), McpError> {
         let pool = self.ensure_pool(name).await;
+        pool.touch();
         let state = *pool.state.read().await;
         if state == PoolState::Blocked {
             return Err(invalid(format!(
@@ -792,8 +828,24 @@ impl BrowserSessionManager {
         self.session_to_pool
             .write()
             .await
-            .insert(id.clone(), name.to_string());
+            .insert(id.clone(), pool.name.clone());
         Ok((id, state))
+    }
+
+    /// Per-peer namespaced pool — used by the constellation
+    /// delegation path so peer A and peer B never share cookies on
+    /// the same logical pool name. Peer id comes from the
+    /// `X-Lodestone-Peer-Id` header on the inbound request (the
+    /// existing constellation auth gate has already verified the
+    /// cluster token, so a spoofed peer id only burns its own quota).
+    /// Always returns a restricted (SSRF-guarded) session.
+    pub async fn pool_get_for_peer(
+        &self,
+        peer_id: &str,
+        name: &str,
+    ) -> Result<(String, PoolState), McpError> {
+        self.pool_get(&delegated_pool_name(peer_id, name), true)
+            .await
     }
 
     /// Force a fresh session on the named pool. Disposes the old
@@ -869,6 +921,79 @@ impl BrowserSessionManager {
         }
         rows.sort_by(|a, b| a.name.cmp(&b.name));
         rows
+    }
+
+    /// Drop every pool whose name starts with `delegated:<peer_id>:`.
+    /// Called from the constellation's peer-removal path when a peer
+    /// goes silent for long enough that we drop it from our peer
+    /// table — at that point its delegated pools are orphans and
+    /// should be cleaned up so they don't pin Chromium contexts.
+    /// Returns the number of pools dropped (for the operator log).
+    pub async fn evict_pools_for_peer(&self, peer_id: &str) -> usize {
+        let prefix = format!("delegated:{peer_id}:");
+        let names: Vec<String> = {
+            let pools = self.pools.read().await;
+            pools
+                .keys()
+                .filter(|n| n.starts_with(&prefix))
+                .cloned()
+                .collect()
+        };
+        let count = names.len();
+        for name in names {
+            // pool_reset() disposes the current session+context AND
+            // creates a fresh one. We want the dispose without the
+            // recreate, so do the same work inline.
+            if let Some(pool) = self.pools.read().await.get(&name).cloned() {
+                let sid = pool.session_id.write().await.take();
+                if let Some(id) = sid {
+                    let _ = self.close(&id).await;
+                }
+            }
+            self.pools.write().await.remove(&name);
+            tracing::info!(pool = %name, peer = %peer_id, "evicted delegated pool (peer departed)");
+        }
+        count
+    }
+
+    /// Drop pools that haven't been touched for `idle_secs` AND whose
+    /// session is already gone (so we don't reap an actively-used
+    /// pool just because its name happens to be stale). Called from
+    /// the reaper alongside session cleanup. Local (un-namespaced)
+    /// pools are protected — they're tied to the operator's choice
+    /// of name and shouldn't disappear without explicit reset.
+    pub async fn reap_idle_pools(&self, idle_secs: u64) -> usize {
+        let now = now_ms();
+        let cutoff_ms = (idle_secs as i64) * 1000;
+        let candidates: Vec<String> = {
+            let pools = self.pools.read().await;
+            pools
+                .values()
+                .filter(|p| p.name.starts_with("delegated:"))
+                .filter(|p| now - p.last_touched_ms.load(Ordering::Relaxed) >= cutoff_ms)
+                .map(|p| p.name.clone())
+                .collect()
+        };
+        let mut count = 0;
+        let sessions_snapshot = self.sessions.read().await.clone();
+        for name in candidates {
+            let pool = match self.pools.read().await.get(&name).cloned() {
+                Some(p) => p,
+                None => continue,
+            };
+            // Skip if session is still alive — pool is "idle" by
+            // touch but actively backing a session another path is
+            // still draining. The session's own idle reaper will get
+            // it eventually.
+            let sid = pool.session_id.read().await.clone();
+            if sid.as_ref().is_some_and(|id| sessions_snapshot.contains_key(id)) {
+                continue;
+            }
+            self.pools.write().await.remove(&name);
+            count += 1;
+            tracing::info!(pool = %name, "reaped idle delegated pool");
+        }
+        count
     }
 
     async fn ensure_pool(&self, name: &str) -> Arc<Pool> {
@@ -1022,7 +1147,8 @@ fn spawn_reaper(manager: Arc<BrowserSessionManager>) {
         let mut tick = tokio::time::interval(Duration::from_secs(60));
         loop {
             tick.tick().await;
-            let timeout = manager.config().await.idle_timeout_secs as i64 * 1000;
+            let timeout_secs = manager.config().await.idle_timeout_secs;
+            let timeout = timeout_secs as i64 * 1000;
             let now = now_ms();
             let expired: Vec<String> = {
                 let table = manager.sessions.read().await;
@@ -1036,6 +1162,11 @@ fn spawn_reaper(manager: Arc<BrowserSessionManager>) {
                 tracing::info!(session_id = %id, "browser session idle-expired");
                 let _ = manager.close(&id).await;
             }
+            // Pool-level idle cleanup: a delegated pool whose owner
+            // walked away leaves a tiny bookkeeping struct sitting in
+            // memory even after the session is reaped. Give it twice
+            // the session idle window before dropping the entry.
+            let _ = manager.reap_idle_pools(timeout_secs * 2).await;
         }
     });
 }
@@ -1578,6 +1709,63 @@ impl Skill for BrowserPoolReset {
     }
 }
 
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct PoolDelegateArgs {
+    /// Pool name on the REMOTE node. Each node maintains its own
+    /// named pools; this isn't transporting our session, it's asking
+    /// a peer to run the navigate on its OWN pool.
+    pool_name: String,
+    /// URL to navigate to on the peer's pool. Subject to the peer's
+    /// SSRF guard, which refuses any URL that resolves to its local
+    /// network.
+    url: String,
+}
+
+pub struct BrowserPoolDelegate;
+impl Skill for BrowserPoolDelegate {
+    fn name(&self) -> &'static str {
+        "browser_pool_delegate"
+    }
+    fn description(&self) -> &'static str {
+        "Ask a constellation peer (a node that opted in with \
+         `[network.capabilities].browser = true`) to navigate ITS named pool to a URL and return \
+         the compact observation tree. Use this when our local pool is in `blocked` state (rate \
+         limited / CAPTCHA stuck) — the peer has a different IP and its own warm session, so the \
+         same query often succeeds where ours just bounced. The peer's SSRF guard refuses any \
+         URL that resolves to ITS local network, so this can't be used to enumerate the peer's \
+         LAN. Returns `{url, title, tree}`. Sessions themselves never transport: each node uses \
+         its own pool."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<PoolDelegateArgs>()
+    }
+    fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move {
+            let (server, args) = ctx.parse::<PoolDelegateArgs>()?;
+            let constellation = server.registry.constellation().ok_or_else(|| {
+                invalid(
+                    "constellation is disabled ([network].enabled = false) so there is no \
+                     peer to delegate to"
+                        .to_string(),
+                )
+            })?;
+            let req = crate::constellation::BrowserPoolReq {
+                pool_name: args.pool_name,
+                url: args.url,
+            };
+            let resp = constellation
+                .delegate_browser_pool(req)
+                .await
+                .map_err(invalid)?;
+            Ok(json(serde_json::json!({
+                "url": resp.url,
+                "title": resp.title,
+                "tree": resp.tree,
+            })))
+        })
+    }
+}
+
 pub fn skills() -> Vec<Box<dyn Skill>> {
     vec![
         Box::new(BrowserOpen),
@@ -1593,5 +1781,6 @@ pub fn skills() -> Vec<Box<dyn Skill>> {
         Box::new(BrowserPoolGet),
         Box::new(BrowserPoolList),
         Box::new(BrowserPoolReset),
+        Box::new(BrowserPoolDelegate),
     ]
 }

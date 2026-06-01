@@ -189,23 +189,61 @@ does NOT carry browser actions today. The risks and current controls:
   The model can already navigate anywhere via `browser_navigate`,
   so `browser_eval` doesn't expand the trust surface.
 
-**Open follow-ups** (tracked in tasks 127–130):
-- **SSRF protection on delegated browser work** (#130). When peers
-  can delegate browser actions to us, navigation to RFC1918,
-  loopback, link-local, IPv6 ULA, and `.local` (mDNS) hosts must be
-  refused. Same restriction extends to the `fetch()` surface
-  reachable through `browser_eval`. Local calls (the node's own
-  MCP client) stay unrestricted; only the delegated path is gated.
-- **Per-node capability gates** (#129). Each node will publish a
-  capability set in its digest (`{browser: true, file_sharing:
-  false, ...}`). Delegation requests for a capability the peer hasn't
-  opted in to are refused before reaching the relevant skill. A new
-  `constellation_capabilities` tool answers "who in the mesh can do
-  X".
-- **Poisoned-session detection** (#127) — auto-detect CAPTCHA /
-  429 / 403 patterns, mark the session "suspect", route queries to a
-  fallback (fresh context or another provider), require operator
-  confirmation in the dashboard before reusing.
+**Shipped controls** (tasks 127–130, landed):
+- **#129 — Per-node capability gates.** Each node publishes a
+  per-feature opt-in set on its digest: `query`, `retrieval`,
+  `blob`, `browser`. Peers learn the set via the existing sync loop,
+  and `constellation_capabilities { cap }` answers "who in the mesh
+  can do X". The outbound `delegate_browser_pool` filters
+  candidates to peers whose `capabilities.browser` is ON, and the
+  inbound `/constellation/browser_pool` handler refuses the request
+  outright if local `capabilities.browser` is OFF. Config table:
+  `[network.capabilities]` in `config/06-network.toml`. Implementation:
+  `src/constellation/mod.rs::effective_capabilities` +
+  `peers_with_capability`, `src/config.rs::Capabilities`.
+- **#130 — Delegated-browser SSRF guard.** Restricted sessions go
+  through `crate::skills::ssrf::assert_public(url)` on every
+  navigation. The check refuses RFC1918, loopback, link-local
+  (including cloud-metadata 169.254.169.254), CGNAT, IPv6 ULA,
+  IETF reserved ranges, plus `.local` / `.lan` / `.internal` /
+  `.home.arpa` / `.test` hostnames. Literal IPs decide
+  synchronously; hostnames DNS-resolve and a single private result
+  poisons the set. `browser_eval` is rejected outright on
+  restricted sessions (raw `fetch()` would bypass URL guards;
+  reopening it needs a CDP request interceptor). Click / type that
+  lands on a private host rolls back to about:blank with an error.
+  7 unit tests cover the guard.
+- **#127 — Browser pools with poisoned-state machine.** Named
+  long-lived sessions per site (`browser_pool_get { name }`) plus a
+  state machine: `healthy → suspect → blocked`. Auto-detector
+  scans the post-navigation URL + title for CAPTCHA / 429 / 403 /
+  "just a moment" / "access denied" signatures. First strike →
+  suspect, second → blocked, calls error until the operator
+  confirms a reset from the dashboard. The reset action is at
+  `POST /api/browser/pools/{name}/reset` and disposes the session +
+  context before creating a fresh one.
+- **#128 — Constellation delegation for pool queries.** New
+  `/constellation/browser_pool` endpoint accepts `{pool_name, url}`,
+  runs the navigate on the peer's OWN restricted pool, returns the
+  observation tree. Sessions never transport — each node uses its
+  own warm state. The `browser_pool_delegate` MCP tool is the
+  outbound side; it picks a peer with `capabilities.browser = ON`
+  from the existing reputation-weighted list. **Per-peer pool
+  isolation**: incoming delegated requests are routed to
+  `delegated:<peer_id>:<pool_name>` so two peers asking for the
+  same logical pool get separate browser contexts — no cookie
+  leakage across legitimate peers. The cluster token already gates
+  who can ask; a spoofed peer id only buys the requester someone
+  else's cookies on their own pool name, never a leak from one
+  legitimate peer to another. **Orphan cleanup**: when a peer
+  drops out of our peer table (idle past `MAX_PEER_MISSES`), the
+  reaper calls `evict_pools_for_peer` to dispose every
+  `delegated:<that-peer-id>:*` pool — its sessions are closed and
+  its contexts disposed in one sweep. A separate idle-pool reaper
+  drops `delegated:*` pools whose `last_touched` is older than
+  `idle_timeout_secs * 2` AND whose session is already gone, so a
+  silent disappearance (without the peer-table eviction firing)
+  still gets cleaned up.
 
 > **Where**: `src/skills/browser_session.rs` (manager + tools),
 > `src/browser.rs` (underlying renderer).
@@ -311,16 +349,27 @@ come from:
 
 ## Open security tasks
 
-These show up in the project task tracker as well; listed here so the
-auditor sees them in context:
+Tasks #127, #128, #129, #130 have all shipped — see the "Shipped
+controls" section under **Browser sandbox** above for the
+implementation pointers.
 
-- **#129** — Per-node capability gates. Each node opts in to which
-  features it offers the mesh (browser, file-sharing, …). Delegation
-  requests for a capability the peer hasn't opted in to are refused.
-- **#130** — Delegated-browser SSRF protection. Refuse navigation
-  (and `fetch()` via `browser_eval`) to RFC1918, loopback,
-  link-local, IPv6 ULA, and `.local` hosts on delegated requests.
-- **#127** — Poisoned-session detection + dashboard-confirmed reset
-  for browser pools.
-- **#128** — Constellation delegation for browser pool queries
-  (queries delegate, sessions don't transport).
+Remaining hardening to consider:
+
+- **CDP request interceptor for restricted browser sessions.** Today
+  the SSRF guard is at the navigate-URL level + a post-action URL
+  re-check, and `browser_eval` is refused outright on restricted
+  sessions. A CDP `Network.setRequestInterception` filter that
+  refuses sub-requests to private hosts at the network layer would
+  let us re-enable `browser_eval` safely AND catch
+  `<img src="http://192.168.1.1/...">` style probes that aren't
+  navigations. Tracked as a follow-up under `src/skills/ssrf.rs`.
+- **State-file privacy for peer reputations.** When
+  `[network].state_file` is set, peer URLs persist to disk. Per
+  golden rule 11 that's fine (URLs aren't secrets), but a deploy
+  that bind-mounts that file out of a container leaks a
+  participation graph. Document explicitly under
+  `docs/constellation.md`.
+- **Rate limit + audit on the dashboard `/api/*` surface.** All
+  endpoints share one bearer token; a leaked token lets the holder
+  drive runtime knobs at line rate. Adding a per-token rolling
+  counter + audit-log emission would let the operator catch abuse.

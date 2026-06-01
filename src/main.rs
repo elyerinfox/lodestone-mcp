@@ -754,12 +754,52 @@ fn constellation_routes(constellation: Arc<constellation::Constellation>) -> axu
         }
     }
 
+    /// `POST /constellation/browser_pool` — the "drive your browser
+    /// session for me" delegation endpoint (#128). Gated by
+    /// `[network].token` and `[network.capabilities].browser`.
+    /// Sessions do NOT transport; each node uses its OWN pool. The
+    /// peer's SSRF guard refuses any URL that resolves to its local
+    /// network so a delegated request can't be a LAN-enumeration vector.
+    async fn browser_pool(
+        State(constellation): State<Arc<constellation::Constellation>>,
+        headers: HeaderMap,
+        axum::Json(req): axum::Json<constellation::BrowserPoolReq>,
+    ) -> axum::response::Response {
+        if !constellation.token_ok(bearer_token(&headers)) {
+            return (StatusCode::UNAUTHORIZED, "unauthorized\n").into_response();
+        }
+        // The cluster token already gates *who* can ask; the peer id
+        // header is for per-peer pool ISOLATION — peer A's "google"
+        // and peer B's "google" become separate browser contexts.
+        // A spoofed id only buys the requester someone else's
+        // cookies on their own logical pool name, never a leak across
+        // legitimate peers (each gets `delegated:<their-id>:<name>`).
+        let peer_id = headers
+            .get("x-lodestone-peer-id")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("unknown")
+            .to_string();
+        match constellation.answer_browser_pool(&peer_id, &req).await {
+            Ok(body) => axum::Json(body).into_response(),
+            Err(reject) => {
+                let status = match reject.reason {
+                    "disabled" => StatusCode::FORBIDDEN,
+                    "navigate_failed" => StatusCode::BAD_GATEWAY,
+                    "pool_unavailable" => StatusCode::SERVICE_UNAVAILABLE,
+                    _ => StatusCode::BAD_REQUEST,
+                };
+                (status, axum::Json(&reject)).into_response()
+            }
+        }
+    }
+
     axum::Router::new()
         .route("/constellation/digest", get(digest))
         .route("/constellation/query", post(query))
         .route("/constellation/blob", post(blob))
         .route("/constellation/blobinfo", post(blobinfo))
         .route("/constellation/retrieve", post(retrieve))
+        .route("/constellation/browser_pool", post(browser_pool))
         .with_state(constellation)
 }
 

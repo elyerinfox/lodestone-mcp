@@ -75,6 +75,14 @@ TYPICAL BROWSER FLOWS
 - Multi-page scrape: open → navigate → loop `{ extract; click next-page (`observe: "tree"`); wait for the next result selector }` until pagination ends → close.
 - JS-heavy chart on a dashboard: open → navigate → `wait` for the canvas selector → `screenshot` → close.
 
+BROWSER POOLS (rate-limit relief via warm sessions)
+For repeat queries against the same site — search engines, GitHub, StackOverflow — open a NAMED POOL instead of a fresh session every time. Cookies / solved-CAPTCHA tokens accumulate across calls so the site sees one persistent user instead of N anonymous ones, which is what most rate limiters are tuned against.
+- `browser_pool_get { name }` → returns `{session_id, state}`. Pass the `session_id` to `browser_navigate` / `browser_click` / etc. exactly like a normal session. Reuse the SAME pool name across calls — that's the whole point.
+- `state` is `"healthy"` (use freely), `"suspect"` (the detector flagged a CAPTCHA / 403 / 429 — still works but consider backing off), or `"blocked"` (calls error until the operator resets). When you see `"suspect"`, prefer a different provider or wait a minute before retrying.
+- `browser_pool_list` shows every pool with state + last warning.
+- `browser_pool_reset { name }` rotates the warm state (fresh context, fresh cookies). State returns to `"healthy"`. Use this when you've deliberately solved a CAPTCHA on a different tab and want to start fresh, or when a pool is `"blocked"` and you have the operator's say-so.
+- `browser_pool_delegate { pool_name, url }` asks a constellation peer (one with `[network.capabilities].browser = true`) to run the navigate on ITS pool and return a compact observation. Sessions DON'T transport — the peer uses its own warm state, on its own IP. This is the rate-limit escape hatch when our local pool is blocked: the peer is independently warm and on a different network. Use `constellation_capabilities cap="browser"` to see which peers can serve.
+
 GUARDRAILS
 - Selectors should be specific. Use `id`, `data-testid`, or `aria-label` whenever possible. The `observe: "tree"` output gives you a stable selector per element — prefer those.
 - If a click is supposed to navigate and `browser_click` returns the same URL, the page may have suppressed the event; try `browser_eval` to dispatch a synthetic click instead.
