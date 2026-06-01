@@ -47,6 +47,42 @@ Anything that deletes, overwrites, or runs arbitrary code returns a one-time CON
 CONSTELLATION (optional peer-to-peer cache sharing)
 When `[network].enabled` is on, this server belongs to a CONSTELLATION — a mesh of lodestone instances that share their search/retrieval caches with each other. The wire is privacy-preserving: only HASHES of normalized query keys cross between nodes (never raw query text), and a result is only trusted when at least `[network].min_agreement` peers corroborate it (anti-poisoning, weighted by per-peer reputation). On a local cache miss, the registry consults Bloom-matching peers; if they agree, you get a result tagged something like "constellation: N peers" without re-scraping the source. Peers are discovered statically (`[network].peers`) and via LAN mDNS. An optional GALAXY broker links multiple constellations across networks (the broker only hands back endpoints — it never proxies traffic). Use `constellation_status` to see the mesh, `constellation_peers` for the graph + hop distances, `constellation_seeds` for per-blob seed ratios. None of this is required: with zero peers the server is fully standalone.
 
+BROWSER SESSIONS (long-lived tabs the model can drive)
+When `fetch_page` / `render_page` aren't enough — multi-step navigation, login forms, JS-driven UIs, scraping behind a search box — open a PERSISTENT browser session. Sessions are real Chromium tabs that survive across tool calls: cookies / localStorage / scroll position persist between actions. Each session lives in its own isolated BrowserContext (one process, separate state), so several flows can run in parallel without stepping on each other. Sessions auto-close after the idle timeout (default 30 min); the operator-set cap (default 8 concurrent) is shared across the whole server, so close what you finish with via `browser_close` rather than abandoning it for the reaper.
+
+THE FLOW
+1. `browser_open` → returns `{session_id}`. Pass that id to every subsequent call.
+2. `browser_navigate { session_id, url, observe? }` → goes to the URL, waits up to 15s for navigation to settle, returns the final URL + title. With `observe: "tree"` it ALSO returns a compact list of every interactive element on the page (`role`, `name`, `selector`, optional `value`) — that's the cheapest reactive surface for "what's on this page and how do I act on it?"
+3. To interact:
+   - `browser_click { session_id, selector, observe? }` — clicks the first element matching the CSS selector. Waits 5s for any post-click nav.
+   - `browser_type { session_id, selector, text, submit?, observe? }` — focuses the selector, types `text`. With `submit: true` calls `form.requestSubmit()` and waits 15s for nav — a search-box round-trip in one call.
+   - `browser_wait { session_id, selector, timeout_ms? }` — polls until the selector exists in the DOM, or times out. Returns `{matched: true|false}` so you can branch instead of treating timeout as an error.
+   - `browser_extract { session_id, selector, attr?, limit? }` — reads `innerText` (or an attribute) for every element matching the selector. Capped at `limit` (default 50, max 500) so a giant list doesn't blow the response.
+   - `browser_eval { session_id, script }` — runs arbitrary JS in the page, returns its result as JSON. Promises are awaited. Wrap multi-statement scripts in an IIFE: `(() => { …; return value; })()`. Use this for the 1% the granular tools don't cover (scroll, keyboard shortcuts, mutation-observer setup).
+   - `browser_screenshot { session_id, full_page? }` — PNG of the viewport (or full scroll height), base64 in `{png_b64}`.
+4. `browser_list` — lists every open session with age/idle. Useful to find a lingering session before opening a new one (the cap is shared).
+5. `browser_close { session_id }` — disposes the tab and its isolated context. Always call this when done.
+
+OBSERVATION (`observe` parameter)
+Every action that drives the page (`browser_navigate`, `browser_click`, `browser_type`) takes `observe`:
+  - `"none"` — just the action's direct result. Default. Cheapest.
+  - `"tree"` — compact list of interactive elements: `[{role, name, selector, value?}]`. Roles include `button`, `link`, `textbox`, `checkbox`, `combobox`, etc. This is the model-friendly surface — use it after each meaningful action to decide what to do next.
+  - `"screenshot"` — base64 PNG of the viewport.
+  - `"both"` — tree + screenshot.
+
+TYPICAL BROWSER FLOWS
+- Logged-in search: open → navigate to login → type credentials → click submit (`observe: "tree"`) → navigate to search → type query (`submit: true, observe: "tree"`) → extract results → close.
+- Multi-page scrape: open → navigate → loop `{ extract; click next-page (`observe: "tree"`); wait for the next result selector }` until pagination ends → close.
+- JS-heavy chart on a dashboard: open → navigate → `wait` for the canvas selector → `screenshot` → close.
+
+GUARDRAILS
+- Selectors should be specific. Use `id`, `data-testid`, or `aria-label` whenever possible. The `observe: "tree"` output gives you a stable selector per element — prefer those.
+- If a click is supposed to navigate and `browser_click` returns the same URL, the page may have suppressed the event; try `browser_eval` to dispatch a synthetic click instead.
+- A `browser_open` that returns "max_concurrent sessions reached" means another flow forgot to close — call `browser_list` and clean up.
+
+PER-PAGE EPHEMERAL SETTINGS (operator-facing, not your concern but worth knowing)
+The operator's dashboard (mounted at `/dashboard/`) carries a gear icon on each page that opens a settings drawer. They can toggle memory's `auto_recall`/`record_conversations`, change the tracing log level, flip individual tools off at runtime (the dispatch wrapper rejects those with a clear error — you'll see "tool 'X' is disabled at runtime via the dashboard settings"), and tune constellation knobs (delegation, max_peers, min_agreement). All changes are EPHEMERAL — a restart restores config. If a tool you expect to work returns the "disabled at runtime" error, ask the operator to re-enable it; don't try to route around it.
+
 TYPICAL FLOWS
 - Code question: code_search or qa_search → fetch_repo_file or qa_stackoverflow_answers on the best hit.
 - Paper or standard: arxiv_search / standards_search / pubmed_search → arxiv_get / openalex_work / unpaywall_lookup → read_pdf.
@@ -54,3 +90,4 @@ TYPICAL FLOWS
 - Reverse engineering a binary: binary_info (find .text address/offset) → disasm_x86_file (decode that region) → binary_strings (constants/URLs) → binary_entropy (spot packed regions).
 - Audio analysis: wave_info (probe) → wave_samples (decode a window) → signal_fft or signal_dominant_frequencies.
 - Watching a unit on a Linux box: systemd_status → systemd_logs (history) → systemd_restart if needed (guarded).
+- Driving a multi-step web flow: browser_open → browser_navigate { observe: "tree" } → browser_type / browser_click loops (each with observe: "tree" to react to the new page) → browser_extract on the final results → browser_close.
