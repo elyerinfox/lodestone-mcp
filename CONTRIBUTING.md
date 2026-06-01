@@ -760,6 +760,47 @@ Helper available: `crate::skills::binary_on_path(bin)` tries `bin`,
 `bin.exe`, and `bin.cmd` so probes work cross-platform without per-OS
 branches.
 
+### 4b. (When one tool in the family needs more) Override `Skill::check_capability`
+
+Sometimes a single tool inside an otherwise-Ready family has its own
+requirement — a stricter binary, an optional library, a compile-time
+feature, a specific resource. The same `SkillCapability` machinery lifts
+to the per-tool layer via the `Skill` trait:
+
+```rust
+impl Skill for SystemGpu {
+    fn name(&self) -> &'static str { "system_gpu" }
+    // … name / description / schema / call …
+    fn check_capability(&self) -> crate::skills::SkillCapability {
+        use crate::skills::SkillCapability;
+        match nvml_wrapper::Nvml::init() {
+            Ok(_) => SkillCapability::Ready,
+            Err(e) => SkillCapability::unavailable(
+                format!("NVML not loadable: {e}"),
+                "install the NVIDIA driver (or `nvidia-utils` in containers)",
+            ),
+        }
+    }
+}
+```
+
+`Skill::check_capability` defaults to `Ready`, so the override only
+gets typed when the tool actually has a per-tool requirement.
+
+Combination rule at startup: **family Unavailable wins** (the family's
+hint is usually the more actionable one); otherwise the per-tool
+result applies. Net effect: a tool ends up `Unavailable` if either its
+family or its own check fails, with the family taking priority for the
+error message when both fail.
+
+The pipeline emits a separate WARN line for any per-tool override that
+downgrades a Ready family to Unavailable — those are easy to miss in
+code review and a contributor shipping one is the operator's most
+likely surprise.
+
+The same dispatch gate, the same dashboard panel, the same LLM-facing
+error message. Just narrower scope.
+
 That's the whole flow. `main.rs` does not change.
 
 ## Shared helpers — use these before rolling your own

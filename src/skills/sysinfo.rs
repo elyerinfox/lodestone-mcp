@@ -212,6 +212,23 @@ impl Skill for SystemGpu {
     fn call<'a>(&self, _ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move { Ok(text_result(blocking(gather_gpu).await?)) })
     }
+    /// Per-tool override: the sysinfo family is otherwise Ready (system
+    /// info / disk / OS release work everywhere), but `system_gpu`
+    /// specifically needs the NVML library that ships with the NVIDIA
+    /// driver. Try to init NVML; on success we're Ready, otherwise we
+    /// short-circuit with an actionable hint instead of letting the
+    /// tool return a runtime error from inside `nvml_wrapper`.
+    fn check_capability(&self) -> crate::skills::SkillCapability {
+        use crate::skills::SkillCapability;
+        match nvml_wrapper::Nvml::init() {
+            Ok(_) => SkillCapability::Ready,
+            Err(e) => SkillCapability::unavailable(
+                format!("NVML not loadable: {e}"),
+                "install the NVIDIA driver (or `nvidia-utils` in containers) — \
+                 this tool requires an NVIDIA GPU",
+            ),
+        }
+    }
 }
 
 /// `123s` → `2h 3m`-style compact duration.

@@ -121,6 +121,19 @@ pub trait Skill: Send + Sync + 'static {
     fn schema(&self) -> Arc<JsonObject>;
     /// Run the tool.
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>>;
+    /// Per-tool capability probe — defaults to `Ready`. Override when a
+    /// single tool has a requirement its family doesn't cover (a stricter
+    /// binary, a compile-time feature, a configured endpoint, …). The
+    /// startup pipeline combines this with the family-level probe via the
+    /// rule: family `Unavailable` wins (the family's hint is usually the
+    /// actionable one); otherwise this skill's own result applies. Pure-
+    /// Rust tools and tools without an extra requirement leave this at
+    /// the default and inherit their family's status. Probes are
+    /// stateless — look at env vars, `$PATH`, file existence, OS — and
+    /// run once at startup.
+    fn check_capability(&self) -> SkillCapability {
+        SkillCapability::Ready
+    }
 }
 
 /// Build a JSON schema for an arguments struct (helper for [`Skill::schema`]).
@@ -510,28 +523,25 @@ fn route(skill: Box<dyn Skill>) -> ToolRoute<Lodestone> {
             );
             return Box::pin(async move { Err(err) });
         }
-        // Capability gate. If the tool's family registered a FamilyMeta
-        // impl that returned Unavailable at startup, refuse the call
-        // with the reason + hint so the LLM sees what's missing and
-        // can pick a different path. Pure-Rust families (no Family
-        // impl registered) don't appear in the map and pass through.
-        if let Some(family) = server.tool_to_family.get(tool_name) {
-            if let Some(SkillCapability::Unavailable { reason, hint }) =
-                server.skill_capabilities.get(*family)
-            {
-                let msg = match hint {
-                    Some(h) => format!(
-                        "tool '{tool_name}' (family '{family}') is unavailable on this host: \
-                         {reason} — {h}"
-                    ),
-                    None => format!(
-                        "tool '{tool_name}' (family '{family}') is unavailable on this host: \
-                         {reason}"
-                    ),
-                };
-                let err = rmcp::ErrorData::invalid_request(msg, None);
-                return Box::pin(async move { Err(err) });
-            }
+        // Capability gate. The per-tool cache already combines the
+        // family probe with the tool's own `Skill::check_capability`
+        // override (family Unavailable wins), so one lookup is enough.
+        // Unavailable → return the reason + hint inline so the LLM
+        // sees what's missing and can pick a different path. Pure-
+        // Rust tools whose family didn't register a probe and whose
+        // own check returned Ready are stored as Ready here too — the
+        // branch costs one hashmap probe in the dispatch hot path.
+        if let Some(SkillCapability::Unavailable { reason, hint }) =
+            server.tool_capabilities.get(tool_name)
+        {
+            let msg = match hint {
+                Some(h) => {
+                    format!("tool '{tool_name}' is unavailable on this host: {reason} — {h}")
+                }
+                None => format!("tool '{tool_name}' is unavailable on this host: {reason}"),
+            };
+            let err = rmcp::ErrorData::invalid_request(msg, None);
+            return Box::pin(async move { Err(err) });
         }
         let sctx = SkillCtx { server, args };
         let fut = skill.call(sctx);
@@ -624,7 +634,7 @@ fn route(skill: Box<dyn Skill>) -> ToolRoute<Lodestone> {
 }
 
 /// Every fixed skill as a boxed object (excludes the dynamic per-provider tools).
-fn all_skills() -> Vec<Box<dyn Skill>> {
+pub fn all_skills() -> Vec<Box<dyn Skill>> {
     let mut skills: Vec<Box<dyn Skill>> = Vec::new();
     skills.extend(search::skills());
     skills.extend(retrieve::skills());

@@ -130,19 +130,21 @@ pub(crate) struct Lodestone {
     /// Ephemeral — never persisted, so a restart restores the resolved
     /// active set from config.
     pub(crate) runtime_disabled_tools: Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
-    /// Per-family capability probe results, cached at startup. The
-    /// dispatch wrapper consults this to refuse calls whose family is
-    /// `Unavailable` with a clean error (carrying the probe's reason +
-    /// hint so the LLM sees what's missing). The WS snapshot exposes it
-    /// to the dashboard. Pure-Rust families that didn't register a
-    /// `FamilyMeta` impl don't appear here and dispatch without a gate
-    /// — same behavior as before this feature shipped.
+    /// Per-family capability probe results, cached at startup.
+    /// Surfaced on the WS snapshot for the dashboard's "Host
+    /// capabilities" panel. Pure-Rust families that didn't register a
+    /// `FamilyMeta` impl don't appear here.
     pub(crate) skill_capabilities:
         Arc<std::collections::HashMap<&'static str, skills::SkillCapability>>,
-    /// `tool_name → family_name` reverse index built alongside
-    /// `skill_capabilities` so the dispatch wrapper can look up the
-    /// owning family in O(1).
-    pub(crate) tool_to_family: Arc<std::collections::HashMap<&'static str, &'static str>>,
+    /// Per-tool capability after combining family + per-skill checks
+    /// (family `Unavailable` wins; otherwise the skill's own override
+    /// applies). The dispatch wrapper consults this to refuse blocked
+    /// calls with the reason + hint inline so the LLM sees what's
+    /// missing. Every registered tool has an entry; tools whose
+    /// family and own check both returned `Ready` map to `Ready`
+    /// (storing them keeps the dispatch hot path branch-free).
+    pub(crate) tool_capabilities:
+        Arc<std::collections::HashMap<&'static str, skills::SkillCapability>>,
     // The filtered tool router; `#[tool_handler(router = self.tool_router)]`
     // uses it for both tool listing and dispatch.
     tool_router: ToolRouter<Lodestone>,
@@ -213,42 +215,8 @@ impl Lodestone {
             runtime_disabled_tools: Arc::new(std::sync::Mutex::new(
                 std::collections::HashSet::new(),
             )),
-            skill_capabilities: {
-                let mut map: std::collections::HashMap<&'static str, skills::SkillCapability> =
-                    std::collections::HashMap::new();
-                for fam in skills::families() {
-                    let cap = fam.check_capability();
-                    if let skills::SkillCapability::Unavailable { reason, hint } = &cap {
-                        match hint {
-                            Some(h) => tracing::warn!(
-                                family = fam.family(),
-                                reason = %reason,
-                                hint = %h,
-                                "skill family unavailable on this host — \
-                                 calls into it will be refused at dispatch"
-                            ),
-                            None => tracing::warn!(
-                                family = fam.family(),
-                                reason = %reason,
-                                "skill family unavailable on this host"
-                            ),
-                        }
-                    }
-                    map.insert(fam.family(), cap);
-                }
-                Arc::new(map)
-            },
-            tool_to_family: {
-                let mut map: std::collections::HashMap<&'static str, &'static str> =
-                    std::collections::HashMap::new();
-                for fam in skills::families() {
-                    let name = fam.family();
-                    for t in fam.tools() {
-                        map.insert(*t, name);
-                    }
-                }
-                Arc::new(map)
-            },
+            skill_capabilities: Arc::new(probe_families()),
+            tool_capabilities: Arc::new(probe_tools()),
             cfg,
             started_at: std::time::Instant::now(),
             tool_router,
@@ -600,6 +568,85 @@ fn effective_disabled(cfg: &Config) -> Vec<String> {
     let mut disabled = cfg.tools.disabled.clone();
     disabled.extend(skills::disabled_by_config(cfg));
     disabled
+}
+
+/// Run every registered `FamilyMeta::check_capability` once. Logs a
+/// WARN line per Unavailable family with reason + hint so operators
+/// see what's missing during boot. Returns the cache the WS snapshot
+/// publishes for the dashboard.
+fn probe_families() -> std::collections::HashMap<&'static str, skills::SkillCapability> {
+    let mut map = std::collections::HashMap::new();
+    for fam in skills::families() {
+        let cap = fam.check_capability();
+        if let skills::SkillCapability::Unavailable { reason, hint } = &cap {
+            match hint {
+                Some(h) => tracing::warn!(
+                    family = fam.family(),
+                    reason = %reason,
+                    hint = %h,
+                    "skill family unavailable on this host — \
+                     calls into it will be refused at dispatch"
+                ),
+                None => tracing::warn!(
+                    family = fam.family(),
+                    reason = %reason,
+                    "skill family unavailable on this host"
+                ),
+            }
+        }
+        map.insert(fam.family(), cap);
+    }
+    map
+}
+
+/// Build the per-tool capability cache. For each tool: start from its
+/// family probe (or Ready if the family didn't register one), then
+/// apply the tool's own `Skill::check_capability`. The combination
+/// rule: family Unavailable wins (the family hint is usually the
+/// actionable one); otherwise the per-tool result applies. Emits a
+/// WARN per per-tool override that downgrades a Ready family to
+/// Unavailable — those are easy to miss in code review and shipping
+/// one is the operator's most likely surprise.
+fn probe_tools() -> std::collections::HashMap<&'static str, skills::SkillCapability> {
+    use skills::SkillCapability;
+    let family_caps: std::collections::HashMap<&'static str, SkillCapability> = skills::families()
+        .into_iter()
+        .map(|f| (f.family(), f.check_capability()))
+        .collect();
+    let mut tool_to_family: std::collections::HashMap<&'static str, &'static str> =
+        std::collections::HashMap::new();
+    for fam in skills::families() {
+        let name = fam.family();
+        for t in fam.tools() {
+            tool_to_family.insert(*t, name);
+        }
+    }
+    let mut map: std::collections::HashMap<&'static str, SkillCapability> =
+        std::collections::HashMap::new();
+    for skill in skills::all_skills() {
+        let tool_name = skill.name();
+        let family_cap = tool_to_family
+            .get(tool_name)
+            .and_then(|f| family_caps.get(f))
+            .cloned()
+            .unwrap_or(SkillCapability::Ready);
+        let skill_cap = skill.check_capability();
+        let merged = match (&family_cap, &skill_cap) {
+            (SkillCapability::Unavailable { .. }, _) => family_cap,
+            (SkillCapability::Ready, SkillCapability::Unavailable { reason, hint }) => {
+                tracing::warn!(
+                    tool = tool_name,
+                    reason = %reason,
+                    hint = hint.as_deref().unwrap_or(""),
+                    "per-tool capability override — tool blocked while its family is Ready"
+                );
+                skill_cap
+            }
+            (SkillCapability::Ready, SkillCapability::Ready) => SkillCapability::Ready,
+        };
+        map.insert(tool_name, merged);
+    }
+    map
 }
 
 /// Build the tool router exposing only the configured subset of tools (skills).
