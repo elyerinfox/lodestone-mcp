@@ -530,20 +530,17 @@ pub struct Network {
 /// peers can do X". Defaults reflect "share the cheap stuff, refuse
 /// the expensive/risky stuff":
 ///
-/// - `query`     ON: we always answer cache consults (the whole point
-///                  of joining a constellation). Turn off to be a
-///                  pure consumer that pulls but never serves.
-/// - `retrieval` OFF: opt-in URL-fetching for peers (drives
-///                  `POST /constellation/retrieve`). Mirrors the
-///                  legacy `delegation_enabled` flag, which stays as
-///                  an alias for backward-compat.
-/// - `blob`      ON: serve file-store blobs (PDFs we already cached)
-///                  to peers that ask. Turning this off keeps our
-///                  blobs local-only.
-/// - `browser`   OFF: accept delegated browser actions (open a tab,
-///                  navigate, extract). Off by default — a peer
-///                  driving our browser is a much higher trust
-///                  surface than serving a cached search result.
+/// - `query` (ON): we always answer cache consults (the whole point of
+///   joining a constellation). Turn off to be a pure consumer that pulls
+///   but never serves.
+/// - `retrieval` (OFF): opt-in URL-fetching for peers (drives
+///   `POST /constellation/retrieve`). Mirrors the legacy
+///   `delegation_enabled` flag, which stays as an alias for backward-compat.
+/// - `blob` (ON): serve file-store blobs (PDFs we already cached) to peers
+///   that ask. Turning this off keeps our blobs local-only.
+/// - `browser` (OFF): accept delegated browser actions (open a tab,
+///   navigate, extract). Off by default — a peer driving our browser is
+///   a much higher trust surface than serving a cached search result.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct Capabilities {

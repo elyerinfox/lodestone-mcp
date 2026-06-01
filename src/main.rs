@@ -963,13 +963,14 @@ fn api_routes(
         if !state.constellation.token_ok(presented_token(&headers)) {
             return (StatusCode::UNAUTHORIZED, "unauthorized\n").into_response();
         }
-        state.server.memory.apply_runtime_patch(
-            crate::skills::memory::RuntimeOverrides {
+        state
+            .server
+            .memory
+            .apply_runtime_patch(crate::skills::memory::RuntimeOverrides {
                 enabled: patch.enabled,
                 auto_recall: patch.auto_recall,
                 record_conversations: patch.record_conversations,
-            },
-        );
+            });
         Json(serde_json::json!({
             "enabled": state.server.memory.enabled(),
             "auto_recall": state.server.memory.auto_recall_enabled(),
@@ -1080,7 +1081,10 @@ fn api_routes(
         }
     }
 
-    let state = ApiState { server, constellation };
+    let state = ApiState {
+        server,
+        constellation,
+    };
     axum::Router::new()
         .route(
             "/api/settings/constellation",

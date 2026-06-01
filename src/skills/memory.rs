@@ -1282,9 +1282,7 @@ impl Skill for Remember {
                 RememberKind::Fact => {
                     write_memo(server, text, args.scope.unwrap_or_default(), args.tags).await
                 }
-                RememberKind::Solution => {
-                    write_solution(server, text, args.tags).await
-                }
+                RememberKind::Solution => write_solution(server, text, args.tags).await,
             }
         })
     }
@@ -1369,7 +1367,9 @@ impl Skill for RememberSolution {
                 return Err(invalid("text must not be empty"));
             }
             let problem = args.problem.unwrap_or_else(|| first_sentence(&text));
-            let summary = args.summary.unwrap_or_else(|| truncate_remember(&text, 120));
+            let summary = args
+                .summary
+                .unwrap_or_else(|| truncate_remember(&text, 120));
             write_solution_full(server, problem, summary, text, args.tags).await
         })
     }
@@ -1406,10 +1406,7 @@ fn classify(hint: &Option<String>, text: &str) -> RememberKind {
 /// is suffixed with a short hash so two `remember` calls with the
 /// same opening words don't collide.
 fn derive_key(text: &str) -> String {
-    let stem: String = text
-        .chars()
-        .take_while(|c| !".!?\n".contains(*c))
-        .collect();
+    let stem: String = text.chars().take_while(|c| !".!?\n".contains(*c)).collect();
     let mut words: Vec<String> = stem
         .split_whitespace()
         .filter(|w| !is_stop_word(w))
@@ -1454,11 +1451,46 @@ fn extract_tags(text: &str) -> Vec<String> {
 fn is_stop_word(w: &str) -> bool {
     matches!(
         w.to_ascii_lowercase().as_str(),
-        "the" | "a" | "an" | "and" | "or" | "to" | "of" | "in" | "on" | "at"
-            | "for" | "is" | "are" | "was" | "were" | "be" | "been" | "this"
-            | "that" | "it" | "as" | "with" | "by" | "from" | "but" | "if"
-            | "then" | "so" | "do" | "does" | "did" | "will" | "would" | "can"
-            | "could" | "should" | "i" | "you" | "we" | "they"
+        "the"
+            | "a"
+            | "an"
+            | "and"
+            | "or"
+            | "to"
+            | "of"
+            | "in"
+            | "on"
+            | "at"
+            | "for"
+            | "is"
+            | "are"
+            | "was"
+            | "were"
+            | "be"
+            | "been"
+            | "this"
+            | "that"
+            | "it"
+            | "as"
+            | "with"
+            | "by"
+            | "from"
+            | "but"
+            | "if"
+            | "then"
+            | "so"
+            | "do"
+            | "does"
+            | "did"
+            | "will"
+            | "would"
+            | "can"
+            | "could"
+            | "should"
+            | "i"
+            | "you"
+            | "we"
+            | "they"
     )
 }
 
@@ -1475,9 +1507,7 @@ fn short_hash(text: &str) -> String {
 }
 
 fn first_sentence(text: &str) -> String {
-    let end = text
-        .find(|c: char| c == '.' || c == '!' || c == '?' || c == '\n')
-        .unwrap_or(text.len());
+    let end = text.find(['.', '!', '?', '\n']).unwrap_or(text.len());
     text[..end].trim().to_string()
 }
 
@@ -1674,7 +1704,9 @@ impl Skill for Recall {
             }
             let limit = args.limit.unwrap_or(10).clamp(1, 50);
             let kinds = args.kinds.unwrap_or_else(|| "memo,solution".to_string());
-            let want_memo = kinds.split(',').any(|k| k.trim().eq_ignore_ascii_case("memo"));
+            let want_memo = kinds
+                .split(',')
+                .any(|k| k.trim().eq_ignore_ascii_case("memo"));
             let want_solution = kinds
                 .split(',')
                 .any(|k| k.trim().eq_ignore_ascii_case("solution"));
@@ -1747,7 +1779,11 @@ impl Skill for Recall {
                 out.push_str(&format!(
                     "{} memo{} match:\n",
                     memo_hits.len().min(memo_take),
-                    if memo_hits.len().min(memo_take) == 1 { "" } else { "s" }
+                    if memo_hits.len().min(memo_take) == 1 {
+                        ""
+                    } else {
+                        "s"
+                    }
                 ));
                 for row in memo_hits.iter().take(memo_take) {
                     let scope = if row.scope.is_empty() {
@@ -1756,10 +1792,7 @@ impl Skill for Recall {
                         format!(" [{}]", row.scope)
                     };
                     let value = truncate_remember(&row.value, 160);
-                    out.push_str(&format!(
-                        "\n  [memo {key}{scope}] {value}\n",
-                        key = row.key,
-                    ));
+                    out.push_str(&format!("\n  [memo {key}{scope}] {value}\n", key = row.key,));
                 }
             }
             Ok(text_result(out))

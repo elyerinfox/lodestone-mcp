@@ -38,6 +38,7 @@ use crate::browser::shared_global;
 use crate::skills::{schema_for, Skill, SkillCtx};
 use crate::{internal, invalid};
 
+#[allow(dead_code)]
 pub const TOOL_NAMES: &[&str] = &[
     "browser_open",
     "browser_navigate",
@@ -237,7 +238,10 @@ pub struct BrowserSessionConfig {
 
 impl Default for BrowserSessionConfig {
     fn default() -> Self {
-        Self { idle_timeout_secs: 1800, max_concurrent: 8 }
+        Self {
+            idle_timeout_secs: 1800,
+            max_concurrent: 8,
+        }
     }
 }
 
@@ -326,9 +330,7 @@ impl BrowserSessionManager {
     /// navigation. Used by the constellation-delegation path (#128)
     /// so a peer can drive our browser without being able to
     /// enumerate our LAN or hit cloud-metadata endpoints.
-    pub async fn open_restricted(
-        &self,
-    ) -> Result<(String, String, String), McpError> {
+    pub async fn open_restricted(&self) -> Result<(String, String, String), McpError> {
         self.open_internal(true).await
     }
 
@@ -398,11 +400,8 @@ impl BrowserSessionManager {
             .map_err(|e| invalid(format!("goto {url}: {e}")))?;
         // Best-effort: wait_for_navigation can stall on long-tail trackers.
         // We bound the wait at 15s and return whatever state we ended in.
-        let _ = tokio::time::timeout(
-            Duration::from_secs(15),
-            session.page.wait_for_navigation(),
-        )
-        .await;
+        let _ =
+            tokio::time::timeout(Duration::from_secs(15), session.page.wait_for_navigation()).await;
         let final_url = session
             .page
             .url()
@@ -437,13 +436,26 @@ impl BrowserSessionManager {
         let lower_url = url.to_ascii_lowercase();
         let lower_title = title.to_ascii_lowercase();
         let url_signals = [
-            "captcha", "challenge", "checkpoint", "blocked", "ratelimit",
-            "rate-limit", "/verify",
+            "captcha",
+            "challenge",
+            "checkpoint",
+            "blocked",
+            "ratelimit",
+            "rate-limit",
+            "/verify",
         ];
         let title_signals = [
-            "captcha", "are you a robot", "are you human", "just a moment",
-            "checking your browser", "access denied", "403 forbidden", "429",
-            "too many requests", "verify you are human", "attention required",
+            "captcha",
+            "are you a robot",
+            "are you human",
+            "just a moment",
+            "checking your browser",
+            "access denied",
+            "403 forbidden",
+            "429",
+            "too many requests",
+            "verify you are human",
+            "attention required",
         ];
         let hit = url_signals
             .iter()
@@ -461,9 +473,7 @@ impl BrowserSessionManager {
     /// session registry based on the owner enum.
     async fn report_warning(&self, owner: &SessionOwner, reason: &str) {
         let persona = match owner {
-            SessionOwner::Local(name) => {
-                self.personas.read().await.get(name).cloned()
-            }
+            SessionOwner::Local(name) => self.personas.read().await.get(name).cloned(),
             SessionOwner::Guest(key) => self
                 .guest_sessions
                 .read()
@@ -513,11 +523,8 @@ impl BrowserSessionManager {
             .map_err(|e| invalid(format!("click {selector:?}: {e}")))?;
         // Best-effort: a click can trigger navigation; bound the wait
         // at 5s so a same-page click (no navigation) returns promptly.
-        let _ = tokio::time::timeout(
-            Duration::from_secs(5),
-            session.page.wait_for_navigation(),
-        )
-        .await;
+        let _ =
+            tokio::time::timeout(Duration::from_secs(5), session.page.wait_for_navigation()).await;
         session.touch();
         let url = session
             .page
@@ -570,11 +577,9 @@ impl BrowserSessionManager {
                      document.activeElement.form.requestSubmit()",
                 )
                 .await;
-            let _ = tokio::time::timeout(
-                Duration::from_secs(15),
-                session.page.wait_for_navigation(),
-            )
-            .await;
+            let _ =
+                tokio::time::timeout(Duration::from_secs(15), session.page.wait_for_navigation())
+                    .await;
         }
         session.touch();
         let url = session
@@ -652,9 +657,9 @@ impl BrowserSessionManager {
     pub async fn close(&self, session_id: &str) -> Result<(), McpError> {
         let session = {
             let mut table = self.sessions.write().await;
-            table.remove(session_id).ok_or_else(|| {
-                invalid(format!("unknown session_id: {session_id}"))
-            })?
+            table
+                .remove(session_id)
+                .ok_or_else(|| invalid(format!("unknown session_id: {session_id}")))?
         };
         self.session_owner.write().await.remove(session_id);
         // Dispose the context — that closes every page belonging to it
@@ -735,10 +740,7 @@ impl BrowserSessionManager {
     /// Apply a sparse patch to the runtime config. Same pattern as the
     /// memory / constellation drawers. Values are clamped to safe
     /// ranges. Returns the post-patch state.
-    pub async fn apply_runtime_patch(
-        &self,
-        patch: BrowserConfigPatch,
-    ) -> BrowserSessionConfig {
+    pub async fn apply_runtime_patch(&self, patch: BrowserConfigPatch) -> BrowserSessionConfig {
         let mut cfg = self.cfg.write().await;
         if let Some(v) = patch.idle_timeout_secs {
             cfg.idle_timeout_secs = v.clamp(30, 24 * 3600);
@@ -787,11 +789,7 @@ impl BrowserSessionManager {
     /// PNG screenshot of the viewport (or the full scroll height when
     /// `full_page` is `true`). Returned as base64 so the JSON tool
     /// response carries it directly.
-    pub async fn screenshot(
-        &self,
-        session_id: &str,
-        full_page: bool,
-    ) -> Result<String, McpError> {
+    pub async fn screenshot(&self, session_id: &str, full_page: bool) -> Result<String, McpError> {
         use base64::Engine;
         use chromiumoxide::cdp::browser_protocol::page::CaptureScreenshotFormat;
         use chromiumoxide::page::ScreenshotParams;
@@ -845,8 +843,7 @@ impl BrowserSessionManager {
                 .full_page(false)
                 .build();
             if let Ok(bytes) = session.page.screenshot(params).await {
-                obs.screenshot_b64 =
-                    Some(base64::engine::general_purpose::STANDARD.encode(bytes));
+                obs.screenshot_b64 = Some(base64::engine::general_purpose::STANDARD.encode(bytes));
             }
         }
         session.touch();
@@ -882,10 +879,7 @@ impl BrowserSessionManager {
     /// id + state. The model's own `browser_persona_get` tool calls
     /// this. Always unrestricted — the operator opted in to running
     /// tools locally, so SSRF guards don't apply.
-    pub async fn persona_get(
-        &self,
-        name: &str,
-    ) -> Result<(String, PersonaState), McpError> {
+    pub async fn persona_get(&self, name: &str) -> Result<(String, PersonaState), McpError> {
         let persona = self.ensure_persona(name).await;
         persona.touch();
         let state = *persona.state.read().await;
@@ -1047,7 +1041,10 @@ impl BrowserSessionManager {
                 None => continue,
             };
             let sid = guest.persona.session_id.read().await.clone();
-            if sid.as_ref().is_some_and(|id| sessions_snapshot.contains_key(id)) {
+            if sid
+                .as_ref()
+                .is_some_and(|id| sessions_snapshot.contains_key(id))
+            {
                 continue;
             }
             self.guest_sessions.write().await.remove(&key);
@@ -1081,7 +1078,11 @@ impl BrowserSessionManager {
                 age_secs: summary.age_secs,
             });
         }
-        rows.sort_by(|a, b| a.peer_id.cmp(&b.peer_id).then(a.persona_name.cmp(&b.persona_name)));
+        rows.sort_by(|a, b| {
+            a.peer_id
+                .cmp(&b.peer_id)
+                .then(a.persona_name.cmp(&b.persona_name))
+        });
         rows
     }
 
@@ -1665,7 +1666,12 @@ impl Skill for BrowserExtract {
             let limit = args.limit.unwrap_or(50).clamp(1, 500);
             let mgr = manager().await;
             let values = mgr
-                .extract(&args.session_id, &args.selector, args.attr.as_deref(), limit)
+                .extract(
+                    &args.session_id,
+                    &args.selector,
+                    args.attr.as_deref(),
+                    limit,
+                )
                 .await?;
             Ok(json(serde_json::json!({ "values": values })))
         })

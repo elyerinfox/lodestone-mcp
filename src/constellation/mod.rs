@@ -1025,8 +1025,7 @@ impl Constellation {
                 .collect()
         };
         let local_urls: Vec<String> = {
-            let mut v: Vec<String> =
-                self.local_urls.lock().unwrap().iter().cloned().collect();
+            let mut v: Vec<String> = self.local_urls.lock().unwrap().iter().cloned().collect();
             v.sort();
             v
         };
@@ -1104,10 +1103,7 @@ impl Constellation {
             .session_url(&session_id)
             .await
             .unwrap_or_else(|| req.url.clone());
-        let title = mgr
-            .session_title(&session_id)
-            .await
-            .unwrap_or_default();
+        let title = mgr.session_title(&session_id).await.unwrap_or_default();
         Ok(BrowserPersonaResp {
             url,
             title,
@@ -1126,9 +1122,11 @@ impl Constellation {
     ) -> Result<BrowserPersonaResp, String> {
         let candidates = self.peers_with_capability("browser");
         if candidates.is_empty() {
-            return Err("no peer in the constellation has capabilities.browser = true; \
+            return Err(
+                "no peer in the constellation has capabilities.browser = true; \
                         the local request is the only option"
-                .to_string());
+                    .to_string(),
+            );
         }
         let timeout = std::time::Duration::from_millis(self.cfg.request_timeout_ms * 4);
         let mut last_err = String::from("no peer responded");
@@ -1143,13 +1141,14 @@ impl Constellation {
                 rq = rq.bearer_auth(&self.cfg.token);
             }
             match rq.send().await {
-                Ok(resp) if resp.status().is_success() => match resp.json::<BrowserPersonaResp>().await
-                {
-                    Ok(body) => return Ok(body),
-                    Err(e) => {
-                        last_err = format!("{peer_url}: invalid response body: {e}");
+                Ok(resp) if resp.status().is_success() => {
+                    match resp.json::<BrowserPersonaResp>().await {
+                        Ok(body) => return Ok(body),
+                        Err(e) => {
+                            last_err = format!("{peer_url}: invalid response body: {e}");
+                        }
                     }
-                },
+                }
                 Ok(resp) => {
                     let status = resp.status();
                     let body = resp.text().await.unwrap_or_default();
@@ -1161,25 +1160,6 @@ impl Constellation {
             }
         }
         Err(last_err)
-    }
-
-    /// Read-only view of every known peer's currently-advertised
-    /// capability set. Powers the `constellation_capabilities` tool
-    /// and the outbound-delegation filter. Each row is
-    /// `(node_id_or_url, capabilities, reachable)`. `capabilities` is
-    /// `None` until we've successfully fetched the peer's digest at
-    /// least once.
-    pub(crate) fn peer_capability_view(
-        &self,
-    ) -> Vec<(String, Option<crate::config::Capabilities>, bool)> {
-        let table = self.peers.lock().unwrap();
-        table
-            .values()
-            .map(|p| {
-                let label = p.node_id.clone().unwrap_or_else(|| p.url.clone());
-                (label, p.capabilities.clone(), p.reachable())
-            })
-            .collect()
     }
 
     /// Return the URLs of reachable peers whose advertised capability
@@ -1519,9 +1499,7 @@ impl Constellation {
                         // owned. Lazy: only does work if the browser
                         // session manager has been initialized AND
                         // some delegated persona actually matches the id.
-                        if let Some(mgr) =
-                            crate::skills::browser_session::manager_if_init()
-                        {
+                        if let Some(mgr) = crate::skills::browser_session::manager_if_init() {
                             let dropped = mgr.evict_guest_sessions_for_peer(&node_id).await;
                             if dropped > 0 {
                                 tracing::info!(
@@ -1631,7 +1609,11 @@ impl Constellation {
         );
         let _ = writeln!(out);
         fn yn(b: bool) -> &'static str {
-            if b { "ON" } else { "off" }
+            if b {
+                "ON"
+            } else {
+                "off"
+            }
         }
         let cap_str = |c: &crate::config::Capabilities| -> String {
             format!(

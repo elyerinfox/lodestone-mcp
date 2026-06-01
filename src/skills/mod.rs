@@ -428,7 +428,7 @@ fn route(skill: Box<dyn Skill>) -> ToolRoute<Lodestone> {
                         if cfg.auto_recall_facts {
                             let memo_block = server
                                 .memory
-                                .memo_recall_block(q, cfg.recall_max_hits.max(1).min(3))
+                                .memo_recall_block(q, cfg.recall_max_hits.clamp(1, 3))
                                 .await;
                             if !memo_block.is_empty() {
                                 if !preamble_text.is_empty() {
@@ -438,8 +438,7 @@ fn route(skill: Box<dyn Skill>) -> ToolRoute<Lodestone> {
                             }
                         }
                         if !preamble_text.is_empty() {
-                            let preamble =
-                                rmcp::model::Content::text(preamble_text);
+                            let preamble = rmcp::model::Content::text(preamble_text);
                             result.content.insert(0, preamble);
                         }
                     }
