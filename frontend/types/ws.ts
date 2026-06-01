@@ -104,11 +104,11 @@ export interface BrowserSession {
   title?: string
 }
 
-export type PoolState = 'healthy' | 'suspect' | 'blocked'
+export type PersonaState = 'healthy' | 'suspect' | 'blocked'
 
-export interface BrowserPool {
+export interface BrowserPersona {
   name: string
-  state: PoolState
+  state: PersonaState
   session_id: string | null
   url?: string | null
   last_warning?: string | null
@@ -117,7 +117,7 @@ export interface BrowserPool {
 
 export interface BrowserState {
   sessions: BrowserSession[]
-  pools: BrowserPool[]
+  personas: BrowserPersona[]
   idle_timeout_secs: number
   max_concurrent: number
 }

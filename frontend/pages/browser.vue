@@ -77,10 +77,10 @@
       </div>
     </section>
 
-    <section v-if="snapshot.browser.pools.length > 0">
-      <SectionHeading>Named pools</SectionHeading>
+    <section v-if="snapshot.browser.personas.length > 0">
+      <SectionHeading>Named personas</SectionHeading>
       <p class="mb-3 text-xs text-slate-400">
-        Long-lived warm sessions for one site or vendor. The pool state
+        Long-lived warm sessions for one site or vendor. The persona state
         machine flags poisoned sessions (CAPTCHA / 403 challenge / 429)
         as <span class="font-mono text-amber-300">suspect</span> on first
         warning and <span class="font-mono text-accent-err">blocked</span>
@@ -90,7 +90,7 @@
         <table class="w-full text-sm">
           <thead class="bg-surface-2 text-xs uppercase text-slate-400">
             <tr>
-              <th class="px-4 py-2 text-left">Pool</th>
+              <th class="px-4 py-2 text-left">Persona</th>
               <th class="px-4 py-2 text-left">State</th>
               <th class="px-4 py-2 text-left">URL</th>
               <th class="px-4 py-2 text-left">Last warning</th>
@@ -100,7 +100,7 @@
           </thead>
           <tbody class="divide-y divide-slate-800">
             <tr
-              v-for="p in snapshot.browser.pools"
+              v-for="p in snapshot.browser.personas"
               :key="p.name"
               class="hover:bg-surface-2/60"
             >
@@ -130,7 +130,7 @@
                 <button
                   type="button"
                   class="rounded bg-accent-info/20 px-2 py-0.5 text-xs text-accent-info hover:bg-accent-info/30"
-                  @click="resetPool(p.name)"
+                  @click="resetPersona(p.name)"
                 >
                   reset
                 </button>
@@ -230,13 +230,13 @@ const cfg = useRuntimeConfig()
 const wsToken = (cfg.public.wsToken as string | undefined) ?? ''
 const closeError = ref<string | null>(null)
 const resetError = ref<string | null>(null)
-async function resetPool(name: string) {
+async function resetPersona(name: string) {
   resetError.value = null
   try {
     const headers: Record<string, string> = {}
     if (wsToken) headers.Authorization = `Bearer ${wsToken}`
     const res = await fetch(
-      `/api/browser/pools/${encodeURIComponent(name)}/reset`,
+      `/api/browser/personas/${encodeURIComponent(name)}/reset`,
       { method: 'POST', headers },
     )
     if (!res.ok) {

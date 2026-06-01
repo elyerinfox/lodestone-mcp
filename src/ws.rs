@@ -67,18 +67,18 @@ pub struct Snapshot {
     pub browser: BrowserState,
 }
 
-/// Browser session manager snapshot — open sessions + named pools +
-/// runtime knobs. Empty `sessions` + `pools` is normal (no model has
+/// Browser session manager snapshot — open sessions + named personas +
+/// runtime knobs. Empty `sessions` + `personas` is normal (no model has
 /// opened anything yet). The dashboard renders this on the `/browser`
 /// page.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct BrowserState {
     /// Live page URL + title + age + idle for every open session.
     pub sessions: Vec<crate::skills::browser_session::SessionSummary>,
-    /// Named long-lived pools with their current state (`healthy` /
+    /// Named long-lived personas with their current state (`healthy` /
     /// `suspect` / `blocked`), last warning, and underlying session.
-    /// Operator confirms reset via `POST /api/browser/pools/{name}/reset`.
-    pub pools: Vec<crate::skills::browser_session::PoolSummary>,
+    /// Operator confirms reset via `POST /api/browser/personas/{name}/reset`.
+    pub personas: Vec<crate::skills::browser_session::PersonaSummary>,
     /// Runtime-tunable: close a session idle this long. Mirrors
     /// `BrowserSessionConfig.idle_timeout_secs`.
     pub idle_timeout_secs: u64,

@@ -140,21 +140,21 @@ pub(crate) struct RetrieveReq {
     pub source: identifiers::Source,
 }
 
-/// `POST /constellation/browser_pool` — "drive your browser session for
-/// me" delegation (#128). The peer is asked to navigate its named pool
+/// `POST /constellation/browser_persona` — "drive your browser session for
+/// me" delegation (#128). The peer is asked to navigate its named persona
 /// to a URL and return a compact observation. Sessions DO NOT
-/// transport across the wire — each node maintains its own warm pools.
+/// transport across the wire — each node maintains its own warm personas.
 /// The peer's `capabilities.browser` must be ON or the request is
 /// refused. The peer's local SSRF guard (#130) refuses any URL that
 /// resolves to its local network.
 #[derive(Debug, Serialize, Deserialize)]
-pub(crate) struct BrowserPoolReq {
-    pub pool_name: String,
+pub(crate) struct BrowserPersonaReq {
+    pub persona_name: String,
     pub url: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub(crate) struct BrowserPoolResp {
+pub(crate) struct BrowserPersonaResp {
     pub url: String,
     pub title: String,
     /// Compact observation tree as the browser session manager produces
@@ -163,10 +163,10 @@ pub(crate) struct BrowserPoolResp {
     pub tree: Vec<crate::skills::browser_session::TreeNode>,
 }
 
-/// `BrowserPoolReq` rejection body. Same shape as `RetrieveReject` so
+/// `BrowserPersonaReq` rejection body. Same shape as `RetrieveReject` so
 /// requesters can branch on the same `reason` field.
 #[derive(Debug, Serialize, Deserialize)]
-pub(crate) struct BrowserPoolReject {
+pub(crate) struct BrowserPersonaReject {
     pub reason: &'static str,
     pub message: String,
 }
@@ -1058,21 +1058,21 @@ impl Constellation {
         }
     }
 
-    /// Inbound handler for `POST /constellation/browser_pool`. Refuses
+    /// Inbound handler for `POST /constellation/browser_persona`. Refuses
     /// the request if `[network].capabilities.browser` is false (the
     /// node hasn't opted in to delegated browser work). Otherwise,
-    /// fetches-or-creates a pool isolated by the requesting peer's
+    /// fetches-or-creates a persona isolated by the requesting peer's
     /// node id — `delegated:<peer_id>:<name>` — so peers A and B
-    /// don't share cookies on the same logical pool name. The session
+    /// don't share cookies on the same logical persona name. The session
     /// is SSRF-guarded (#130). Navigates and returns the compact
     /// observation tree.
-    pub(crate) async fn answer_browser_pool(
+    pub(crate) async fn answer_browser_persona(
         &self,
         peer_id: &str,
-        req: &BrowserPoolReq,
-    ) -> Result<BrowserPoolResp, BrowserPoolReject> {
+        req: &BrowserPersonaReq,
+    ) -> Result<BrowserPersonaResp, BrowserPersonaReject> {
         if !self.cfg.capabilities.browser {
-            return Err(BrowserPoolReject {
+            return Err(BrowserPersonaReject {
                 reason: "disabled",
                 message: "this node hasn't opted in to delegated browser work \
                           ([network.capabilities].browser = false)"
@@ -1081,14 +1081,14 @@ impl Constellation {
         }
         let mgr = crate::skills::browser_session::manager().await;
         let (session_id, _state) = mgr
-            .pool_get_for_peer(peer_id, &req.pool_name)
+            .persona_get_for_peer(peer_id, &req.persona_name)
             .await
-            .map_err(|e| BrowserPoolReject {
-                reason: "pool_unavailable",
+            .map_err(|e| BrowserPersonaReject {
+                reason: "persona_unavailable",
                 message: format!("{e:?}"),
             })?;
         if let Err(e) = mgr.navigate(&session_id, &req.url).await {
-            return Err(BrowserPoolReject {
+            return Err(BrowserPersonaReject {
                 reason: "navigate_failed",
                 message: format!("{e:?}"),
             });
@@ -1108,7 +1108,7 @@ impl Constellation {
             .session_title(&session_id)
             .await
             .unwrap_or_default();
-        Ok(BrowserPoolResp {
+        Ok(BrowserPersonaResp {
             url,
             title,
             tree: obs.tree.unwrap_or_default(),
@@ -1120,10 +1120,10 @@ impl Constellation {
     /// candidate list is shuffled-by-reputation so a busy peer doesn't
     /// always get picked first. Returns the first successful response;
     /// on every-peer-failure, wraps the last error.
-    pub(crate) async fn delegate_browser_pool(
+    pub(crate) async fn delegate_browser_persona(
         &self,
-        req: BrowserPoolReq,
-    ) -> Result<BrowserPoolResp, String> {
+        req: BrowserPersonaReq,
+    ) -> Result<BrowserPersonaResp, String> {
         let candidates = self.peers_with_capability("browser");
         if candidates.is_empty() {
             return Err("no peer in the constellation has capabilities.browser = true; \
@@ -1135,7 +1135,7 @@ impl Constellation {
         for peer_url in candidates {
             let mut rq = self
                 .http
-                .post(format!("{peer_url}/constellation/browser_pool"))
+                .post(format!("{peer_url}/constellation/browser_persona"))
                 .header("x-lodestone-peer-id", &self.node_id)
                 .json(&req)
                 .timeout(timeout);
@@ -1143,7 +1143,7 @@ impl Constellation {
                 rq = rq.bearer_auth(&self.cfg.token);
             }
             match rq.send().await {
-                Ok(resp) if resp.status().is_success() => match resp.json::<BrowserPoolResp>().await
+                Ok(resp) if resp.status().is_success() => match resp.json::<BrowserPersonaResp>().await
                 {
                     Ok(body) => return Ok(body),
                     Err(e) => {
@@ -1496,7 +1496,7 @@ impl Constellation {
                     // and prune after too many consecutive misses (keeps gossiped or
                     // dead peers from accumulating). Capture the departing peer's
                     // node_id BEFORE dropping so we can evict any delegated
-                    // browser pools it left behind.
+                    // browser personas it left behind.
                     let evicted_node_id = {
                         let mut peers = self.peers.lock().unwrap();
                         if let Some(p) = peers.get_mut(&url) {
@@ -1515,19 +1515,19 @@ impl Constellation {
                         }
                     };
                     if let Some(node_id) = evicted_node_id {
-                        // Tear down browser pools the departing peer
+                        // Tear down browser personas the departing peer
                         // owned. Lazy: only does work if the browser
                         // session manager has been initialized AND
-                        // some delegated pool actually matches the id.
+                        // some delegated persona actually matches the id.
                         if let Some(mgr) =
                             crate::skills::browser_session::manager_if_init()
                         {
-                            let dropped = mgr.evict_pools_for_peer(&node_id).await;
+                            let dropped = mgr.evict_personas_for_peer(&node_id).await;
                             if dropped > 0 {
                                 tracing::info!(
                                     peer_node_id = %node_id,
-                                    pools = dropped,
-                                    "peer departed — evicted its delegated browser pools",
+                                    personas = dropped,
+                                    "peer departed — evicted its delegated browser personas",
                                 );
                             }
                         }

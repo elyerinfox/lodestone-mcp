@@ -49,24 +49,24 @@ pub const TOOL_NAMES: &[&str] = &[
     "browser_extract",
     "browser_eval",
     "browser_screenshot",
-    "browser_pool_get",
-    "browser_pool_list",
-    "browser_pool_reset",
-    "browser_pool_delegate",
+    "browser_persona_get",
+    "browser_persona_list",
+    "browser_persona_reset",
+    "browser_persona_delegate",
 ];
 
 // ---------------------------------------------------------------------------
-// Named-session pools (#127)
+// Named-session personas (#127)
 // ---------------------------------------------------------------------------
 //
-// A pool is a long-lived, NAMED browser session that providers
+// A persona is a long-lived, NAMED browser session that providers
 // (and the model) route through to ACCUMULATE warm state — cookies,
 // solved-CAPTCHA tokens, fingerprint — for one specific site or
-// vendor. Hitting `google.com` through the same pool 50 times in a
+// vendor. Hitting `google.com` through the same persona 50 times in a
 // row looks like one persistent user; spinning up 50 fresh contexts
 // looks like a bot and gets rate-limited.
 //
-// Pools have a small state machine the operator can observe and act
+// Personas have a small state machine the operator can observe and act
 // on:
 //
 //   Healthy   normal use — every action goes through.
@@ -76,49 +76,49 @@ pub const TOOL_NAMES: &[&str] = &[
 //   Blocked   second strike. Calls return an error until the
 //             operator confirms a reset from the dashboard.
 //
-// Reset = dispose the pool's session + create a fresh one (fresh
+// Reset = dispose the persona's session + create a fresh one (fresh
 // context, fresh cookies). State returns to Healthy. The auto-flip
-// is conservative; the human-in-the-loop reset is what `BrowserPool`
+// is conservative; the human-in-the-loop reset is what `BrowserPersona`
 // is built around.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "lowercase")]
-pub enum PoolState {
+pub enum PersonaState {
     Healthy,
     Suspect,
     Blocked,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
-pub struct PoolSummary {
+pub struct PersonaSummary {
     pub name: String,
-    pub state: PoolState,
+    pub state: PersonaState,
     pub session_id: Option<String>,
     pub url: Option<String>,
     pub last_warning: Option<String>,
     pub age_secs: u64,
 }
 
-struct Pool {
+struct Persona {
     name: String,
     session_id: tokio::sync::RwLock<Option<String>>,
-    state: tokio::sync::RwLock<PoolState>,
+    state: tokio::sync::RwLock<PersonaState>,
     strikes: AtomicI64,
     last_warning: tokio::sync::RwLock<Option<String>>,
     created_at_ms: i64,
-    /// Wall-clock ms of the most recent touch (any pool op). Used by
-    /// the pool reaper to drop orphaned per-peer pools whose owner has
+    /// Wall-clock ms of the most recent touch (any persona op). Used by
+    /// the persona reaper to drop orphaned per-peer personas whose owner has
     /// gone away without explicitly closing their delegated session.
     last_touched_ms: AtomicI64,
 }
 
-impl Pool {
+impl Persona {
     fn new(name: String) -> Self {
         let now = now_ms();
         Self {
             name,
             session_id: tokio::sync::RwLock::new(None),
-            state: tokio::sync::RwLock::new(PoolState::Healthy),
+            state: tokio::sync::RwLock::new(PersonaState::Healthy),
             strikes: AtomicI64::new(0),
             last_warning: tokio::sync::RwLock::new(None),
             created_at_ms: now,
@@ -130,13 +130,13 @@ impl Pool {
     }
 }
 
-/// Pool name used internally for a delegated request. Namespacing
-/// includes the requesting peer id so peer A's `google` pool and peer
-/// B's `google` pool are isolated browser contexts — neither can see
+/// Persona name used internally for a delegated request. Namespacing
+/// includes the requesting peer id so peer A's `google` persona and peer
+/// B's `google` persona are isolated browser contexts — neither can see
 /// the other's cookies, even though they share the underlying name.
-/// Local (model-issued) pool names stay un-namespaced so the model's
+/// Local (model-issued) persona names stay un-namespaced so the model's
 /// own warm state is reused across calls.
-fn delegated_pool_name(peer_id: &str, name: &str) -> String {
+fn delegated_persona_name(peer_id: &str, name: &str) -> String {
     format!("delegated:{peer_id}:{name}")
 }
 
@@ -230,7 +230,7 @@ struct Session {
     /// SSRF guard switch. `false` for the model's own
     /// `browser_open` (the operator opted in to running tools locally
     /// so we don't restrict them). `true` for sessions created on
-    /// behalf of a constellation peer via `/constellation/browser_pool`
+    /// behalf of a constellation peer via `/constellation/browser_persona`
     /// (#128) — every navigation goes through
     /// [`crate::skills::ssrf::assert_public`] to refuse local-network
     /// hosts.
@@ -246,11 +246,11 @@ impl Session {
 pub struct BrowserSessionManager {
     sessions: RwLock<HashMap<String, Arc<Session>>>,
     cfg: RwLock<BrowserSessionConfig>,
-    pools: RwLock<HashMap<String, Arc<Pool>>>,
-    /// Reverse index session_id → pool_name. The navigation paths
+    personas: RwLock<HashMap<String, Arc<Persona>>>,
+    /// Reverse index session_id → persona_name. The navigation paths
     /// consult this to know whether to run the heuristic CAPTCHA/
     /// block detector after each navigation.
-    session_to_pool: RwLock<HashMap<String, String>>,
+    session_to_persona: RwLock<HashMap<String, String>>,
 }
 
 impl BrowserSessionManager {
@@ -258,8 +258,8 @@ impl BrowserSessionManager {
         let m = Arc::new(Self {
             sessions: RwLock::new(HashMap::new()),
             cfg: RwLock::new(cfg),
-            pools: RwLock::new(HashMap::new()),
-            session_to_pool: RwLock::new(HashMap::new()),
+            personas: RwLock::new(HashMap::new()),
+            session_to_persona: RwLock::new(HashMap::new()),
         });
         spawn_reaper(m.clone());
         m
@@ -367,7 +367,7 @@ impl BrowserSessionManager {
             .unwrap_or_default()
             .unwrap_or_default();
         session.touch();
-        // If this session is the live session for a pool, run the
+        // If this session is the live session for a persona, run the
         // heuristic detector on the post-navigation page. The
         // detector is cheap (URL + title pattern match) and reports
         // are advisory — the state machine handles the throttling.
@@ -376,12 +376,12 @@ impl BrowserSessionManager {
         Ok((final_url, title))
     }
 
-    /// If `session_id` belongs to a pool, scan the URL + title for
+    /// If `session_id` belongs to a persona, scan the URL + title for
     /// well-known CAPTCHA / block patterns and report a warning on the
-    /// pool when one matches. False positives are tolerable — the
+    /// persona when one matches. False positives are tolerable — the
     /// operator just clicks "reset" in the dashboard.
     async fn maybe_detect_poisoning(&self, session_id: &str, url: &str, title: &str) {
-        let pool_name = match self.session_to_pool.read().await.get(session_id).cloned() {
+        let persona_name = match self.session_to_persona.read().await.get(session_id).cloned() {
             Some(n) => n,
             None => return,
         };
@@ -412,8 +412,8 @@ impl BrowserSessionManager {
         let url_hit = url_signals.iter().find(|s| lower_url.contains(*s));
         let title_hit = title_signals.iter().find(|s| lower_title.contains(*s));
         if let Some(hit) = url_hit.or(title_hit) {
-            self.pool_report_warning(
-                &pool_name,
+            self.persona_report_warning(
+                &persona_name,
                 &format!("matched signature {hit:?} in url/title"),
             )
             .await;
@@ -577,7 +577,7 @@ impl BrowserSessionManager {
                 invalid(format!("unknown session_id: {session_id}"))
             })?
         };
-        self.session_to_pool.write().await.remove(session_id);
+        self.session_to_persona.write().await.remove(session_id);
         // Dispose the context — that closes every page belonging to it
         // (per chromium's `Target.disposeBrowserContext` docs) without
         // firing beforeunload hooks, and frees the per-context
@@ -790,29 +790,29 @@ impl BrowserSessionManager {
     }
 
     // ----------------------------------------------------------------
-    // Pool ops
+    // Persona ops
     // ----------------------------------------------------------------
 
-    /// Get or create the named pool's session and return its id +
-    /// state. A `Blocked` pool returns Err so callers don't keep
+    /// Get or create the named persona's session and return its id +
+    /// state. A `Blocked` persona returns Err so callers don't keep
     /// hammering a dead session until reset; `Suspect` is still
     /// usable but the caller can choose to back off.
-    pub async fn pool_get(
+    pub async fn persona_get(
         &self,
         name: &str,
         restrict_to_public: bool,
-    ) -> Result<(String, PoolState), McpError> {
-        let pool = self.ensure_pool(name).await;
-        pool.touch();
-        let state = *pool.state.read().await;
-        if state == PoolState::Blocked {
+    ) -> Result<(String, PersonaState), McpError> {
+        let persona = self.ensure_persona(name).await;
+        persona.touch();
+        let state = *persona.state.read().await;
+        if state == PersonaState::Blocked {
             return Err(invalid(format!(
-                "pool {name:?} is blocked — reset from the dashboard before reusing"
+                "persona {name:?} is blocked — reset from the dashboard before reusing"
             )));
         }
-        // Lock the pool's session slot so two concurrent callers don't
+        // Lock the persona's session slot so two concurrent callers don't
         // each create a session in parallel.
-        let mut slot = pool.session_id.write().await;
+        let mut slot = persona.session_id.write().await;
         if let Some(id) = slot.as_ref() {
             if self.sessions.read().await.contains_key(id) {
                 return Ok((id.clone(), state));
@@ -825,79 +825,79 @@ impl BrowserSessionManager {
             self.open().await?
         };
         *slot = Some(id.clone());
-        self.session_to_pool
+        self.session_to_persona
             .write()
             .await
-            .insert(id.clone(), pool.name.clone());
+            .insert(id.clone(), persona.name.clone());
         Ok((id, state))
     }
 
-    /// Per-peer namespaced pool — used by the constellation
+    /// Per-peer namespaced persona — used by the constellation
     /// delegation path so peer A and peer B never share cookies on
-    /// the same logical pool name. Peer id comes from the
+    /// the same logical persona name. Peer id comes from the
     /// `X-Lodestone-Peer-Id` header on the inbound request (the
     /// existing constellation auth gate has already verified the
     /// cluster token, so a spoofed peer id only burns its own quota).
     /// Always returns a restricted (SSRF-guarded) session.
-    pub async fn pool_get_for_peer(
+    pub async fn persona_get_for_peer(
         &self,
         peer_id: &str,
         name: &str,
-    ) -> Result<(String, PoolState), McpError> {
-        self.pool_get(&delegated_pool_name(peer_id, name), true)
+    ) -> Result<(String, PersonaState), McpError> {
+        self.persona_get(&delegated_persona_name(peer_id, name), true)
             .await
     }
 
-    /// Force a fresh session on the named pool. Disposes the old
+    /// Force a fresh session on the named persona. Disposes the old
     /// session + context and creates a new one in `Healthy` state.
     /// Bound to the dashboard's "reset" button. Returns the new
     /// session id.
-    pub async fn pool_reset(&self, name: &str) -> Result<String, McpError> {
-        let pool = self.ensure_pool(name).await;
+    pub async fn persona_reset(&self, name: &str) -> Result<String, McpError> {
+        let persona = self.ensure_persona(name).await;
         let old = {
-            let mut slot = pool.session_id.write().await;
+            let mut slot = persona.session_id.write().await;
             slot.take()
         };
         if let Some(id) = old {
             let _ = self.close(&id).await;
         }
-        pool.strikes.store(0, Ordering::Relaxed);
-        *pool.state.write().await = PoolState::Healthy;
-        *pool.last_warning.write().await = None;
+        persona.strikes.store(0, Ordering::Relaxed);
+        *persona.state.write().await = PersonaState::Healthy;
+        *persona.last_warning.write().await = None;
         let (id, _, _) = self.open().await?;
-        *pool.session_id.write().await = Some(id.clone());
+        *persona.session_id.write().await = Some(id.clone());
         Ok(id)
     }
 
-    /// Report a heuristic warning against a pool: a CAPTCHA appeared,
+    /// Report a heuristic warning against a persona: a CAPTCHA appeared,
     /// the page is a 429/403 challenge, etc. First strike → Suspect;
     /// second → Blocked. Cheap callers can invoke this freely; the
     /// state machine handles the throttling.
-    pub async fn pool_report_warning(&self, name: &str, reason: &str) {
-        let pool = self.ensure_pool(name).await;
-        let strikes = pool.strikes.fetch_add(1, Ordering::Relaxed) + 1;
-        *pool.last_warning.write().await = Some(reason.to_string());
+    pub async fn persona_report_warning(&self, name: &str, reason: &str) {
+        let persona = self.ensure_persona(name).await;
+        let strikes = persona.strikes.fetch_add(1, Ordering::Relaxed) + 1;
+        *persona.last_warning.write().await = Some(reason.to_string());
         let new_state = if strikes >= 2 {
-            PoolState::Blocked
+            PersonaState::Blocked
         } else {
-            PoolState::Suspect
+            PersonaState::Suspect
         };
-        *pool.state.write().await = new_state;
+        *persona.state.write().await = new_state;
         tracing::warn!(
-            pool = %name,
+            persona = %name,
             strikes,
             state = ?new_state,
             reason = %reason,
-            "browser pool warning"
+            "browser persona warning"
         );
     }
 
-    /// Snapshot every pool's state for the dashboard.
-    pub async fn pool_list(&self) -> Vec<PoolSummary> {
-        let pools = self.pools.read().await;
+    /// Snapshot every persona's state for the dashboard.
+    pub async fn persona_list(&self) -> Vec<PersonaSummary> {
+        let personas = self.personas.read().await;
         let now = now_ms();
-        let mut rows: Vec<PoolSummary> = Vec::with_capacity(pools.len());
-        for p in pools.values() {
+        let mut rows: Vec<PersonaSummary> = Vec::with_capacity(personas.len());
+        for p in personas.values() {
             let session_id = p.session_id.read().await.clone();
             let state = *p.state.read().await;
             let url = if let Some(sid) = &session_id {
@@ -910,7 +910,7 @@ impl BrowserSessionManager {
             } else {
                 None
             };
-            rows.push(PoolSummary {
+            rows.push(PersonaSummary {
                 name: p.name.clone(),
                 state,
                 session_id,
@@ -923,17 +923,17 @@ impl BrowserSessionManager {
         rows
     }
 
-    /// Drop every pool whose name starts with `delegated:<peer_id>:`.
+    /// Drop every persona whose name starts with `delegated:<peer_id>:`.
     /// Called from the constellation's peer-removal path when a peer
     /// goes silent for long enough that we drop it from our peer
-    /// table — at that point its delegated pools are orphans and
+    /// table — at that point its delegated personas are orphans and
     /// should be cleaned up so they don't pin Chromium contexts.
-    /// Returns the number of pools dropped (for the operator log).
-    pub async fn evict_pools_for_peer(&self, peer_id: &str) -> usize {
+    /// Returns the number of personas dropped (for the operator log).
+    pub async fn evict_personas_for_peer(&self, peer_id: &str) -> usize {
         let prefix = format!("delegated:{peer_id}:");
         let names: Vec<String> = {
-            let pools = self.pools.read().await;
-            pools
+            let personas = self.personas.read().await;
+            personas
                 .keys()
                 .filter(|n| n.starts_with(&prefix))
                 .cloned()
@@ -941,33 +941,33 @@ impl BrowserSessionManager {
         };
         let count = names.len();
         for name in names {
-            // pool_reset() disposes the current session+context AND
+            // persona_reset() disposes the current session+context AND
             // creates a fresh one. We want the dispose without the
             // recreate, so do the same work inline.
-            if let Some(pool) = self.pools.read().await.get(&name).cloned() {
-                let sid = pool.session_id.write().await.take();
+            if let Some(persona) = self.personas.read().await.get(&name).cloned() {
+                let sid = persona.session_id.write().await.take();
                 if let Some(id) = sid {
                     let _ = self.close(&id).await;
                 }
             }
-            self.pools.write().await.remove(&name);
-            tracing::info!(pool = %name, peer = %peer_id, "evicted delegated pool (peer departed)");
+            self.personas.write().await.remove(&name);
+            tracing::info!(persona = %name, peer = %peer_id, "evicted delegated persona (peer departed)");
         }
         count
     }
 
-    /// Drop pools that haven't been touched for `idle_secs` AND whose
+    /// Drop personas that haven't been touched for `idle_secs` AND whose
     /// session is already gone (so we don't reap an actively-used
-    /// pool just because its name happens to be stale). Called from
+    /// persona just because its name happens to be stale). Called from
     /// the reaper alongside session cleanup. Local (un-namespaced)
-    /// pools are protected — they're tied to the operator's choice
+    /// personas are protected — they're tied to the operator's choice
     /// of name and shouldn't disappear without explicit reset.
-    pub async fn reap_idle_pools(&self, idle_secs: u64) -> usize {
+    pub async fn reap_idle_personas(&self, idle_secs: u64) -> usize {
         let now = now_ms();
         let cutoff_ms = (idle_secs as i64) * 1000;
         let candidates: Vec<String> = {
-            let pools = self.pools.read().await;
-            pools
+            let personas = self.personas.read().await;
+            personas
                 .values()
                 .filter(|p| p.name.starts_with("delegated:"))
                 .filter(|p| now - p.last_touched_ms.load(Ordering::Relaxed) >= cutoff_ms)
@@ -977,32 +977,32 @@ impl BrowserSessionManager {
         let mut count = 0;
         let sessions_snapshot = self.sessions.read().await.clone();
         for name in candidates {
-            let pool = match self.pools.read().await.get(&name).cloned() {
+            let persona = match self.personas.read().await.get(&name).cloned() {
                 Some(p) => p,
                 None => continue,
             };
-            // Skip if session is still alive — pool is "idle" by
+            // Skip if session is still alive — persona is "idle" by
             // touch but actively backing a session another path is
             // still draining. The session's own idle reaper will get
             // it eventually.
-            let sid = pool.session_id.read().await.clone();
+            let sid = persona.session_id.read().await.clone();
             if sid.as_ref().is_some_and(|id| sessions_snapshot.contains_key(id)) {
                 continue;
             }
-            self.pools.write().await.remove(&name);
+            self.personas.write().await.remove(&name);
             count += 1;
-            tracing::info!(pool = %name, "reaped idle delegated pool");
+            tracing::info!(persona = %name, "reaped idle delegated persona");
         }
         count
     }
 
-    async fn ensure_pool(&self, name: &str) -> Arc<Pool> {
-        if let Some(p) = self.pools.read().await.get(name) {
+    async fn ensure_persona(&self, name: &str) -> Arc<Persona> {
+        if let Some(p) = self.personas.read().await.get(name) {
             return p.clone();
         }
-        let mut w = self.pools.write().await;
+        let mut w = self.personas.write().await;
         w.entry(name.to_string())
-            .or_insert_with(|| Arc::new(Pool::new(name.to_string())))
+            .or_insert_with(|| Arc::new(Persona::new(name.to_string())))
             .clone()
     }
 
@@ -1162,11 +1162,11 @@ fn spawn_reaper(manager: Arc<BrowserSessionManager>) {
                 tracing::info!(session_id = %id, "browser session idle-expired");
                 let _ = manager.close(&id).await;
             }
-            // Pool-level idle cleanup: a delegated pool whose owner
+            // Persona-level idle cleanup: a delegated persona whose owner
             // walked away leaves a tiny bookkeeping struct sitting in
             // memory even after the session is reaped. Give it twice
             // the session idle window before dropping the entry.
-            let _ = manager.reap_idle_pools(timeout_secs * 2).await;
+            let _ = manager.reap_idle_personas(timeout_secs * 2).await;
         }
     });
 }
@@ -1608,40 +1608,40 @@ impl Skill for BrowserScreenshot {
 }
 
 // ---------------------------------------------------------------------------
-// Pool tools (#127)
+// Persona tools (#127)
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
-struct PoolGetArgs {
-    /// Pool name — by convention, the bare hostname or vendor key
+struct PersonaGetArgs {
+    /// Persona name — by convention, the bare hostname or vendor key
     /// (e.g. `"google"`, `"stackoverflow"`, `"github"`). Routing all
-    /// queries against one site through one named pool accumulates a
+    /// queries against one site through one named persona accumulates a
     /// warm session (cookies, solved-CAPTCHA tokens) that defeats most
     /// per-IP rate limits.
     name: String,
 }
 
-pub struct BrowserPoolGet;
-impl Skill for BrowserPoolGet {
+pub struct BrowserPersonaGet;
+impl Skill for BrowserPersonaGet {
     fn name(&self) -> &'static str {
-        "browser_pool_get"
+        "browser_persona_get"
     }
     fn description(&self) -> &'static str {
-        "Return a session_id for the named long-lived pool, creating the pool if it doesn't exist. \
-         Subsequent `browser_navigate` / `browser_click` / etc. on that session reuse the pool's \
-         warm state. Returns `{session_id, state}`. A pool in `\"blocked\"` state (CAPTCHA stuck / \
-         403 challenge) returns an error — the operator must reset it from the dashboard. A pool \
+        "Return a session_id for the named long-lived persona, creating the persona if it doesn't exist. \
+         Subsequent `browser_navigate` / `browser_click` / etc. on that session reuse the persona's \
+         warm state. Returns `{session_id, state}`. A persona in `\"blocked\"` state (CAPTCHA stuck / \
+         403 challenge) returns an error — the operator must reset it from the dashboard. A persona \
          in `\"suspect\"` state still works but the model should consider backing off / using a \
          different provider for a few minutes."
     }
     fn schema(&self) -> Arc<JsonObject> {
-        schema_for::<PoolGetArgs>()
+        schema_for::<PersonaGetArgs>()
     }
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
-            let (_server, args) = ctx.parse::<PoolGetArgs>()?;
+            let (_server, args) = ctx.parse::<PersonaGetArgs>()?;
             let mgr = manager().await;
-            let (session_id, state) = mgr.pool_get(&args.name, false).await?;
+            let (session_id, state) = mgr.persona_get(&args.name, false).await?;
             Ok(json(serde_json::json!({
                 "session_id": session_id,
                 "state": state,
@@ -1650,15 +1650,15 @@ impl Skill for BrowserPoolGet {
     }
 }
 
-pub struct BrowserPoolList;
-impl Skill for BrowserPoolList {
+pub struct BrowserPersonaList;
+impl Skill for BrowserPersonaList {
     fn name(&self) -> &'static str {
-        "browser_pool_list"
+        "browser_persona_list"
     }
     fn description(&self) -> &'static str {
-        "List every named browser pool with its current state (`healthy` / `suspect` / `blocked`), \
+        "List every named browser persona with its current state (`healthy` / `suspect` / `blocked`), \
          the last warning that flipped it out of healthy (if any), and the underlying session id. \
-         Pools survive the model's individual flows so this is the right tool to check before a \
+         Personas survive the model's individual flows so this is the right tool to check before a \
          long scrape."
     }
     fn schema(&self) -> Arc<JsonObject> {
@@ -1668,39 +1668,39 @@ impl Skill for BrowserPoolList {
         Box::pin(async move {
             let _ = ctx.parse::<NoArgs>()?;
             let mgr = manager().await;
-            let pools = mgr.pool_list().await;
-            Ok(json(serde_json::json!({ "pools": pools })))
+            let personas = mgr.persona_list().await;
+            Ok(json(serde_json::json!({ "personas": personas })))
         })
     }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
-struct PoolResetArgs {
-    /// Pool name to reset. Disposes the current session + context and
+struct PersonaResetArgs {
+    /// Persona name to reset. Disposes the current session + context and
     /// starts a fresh one. State returns to `healthy`. Use this when
-    /// a pool is `blocked` (CAPTCHA didn't clear, account got flagged)
+    /// a persona is `blocked` (CAPTCHA didn't clear, account got flagged)
     /// or to deliberately rotate the warm state.
     name: String,
 }
 
-pub struct BrowserPoolReset;
-impl Skill for BrowserPoolReset {
+pub struct BrowserPersonaReset;
+impl Skill for BrowserPersonaReset {
     fn name(&self) -> &'static str {
-        "browser_pool_reset"
+        "browser_persona_reset"
     }
     fn description(&self) -> &'static str {
-        "Force a fresh session on the named pool: dispose the current tab + context and spin up a \
-         new one. State returns to `healthy`. Use this when a pool is `blocked` or when you want \
+        "Force a fresh session on the named persona: dispose the current tab + context and spin up a \
+         new one. State returns to `healthy`. Use this when a persona is `blocked` or when you want \
          to deliberately rotate its warm state."
     }
     fn schema(&self) -> Arc<JsonObject> {
-        schema_for::<PoolResetArgs>()
+        schema_for::<PersonaResetArgs>()
     }
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
-            let (_server, args) = ctx.parse::<PoolResetArgs>()?;
+            let (_server, args) = ctx.parse::<PersonaResetArgs>()?;
             let mgr = manager().await;
-            let session_id = mgr.pool_reset(&args.name).await?;
+            let session_id = mgr.persona_reset(&args.name).await?;
             Ok(json(serde_json::json!({
                 "session_id": session_id,
                 "state": "healthy",
@@ -1710,38 +1710,38 @@ impl Skill for BrowserPoolReset {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
-struct PoolDelegateArgs {
-    /// Pool name on the REMOTE node. Each node maintains its own
-    /// named pools; this isn't transporting our session, it's asking
-    /// a peer to run the navigate on its OWN pool.
-    pool_name: String,
-    /// URL to navigate to on the peer's pool. Subject to the peer's
+struct PersonaDelegateArgs {
+    /// Persona name on the REMOTE node. Each node maintains its own
+    /// named personas; this isn't transporting our session, it's asking
+    /// a peer to run the navigate on its OWN persona.
+    persona_name: String,
+    /// URL to navigate to on the peer's persona. Subject to the peer's
     /// SSRF guard, which refuses any URL that resolves to its local
     /// network.
     url: String,
 }
 
-pub struct BrowserPoolDelegate;
-impl Skill for BrowserPoolDelegate {
+pub struct BrowserPersonaDelegate;
+impl Skill for BrowserPersonaDelegate {
     fn name(&self) -> &'static str {
-        "browser_pool_delegate"
+        "browser_persona_delegate"
     }
     fn description(&self) -> &'static str {
         "Ask a constellation peer (a node that opted in with \
-         `[network.capabilities].browser = true`) to navigate ITS named pool to a URL and return \
-         the compact observation tree. Use this when our local pool is in `blocked` state (rate \
+         `[network.capabilities].browser = true`) to navigate ITS named persona to a URL and return \
+         the compact observation tree. Use this when our local persona is in `blocked` state (rate \
          limited / CAPTCHA stuck) — the peer has a different IP and its own warm session, so the \
          same query often succeeds where ours just bounced. The peer's SSRF guard refuses any \
          URL that resolves to ITS local network, so this can't be used to enumerate the peer's \
          LAN. Returns `{url, title, tree}`. Sessions themselves never transport: each node uses \
-         its own pool."
+         its own persona."
     }
     fn schema(&self) -> Arc<JsonObject> {
-        schema_for::<PoolDelegateArgs>()
+        schema_for::<PersonaDelegateArgs>()
     }
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
-            let (server, args) = ctx.parse::<PoolDelegateArgs>()?;
+            let (server, args) = ctx.parse::<PersonaDelegateArgs>()?;
             let constellation = server.registry.constellation().ok_or_else(|| {
                 invalid(
                     "constellation is disabled ([network].enabled = false) so there is no \
@@ -1749,12 +1749,12 @@ impl Skill for BrowserPoolDelegate {
                         .to_string(),
                 )
             })?;
-            let req = crate::constellation::BrowserPoolReq {
-                pool_name: args.pool_name,
+            let req = crate::constellation::BrowserPersonaReq {
+                persona_name: args.persona_name,
                 url: args.url,
             };
             let resp = constellation
-                .delegate_browser_pool(req)
+                .delegate_browser_persona(req)
                 .await
                 .map_err(invalid)?;
             Ok(json(serde_json::json!({
@@ -1778,9 +1778,9 @@ pub fn skills() -> Vec<Box<dyn Skill>> {
         Box::new(BrowserExtract),
         Box::new(BrowserEval),
         Box::new(BrowserScreenshot),
-        Box::new(BrowserPoolGet),
-        Box::new(BrowserPoolList),
-        Box::new(BrowserPoolReset),
-        Box::new(BrowserPoolDelegate),
+        Box::new(BrowserPersonaGet),
+        Box::new(BrowserPersonaList),
+        Box::new(BrowserPersonaReset),
+        Box::new(BrowserPersonaDelegate),
     ]
 }

@@ -484,7 +484,7 @@ impl Lodestone {
                 let cfg = mgr.config().await;
                 crate::ws::BrowserState {
                     sessions: mgr.list_live().await,
-                    pools: mgr.pool_list().await,
+                    personas: mgr.persona_list().await,
                     idle_timeout_secs: cfg.idle_timeout_secs,
                     max_concurrent: cfg.max_concurrent,
                 }
@@ -754,38 +754,38 @@ fn constellation_routes(constellation: Arc<constellation::Constellation>) -> axu
         }
     }
 
-    /// `POST /constellation/browser_pool` — the "drive your browser
+    /// `POST /constellation/browser_persona` — the "drive your browser
     /// session for me" delegation endpoint (#128). Gated by
     /// `[network].token` and `[network.capabilities].browser`.
-    /// Sessions do NOT transport; each node uses its OWN pool. The
+    /// Sessions do NOT transport; each node uses its OWN persona. The
     /// peer's SSRF guard refuses any URL that resolves to its local
     /// network so a delegated request can't be a LAN-enumeration vector.
-    async fn browser_pool(
+    async fn browser_persona(
         State(constellation): State<Arc<constellation::Constellation>>,
         headers: HeaderMap,
-        axum::Json(req): axum::Json<constellation::BrowserPoolReq>,
+        axum::Json(req): axum::Json<constellation::BrowserPersonaReq>,
     ) -> axum::response::Response {
         if !constellation.token_ok(bearer_token(&headers)) {
             return (StatusCode::UNAUTHORIZED, "unauthorized\n").into_response();
         }
         // The cluster token already gates *who* can ask; the peer id
-        // header is for per-peer pool ISOLATION — peer A's "google"
+        // header is for per-peer persona ISOLATION — peer A's "google"
         // and peer B's "google" become separate browser contexts.
         // A spoofed id only buys the requester someone else's
-        // cookies on their own logical pool name, never a leak across
+        // cookies on their own logical persona name, never a leak across
         // legitimate peers (each gets `delegated:<their-id>:<name>`).
         let peer_id = headers
             .get("x-lodestone-peer-id")
             .and_then(|v| v.to_str().ok())
             .unwrap_or("unknown")
             .to_string();
-        match constellation.answer_browser_pool(&peer_id, &req).await {
+        match constellation.answer_browser_persona(&peer_id, &req).await {
             Ok(body) => axum::Json(body).into_response(),
             Err(reject) => {
                 let status = match reject.reason {
                     "disabled" => StatusCode::FORBIDDEN,
                     "navigate_failed" => StatusCode::BAD_GATEWAY,
-                    "pool_unavailable" => StatusCode::SERVICE_UNAVAILABLE,
+                    "persona_unavailable" => StatusCode::SERVICE_UNAVAILABLE,
                     _ => StatusCode::BAD_REQUEST,
                 };
                 (status, axum::Json(&reject)).into_response()
@@ -799,7 +799,7 @@ fn constellation_routes(constellation: Arc<constellation::Constellation>) -> axu
         .route("/constellation/blob", post(blob))
         .route("/constellation/blobinfo", post(blobinfo))
         .route("/constellation/retrieve", post(retrieve))
-        .route("/constellation/browser_pool", post(browser_pool))
+        .route("/constellation/browser_persona", post(browser_persona))
         .with_state(constellation)
 }
 
@@ -1053,10 +1053,10 @@ fn api_routes(
         }
     }
 
-    /// `POST /api/browser/pools/:name/reset` — confirm-reset a poisoned
-    /// pool from the dashboard. Disposes the current session+context
-    /// and creates a fresh one; the pool state returns to healthy.
-    async fn reset_browser_pool(
+    /// `POST /api/browser/personas/:name/reset` — confirm-reset a poisoned
+    /// persona from the dashboard. Disposes the current session+context
+    /// and creates a fresh one; the persona state returns to healthy.
+    async fn reset_browser_persona(
         State(state): State<ApiState>,
         headers: HeaderMap,
         axum::extract::Path(name): axum::extract::Path<String>,
@@ -1068,7 +1068,7 @@ fn api_routes(
             Some(m) => m,
             None => return (StatusCode::NOT_FOUND, "no browser sessions\n").into_response(),
         };
-        match mgr.pool_reset(&name).await {
+        match mgr.persona_reset(&name).await {
             Ok(sid) => Json(serde_json::json!({
                 "name": name,
                 "session_id": sid,
@@ -1094,8 +1094,8 @@ fn api_routes(
             axum::routing::delete(close_browser_session),
         )
         .route(
-            "/api/browser/pools/{name}/reset",
-            axum::routing::post(reset_browser_pool),
+            "/api/browser/personas/{name}/reset",
+            axum::routing::post(reset_browser_persona),
         )
         .with_state(state)
 }

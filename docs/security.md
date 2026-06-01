@@ -194,9 +194,9 @@ does NOT carry browser actions today. The risks and current controls:
   per-feature opt-in set on its digest: `query`, `retrieval`,
   `blob`, `browser`. Peers learn the set via the existing sync loop,
   and `constellation_capabilities { cap }` answers "who in the mesh
-  can do X". The outbound `delegate_browser_pool` filters
+  can do X". The outbound `delegate_browser_persona` filters
   candidates to peers whose `capabilities.browser` is ON, and the
-  inbound `/constellation/browser_pool` handler refuses the request
+  inbound `/constellation/browser_persona` handler refuses the request
   outright if local `capabilities.browser` is OFF. Config table:
   `[network.capabilities]` in `config/06-network.toml`. Implementation:
   `src/constellation/mod.rs::effective_capabilities` +
@@ -213,34 +213,34 @@ does NOT carry browser actions today. The risks and current controls:
   reopening it needs a CDP request interceptor). Click / type that
   lands on a private host rolls back to about:blank with an error.
   7 unit tests cover the guard.
-- **#127 — Browser pools with poisoned-state machine.** Named
-  long-lived sessions per site (`browser_pool_get { name }`) plus a
+- **#127 — Browser personas with poisoned-state machine.** Named
+  long-lived sessions per site (`browser_persona_get { name }`) plus a
   state machine: `healthy → suspect → blocked`. Auto-detector
   scans the post-navigation URL + title for CAPTCHA / 429 / 403 /
   "just a moment" / "access denied" signatures. First strike →
   suspect, second → blocked, calls error until the operator
   confirms a reset from the dashboard. The reset action is at
-  `POST /api/browser/pools/{name}/reset` and disposes the session +
+  `POST /api/browser/personas/{name}/reset` and disposes the session +
   context before creating a fresh one.
-- **#128 — Constellation delegation for pool queries.** New
-  `/constellation/browser_pool` endpoint accepts `{pool_name, url}`,
-  runs the navigate on the peer's OWN restricted pool, returns the
+- **#128 — Constellation delegation for persona queries.** New
+  `/constellation/browser_persona` endpoint accepts `{persona_name, url}`,
+  runs the navigate on the peer's OWN restricted persona, returns the
   observation tree. Sessions never transport — each node uses its
-  own warm state. The `browser_pool_delegate` MCP tool is the
+  own warm state. The `browser_persona_delegate` MCP tool is the
   outbound side; it picks a peer with `capabilities.browser = ON`
-  from the existing reputation-weighted list. **Per-peer pool
+  from the existing reputation-weighted list. **Per-peer persona
   isolation**: incoming delegated requests are routed to
-  `delegated:<peer_id>:<pool_name>` so two peers asking for the
-  same logical pool get separate browser contexts — no cookie
+  `delegated:<peer_id>:<persona_name>` so two peers asking for the
+  same logical persona get separate browser contexts — no cookie
   leakage across legitimate peers. The cluster token already gates
   who can ask; a spoofed peer id only buys the requester someone
-  else's cookies on their own pool name, never a leak from one
+  else's cookies on their own persona name, never a leak from one
   legitimate peer to another. **Orphan cleanup**: when a peer
   drops out of our peer table (idle past `MAX_PEER_MISSES`), the
-  reaper calls `evict_pools_for_peer` to dispose every
-  `delegated:<that-peer-id>:*` pool — its sessions are closed and
-  its contexts disposed in one sweep. A separate idle-pool reaper
-  drops `delegated:*` pools whose `last_touched` is older than
+  reaper calls `evict_personas_for_peer` to dispose every
+  `delegated:<that-peer-id>:*` persona — its sessions are closed and
+  its contexts disposed in one sweep. A separate idle-persona reaper
+  drops `delegated:*` personas whose `last_touched` is older than
   `idle_timeout_secs * 2` AND whose session is already gone, so a
   silent disappearance (without the peer-table eviction firing)
   still gets cleaned up.
