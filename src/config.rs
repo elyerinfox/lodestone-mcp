@@ -165,6 +165,12 @@ pub struct Memory {
     /// the tools available while silencing the preamble (e.g. quieter token
     /// budgets during long sessions). Default: true.
     pub auto_recall: bool,
+    /// Whether the auto-recall preamble ALSO surfaces matching memos
+    /// (`remember_fact` / `memory_save` rows) alongside prior
+    /// solutions. Gated by the master `auto_recall` switch — when
+    /// that's off, neither solutions nor memos fire. Default true.
+    /// Turn off if the memo half is too chatty in a session.
+    pub auto_recall_facts: bool,
     /// Minimum match score for a solution to fire intrinsic recall. The ranker
     /// is `exact canonical = 100 > exact concept = 80 > fuzzy = 20 + 40·j >
     /// substring = 15`, plus a per-tag boost of 5. Lower = chattier; higher =
@@ -249,6 +255,7 @@ impl Default for Memory {
             max_entries: 10_000,
             max_value_chars: 64_000,
             auto_recall: true,
+            auto_recall_facts: true,
             recall_threshold: 30.0,
             recall_max_hits: 3,
             superseded_walk_max_hops: 5,

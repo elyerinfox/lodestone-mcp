@@ -259,6 +259,10 @@ fn intent_trigger(tool_name: &str, args: &JsonObject) -> Option<String> {
             | "conversation_forget"
             | "conversation_prune"
             | "solution_conversations"
+            | "remember"
+            | "remember_fact"
+            | "remember_solution"
+            | "recall"
     ) {
         return None;
     }
@@ -410,8 +414,32 @@ fn route(skill: Box<dyn Skill>) -> ToolRoute<Lodestone> {
                                 hits[0].auto_attached_as_phrasing = true;
                             }
                         }
-                        if !hits.is_empty() {
-                            let preamble = rmcp::model::Content::text(recall_preamble(&hits));
+                        let mut preamble_text = if !hits.is_empty() {
+                            recall_preamble(&hits)
+                        } else {
+                            String::new()
+                        };
+                        // Memo half of the preamble — small LIKE search
+                        // against the memo store. Cap at 3 hits so the
+                        // preamble doesn't dwarf the actual tool
+                        // response. Gated by the same auto_recall
+                        // master switch plus the per-feature
+                        // auto_recall_facts toggle.
+                        if cfg.auto_recall_facts {
+                            let memo_block = server
+                                .memory
+                                .memo_recall_block(q, cfg.recall_max_hits.max(1).min(3))
+                                .await;
+                            if !memo_block.is_empty() {
+                                if !preamble_text.is_empty() {
+                                    preamble_text.push('\n');
+                                }
+                                preamble_text.push_str(&memo_block);
+                            }
+                        }
+                        if !preamble_text.is_empty() {
+                            let preamble =
+                                rmcp::model::Content::text(preamble_text);
                             result.content.insert(0, preamble);
                         }
                     }
