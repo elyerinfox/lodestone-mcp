@@ -38,24 +38,6 @@ use crate::browser::shared_global;
 use crate::skills::{schema_for, Skill, SkillCtx};
 use crate::{internal, invalid};
 
-#[allow(dead_code)]
-pub const TOOL_NAMES: &[&str] = &[
-    "browser_open",
-    "browser_navigate",
-    "browser_close",
-    "browser_list",
-    "browser_click",
-    "browser_type",
-    "browser_wait",
-    "browser_extract",
-    "browser_eval",
-    "browser_screenshot",
-    "browser_persona_get",
-    "browser_persona_list",
-    "browser_persona_reset",
-    "browser_persona_delegate",
-];
-
 // ---------------------------------------------------------------------------
 // Named-session personas (#127)
 // ---------------------------------------------------------------------------
@@ -1691,6 +1673,12 @@ struct EvalArgs {
     /// serialized to JSON — Promises are awaited (`awaitPromise: true`),
     /// non-JSON values (DOM nodes, functions) return `null`.
     script: String,
+    /// One-time token from a prior call's confirmation prompt. Omit on the first call.
+    #[serde(default)]
+    confirm: Option<String>,
+    /// With `confirm`, stop asking for `browser_eval` for the rest of the session.
+    #[serde(default)]
+    trust: Option<bool>,
 }
 
 pub struct BrowserEval;
@@ -1699,17 +1687,37 @@ impl Skill for BrowserEval {
         "browser_eval"
     }
     fn description(&self) -> &'static str {
-        "Run an arbitrary JS expression in the page and return its result as JSON. Use this for \
-         the 1% of cases the granular tools don't cover — scrolling, keyboard shortcuts, mutation \
-         observer setup, reading window.* state. Promises are awaited. Wrap multi-statement \
-         scripts in an IIFE: `(() => { ...; return value; })()`. Returns `{result: <json>}`."
+        "Run an arbitrary JS expression in the page and return its result as JSON. **Side-effecting** \
+         — arbitrary script execution can read the entire DOM (cookies, tokens), make `fetch()` \
+         calls, mutate page state. First call returns a confirmation token and does nothing; call \
+         again with `confirm=<token>` to run (or `confirm + trust=true`). \
+         `[browser].allow_destructive=true` pre-authorizes. Use the granular `browser_click` / \
+         `browser_type` / `browser_extract` tools when they cover your need — they don't require \
+         confirmation."
     }
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<EvalArgs>()
     }
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
-            let (_server, args) = ctx.parse::<EvalArgs>()?;
+            use crate::skills::guard::Decision;
+            let (server, args) = ctx.parse::<EvalArgs>()?;
+            let preview: String = args.script.chars().take(80).collect();
+            let summary = format!(
+                "eval JS on session {} (script preview: {preview}{ellipsis})",
+                args.session_id,
+                ellipsis = if args.script.len() > 80 { "…" } else { "" }
+            );
+            if let Decision::Challenge(msg) = server.guard.check(
+                "browser_eval",
+                "browser_eval",
+                server.cfg.browser.allow_destructive,
+                &summary,
+                args.confirm.as_deref(),
+                args.trust.unwrap_or(false),
+            ) {
+                return Ok(text(msg));
+            }
             let mgr = manager().await;
             let result = mgr.eval(&args.session_id, &args.script).await?;
             Ok(json(serde_json::json!({ "result": result })))
@@ -1825,6 +1833,12 @@ struct PersonaResetArgs {
     /// a persona is `blocked` (CAPTCHA didn't clear, account got flagged)
     /// or to deliberately rotate the warm state.
     name: String,
+    /// One-time token from a prior call's confirmation prompt. Omit on the first call.
+    #[serde(default)]
+    confirm: Option<String>,
+    /// With `confirm`, stop asking for `browser_persona_reset` for the rest of the session.
+    #[serde(default)]
+    trust: Option<bool>,
 }
 
 pub struct BrowserPersonaReset;
@@ -1833,16 +1847,30 @@ impl Skill for BrowserPersonaReset {
         "browser_persona_reset"
     }
     fn description(&self) -> &'static str {
-        "Force a fresh session on the named persona: dispose the current tab + context and spin up a \
-         new one. State returns to `healthy`. Use this when a persona is `blocked` or when you want \
-         to deliberately rotate its warm state."
+        "Force a fresh session on the named persona: dispose the current tab + context and spin up \
+         a new one. **Destructive** — discards the persona's warm state (cookies, local storage, \
+         logged-in sessions). First call returns a confirmation token and does nothing; call again \
+         with `confirm=<token>` to reset (or `confirm + trust=true`). \
+         `[browser].allow_destructive=true` pre-authorizes."
     }
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<PersonaResetArgs>()
     }
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
-            let (_server, args) = ctx.parse::<PersonaResetArgs>()?;
+            use crate::skills::guard::Decision;
+            let (server, args) = ctx.parse::<PersonaResetArgs>()?;
+            let summary = format!("reset persona '{}' (discards warm state)", args.name);
+            if let Decision::Challenge(msg) = server.guard.check(
+                "browser_persona_reset",
+                "browser_persona_reset",
+                server.cfg.browser.allow_destructive,
+                &summary,
+                args.confirm.as_deref(),
+                args.trust.unwrap_or(false),
+            ) {
+                return Ok(text(msg));
+            }
             let mgr = manager().await;
             let session_id = mgr.persona_reset(&args.name).await?;
             Ok(json(serde_json::json!({

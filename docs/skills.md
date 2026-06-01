@@ -65,8 +65,11 @@ behind the search tools see [providers.md](providers.md).
 | [git](skills/git.md) | on `[git]` | `git_run` | Run git in a repo (destructive subcommands guarded). |
 | [ffmpeg](skills/ffmpeg.md) | **off** `[ffmpeg]` | `ffmpeg_probe`, `ffmpeg_convert` | Probe/convert local media (paths confined to roots; convert guarded). |
 | [spreadsheet](skills/spreadsheet.md) | **off** `[spreadsheet]` | `sheet_read`, `sheet_query`, `sheet_write` | Read/query/write CSV & XLSX (paths confined to roots; write guarded). |
-| [sysinfo](skills/sysinfo.md) | on `[sysinfo]` | `system_info`, `system_disks`, `system_gpu` | Host/CPU/memory/disk + NVIDIA GPU (read-only). |
+| [sysinfo](skills/sysinfo.md) | on `[sysinfo]` | `system_info`, `system_disks`, `system_gpu_nvidia`, `system_gpu_amd`, `system_gpu_intel`, `system_os_release` | Host/CPU/memory/disk + per-vendor GPU (NVIDIA / AMD / Intel) + OS release (read-only). |
 | [databases](skills/databases.md) | **off** `[databases]` | `db_query`, `redis_command` | Query Postgres/MySQL/Redis via a connection URL passed in the call (no preconfig; writes guarded). |
+| [mqtt](skills/mqtt.md) | **off** `[mqtt]` | `mqtt_publish`, `mqtt_subscribe`, `mqtt_unsubscribe`, `mqtt_recent`, `mqtt_status` | Generic MQTT pub/sub against a configured broker. One persistent connection, shared ring buffer. |
+| [meshtastic](skills/meshtastic.md) | **off** `[meshtastic]` | `meshtastic_messages`, `meshtastic_nodes`, `meshtastic_send`, `meshtastic_status` | Read/send Meshtastic LoRa mesh traffic via the JSON-over-MQTT bridge (rides on `[mqtt]`). |
+| [packages](skills/packages.md) | **off** `[packages]` | `package_managers`, `package_search`, `package_info`, `package_list`, `package_updates` + **destructive** `package_install`, `package_upgrade`, `package_remove` | Distro / OS package managers — winget, choco, apt, dnf, yum, apk, pacman, yay (AUR), brew, zypper, pkg. Destructive ops guard-gated. |
 
 ## Devices (off by default)
 
@@ -147,7 +150,7 @@ signal-processing family pairs with `wave_*` for FFT-of-decoded-audio flows.
 | Skill | Tools | What |
 | --- | --- | --- |
 | [store](skills/store.md) | `cache_status`, `store_fetch`, `store_get`, `store_list`, `store_purge` | On-disk file store (`[store]`, off by default) + cache stats; shared over the [constellation](constellation.md). |
-| [tasks](skills/tasks.md) | `task_run`, `task_list`, `task_status`, `task_result`, `task_cancel` | Background jobs (off by default `[tasks]`): run a search off the request path, poll for results. |
+| [tasks](skills/tasks.md) | `search_async` | Launch a background search and get a `task_id`; manage via the MCP-spec `tasks_*` tools (off by default `[tasks]`). |
 | [memory](skills/memory.md) | `remember`, `remember_fact`, `remember_solution`, `recall`, `memory_save`/`get`/`list`/`search`/`forget`, `solution_record`/`find`/`show`/`list`/`update`/`forget`/`link`/`unlink`/`graph`/`related`, `synonym_*` | Persistent memos + advisory recall of prior **solutions** across sessions (revisions tracked, fuzzy + synonym + tag matching, typed relation graph). Frictionless `remember` auto-classifies fact vs solution + auto-keys + auto-tags; symmetric `recall` merges memo + solution + phrasing hits. Intrinsic recall fires a "💡 prior solutions" + "📝 facts you noted" preamble on every query-bearing tool call. On by default `[memory]`. |
 
 ## Utilities (local; translate/currency keyless)

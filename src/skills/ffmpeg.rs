@@ -21,9 +21,6 @@ use crate::skills::{schema_for, Skill, SkillCtx};
 use crate::util::human_size;
 use crate::{internal, invalid, text_result};
 
-/// Tool names (gated by `[ffmpeg].enabled` in `disabled_by_config`).
-pub const TOOL_NAMES: &[&str] = &["ffmpeg_probe", "ffmpeg_convert"];
-
 /// Map a spawn failure to a clear message (missing binary → install hint).
 fn spawn_err(program: &str, e: std::io::Error) -> anyhow::Error {
     if e.kind() == std::io::ErrorKind::NotFound {
@@ -204,7 +201,7 @@ impl Skill for FfmpegConvert {
             if let Decision::Challenge(msg) = server.guard.check(
                 "ffmpeg_convert",
                 "ffmpeg_convert",
-                false,
+                server.cfg.ffmpeg.allow_destructive,
                 &summary,
                 args.confirm.as_deref(),
                 args.trust.unwrap_or(false),
@@ -255,8 +252,13 @@ impl crate::skills::FamilyMeta for Family {
     fn family(&self) -> &'static str {
         "ffmpeg"
     }
-    fn tools(&self) -> &'static [&'static str] {
-        TOOL_NAMES
+    fn tools(&self) -> Vec<&'static str> {
+        skills().iter().map(|s| s.name()).collect()
+    }
+    fn description(&self) -> &'static str {
+        "Probe and (with confirmation) convert local media files via the host's `ffmpeg` \
+         / `ffprobe` binaries. Paths are confined to the configured roots. Requires \
+         `ffmpeg` and `ffprobe` on `$PATH`."
     }
     fn check_capability(&self) -> crate::skills::SkillCapability {
         use crate::skills::{binary_on_path, SkillCapability};

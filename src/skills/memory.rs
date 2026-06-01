@@ -50,47 +50,6 @@ use crate::skills::guard::Decision;
 use crate::skills::{schema_for, Skill, SkillCtx};
 use crate::{config, internal, invalid, text_result};
 
-/// Tool names (gated by `[memory].enabled` in `disabled_by_config`).
-pub const TOOL_NAMES: &[&str] = &[
-    // Frictionless remember (auto-derived key/tags/shape)
-    "remember",
-    "remember_fact",
-    "remember_solution",
-    "recall",
-    // Memory
-    "memory_save",
-    "memory_get",
-    "memory_list",
-    "memory_search",
-    "memory_forget",
-    // Solutions
-    "solution_record",
-    "solution_find",
-    "solution_show",
-    "solution_list",
-    "solution_update",
-    "solution_forget",
-    // Solution graph
-    "solution_link",
-    "solution_unlink",
-    "solution_graph",
-    "solution_related",
-    // Solution phrasings (alt-phrasing recall + semantic search)
-    "solution_alias_add",
-    "solution_alias_remove",
-    // Learned synonyms
-    "synonym_add",
-    "synonym_remove",
-    "synonym_list",
-    // Conversation traversal — read-only.
-    "conversation_list",
-    "conversation_show",
-    "solution_conversations",
-    // Conversation destructive controls.
-    "conversation_forget",
-    "conversation_prune",
-];
-
 const DEFAULT_DIR: &str = ".lodestone-memory";
 const DB_FILE: &str = "store.db";
 

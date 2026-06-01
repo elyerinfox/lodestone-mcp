@@ -1,42 +1,49 @@
-# Background tasks — `task_run`, `task_list`, `task_status`, `task_result`, `task_cancel`
+# Async search — `search_async`
 
 |  |  |
 | --- | --- |
 | **Module** | [`src/skills/tasks.rs`](../../src/skills/tasks.rs) |
-| **Tools** | `task_run`, `task_list`, `task_status`, `task_result`, `task_cancel` |
-| **Network** | n/a (orchestrates other work) |
-| **Default** | **off** — gated by `[tasks]` |
+| **Tools** | `search_async` |
+| **Default** | **off** — gated by `[tasks].enabled` |
 | **Config** | `[tasks]` in [`config/01-tools.toml`](../../config/01-tools.toml) |
 
 ## What it does
-Runs long work **in the background** so the model isn't blocked on it, then lets the
-model **poll** for the result. Delivery is a model-polled results buffer — no
-server-initiated notifications — so it works on **any** MCP client, including ones
-(like LM Studio) that don't support server push. The job table is bounded and
-results are evicted oldest-first, so a runaway fan-out can't exhaust the host.
+Launches a search (`web`/`code`/`docs`/`qa`) as a **background task** in the
+shared [`TaskRuntime`](../../src/tasks.rs) and returns a `task_id` immediately.
+Lets the model fan out several searches at once instead of serializing on each.
 
-This lets the model parallelize itself: kick off several `task_run` searches at once,
-keep reasoning, then collect results with `task_result`.
+Management (list, poll, fetch result, cancel) goes through the MCP-spec
+`tasks_*` tools (`tasks_list`, `tasks_get`, `tasks_result`, `tasks_cancel`) —
+they read the same runtime, so the same `task_id` works from either surface.
+The runtime also backs `mqtt_listen` and `meshtastic_listen`; every
+backgrounded job in the codebase shows up in one inspection surface.
 
 ## Tools
 | Tool | Arguments | Purpose |
 | --- | --- | --- |
-| `task_run` | `op?` (=`search`), `kind`, `query`, `max_results?` | Start a background job; returns a task id immediately. |
-| `task_list` | — | List tasks (id, status, label, age), newest first. |
-| `task_status` | `id` | One task's status: running / done / failed / cancelled. |
-| `task_result` | `id` | The result if done (else says still-running / the error). |
-| `task_cancel` | `id` | Cancel a running task (no-op if already finished). |
+| `search_async` | `kind` (`web`/`code`/`docs`/`qa`), `query`, `max_results?` (1–25) | Start a background search; returns `task_id` immediately. |
 
-Currently the backgroundable operation is **search**: `task_run { kind: "web"|"code"
-|"docs"|"qa", query: "…" }`. It runs from owned handles (the search registry + HTTP
-client). The registry and the four management tools are the foundation; other long
-tools can be wired to background later.
+## Notifications
+If the caller's request includes `_meta.progressToken`, the runtime emits:
+- `notifications/progress` once at "searching…" and once at "N hits via <engine>".
+- `notifications/tasks/status` on completion (full task object with `status: "completed"` + the formatted hits).
+
+Clients without notification support still get full functionality via
+`tasks_result` polling.
 
 ## Example flow
-1. `task_run { kind: "web", query: "rust async runtimes" }` → `task-1`.
-2. `task_run { kind: "docs", query: "tokio select" }` → `task-2`.
-3. …keep working…
-4. `task_result { id: "task-1" }` and `task_result { id: "task-2" }` to collect.
+1. `search_async { kind: "web", query: "rust async runtimes" }` → `task-1`.
+2. `search_async { kind: "docs", query: "tokio select" }` → `task-2`.
+3. (Reason about something else while both run.)
+4. `tasks_result { task_id: "task-1" }` and `tasks_result { task_id: "task-2" }` to collect.
+
+## History
+This module previously hosted `task_run` / `task_list` / `task_status` /
+`task_result` / `task_cancel` — a self-contained polling-only registry.
+Those tools were collapsed into the shared `TaskRuntime`: `task_run` was
+renamed `search_async` (its only real job was launching a search); the
+four management tools were dropped because the MCP-spec `tasks_*` tools
+already provide that surface against the same registry.
 
 ## See also
-[tools.md](../tools.md)
+[tools.md](../tools.md), [mqtt.md](mqtt.md), [meshtastic.md](meshtastic.md)

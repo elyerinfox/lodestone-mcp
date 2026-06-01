@@ -830,27 +830,6 @@ impl Skill for DockerBuild {
     }
 }
 
-/// All docker daemon tool names — the gating data for this family (consumed by
-/// `skills::disabled_by_config` to hide the family when `[docker].enabled` is off).
-/// The destructive actions (`docker_stop`, `docker_remove`) stay exposed and are
-/// gated at call time by the confirmation [`crate::skills::guard`]. Kept here, with
-/// the skills, so `main.rs` hardcodes nothing.
-pub const TOOL_NAMES: &[&str] = &[
-    "docker_ps",
-    "docker_images",
-    "docker_inspect",
-    "docker_logs",
-    "docker_info",
-    "docker_pull",
-    "docker_run",
-    "docker_start",
-    "docker_stop",
-    "docker_remove",
-    "docker_exec",
-    "docker_rmi",
-    "docker_build",
-];
-
 /// Family metadata + host probe: does this machine have a reachable
 /// Docker daemon? Tries (1) `$DOCKER_HOST` if set, (2) `/var/run/
 /// docker.sock` on Unix, (3) the Windows named pipe. We don't open a
@@ -861,8 +840,13 @@ impl crate::skills::FamilyMeta for Family {
     fn family(&self) -> &'static str {
         "docker"
     }
-    fn tools(&self) -> &'static [&'static str] {
-        TOOL_NAMES
+    fn tools(&self) -> Vec<&'static str> {
+        skills().iter().map(|s| s.name()).collect()
+    }
+    fn description(&self) -> &'static str {
+        "Inspect and (with confirmation) control the local Docker daemon via the engine \
+         API — containers, images, volumes, networks, logs. Requires a reachable daemon \
+         socket (`/var/run/docker.sock`, the Windows named pipe, or `$DOCKER_HOST`)."
     }
     fn check_capability(&self) -> crate::skills::SkillCapability {
         use crate::skills::SkillCapability;

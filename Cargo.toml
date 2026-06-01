@@ -104,3 +104,9 @@ pcap-file = "2"
 kamadak-exif = "0.6"
 # x86/x64 disassembly for the `disasm_*` skill (off by default).
 iced-x86 = { version = "1", default-features = false, features = ["std", "decoder", "nasm", "fast_fmt"] }
+# MQTT pub/sub client for the `mqtt_*` skill (off by default). Drives a single
+# background event loop; publish/subscribe handles are cheap clones. The
+# meshtastic skill layers on top — it reads Meshtastic-emitted JSON messages
+# from the same MQTT subscription buffer and publishes back through the same
+# client when sending mesh traffic.
+rumqttc = { version = "0.24", default-features = false, features = ["use-rustls"] }

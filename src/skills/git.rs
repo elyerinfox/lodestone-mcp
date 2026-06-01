@@ -20,11 +20,6 @@ use crate::skills::{schema_for, Skill, SkillCtx};
 use crate::util::truncate_chars;
 use crate::{internal, invalid, text_result};
 
-/// Gating data: the whole tool is gated by `[git].enabled`. Destructive
-/// *subcommands* are confirmed at call time via the [`crate::skills::guard`]
-/// (`[git].allow_destructive` pre-authorizes them).
-pub const TOOL_NAMES: &[&str] = &["git_run"];
-
 /// Subcommands blocked unless `[git].allow_destructive` is set.
 const DESTRUCTIVE_SUBCMDS: &[&str] = &[
     "push",
@@ -161,8 +156,13 @@ impl crate::skills::FamilyMeta for Family {
     fn family(&self) -> &'static str {
         "git"
     }
-    fn tools(&self) -> &'static [&'static str] {
-        TOOL_NAMES
+    fn tools(&self) -> Vec<&'static str> {
+        skills().iter().map(|s| s.name()).collect()
+    }
+    fn description(&self) -> &'static str {
+        "Run `git` against a local repository for inspection (status / log / diff / show / \
+         branch / remote) and, with confirmation, mutating subcommands. Paths confined to \
+         the configured roots. Requires the `git` binary on `$PATH`."
     }
     fn check_capability(&self) -> crate::skills::SkillCapability {
         use crate::skills::{binary_on_path, SkillCapability};

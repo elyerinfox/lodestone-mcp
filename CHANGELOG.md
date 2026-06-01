@@ -8,6 +8,234 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Destructive-action audit, gap fixes.** Cross-skill audit against golden
+  rule 8 (destructive actions never fire unguarded). Closed six gaps where
+  side-effecting tools previously ran without a confirmation challenge:
+
+  | Tool | New surface | Lever |
+  |---|---|---|
+  | `webpage_to_pdf` | guard challenge + path now confined to `[filesystem].roots` (was writing arbitrary paths!) | `[filesystem].allow_destructive` |
+  | `mqtt_publish` | guard challenge — publish can drive IoT actuators / smart-home devices | `[mqtt].allow_destructive` (new lever) |
+  | `meshtastic_send` | guard challenge — broadcasts on a physical LoRa mesh | `[meshtastic].allow_destructive` (new lever) |
+  | `browser_eval` | guard challenge — arbitrary JS execution in a session | `[browser].allow_destructive` (new family) |
+  | `browser_persona_reset` | guard challenge — discards persona warm state | `[browser].allow_destructive` |
+  | `store_purge` | guard challenge — deletes cached bytes on disk | `[store].allow_destructive` (new lever) |
+
+  Also added the missing `allow_destructive` lever to four families that
+  already had a guard challenge but no session-pre-authorize flag
+  (previously hard-coded `pre_authorized = false`): `[ffmpeg]`,
+  `[spreadsheet]`, `[serial]`, `[printer]`. Each call site now reads
+  `server.cfg.<family>.allow_destructive` so the operator can pre-auth a
+  long workflow without per-call confirmations. Net: every destructive
+  tool in the catalog now both **prompts the user via guard** AND
+  **exposes a session-level lever** (golden rule 8).
+
+### Added
+
+- **Package-manager skill (`[packages]`, off by default).** New family
+  covering 11 OS / distro package managers — `winget`, `chocolatey`,
+  `brew`, `apt`, `dnf`, `yum`, `apk`, `pacman`, `yay` (AUR), `zypper`,
+  `pkg` (FreeBSD). One tool per *method* (`package_search`,
+  `package_info`, `package_list`, `package_updates`, `package_install`,
+  `package_upgrade`, `package_remove`), each takes an explicit `kind`
+  argument — the `db_query` pattern from golden rule 9 (different
+  *targets*, not different methodologies). Plus `package_managers`
+  (read-only) showing which PM binaries are present on `$PATH`.
+  Destructive ops (`install` / `upgrade` / `remove`) route through the
+  confirmation guard (golden rule 8); `[packages].allow_destructive`
+  pre-authorizes for the session. Each destructive command pins down a
+  PM-specific non-interactive flag (`--silent` for winget, `-y` for apt
+  / dnf / yum, `--noconfirm` for pacman / yay, etc.) so a backgrounded
+  call can never hang on a y/N prompt — enforced by unit tests. **No
+  `sudo`** — privilege is the operator's choice (passwordless sudo,
+  container UID, doas wrapper, …). Family is `Ready` whenever any
+  supported PM binary is on `$PATH`; per-call, the wrapper additionally
+  checks the specific `kind` and emits a clean "winget isn't installed"
+  message when missing.
+
+- **Global `background: bool` argument on every tool.** The dispatch
+  wrapper now merges a shared `background` property into every tool's
+  exposed schema before publishing it via MCP `tools/list`. When a
+  caller sets `background: true` in a `tools/call`, the wrapper spawns
+  the skill body into the shared [`TaskRuntime`] and returns a
+  `task_id` immediately; progress + completion notifications flow on
+  the caller's `_meta.progressToken`. The skill body itself runs
+  unchanged — the wrapper strips `background` out of the args before
+  calling `Skill::call`.
+
+  Means **any** tool (`shell_run`, `python_run`, `ffmpeg_convert`,
+  `arithmetic_eval`, anything) can be backgrounded without per-skill
+  code changes. Replaces what would have been a `run_async` wrapper or
+  per-tool `*_async` variants. Closer to the MCP spec's intended shape
+  (`_meta.taskMode = "augment"`) without depending on rmcp's dispatch
+  internals.
+
+  V1 limitations (documented in `route()`): backgrounded calls skip
+  the memory-recall preamble and conversation-recording side effects.
+  The model can call `recall` / `conversation_show` itself against
+  `tasks_result` if needed. Skill ownership in the dispatcher
+  switched from `Box<dyn Skill>` to `Arc<dyn Skill>` to support the
+  `tokio::spawn` clone.
+
+### Changed
+
+- **Legacy `task_*` (singular) family collapsed; `task_run` renamed to
+  `search_async`.** The four management tools (`task_list`, `task_status`,
+  `task_result`, `task_cancel`) were near-duplicates of the MCP-spec
+  `tasks_*` (plural) tools that read the same registry — deleting them
+  removes a confusing parallel surface without losing capability. The
+  remaining tool, `task_run`, was always a search launcher (only `op =
+  "search"` was supported), so it's now `search_async` — the name says
+  what it does. Same runtime, same `task_id` namespace, same gating
+  (`[tasks].enabled`). **Breaking** for prompts/clients that hard-code
+  the old tool names; switch to `search_async` + `tasks_*`.
+
+- **Legacy `task_*` (singular) tools now ride on `TaskRuntime`.** The
+  parallel `skills::tasks::Tasks` polling-registry is gone; `task_run`
+  / `task_list` / `task_status` / `task_result` / `task_cancel` are
+  thin presentation layers over [`crate::tasks::TaskRuntime`] — the
+  same shared registry `mqtt_listen`, `meshtastic_listen`, and the
+  MCP-spec `tasks_*` (plural) tools use. One source of truth instead
+  of two; `task_*` tool names preserved for back-compat. Bonus:
+  `task_run` now emits `notifications/progress` (engine start +
+  completion) and `notifications/tasks/status` (lifecycle) when the
+  caller's request includes `_meta.progressToken`, matching the
+  listen tools' behavior. `server.tasks` field removed; nothing
+  outside the legacy module referenced it.
+
+### Added
+
+- **MCP Tasks primitive (2025-11-25 spec), Lodestone-side.** New
+  [`crate::tasks::TaskRuntime`] — global, `Arc`-shared registry of
+  long-running operations. Any skill can `spawn(kind, label, body)`
+  and receive a `task_id`; the body gets a `TaskHandle` for
+  `progress(p, total, msg)` calls and a `CancellationToken` for
+  cooperative cancellation. Lifecycle transitions emit
+  **`notifications/tasks/status`** (the spec's completion-push) and
+  per-progress calls emit **`notifications/progress`** (standard MCP),
+  correlated by the `progressToken` the caller put in
+  `_meta.progressToken`. rmcp 1.7 doesn't ship a typed variant for
+  `notifications/tasks/status` yet — we use its
+  `ServerNotification::CustomNotification` escape hatch, emitting the
+  exact wire bytes a typed variant would; the day rmcp adds one, the
+  swap is one type change. Bounded at 256 simultaneous tasks (oldest
+  finished evict first); progress log capped at 128 entries per task
+  for replay via `tasks_result`.
+
+  Surface (MCP tools, mirror of the spec's `tasks/*` methods so every
+  client works today regardless of native Tasks support):
+  - `tasks_list` — list tracked tasks (newest first).
+  - `tasks_get` — one task's metadata.
+  - `tasks_result` — terminal result or in-progress log replay.
+  - `tasks_cancel` — fires the cancellation token + status push.
+
+  Internal surface (`SkillCtx`): `peer: Option<Peer<RoleServer>>` and
+  `meta: Option<Meta>` now flow through so any skill can extract the
+  caller's `progressToken` and register observers on the runtime. The
+  dispatch wrapper populates both from the rmcp `RequestContext` of
+  each call.
+
+  Distinct from the legacy `task_*` (singular) skill — that one stays as
+  a polling-only background search-results buffer. New work uses the
+  runtime.
+
+- **`mqtt_listen` and `meshtastic_listen`** — first consumers of the
+  new runtime. Each returns a `task_id` immediately, then streams
+  per-message progress notifications until `max_messages` /
+  `timeout_secs` / `tasks_cancel`. The collected payloads are
+  fetchable via `tasks_result`. Demonstrates the pattern: get
+  `ctx.peer.clone()` + `ctx.progress_token()`, `runtime.spawn(...)`,
+  `runtime.observe_progress(...)` + `runtime.observe_status(...)`,
+  return immediately.
+
+- **MQTT pub/sub skill (`[mqtt]`, off by default).** Generic MQTT client
+  via `rumqttc` — one persistent connection (background event-loop task)
+  with publish/subscribe handles cloned to tool calls and a process-wide
+  ring buffer (`[mqtt].buffer_size`, default 500) of inbound messages.
+  Tools: `mqtt_publish`, `mqtt_subscribe`, `mqtt_unsubscribe`,
+  `mqtt_recent`, `mqtt_status`. Broker URL scheme picks the transport —
+  `tcp://` / `mqtt://` for plain, `tls://` / `mqtts://` for MQTTS over
+  rustls. `[mqtt].password` is treated as a secret (golden rule 11) —
+  redacted to `<set>` / `<unset>` in status, never logged. Auto-subscribe
+  list (`[mqtt].auto_subscribe`) for always-on feeds. Per-tool capability
+  is `Ready` (network protocol, nothing host-local to probe); wiring
+  state surfaces via `mqtt_status` + per-call errors when the broker
+  isn't connected.
+
+- **Meshtastic skill (`[meshtastic]`, off by default).** Read / send
+  Meshtastic LoRa mesh traffic via the JSON-over-MQTT topic format the
+  firmware emits when `MQTT.json_enabled = true`. **Rides on the same
+  `MqttClient`** the MQTT family uses — one connection, one event loop,
+  one buffer. Auto-subscribes to `<root>/+/2/json/#` at startup so the
+  buffer fills without an explicit `mqtt_subscribe`. Tools:
+  `meshtastic_messages` (decoded text traffic with `channel` / `from`
+  filters), `meshtastic_nodes` (id / longname / shortname / RSSI / SNR /
+  last-seen, accumulated from the buffer), `meshtastic_send` (formats
+  the `sendtext` envelope and PUBLISHes), `meshtastic_status`. Serial /
+  TCP / BLE transports + protobuf decode are a deferred follow-up.
+  Per-tool errors guide the LLM when `[mqtt]` isn't wired up.
+
+### Changed
+
+- **`FamilyMeta::description()` and `FamilyMeta::check_capability()` are now
+  required.** Their previous defaults (`""` and `Ready` respectively) were a
+  contract leak: implementing `FamilyMeta` is itself an assertion that the
+  dashboard, operator, and dispatch wrapper should care about this family —
+  and the two methods that make the framework care can't meaningfully be
+  skipped. Pure-Rust families that have no host probe simply don't register
+  `FamilyMeta` and are treated as implicitly `Ready` in dispatch (unchanged).
+  All 9 existing impls already supplied both, so no behavior change.
+  `Skill::check_capability()` keeps its `Ready` default — there the default
+  carries real meaning ("this tool is pure logic, nothing host-dependent")
+  for the hundreds of pure-Rust skills that genuinely don't need a probe.
+
+- **Dashboard surfaces family + tool descriptions.**
+  Adds `FamilyMeta::description()` (with a `""` default for incremental
+  adoption) and wires `Skill::description()` through the WebSocket
+  snapshot so the dashboard's Tools page renders a one-line family blurb
+  under each group header and the tool's own description under each tool
+  name. The `ServerStatus.tool_descriptions` row covers active + config-
+  gated tools alike. The 9 existing `FamilyMeta` impls (docker, kubernetes,
+  python, systemd, ffmpeg, git, serial, printer, sdr) now supply a real
+  description. Note: `FamilyMeta::description` is dashboard-only —
+  `Skill::description` is what the LLM actually reads via the MCP
+  `tools/list` response.
+
+- **`TOOL_NAMES` per-module consts removed; derived from `skills()`.**
+  The 30+ `pub const TOOL_NAMES: &[&str] = &[…]` declarations and the
+  `FamilyMeta::tools() -> &'static [&'static str]` signature were a
+  hand-maintained duplicate of the same module's `skills()` registry
+  (every `Skill::name()` is already `&'static str`). The trait now
+  returns `Vec<&'static str>` and the 9 `FamilyMeta` impls all compute
+  it as `skills().iter().map(|s| s.name()).collect()` — boxes are
+  constructed once at startup and dropped after the names are extracted.
+  `disabled_by_config` follows the same pattern (calling each module's
+  `skills` directly). Single source of truth: the `skills()` `vec!`
+  literal. Adding a tool now only requires the one `Box::new(...)` line.
+
+- **`system_gpu` split into three per-vendor tools.** Replaces the single
+  `system_gpu` with `system_gpu_nvidia`, `system_gpu_amd`, and
+  `system_gpu_intel`. Each is its own `Skill` with its own
+  `check_capability`:
+  - `system_gpu_nvidia` — NVML via `nvml-wrapper`, cross-platform; capability
+    flips Ready iff `Nvml::init()` succeeds.
+  - `system_gpu_amd` — reads `/sys/class/drm/card*/device/` nodes the
+    `amdgpu` Linux kernel driver publishes (model, VRAM, busy %, hwmon
+    temperature); capability requires Linux + at least one card with PCI
+    vendor `0x1002`.
+  - `system_gpu_intel` — same DRM sysfs surface for `i915` / `xe` (model,
+    frequency, hwmon temperature); capability requires Linux + PCI vendor
+    `0x8086`.
+
+  Driver for the split is golden rule 9 (one tool per method, no hidden
+  auto-selection): NVML and the DRM sysfs path are genuinely different
+  backends with different failure modes, and the per-tool capability
+  framework already in place gives each its own Ready / Unavailable signal
+  surfaced to LLM, console, and dashboard. AMD / Intel on Windows / macOS
+  remain unsupported (would need ADL / IGCL / IOKit), which is now an
+  explicit per-tool Unavailable rather than a vague combined "no GPU
+  detected" message.
+
 - **Constellation merge rule: prefer the larger mesh.** When two
   constellations meet, the **larger** mesh's id wins so the smaller mesh
   adopts the larger one (alphabetical id is now only the tiebreaker on

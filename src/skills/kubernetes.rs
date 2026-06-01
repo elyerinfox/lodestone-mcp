@@ -617,27 +617,18 @@ impl Skill for K8sDelete {
     }
 }
 
-/// All Kubernetes tool names — the gating data for this family (consumed by
-/// `skills::disabled_by_config` to hide the family when `[kubernetes].enabled` is
-/// off). Destructive `k8s_delete` stays exposed and is gated at call time by the
-/// confirmation [`crate::skills::guard`].
-pub const TOOL_NAMES: &[&str] = &[
-    "k8s_contexts",
-    "k8s_get",
-    "k8s_describe",
-    "k8s_logs",
-    "k8s_apply",
-    "k8s_scale",
-    "k8s_delete",
-];
-
 pub struct Family;
 impl crate::skills::FamilyMeta for Family {
     fn family(&self) -> &'static str {
         "kubernetes"
     }
-    fn tools(&self) -> &'static [&'static str] {
-        TOOL_NAMES
+    fn tools(&self) -> Vec<&'static str> {
+        skills().iter().map(|s| s.name()).collect()
+    }
+    fn description(&self) -> &'static str {
+        "Read and (with confirmation) mutate a Kubernetes cluster via the API server — \
+         get / list / logs / scale / patch / delete across namespaces. Requires a working \
+         kubeconfig (or in-cluster service account) the kube client can resolve."
     }
     /// Host probe — do we have a kubeconfig the host could load?
     /// `$KUBECONFIG` takes precedence; otherwise the default

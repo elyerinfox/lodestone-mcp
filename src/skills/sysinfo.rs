@@ -1,11 +1,24 @@
 //! System-information skills — read-only host facts: OS, CPU, memory, disks, and
-//! (where present) NVIDIA GPU stats. A local-system capability alongside
-//! docker/k8s/fs; gated by `[sysinfo]` (on by default — purely read-only).
+//! GPU stats across NVIDIA / AMD / Intel where the host exposes them. A
+//! local-system capability alongside docker/k8s/fs; gated by `[sysinfo]` (on by
+//! default — purely read-only).
 //!
 //! Cross-platform via the `sysinfo` crate (Linux reads `/proc`/`/sys`, Windows uses
-//! the OS APIs). GPU stats use NVML (`nvml-wrapper`), loaded at runtime — when the
-//! NVML library/driver is absent the GPU tool returns a clear message rather than
-//! failing the server (dependency safeguard, golden rule).
+//! the OS APIs). GPU stats are exposed as three distinct tools — one per vendor —
+//! because the underlying backends are genuinely different methodologies (golden
+//! rule 9: one tool per method):
+//!   - `system_gpu_nvidia` — NVML via `nvml-wrapper`. Cross-platform; needs the
+//!     NVIDIA driver with its NVML library (`nvml.dll` on Windows,
+//!     `libnvidia-ml.so` on Linux).
+//!   - `system_gpu_amd` — Linux DRM sysfs (`/sys/class/drm/card*/device/`) for
+//!     `amdgpu`; reads VRAM totals, busy %, and hwmon temperatures.
+//!   - `system_gpu_intel` — Linux DRM sysfs for `i915` / `xe`; reads frequency
+//!     and hwmon temperatures.
+//!
+//! Each tool has its own per-tool capability gate so the LLM picks the one that
+//! is actually available without guessing. On Windows / macOS, AMD and Intel
+//! reads aren't currently surfaced (would need vendor-specific SDKs like ADL /
+//! IGCL / IOKit).
 
 use std::sync::Arc;
 
@@ -16,14 +29,6 @@ use rmcp::ErrorData as McpError;
 use crate::skills::{schema_for, NoArgs, Skill, SkillCtx};
 use crate::util::human_size;
 use crate::{internal, text_result};
-
-/// Tool names for this family (gated by `[sysinfo].enabled` in `disabled_by_config`).
-pub const TOOL_NAMES: &[&str] = &[
-    "system_info",
-    "system_disks",
-    "system_gpu",
-    "system_os_release",
-];
 
 /// Host/OS/CPU/memory summary. Blocking work (sysinfo refresh + a short CPU
 /// sampling interval), so callers run it on a blocking thread.
@@ -100,27 +105,90 @@ fn gather_disks() -> String {
     out
 }
 
-/// NVIDIA GPU stats via NVML, or a clear message when NVML/driver isn't available.
-fn gather_gpu() -> String {
+/// PCI vendor IDs we match in the Linux DRM sysfs surface. NVIDIA goes
+/// through NVML cross-platform so it doesn't need an ID here.
+#[cfg(target_os = "linux")]
+const VENDOR_AMD: u32 = 0x1002;
+#[cfg(target_os = "linux")]
+const VENDOR_INTEL: u32 = 0x8086;
+
+/// Walk `/sys/class/drm/card[0-9]+/device/vendor` looking for `vendor_id`.
+/// Returns true on first hit so a multi-card system doesn't hammer sysfs.
+/// Subnodes (`card0-DP-1`, etc.) are skipped — they're connectors, not GPUs.
+#[cfg(target_os = "linux")]
+fn linux_drm_has_vendor(vendor_id: u32) -> bool {
+    use std::fs;
+    let Ok(entries) = fs::read_dir("/sys/class/drm") else {
+        return false;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name_str = name.to_string_lossy();
+        if !(name_str.starts_with("card")
+            && name_str.len() > 4
+            && name_str[4..].bytes().all(|b| b.is_ascii_digit()))
+        {
+            continue;
+        }
+        let vendor_path = entry.path().join("device").join("vendor");
+        if let Ok(content) = fs::read_to_string(&vendor_path) {
+            if let Ok(n) = u32::from_str_radix(content.trim().trim_start_matches("0x"), 16) {
+                if n == vendor_id {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+/// AMD wrapper: Linux uses the DRM sysfs path; on Windows / macOS we
+/// have no surface here so we return a clear platform-mismatch
+/// message. (Capability check should keep us from being called on
+/// those, but the function still has to compile.)
+fn gather_amd_gpu() -> String {
+    #[cfg(target_os = "linux")]
+    {
+        gather_drm_sysfs_gpu("AMD", VENDOR_AMD)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        "AMD GPU stats are read via the Linux DRM sysfs (/sys/class/drm). \
+         This host is not Linux; AMD GPUs on Windows / macOS would need a \
+         vendor SDK (ADL / IOKit) that isn't integrated."
+            .into()
+    }
+}
+
+/// Intel wrapper: same Linux-only sysfs surface as AMD.
+fn gather_intel_gpu() -> String {
+    #[cfg(target_os = "linux")]
+    {
+        gather_drm_sysfs_gpu("Intel", VENDOR_INTEL)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        "Intel GPU stats are read via the Linux DRM sysfs (/sys/class/drm). \
+         This host is not Linux; Intel GPUs on Windows / macOS would need a \
+         vendor SDK (IGCL / IOKit) that isn't integrated."
+            .into()
+    }
+}
+
+fn gather_nvidia_gpu() -> String {
     use ::nvml_wrapper::enum_wrappers::device::TemperatureSensor;
     use ::nvml_wrapper::Nvml;
 
     let nvml = match Nvml::init() {
         Ok(n) => n,
-        Err(e) => {
-            return format!(
-                "No NVIDIA GPU stats available — NVML could not be loaded ({e}). This needs an \
-                 NVIDIA driver with the NVML library (nvml.dll / libnvidia-ml.so). Non-NVIDIA GPUs \
-                 aren't supported."
-            )
-        }
+        Err(e) => return format!("NVIDIA: NVML could not be loaded ({e})."),
     };
     let count = match nvml.device_count() {
         Ok(c) => c,
-        Err(e) => return format!("Could not query GPU count: {e}"),
+        Err(e) => return format!("NVIDIA: could not query GPU count: {e}"),
     };
     if count == 0 {
-        return "NVML loaded but reports 0 GPUs.".into();
+        return "NVIDIA: NVML loaded but reports 0 GPUs.".into();
     }
     let mut out = format!("NVIDIA GPUs ({count}):\n");
     for i in 0..count {
@@ -151,6 +219,120 @@ fn gather_gpu() -> String {
         }
     }
     out
+}
+
+/// Walks `/sys/class/drm/card[0-9]+/device/` for cards matching
+/// `vendor_id` and reports busy %, VRAM, and hwmon temperature. Used by
+/// both AMD (`amdgpu` driver fills mem_info_* + gpu_busy_percent) and
+/// Intel (`i915`/`xe` drivers expose less detail but still hwmon temps
+/// and a gt_act_freq_mhz that's a useful proxy).
+#[cfg(target_os = "linux")]
+fn gather_drm_sysfs_gpu(label: &str, vendor_id: u32) -> String {
+    use std::fs;
+    use std::path::Path;
+
+    let Ok(entries) = fs::read_dir("/sys/class/drm") else {
+        return format!("{label}: /sys/class/drm not readable.");
+    };
+    let mut cards: Vec<(String, std::path::PathBuf)> = Vec::new();
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name_str = name.to_string_lossy().to_string();
+        if !(name_str.starts_with("card")
+            && name_str.len() > 4
+            && name_str[4..].bytes().all(|b| b.is_ascii_digit()))
+        {
+            continue;
+        }
+        let device_dir = entry.path().join("device");
+        let vendor_ok = fs::read_to_string(device_dir.join("vendor"))
+            .ok()
+            .and_then(|s| u32::from_str_radix(s.trim().trim_start_matches("0x"), 16).ok())
+            .map(|n| n == vendor_id)
+            .unwrap_or(false);
+        if vendor_ok {
+            cards.push((name_str, device_dir));
+        }
+    }
+    if cards.is_empty() {
+        return format!("{label}: no matching DRM cards.");
+    }
+    cards.sort_by(|a, b| a.0.cmp(&b.0));
+    let mut out = format!("{label} GPUs ({}):\n", cards.len());
+    for (card, dev_dir) in cards {
+        let device_id = fs::read_to_string(dev_dir.join("device"))
+            .ok()
+            .map(|s| s.trim().to_string())
+            .unwrap_or_default();
+        let model_hint = drm_model_hint(&dev_dir).unwrap_or_else(|| {
+            if device_id.is_empty() {
+                "unknown".into()
+            } else {
+                format!("device {device_id}")
+            }
+        });
+        out.push_str(&format!("\n  {card}: {model_hint}\n"));
+        // AMD's amdgpu publishes these; Intel's i915/xe doesn't fill
+        // them all but we try every read uniformly and skip what's
+        // empty / unsupported so the output stays clean either way.
+        if let Some(busy) = read_u64(&dev_dir.join("gpu_busy_percent")) {
+            out.push_str(&format!("    utilization: {busy}% gpu\n"));
+        }
+        if let Some(total) = read_u64(&dev_dir.join("mem_info_vram_total")) {
+            let used = read_u64(&dev_dir.join("mem_info_vram_used")).unwrap_or(0);
+            out.push_str(&format!(
+                "    memory: {} used / {} total\n",
+                human_size(used),
+                human_size(total)
+            ));
+        }
+        if let Some(freq_now) = read_u64(&dev_dir.join("gt_act_freq_mhz")) {
+            let freq_max = read_u64(&dev_dir.join("gt_max_freq_mhz"));
+            match freq_max {
+                Some(max) if max > 0 => {
+                    out.push_str(&format!("    frequency: {freq_now} / {max} MHz\n"))
+                }
+                _ => out.push_str(&format!("    frequency: {freq_now} MHz\n")),
+            }
+        }
+        if let Some(temp_c) = read_hwmon_temp(&dev_dir) {
+            out.push_str(&format!("    temperature: {temp_c} °C\n"));
+        }
+    }
+    out
+}
+
+/// `/sys/class/drm/<card>/device/product_name` exists on some setups
+/// (DG2/Arc on recent Intel, certain AMD configs). Falls back to None
+/// when the file isn't there so `gather_drm_sysfs_gpu` can synthesize a
+/// "device <pci-id>" label.
+#[cfg(target_os = "linux")]
+fn drm_model_hint(device_dir: &std::path::Path) -> Option<String> {
+    std::fs::read_to_string(device_dir.join("product_name"))
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+/// Read the first `hwmon*/temp1_input` (millidegrees C) under the
+/// device dir and return whole-degree C. Skips if hwmon isn't
+/// populated (Intel without thermal driver, AMD on older kernels).
+#[cfg(target_os = "linux")]
+fn read_hwmon_temp(device_dir: &std::path::Path) -> Option<i64> {
+    let hwmon_root = device_dir.join("hwmon");
+    let entries = std::fs::read_dir(&hwmon_root).ok()?;
+    for entry in entries.flatten() {
+        let temp_path = entry.path().join("temp1_input");
+        if let Some(milli) = read_u64(&temp_path) {
+            return Some((milli / 1000) as i64);
+        }
+    }
+    None
+}
+
+#[cfg(target_os = "linux")]
+fn read_u64(path: &std::path::Path) -> Option<u64> {
+    std::fs::read_to_string(path).ok()?.trim().parse().ok()
 }
 
 /// Run blocking sysinfo/NVML work off the async runtime, mapping join failures.
@@ -197,27 +379,27 @@ impl Skill for SystemDisks {
     }
 }
 
-pub struct SystemGpu;
-impl Skill for SystemGpu {
+/// One tool per vendor (golden rule 9): each backend is a genuinely
+/// different methodology — NVML is a userspace driver library;
+/// AMD / Intel readings come from kernel-published DRM sysfs nodes —
+/// and each has its own per-tool capability gate so the LLM picks
+/// the one that's actually available without guessing.
+pub struct SystemGpuNvidia;
+impl Skill for SystemGpuNvidia {
     fn name(&self) -> &'static str {
-        "system_gpu"
+        "system_gpu_nvidia"
     }
     fn description(&self) -> &'static str {
-        "Report NVIDIA GPU stats (name, memory, utilization, temperature) via NVML. Returns a clear \
-        message if no NVIDIA GPU / NVML library is present. Read-only."
+        "Report NVIDIA GPU stats (name, memory, utilization, temperature) via NVML. Cross-platform \
+        — works wherever the NVIDIA driver ships its NVML library (`nvml.dll` / `libnvidia-ml.so`). \
+        Read-only."
     }
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<NoArgs>()
     }
     fn call<'a>(&self, _ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
-        Box::pin(async move { Ok(text_result(blocking(gather_gpu).await?)) })
+        Box::pin(async move { Ok(text_result(blocking(gather_nvidia_gpu).await?)) })
     }
-    /// Per-tool override: the sysinfo family is otherwise Ready (system
-    /// info / disk / OS release work everywhere), but `system_gpu`
-    /// specifically needs the NVML library that ships with the NVIDIA
-    /// driver. Try to init NVML; on success we're Ready, otherwise we
-    /// short-circuit with an actionable hint instead of letting the
-    /// tool return a runtime error from inside `nvml_wrapper`.
     fn check_capability(&self) -> crate::skills::SkillCapability {
         use crate::skills::SkillCapability;
         match nvml_wrapper::Nvml::init() {
@@ -225,8 +407,84 @@ impl Skill for SystemGpu {
             Err(e) => SkillCapability::unavailable(
                 format!("NVML not loadable: {e}"),
                 "install the NVIDIA driver (or `nvidia-utils` in containers) — \
-                 this tool requires an NVIDIA GPU",
+                 this tool requires an NVIDIA GPU with NVML",
             ),
+        }
+    }
+}
+
+pub struct SystemGpuAmd;
+impl Skill for SystemGpuAmd {
+    fn name(&self) -> &'static str {
+        "system_gpu_amd"
+    }
+    fn description(&self) -> &'static str {
+        "Report AMD GPU stats (model, VRAM, busy %, hwmon temperature) by reading the Linux DRM \
+        sysfs nodes the `amdgpu` kernel driver publishes under `/sys/class/drm/card*/device/`. \
+        Linux-only. Read-only."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<NoArgs>()
+    }
+    fn call<'a>(&self, _ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move { Ok(text_result(blocking(gather_amd_gpu).await?)) })
+    }
+    fn check_capability(&self) -> crate::skills::SkillCapability {
+        use crate::skills::SkillCapability;
+        #[cfg(target_os = "linux")]
+        {
+            if linux_drm_has_vendor(VENDOR_AMD) {
+                return SkillCapability::Ready;
+            }
+            SkillCapability::unavailable(
+                "no AMD GPU found in /sys/class/drm (PCI vendor 0x1002)",
+                "needs an AMD GPU with the `amdgpu` kernel driver loaded",
+            )
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            SkillCapability::unavailable(
+                "AMD GPU reads use the Linux DRM sysfs; this host is not Linux",
+                "run on Linux with the `amdgpu` driver, or use `system_gpu_nvidia` instead",
+            )
+        }
+    }
+}
+
+pub struct SystemGpuIntel;
+impl Skill for SystemGpuIntel {
+    fn name(&self) -> &'static str {
+        "system_gpu_intel"
+    }
+    fn description(&self) -> &'static str {
+        "Report Intel GPU stats (model, frequency, hwmon temperature) by reading the Linux DRM \
+        sysfs nodes the `i915` / `xe` kernel driver publishes under `/sys/class/drm/card*/device/`. \
+        Linux-only. Read-only."
+    }
+    fn schema(&self) -> Arc<JsonObject> {
+        schema_for::<NoArgs>()
+    }
+    fn call<'a>(&self, _ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
+        Box::pin(async move { Ok(text_result(blocking(gather_intel_gpu).await?)) })
+    }
+    fn check_capability(&self) -> crate::skills::SkillCapability {
+        use crate::skills::SkillCapability;
+        #[cfg(target_os = "linux")]
+        {
+            if linux_drm_has_vendor(VENDOR_INTEL) {
+                return SkillCapability::Ready;
+            }
+            SkillCapability::unavailable(
+                "no Intel GPU found in /sys/class/drm (PCI vendor 0x8086)",
+                "needs an Intel GPU with the `i915` or `xe` kernel driver loaded",
+            )
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            SkillCapability::unavailable(
+                "Intel GPU reads use the Linux DRM sysfs; this host is not Linux",
+                "run on Linux with the `i915` / `xe` driver, or use `system_gpu_nvidia` instead",
+            )
         }
     }
 }
@@ -303,7 +561,9 @@ pub fn skills() -> Vec<Box<dyn Skill>> {
     vec![
         Box::new(SystemInfo),
         Box::new(SystemDisks),
-        Box::new(SystemGpu),
+        Box::new(SystemGpuNvidia),
+        Box::new(SystemGpuAmd),
+        Box::new(SystemGpuIntel),
         Box::new(SystemOsRelease),
     ]
 }

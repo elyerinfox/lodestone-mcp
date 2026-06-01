@@ -39,9 +39,9 @@ enabled = []
 # Denylist, applied after `enabled`. Env: LODESTONE_TOOLS_DISABLED
 disabled = []
 
-# Background tasks (task_run / task_list / task_status / task_result / task_cancel).
-# Run a long operation (currently a search) off the request path and poll for the
-# result — works on any client (model-polled, no server push needed). The job table
-# is bounded with eviction. OFF by default. Env: LODESTONE_TASKS_ENABLED
+# Async search launcher (`search_async`). Backgrounds a search and returns a
+# `task_id` immediately; manage it via the always-on MCP-spec `tasks_*` tools
+# (`tasks_list` / `tasks_get` / `tasks_result` / `tasks_cancel`), which read the
+# same TaskRuntime. OFF by default. Env: LODESTONE_TASKS_ENABLED
 [tasks]
 enabled = false

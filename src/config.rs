@@ -91,6 +91,31 @@ pub struct Config {
     pub astro: ToggleOnly,
     /// Radio / RF link-budget skills (off by default).
     pub radio: ToggleOnly,
+    /// MQTT pub/sub client (off by default). Runs one persistent
+    /// connection to a configured broker and exposes publish/
+    /// subscribe/recent tools. Stands alone (`mqtt_*`) **and** is
+    /// the substrate the meshtastic family rides on when configured
+    /// with `transport = "mqtt"`.
+    pub mqtt: Mqtt,
+    /// Meshtastic LoRa mesh skill (off by default). v1 reads/writes
+    /// the JSON MQTT topic format Meshtastic devices emit when their
+    /// firmware has MQTT json output enabled. Requires `[mqtt]` to be
+    /// enabled and reachable.
+    pub meshtastic: Meshtastic,
+    /// OS / distro package managers (off by default). Covers winget,
+    /// chocolatey, apt, dnf, yum, apk, pacman, yay (AUR), brew, zypper,
+    /// pkg. Read tools work whenever the PM binary is on `$PATH`;
+    /// destructive operations route through the confirmation guard
+    /// (golden rule 8); `allow_destructive` pre-authorizes for the
+    /// session.
+    pub packages: Packages,
+    /// Browser-tool guard settings. Read-only browser tools
+    /// (`browser_open`, `browser_navigate`, `browser_extract`, …) are
+    /// always available — `render_page` / `fetch_page` rely on them.
+    /// The flags here gate the **destructive** browser tools
+    /// (`browser_eval` — arbitrary JS execution — and
+    /// `browser_persona_reset` — destroys long-lived browser state).
+    pub browser: Browser,
 }
 
 /// A skill family whose only knob is on/off (no extra parameters).
@@ -130,6 +155,152 @@ impl Default for Python {
 pub struct Systemd {
     pub enabled: bool,
     /// `true` pre-authorizes start/stop/restart (skip the prompt).
+    pub allow_destructive: bool,
+}
+
+/// MQTT pub/sub client. One persistent connection per Lodestone
+/// process; publish/subscribe handles are cheap clones. The broker URL
+/// scheme picks the transport: `tcp://host:1883` for plain MQTT,
+/// `tls://host:8883` for MQTTS (rustls), `mqtt://` / `mqtts://` aliases
+/// accepted too. Off by default — network-touching family.
+///
+/// Credentials are secrets: `username` is shown in the broker
+/// summary, `password` is **always** redacted to `<set>` / `<unset>`
+/// (golden rule 11). Never log them.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct Mqtt {
+    /// Expose the `mqtt_*` tools and start the broker connection at startup.
+    pub enabled: bool,
+    /// Broker URL — `tcp://host:port` (plain) or `tls://host:port` (rustls).
+    /// Empty disables the connection even when `enabled = true`.
+    pub broker: String,
+    /// MQTT client id advertised on CONNECT. Auto-generated `lodestone-<8hex>`
+    /// when empty.
+    pub client_id: String,
+    /// Optional username on CONNECT (paired with `password`).
+    pub username: String,
+    /// Optional password on CONNECT. **Secret** — never logged or echoed back.
+    pub password: String,
+    /// Keep-alive interval in seconds (CONNECT). Default 60.
+    pub keep_alive_secs: u16,
+    /// Capacity (in messages) of the in-memory ring buffer that
+    /// `mqtt_recent` / `meshtastic_messages` read from. Older messages
+    /// are evicted as new ones arrive. Default 500.
+    pub buffer_size: usize,
+    /// Default QoS for `mqtt_publish` / `mqtt_subscribe` when the caller
+    /// doesn't specify one (0, 1, or 2). Default 1.
+    pub default_qos: u8,
+    /// Topics to subscribe to automatically on startup (in addition to whatever
+    /// `mqtt_subscribe` adds at runtime). Useful for "always-on" feeds.
+    pub auto_subscribe: Vec<String>,
+    /// Pre-authorize `mqtt_publish` — skips the confirmation prompt for
+    /// outbound publishes (publish is side-effecting; it controls IoT
+    /// actuators, devices, anything subscribed to the topic). The guard
+    /// is still in the call path — this flag flips its decision from
+    /// "challenge" to "proceed" rather than removing it. Default false.
+    /// Env: `LODESTONE_MQTT_ALLOW_DESTRUCTIVE`.
+    pub allow_destructive: bool,
+}
+
+impl Default for Mqtt {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            broker: String::new(),
+            client_id: String::new(),
+            username: String::new(),
+            password: String::new(),
+            keep_alive_secs: 60,
+            buffer_size: 500,
+            default_qos: 1,
+            auto_subscribe: Vec::new(),
+            allow_destructive: false,
+        }
+    }
+}
+
+/// Meshtastic LoRa mesh skill. v1 transport is **MQTT only** — the
+/// Meshtastic firmware's "MQTT JSON output" topic format, which avoids
+/// pulling in the protobuf decoders. Requires `[mqtt].enabled` and a
+/// broker the mesh forwards to (often `mqtt.meshtastic.org` or a
+/// self-hosted one). Off by default.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct Meshtastic {
+    /// Expose the `meshtastic_*` tools.
+    pub enabled: bool,
+    /// Currently only `"mqtt"` is accepted. `"serial"` / `"tcp"` / `"ble"`
+    /// are placeholders for a follow-up that brings the protobuf path.
+    pub transport: String,
+    /// MQTT topic root. Meshtastic publishes under
+    /// `<root>/<region>/2/json/<channel>/<node>` when JSON output is
+    /// enabled. Default `"msh"` matches the firmware default.
+    pub mqtt_topic_root: String,
+    /// Default region segment for outbound `meshtastic_send` (the firmware
+    /// expects the topic to encode the region). Defaults to `"US"`.
+    pub default_region: String,
+    /// Default channel name for outbound `meshtastic_send`. Defaults to
+    /// `"LongFast"` (the Meshtastic stock primary channel).
+    pub default_channel: String,
+    /// Auto-subscribe to `<root>/+/2/json/#` on startup so the recent-
+    /// message buffer has incoming mesh traffic without an explicit
+    /// `mqtt_subscribe` call. Default `true`.
+    pub auto_subscribe: bool,
+    /// Pre-authorize `meshtastic_send` — skips the confirmation prompt
+    /// for outbound mesh messages. A send broadcasts on a physical LoRa
+    /// network; treat the same way as `mqtt_publish` / `shell_run`.
+    /// Default false. Env: `LODESTONE_MESHTASTIC_ALLOW_DESTRUCTIVE`.
+    pub allow_destructive: bool,
+}
+
+impl Default for Meshtastic {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            transport: "mqtt".into(),
+            mqtt_topic_root: "msh".into(),
+            default_region: "US".into(),
+            default_channel: "LongFast".into(),
+            auto_subscribe: true,
+            allow_destructive: false,
+        }
+    }
+}
+
+/// Browser destructive-tool gating. The browser family itself has no
+/// `enabled` flag because `fetch_page` / `render_page` depend on it and
+/// it ships always-available. Two tools — `browser_eval` (arbitrary JS)
+/// and `browser_persona_reset` (destroys persona state) — route through
+/// the confirmation guard regardless; `allow_destructive = true`
+/// pre-authorizes both for the session.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct Browser {
+    /// Pre-authorize `browser_eval` and `browser_persona_reset` —
+    /// flips the guard's decision from "challenge" to "proceed"
+    /// without removing it from the call path.
+    /// Env: `LODESTONE_BROWSER_ALLOW_DESTRUCTIVE`.
+    pub allow_destructive: bool,
+}
+
+/// Package-manager skill settings. The family is off by default because
+/// it exposes install / upgrade / remove tools that mutate host state.
+/// Read tools (`package_search`, `package_info`, `package_list`,
+/// `package_updates`, `package_managers`) are no riskier than
+/// `system_info` but ride the same gate. Destructive operations route
+/// through the [`crate::skills::guard`] regardless of this flag (the
+/// guard is a *call-time* gate, not a config switch — golden rule 8).
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct Packages {
+    /// Expose the `package_*` tools. Env: `LODESTONE_PACKAGES_ENABLED`.
+    pub enabled: bool,
+    /// Pre-authorize `package_install` / `package_upgrade` / `package_remove`
+    /// for the session (skips the guard's confirmation prompt). The guard
+    /// is still in the call path — this flag flips its decision from
+    /// "challenge" to "proceed" rather than removing it. Env:
+    /// `LODESTONE_PACKAGES_ALLOW_DESTRUCTIVE`.
     pub allow_destructive: bool,
 }
 
@@ -335,7 +506,8 @@ pub struct Tools {
     /// fs_list, fs_stat, fs_find, fs_write, fs_edit, fs_mkdir, fs_delete, fs_move.
     /// Shell (gated by [shell], off by default): shell_run. Git (gated by [git]):
     /// git_run. System info (gated by [sysinfo]): system_info, system_disks,
-    /// system_gpu. Databases (gated by [databases], off until one is configured):
+    /// system_gpu_nvidia, system_gpu_amd, system_gpu_intel, system_os_release.
+    /// Databases (gated by [databases], off until one is configured):
     /// db_list, db_query, redis_command. Caching: cache_status (always on), plus
     /// store_fetch, store_get, store_list, store_purge (gated by [store]). Plus
     /// per-provider <kind>_<id> tools (e.g. docs_cratesio, docs_react, docs_kubernetes).
@@ -798,6 +970,11 @@ impl Default for Sysinfo {
 pub struct Ffmpeg {
     /// Expose `ffmpeg_convert` / `ffmpeg_probe`.
     pub enabled: bool,
+    /// Pre-authorize `ffmpeg_convert` — skips the confirmation prompt for
+    /// writes. Guard is still in the call path; this flag flips its
+    /// decision from "challenge" to "proceed".
+    /// Env: `LODESTONE_FFMPEG_ALLOW_DESTRUCTIVE`.
+    pub allow_destructive: bool,
 }
 
 /// FCC / amateur-radio reference skills (`src/skills/fcc.rs`). **On by
@@ -882,6 +1059,10 @@ impl Default for Html {
 pub struct Spreadsheet {
     /// Expose the `sheet_*` tools.
     pub enabled: bool,
+    /// Pre-authorize `sheet_write` — skips the confirmation prompt for
+    /// writes. Guard is still in the call path.
+    /// Env: `LODESTONE_SPREADSHEET_ALLOW_DESTRUCTIVE`.
+    pub allow_destructive: bool,
 }
 
 /// SDR skill (`src/skills/sdr.rs`) — list software-defined radios and sweep the
@@ -914,6 +1095,10 @@ pub struct Serial {
     pub baud: u32,
     /// Default per-operation timeout in milliseconds.
     pub timeout_ms: u64,
+    /// Pre-authorize `serial_send` — skips the confirmation prompt.
+    /// Guard is still in the call path.
+    /// Env: `LODESTONE_SERIAL_ALLOW_DESTRUCTIVE`.
+    pub allow_destructive: bool,
 }
 
 impl Default for Serial {
@@ -922,6 +1107,7 @@ impl Default for Serial {
             enabled: false,
             baud: 9600,
             timeout_ms: 1000,
+            allow_destructive: false,
         }
     }
 }
@@ -934,6 +1120,10 @@ impl Default for Serial {
 pub struct Printer {
     /// Expose the `printer_*` tools. OFF by default — explicit grant.
     pub enabled: bool,
+    /// Pre-authorize `printer_print` — skips the confirmation prompt.
+    /// Guard is still in the call path.
+    /// Env: `LODESTONE_PRINTER_ALLOW_DESTRUCTIVE`.
+    pub allow_destructive: bool,
 }
 
 /// NASA open-data skills (`src/skills/nasa.rs`). Keyless-friendly: uses `DEMO_KEY`
@@ -1014,6 +1204,11 @@ pub struct Store {
     pub ttl_secs: u64,
     /// Total byte budget; the oldest entries are evicted past it (0 = unbounded).
     pub max_bytes: u64,
+    /// Pre-authorize `store_purge` — skips the confirmation prompt for
+    /// the destructive purge operations. The guard is still in the call
+    /// path; this flag flips its decision from "challenge" to "proceed".
+    /// Env: `LODESTONE_STORE_ALLOW_DESTRUCTIVE`.
+    pub allow_destructive: bool,
 }
 
 impl Default for Store {
@@ -1023,6 +1218,7 @@ impl Default for Store {
             dir: String::new(),
             ttl_secs: 86_400,
             max_bytes: 512 * 1024 * 1024,
+            allow_destructive: false,
         }
     }
 }
@@ -1176,6 +1372,10 @@ impl Default for Config {
             systemd: Systemd::default(),
             astro: ToggleOnly::default(),
             radio: ToggleOnly::default(),
+            mqtt: Mqtt::default(),
+            meshtastic: Meshtastic::default(),
+            packages: Packages::default(),
+            browser: Browser::default(),
         }
     }
 }
@@ -1373,6 +1573,10 @@ impl Config {
         env_apply_str(&mut self.store.dir, "LODESTONE_STORE_DIR");
         env_apply_parse(&mut self.store.ttl_secs, "LODESTONE_STORE_TTL_SECS");
         env_apply_parse(&mut self.store.max_bytes, "LODESTONE_STORE_MAX_BYTES");
+        env_apply_bool(
+            &mut self.store.allow_destructive,
+            "LODESTONE_STORE_ALLOW_DESTRUCTIVE",
+        );
 
         // ---- constellation network / galaxy ----
         env_apply_str(&mut self.network.bind, "LODESTONE_NETWORK_BIND");
@@ -1465,6 +1669,10 @@ impl Config {
         // ---- diagnostic / media / analysis skills ----
         env_apply_bool(&mut self.sysinfo.enabled, "LODESTONE_SYSINFO_ENABLED");
         env_apply_bool(&mut self.ffmpeg.enabled, "LODESTONE_FFMPEG_ENABLED");
+        env_apply_bool(
+            &mut self.ffmpeg.allow_destructive,
+            "LODESTONE_FFMPEG_ALLOW_DESTRUCTIVE",
+        );
         env_apply_bool(&mut self.fcc.enabled, "LODESTONE_FCC_ENABLED");
         env_apply_bool(&mut self.chart.enabled, "LODESTONE_CHART_ENABLED");
         env_apply_bool(&mut self.image.enabled, "LODESTONE_IMAGE_ENABLED");
@@ -1472,6 +1680,10 @@ impl Config {
         env_apply_bool(
             &mut self.spreadsheet.enabled,
             "LODESTONE_SPREADSHEET_ENABLED",
+        );
+        env_apply_bool(
+            &mut self.spreadsheet.allow_destructive,
+            "LODESTONE_SPREADSHEET_ALLOW_DESTRUCTIVE",
         );
         env_apply_bool(&mut self.sdr.enabled, "LODESTONE_SDR_ENABLED");
         env_apply_bool(&mut self.tasks.enabled, "LODESTONE_TASKS_ENABLED");
@@ -1571,7 +1783,70 @@ impl Config {
         env_apply_bool(&mut self.radio.enabled, "LODESTONE_RADIO_ENABLED");
         env_apply_bool(&mut self.serial.enabled, "LODESTONE_SERIAL_ENABLED");
         env_apply_parse(&mut self.serial.baud, "LODESTONE_SERIAL_BAUD");
+        env_apply_bool(
+            &mut self.serial.allow_destructive,
+            "LODESTONE_SERIAL_ALLOW_DESTRUCTIVE",
+        );
         env_apply_bool(&mut self.printer.enabled, "LODESTONE_PRINTER_ENABLED");
+        env_apply_bool(
+            &mut self.printer.allow_destructive,
+            "LODESTONE_PRINTER_ALLOW_DESTRUCTIVE",
+        );
+
+        // ---- mqtt / meshtastic ----
+        env_apply_bool(&mut self.mqtt.enabled, "LODESTONE_MQTT_ENABLED");
+        env_apply_str(&mut self.mqtt.broker, "LODESTONE_MQTT_BROKER");
+        env_apply_str(&mut self.mqtt.client_id, "LODESTONE_MQTT_CLIENT_ID");
+        env_apply_str(&mut self.mqtt.username, "LODESTONE_MQTT_USERNAME");
+        env_apply_str(&mut self.mqtt.password, "LODESTONE_MQTT_PASSWORD");
+        env_apply_parse(
+            &mut self.mqtt.keep_alive_secs,
+            "LODESTONE_MQTT_KEEP_ALIVE_SECS",
+        );
+        env_apply_parse(&mut self.mqtt.buffer_size, "LODESTONE_MQTT_BUFFER_SIZE");
+        env_apply_parse(&mut self.mqtt.default_qos, "LODESTONE_MQTT_DEFAULT_QOS");
+        env_apply_bool(
+            &mut self.mqtt.allow_destructive,
+            "LODESTONE_MQTT_ALLOW_DESTRUCTIVE",
+        );
+        env_apply_bool(&mut self.meshtastic.enabled, "LODESTONE_MESHTASTIC_ENABLED");
+        env_apply_str(
+            &mut self.meshtastic.transport,
+            "LODESTONE_MESHTASTIC_TRANSPORT",
+        );
+        env_apply_str(
+            &mut self.meshtastic.mqtt_topic_root,
+            "LODESTONE_MESHTASTIC_MQTT_TOPIC_ROOT",
+        );
+        env_apply_str(
+            &mut self.meshtastic.default_region,
+            "LODESTONE_MESHTASTIC_DEFAULT_REGION",
+        );
+        env_apply_str(
+            &mut self.meshtastic.default_channel,
+            "LODESTONE_MESHTASTIC_DEFAULT_CHANNEL",
+        );
+        env_apply_bool(
+            &mut self.meshtastic.auto_subscribe,
+            "LODESTONE_MESHTASTIC_AUTO_SUBSCRIBE",
+        );
+        env_apply_bool(
+            &mut self.meshtastic.allow_destructive,
+            "LODESTONE_MESHTASTIC_ALLOW_DESTRUCTIVE",
+        );
+
+        // ---- packages ----
+        env_apply_bool(&mut self.packages.enabled, "LODESTONE_PACKAGES_ENABLED");
+        env_apply_bool(
+            &mut self.packages.allow_destructive,
+            "LODESTONE_PACKAGES_ALLOW_DESTRUCTIVE",
+        );
+
+        // ---- browser destructive gate (browser_eval, browser_persona_reset) ----
+        env_apply_bool(
+            &mut self.browser.allow_destructive,
+            "LODESTONE_BROWSER_ALLOW_DESTRUCTIVE",
+        );
 
         // ---- API-key-bearing skills (accept the conventional vars too) ----
         if let Ok(v) =

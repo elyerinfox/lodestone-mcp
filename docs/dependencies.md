@@ -40,10 +40,17 @@ kubernetes, databases — all gated by their `[<family>].enabled` flag).
 - **`pdf-extract`** (a Rust crate, not a system dep) does its own
   parsing. No external `pdftotext` needed.
 
-### Optional, only for `system_gpu`
-- **NVIDIA Management Library** (NVML, ships with the NVIDIA driver).
-  Only required if you want GPU info on machines with NVIDIA cards.
-  Absent NVML, the tool returns "no NVIDIA GPU detected" cleanly.
+### Optional, only for the `system_gpu_*` tools
+- **NVIDIA Management Library** (NVML, ships with the NVIDIA driver) —
+  required for `system_gpu_nvidia`. Absent NVML, that tool's per-tool
+  capability check returns `Unavailable` cleanly. Cross-platform.
+- **`amdgpu` kernel driver** (Linux) — required for `system_gpu_amd`,
+  which reads `/sys/class/drm/card*/device/` nodes the driver publishes.
+- **`i915` or `xe` kernel driver** (Linux) — required for
+  `system_gpu_intel`, which reads the same DRM sysfs surface.
+- On Windows / macOS, only the NVIDIA tool is available; AMD / Intel
+  reads would need vendor SDKs (ADL / IGCL / IOKit) that aren't
+  integrated.
 
 ### Required to build the dashboard SPA
 - **Node + npm.** Tested on Node 22. The Nuxt 3 build needs no system
@@ -128,7 +135,8 @@ Categorized by purpose. The full pinned list is in
   "macros"]`) — `db_query` for Postgres/MySQL/SQLite + the
   `[memory]` SQLite store.
 - **`sysinfo`** — `system_info`, `system_disks`, `system_os_release`.
-- **`nvml-wrapper`** — `system_gpu` on NVIDIA boxes.
+- **`nvml-wrapper`** — `system_gpu_nvidia`. AMD / Intel use Linux DRM
+  sysfs reads (no crate needed).
 - **`machine-uid`** — stable per-host constellation node id.
 - **`chrono`** + **`chrono-tz`** — `datetime`, `date_diff`,
   `time_convert`, timestamps everywhere.

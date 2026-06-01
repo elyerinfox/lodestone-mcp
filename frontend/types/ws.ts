@@ -22,14 +22,23 @@ export interface ServerStatus {
   secrets: SecretPresence
   log_level: string
   skill_capabilities: SkillCapabilityEntry[]
+  tool_descriptions: ToolDescription[]
 }
 
 export interface SkillCapabilityEntry {
   family: string
   tools: string[]
   ready: boolean
+  // FamilyMeta::description — empty when the family hasn't supplied one.
+  description: string
   reason?: string
   hint?: string
+}
+
+// Skill::description sourced for every registered tool (active + gated).
+export interface ToolDescription {
+  name: string
+  description: string
 }
 
 export interface SecretPresence {

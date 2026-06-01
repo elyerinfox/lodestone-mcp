@@ -69,7 +69,7 @@ flowchart LR
 
 Every tool whose arguments carry a free-text `query` (the entire search family,
 arxiv / wikipedia / pubmed / openalex / hf_* / standards / rfc / news / osm_* /
-task_run / …) is wrapped at dispatch time. When the wrapper sees a non-empty
+search_async / …) is wrapped at dispatch time. When the wrapper sees a non-empty
 `query`, it:
 
 1. Canonicalizes the query (folding synonyms).
@@ -105,6 +105,29 @@ Tools in the **memory / solution / synonym / conversation / remember /
 recall** family are excluded from the wrapper — otherwise calling
 `solution_find` would surface its own results as a recall preamble, recurse,
 and become noise.
+
+### Backgrounded calls skip recall + recording (by design)
+
+When a call uses the global `background: true` flag (or the dedicated launcher
+tools `search_async` / `mqtt_listen` / `meshtastic_listen`), the dispatch
+wrapper spawns the skill body into the [`TaskRuntime`](../src/tasks.rs) and
+returns a `task_id` immediately. **The foreground side effects intentionally
+do NOT fire on the background path:**
+
+- **No auto-recall preamble** is prepended to the eventual `tasks_result`
+  body. The runtime body has no notion of the conversation that launched it,
+  and threading recall through asynchronously would race against the model's
+  next turn.
+- **No conversation-turn row** is written for the backgrounded call. The
+  task is its own observable record (`tasks_get`, `tasks_result`); duplicating
+  it as a conversation turn would double-count and confuse `conversation_show`.
+
+If the model wants either after a backgrounded result lands, it calls them
+directly: `recall { query: "<original query>" }` against whatever the result
+contained, and `conversation_show { id: "<current conv>" }` to walk what
+happened around it. This is intentional v1 behavior — purely additive to
+move later if cross-conversation task ownership gets defined. Documented
+inline in `src/skills/mod.rs::route`.
 
 ### What a preamble looks like
 

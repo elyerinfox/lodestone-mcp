@@ -24,22 +24,6 @@ use crate::skills::{schema_for, Skill, SkillCtx};
 use crate::util::truncate_chars;
 use crate::{internal, invalid, text_result};
 
-/// All filesystem tool names — the gating data for this family (consumed by
-/// `skills::disabled_by_config` to hide the family when `[filesystem].enabled` is
-/// off). Destructive `fs_delete`/`fs_move` stay exposed and are gated at call time
-/// by the confirmation [`crate::skills::guard`].
-pub const TOOL_NAMES: &[&str] = &[
-    "fs_read",
-    "fs_list",
-    "fs_stat",
-    "fs_find",
-    "fs_write",
-    "fs_edit",
-    "fs_mkdir",
-    "fs_delete",
-    "fs_move",
-];
-
 /// Canonicalized allowed roots (configured, or the CWD when none set).
 fn roots(fs: &Filesystem) -> Result<Vec<PathBuf>, String> {
     let raw: Vec<PathBuf> = if fs.roots.is_empty() {

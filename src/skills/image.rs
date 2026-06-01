@@ -31,13 +31,6 @@ use serde::Deserialize;
 use crate::skills::{fs_read_bytes, schema_for, Skill, SkillCtx};
 use crate::{invalid, text_result};
 
-pub const TOOL_NAMES: &[&str] = &[
-    "image_info",
-    "image_exif",
-    "image_jpeg_analyze",
-    "image_png_analyze",
-];
-
 // ---------------------------------------------------------------------------
 // image_info — format detection + structural dimensions
 // ---------------------------------------------------------------------------

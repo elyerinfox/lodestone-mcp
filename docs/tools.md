@@ -203,7 +203,53 @@ no NVIDIA GPU / NVML library is present. See
 | --- | --- | --- |
 | `system_info` | — | Host name, OS/kernel, uptime, CPU (model/cores/usage), memory/swap. |
 | `system_disks` | — | Mounted disks: filesystem, total/used/free space. |
-| `system_gpu` | — | NVIDIA GPU name, memory, utilization, temperature (via NVML). |
+| `system_gpu_nvidia` | — | NVIDIA GPU name, memory, utilization, temperature (via NVML). |
+| `system_gpu_amd` | — | AMD GPU model, VRAM, busy %, temperature (Linux DRM sysfs via `amdgpu`). |
+| `system_gpu_intel` | — | Intel GPU model, frequency, temperature (Linux DRM sysfs via `i915`/`xe`). |
+| `system_os_release` | — | Parse `/etc/os-release` (Linux distro identifier per the systemd spec). |
+
+## Messaging (off by default)
+
+MQTT pub/sub against a configured broker, plus the Meshtastic LoRa mesh decoder
+that rides on it. Both **off by default**. See
+[`config/19-mqtt.toml`](../config/19-mqtt.toml) and
+[`config/20-meshtastic.toml`](../config/20-meshtastic.toml).
+
+| Tool | Arguments | Purpose |
+| --- | --- | --- |
+| `mqtt_publish` | `topic`, `payload?` or `payload_base64?`, `qos?`, `retain?` | Publish a message to the broker. |
+| `mqtt_subscribe` | `topic`, `qos?` | Subscribe (supports `+` / `#` wildcards); buffer fills as messages arrive. |
+| `mqtt_unsubscribe` | `topic` | Drop a prior subscription. |
+| `mqtt_recent` | `topic?`, `limit?` | Recent buffered messages, newest first. |
+| `mqtt_status` | — | Broker URL, credentials presence (`<set>`/`<unset>`), subscriptions, buffer size. |
+| `meshtastic_messages` | `channel?`, `from?`, `limit?` | Text messages decoded from the Meshtastic JSON-over-MQTT topic format. |
+| `meshtastic_nodes` | — | Mesh nodes recently heard (id / longname / shortname / RSSI / SNR / last-seen). |
+| `meshtastic_send` | `text`, `channel?`, `region?`, `to?` | Publish a text message onto the mesh through the bridging node. |
+| `meshtastic_status` | — | Transport, topic root, defaults, MQTT-wiring status, mesh buffer count. |
+
+## Package managers (off by default)
+
+OS / distro package managers — one set of tools that target each PM via an
+explicit `kind` argument. Off by default `[packages]`. Destructive ops
+(`install`/`upgrade`/`remove`) go through the confirmation guard. **No `sudo`** —
+privilege is the operator's choice. See
+[`config/21-packages.toml`](../config/21-packages.toml) and
+[`docs/skills/packages.md`](skills/packages.md).
+
+| Tool | Arguments | Access | Purpose |
+| --- | --- | --- | --- |
+| `package_managers` | — | read | List supported PMs with ✓ / · for whether the binary is on `$PATH`. |
+| `package_search` | `kind`, `query` | read | PM-native search. |
+| `package_info` | `kind`, `name` | read | PM-native package metadata. |
+| `package_list` | `kind` | read | Installed packages. |
+| `package_updates` | `kind` | read | Available updates (without applying). |
+| `package_install` | `kind`, `name`, `confirm?`, `trust?` | **destructive** | Install via the named PM. |
+| `package_upgrade` | `kind`, `name?`, `confirm?`, `trust?` | **destructive** | Upgrade one package (or all when `name` is omitted). |
+| `package_remove` | `kind`, `name`, `confirm?`, `trust?` | **destructive** | Remove a named package. |
+
+`kind` values: `winget`, `chocolatey` (alias `choco`), `brew` (alias `homebrew`),
+`apt` (alias `apt-get`), `dnf`, `yum`, `apk`, `pacman`, `yay` (alias `aur`),
+`zypper`, `pkg`.
 
 ## Devices (off by default)
 
@@ -327,18 +373,29 @@ the rate limit.
 | `sat_position` | `tle_line1`, `tle_line2`, `at?` | SGP4 sub-point: latitude, longitude, altitude, speed. |
 | `sat_observe` | `tle_line1`, `tle_line2`, `observer_lat`, `observer_lon`, `observer_alt_km?`, `at?` | Azimuth/elevation/range from an observer. |
 
-## Background tasks (off by default)
+## Async search (off by default)
 
-Run long work off the request path and poll for results (model-polled — works on any
-client). Gated by `[tasks]`. Currently backgrounds searches.
+Launch a search in the background and get a `task_id`. Manage via the MCP-spec
+`tasks_*` tools below (`tasks_list` / `tasks_get` / `tasks_result` / `tasks_cancel`)
+— they read the same runtime. Gated by `[tasks]`.
 
 | Tool | Arguments | Purpose |
 | --- | --- | --- |
-| `task_run` | `op?`, `kind`, `query`, `max_results?` | Start a background search (`kind` = web/code/docs/qa); returns a task id. |
-| `task_list` | — | List background tasks (id, status, label, age). |
-| `task_status` | `id` | A task's status (running/done/failed/cancelled). |
-| `task_result` | `id` | A task's result (or still-running / error). |
-| `task_cancel` | `id` | Cancel a running task. |
+| `search_async` | `kind` (`web`/`code`/`docs`/`qa`), `query`, `max_results?` | Start a background search; returns a `task_id`. |
+
+## MCP Tasks primitive (always on)
+
+The 2025-11-25 spec's task management methods (`tasks/list`, `tasks/get`,
+`tasks/result`, `tasks/cancel`) exposed as tools so every MCP client can
+drive them today. Backed by the same `TaskRuntime` as `search_async`,
+`mqtt_listen`, and `meshtastic_listen`.
+
+| Tool | Arguments | Purpose |
+| --- | --- | --- |
+| `tasks_list` | — | List tracked async tasks (newest first). |
+| `tasks_get` | `task_id` | One task's metadata (status, last progress, timestamps). |
+| `tasks_result` | `task_id` | Terminal result (or in-progress log replay). |
+| `tasks_cancel` | `task_id` | Cancel a running task; pushes `notifications/tasks/status`. |
 
 ## Persistent memory & solutions (on by default `[memory]`)
 

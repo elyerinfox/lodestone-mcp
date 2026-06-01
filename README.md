@@ -146,7 +146,8 @@ and plug into ~85 named formulas across fields (`physics_formula`, `geometry_for
   read the exact source; `docs_search` across crates.io / npm / MDN and framework
   docs; `github_releases` to summarize what changed between versions.
 - **DevOps & SRE** — triage a box without a shell: `docker_ps` → `docker_logs`,
-  `k8s_get` → `k8s_logs` → `k8s_scale`, `system_info` / `system_disks` / `system_gpu`,
+  `k8s_get` → `k8s_logs` → `k8s_scale`, `system_info` / `system_disks` /
+  `system_gpu_nvidia` / `system_gpu_amd` / `system_gpu_intel`,
   `git_run`, and a guarded `db_query` / `redis_command` to inspect state. Destructive
   steps (delete/remove/exec) pause for confirmation.
 - **Containers & registries** — image/tag/manifest lookups across Docker Hub, any OCI
@@ -183,7 +184,7 @@ defaulted sensibly):
 - **Scale out** — run several instances as a [constellation](docs/constellation.md)
   that serves each other's cached results/PDFs (hash-only on the wire), optionally
   linked across networks by a [galaxy](docs/constellation.md#galaxy--linking-constellations)
-  broker. Long work can run in the background (`task_run` → `task_result`).
+  broker. Long work can run in the background (`search_async` → `tasks_result`).
 
 ## Quick start
 

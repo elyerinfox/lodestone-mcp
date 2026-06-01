@@ -24,8 +24,6 @@ use crate::skills::{schema_for, Skill, SkillCtx};
 use crate::util::truncate_chars;
 use crate::{internal, invalid, text_result};
 
-pub const TOOL_NAMES: &[&str] = &["db_query", "redis_command"];
-
 /// Max rows rendered from a query result (the query still runs in full).
 const MAX_ROWS: usize = 200;
 

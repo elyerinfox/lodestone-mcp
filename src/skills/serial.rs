@@ -20,9 +20,6 @@ use crate::skills::{schema_for, NoArgs, Skill, SkillCtx};
 use crate::util::truncate_chars;
 use crate::{internal, text_result};
 
-/// Tool names (gated by `[serial].enabled` in `disabled_by_config`).
-pub const TOOL_NAMES: &[&str] = &["serial_ports", "serial_send", "serial_read"];
-
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct SendArgs {
     /// Port to open, e.g. `COM3` (Windows) or `/dev/ttyUSB0` (Linux).
@@ -97,7 +94,7 @@ impl Skill for SerialSend {
             if let Decision::Challenge(msg) = server.guard.check(
                 "serial_send",
                 "serial_send",
-                false, // no pre-authorize flag for serial; always confirm or trust
+                server.cfg.serial.allow_destructive,
                 &summary,
                 args.confirm.as_deref(),
                 args.trust.unwrap_or(false),
@@ -234,8 +231,13 @@ impl crate::skills::FamilyMeta for Family {
     fn family(&self) -> &'static str {
         "serial"
     }
-    fn tools(&self) -> &'static [&'static str] {
-        TOOL_NAMES
+    fn tools(&self) -> Vec<&'static str> {
+        skills().iter().map(|s| s.name()).collect()
+    }
+    fn description(&self) -> &'static str {
+        "List, open, and (with confirmation) write to local serial ports — UART/USB-serial \
+         devices for microcontrollers, sensors, modems. Off by default; requires the host \
+         to actually expose serial devices the user account can access."
     }
     fn check_capability(&self) -> crate::skills::SkillCapability {
         use crate::skills::SkillCapability;

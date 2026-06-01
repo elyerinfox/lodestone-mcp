@@ -234,71 +234,101 @@
         class="rounded-lg border border-slate-800 bg-surface-1"
       >
         <header
-          class="flex items-center justify-between border-b border-slate-800 px-4 py-2"
+          class="border-b border-slate-800 px-4 py-2"
         >
-          <h3 class="font-mono text-sm font-semibold text-slate-200">
-            {{ group.family }}_*
-          </h3>
-          <div class="text-xs text-slate-500">
-            <span v-if="group.active.length > 0" class="text-accent-ok">
-              {{ group.active.length }} active
-            </span>
-            <span
-              v-if="group.active.length > 0 && group.disabled.length > 0"
-              class="mx-1 text-slate-600"
-              >·</span
-            >
-            <span v-if="group.disabled.length > 0" class="text-accent-warn">
-              {{ group.disabled.length }} hidden
-            </span>
+          <div class="flex items-center justify-between">
+            <h3 class="font-mono text-sm font-semibold text-slate-200">
+              {{ group.family }}_*
+            </h3>
+            <div class="text-xs text-slate-500">
+              <span v-if="group.active.length > 0" class="text-accent-ok">
+                {{ group.active.length }} active
+              </span>
+              <span
+                v-if="group.active.length > 0 && group.disabled.length > 0"
+                class="mx-1 text-slate-600"
+                >·</span
+              >
+              <span v-if="group.disabled.length > 0" class="text-accent-warn">
+                {{ group.disabled.length }} hidden
+              </span>
+            </div>
           </div>
+          <!-- Family blurb from FamilyMeta::description. Empty for
+               families that haven't supplied one yet. -->
+          <p
+            v-if="familyDescription(group.family)"
+            class="mt-1 text-xs text-slate-400"
+          >
+            {{ familyDescription(group.family) }}
+          </p>
         </header>
         <ul
-          class="grid grid-cols-1 gap-x-4 text-xs md:grid-cols-2 lg:grid-cols-3"
+          class="space-y-1.5 text-xs"
           :class="compact ? 'px-4 py-2' : 'px-4 py-3'"
         >
           <li
             v-for="t in group.active"
             :key="`a-${t}`"
-            class="group flex items-center gap-2 font-mono"
+            class="group flex items-start gap-2"
             :class="compact ? 'py-0' : 'py-0.5'"
           >
             <span
-              class="h-1.5 w-1.5 rounded-full shrink-0"
+              class="mt-1.5 h-1.5 w-1.5 rounded-full shrink-0"
               :class="
                 runtimeDisabledSet.has(t) ? 'bg-amber-400' : 'bg-accent-ok'
               "
             />
-            <span
-              class="truncate"
-              :class="
-                runtimeDisabledSet.has(t)
-                  ? 'text-amber-300 line-through opacity-80'
-                  : 'text-slate-200'
-              "
-            >{{ t }}</span>
-            <button
-              type="button"
-              class="ml-auto text-[10px] opacity-0 group-hover:opacity-100 focus:opacity-100"
-              :class="
-                runtimeDisabledSet.has(t)
-                  ? 'text-accent-ok hover:underline'
-                  : 'text-amber-400 hover:underline'
-              "
-              :title="runtimeDisabledSet.has(t) ? 'Re-enable at runtime' : 'Kill at runtime (no restart)'"
-              @click="toggleTool(t, !runtimeDisabledSet.has(t))"
-            >
-              {{ runtimeDisabledSet.has(t) ? 'enable' : 'kill' }}
-            </button>
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-2">
+                <span
+                  class="truncate font-mono"
+                  :class="
+                    runtimeDisabledSet.has(t)
+                      ? 'text-amber-300 line-through opacity-80'
+                      : 'text-slate-200'
+                  "
+                >{{ t }}</span>
+                <button
+                  type="button"
+                  class="ml-auto text-[10px] opacity-0 group-hover:opacity-100 focus:opacity-100"
+                  :class="
+                    runtimeDisabledSet.has(t)
+                      ? 'text-accent-ok hover:underline'
+                      : 'text-amber-400 hover:underline'
+                  "
+                  :title="runtimeDisabledSet.has(t) ? 'Re-enable at runtime' : 'Kill at runtime (no restart)'"
+                  @click="toggleTool(t, !runtimeDisabledSet.has(t))"
+                >
+                  {{ runtimeDisabledSet.has(t) ? 'enable' : 'kill' }}
+                </button>
+              </div>
+              <p
+                v-if="!compact && toolDescription(t)"
+                class="mt-0.5 text-[11px] leading-snug text-slate-400"
+              >
+                {{ toolDescription(t) }}
+              </p>
+            </div>
           </li>
           <li
             v-for="t in group.disabled"
             :key="`d-${t}`"
-            class="flex items-center gap-2 font-mono opacity-60"
+            class="flex items-start gap-2 opacity-60"
             :class="compact ? 'py-0' : 'py-0.5'"
           >
-            <span class="h-1.5 w-1.5 rounded-full bg-accent-warn shrink-0" />
-            <span class="truncate text-slate-400 line-through">{{ t }}</span>
+            <span class="mt-1.5 h-1.5 w-1.5 rounded-full bg-accent-warn shrink-0" />
+            <div class="min-w-0 flex-1">
+              <span class="truncate font-mono text-slate-400 line-through">
+                {{ t }}
+              </span>
+              <p
+                v-if="!compact && toolDescription(t)"
+                class="mt-0.5 text-[11px] leading-snug text-slate-500"
+              >
+                {{ toolDescription(t) }}
+              </p>
+            </div>
           </li>
         </ul>
       </div>
@@ -350,6 +380,39 @@ const disabledTotal = computed(
 function family(name: string): string {
   const i = name.indexOf('_')
   return i < 0 ? '(misc)' : name.slice(0, i)
+}
+
+// O(1) lookups for the descriptions the WS snapshot publishes:
+//   - tool name → Skill::description() (every registered tool)
+//   - tool-prefix → FamilyMeta::description() (only families with a
+//     FamilyMeta registered; built by matching each capability row's
+//     `tools` against our prefix grouping so e.g. `k8s_*` resolves to
+//     the kubernetes family's description even though family() returns
+//     "kubernetes" and the prefix is "k8s").
+const toolDescriptionMap = computed(() => {
+  const m = new Map<string, string>()
+  for (const t of snapshot.value?.server.tool_descriptions ?? []) {
+    m.set(t.name, t.description)
+  }
+  return m
+})
+
+const familyDescriptionMap = computed(() => {
+  const m = new Map<string, string>()
+  for (const cap of snapshot.value?.server.skill_capabilities ?? []) {
+    if (!cap.description) continue
+    const prefixes = new Set(cap.tools.map(family))
+    for (const p of prefixes) m.set(p, cap.description)
+  }
+  return m
+})
+
+function toolDescription(name: string): string {
+  return toolDescriptionMap.value.get(name) ?? ''
+}
+
+function familyDescription(prefix: string): string {
+  return familyDescriptionMap.value.get(prefix) ?? ''
 }
 
 interface ToolGroup {

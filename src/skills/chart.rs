@@ -30,27 +30,6 @@ use serde::Deserialize;
 use crate::skills::{ensure_min_len, schema_for, Skill, SkillCtx};
 use crate::{invalid, text_result};
 
-pub const TOOL_NAMES: &[&str] = &[
-    "chart_line",
-    "chart_bar",
-    "chart_scatter",
-    "chart_histogram",
-    "chart_pie",
-    "chart_heatmap",
-    "chart_canvas",
-    "chart_grafana",
-    // Grafana panel types
-    "chart_stat",
-    "chart_gauge",
-    "chart_bar_gauge",
-    "chart_state_timeline",
-    "chart_candlestick",
-    "chart_sparkline",
-    // Interactive + diagram
-    "chart_interactive",
-    "chart_mermaid",
-];
-
 // ---------------------------------------------------------------------------
 // SVG engine — small, dependency-free, self-contained
 // ---------------------------------------------------------------------------

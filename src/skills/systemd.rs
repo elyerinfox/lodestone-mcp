@@ -21,15 +21,6 @@ use crate::skills::{schema_for, Skill, SkillCtx};
 use crate::util::truncate_chars;
 use crate::{internal, invalid, text_result};
 
-pub const TOOL_NAMES: &[&str] = &[
-    "systemd_list",
-    "systemd_status",
-    "systemd_logs",
-    "systemd_start",
-    "systemd_stop",
-    "systemd_restart",
-];
-
 async fn run(cmd: &str, args: &[&str], secs: u64) -> Result<(i32, String, String), McpError> {
     let mut c = Command::new(cmd);
     c.args(args).kill_on_drop(true);
@@ -278,8 +269,13 @@ impl crate::skills::FamilyMeta for Family {
     fn family(&self) -> &'static str {
         "systemd"
     }
-    fn tools(&self) -> &'static [&'static str] {
-        TOOL_NAMES
+    fn tools(&self) -> Vec<&'static str> {
+        skills().iter().map(|s| s.name()).collect()
+    }
+    fn description(&self) -> &'static str {
+        "Inspect and (with confirmation) control systemd units on the host — list / show / \
+         status / journal / start / stop / restart / enable / disable. Linux-only; requires \
+         `systemctl` and `journalctl` on `$PATH`."
     }
     fn check_capability(&self) -> crate::skills::SkillCapability {
         use crate::skills::{binary_on_path, SkillCapability};

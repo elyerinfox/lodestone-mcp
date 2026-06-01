@@ -215,9 +215,17 @@ struct FetchFileArgs {
 struct WebpageToPdfArgs {
     /// Absolute URL of the page to render to PDF (via the local headless browser).
     url: String,
-    /// Output file path. Omit to write to a temp file; the saved path is returned.
+    /// Output file path — **confined to `[filesystem].roots`** like every other
+    /// `fs_*` write. Omit to write to a temp file under the OS temp dir; the
+    /// saved path is returned either way.
     #[serde(default)]
     path: Option<String>,
+    /// One-time token from a prior call's confirmation prompt. Omit on the first call.
+    #[serde(default)]
+    confirm: Option<String>,
+    /// With `confirm`, stop asking for `webpage_to_pdf` for the rest of the session.
+    #[serde(default)]
+    trust: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -325,8 +333,10 @@ impl Skill for WebpageToPdf {
     }
     fn description(&self) -> &'static str {
         "Render a web page to a PDF file locally via the headless browser (no external service). \
-        Saves to `path`, or a temp file if omitted, and returns the saved path. Needs a local \
-        Chrome/Chromium at runtime."
+        **Side-effecting** — writes a file under `[filesystem].roots`. The first call returns a \
+        confirmation token and does nothing; call again with `confirm=<token>` to write (or \
+        `confirm + trust=true`). `[filesystem].allow_destructive=true` pre-authorizes. Output \
+        `path` is confined to `[filesystem].roots`; omit it to write under the OS temp dir."
     }
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<WebpageToPdfArgs>()
@@ -334,18 +344,19 @@ impl Skill for WebpageToPdf {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             use crate::browser::PageRenderer;
-            let (_server, args) = ctx.parse::<WebpageToPdfArgs>()?;
-            let bytes = browser::shared_global()
-                .render_pdf(&args.url)
-                .await
-                .map_err(internal)?;
-            let path = match args
+            use crate::skills::guard::Decision;
+            let (server, args) = ctx.parse::<WebpageToPdfArgs>()?;
+            // Resolve the destination FIRST so the confirmation prompt
+            // shows the exact path the model is about to write — and so
+            // an out-of-roots path is rejected before we even render the
+            // PDF.
+            let resolved_path: std::path::PathBuf = match args
                 .path
                 .as_deref()
                 .map(str::trim)
                 .filter(|s| !s.is_empty())
             {
-                Some(p) => std::path::PathBuf::from(p),
+                Some(p) => crate::skills::filesystem::resolve(&server.fs, p)?,
                 None => {
                     use std::hash::{Hash, Hasher};
                     let mut h = std::collections::hash_map::DefaultHasher::new();
@@ -353,12 +364,30 @@ impl Skill for WebpageToPdf {
                     std::env::temp_dir().join(format!("lodestone-{:x}.pdf", h.finish()))
                 }
             };
-            std::fs::write(&path, &bytes).map_err(|e| {
-                internal(anyhow::anyhow!("could not write '{}': {e}", path.display()))
+            let summary = format!("write {} from {}", resolved_path.display(), args.url);
+            if let Decision::Challenge(msg) = server.guard.check(
+                "webpage_to_pdf",
+                "webpage_to_pdf",
+                server.fs.allow_destructive,
+                &summary,
+                args.confirm.as_deref(),
+                args.trust.unwrap_or(false),
+            ) {
+                return Ok(text_result(msg));
+            }
+            let bytes = browser::shared_global()
+                .render_pdf(&args.url)
+                .await
+                .map_err(internal)?;
+            std::fs::write(&resolved_path, &bytes).map_err(|e| {
+                internal(anyhow::anyhow!(
+                    "could not write '{}': {e}",
+                    resolved_path.display()
+                ))
             })?;
             Ok(text_result(format!(
                 "Saved {} ({} bytes) from {}",
-                path.display(),
+                resolved_path.display(),
                 bytes.len(),
                 args.url
             )))

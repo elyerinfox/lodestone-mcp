@@ -42,8 +42,11 @@ pub mod huggingface;
 pub mod image;
 pub mod kernel;
 pub mod kubernetes;
+pub mod mcp_tasks;
 pub mod memory;
+pub mod meshtastic;
 pub mod meta;
+pub mod mqtt;
 pub mod nasa;
 pub mod news;
 pub mod noaa;
@@ -51,6 +54,7 @@ pub mod notebook;
 pub mod oci;
 pub mod openaccess;
 pub mod osm;
+pub mod packages;
 pub mod pcap;
 pub mod peeringdb;
 pub mod physics;
@@ -97,9 +101,23 @@ use crate::Lodestone;
 
 /// What a [`Skill::call`] receives: the shared server state plus the raw,
 /// already-extracted argument object (parse it with [`SkillCtx::parse`]).
+///
+/// `peer` + `meta` mirror the rmcp request context for the underlying
+/// tool call. Skills that participate in the **Tasks** primitive
+/// (`mqtt_listen`, `meshtastic_listen`, anything that emits
+/// `notifications/progress` or `notifications/tasks/status`) read the
+/// caller's `progressToken` out of `meta` and use `peer` to send
+/// notifications. Plain synchronous tools ignore both fields. Owned
+/// rather than borrowed because `Peer` is cheap to clone (transport-
+/// channel handles only) and skills routinely need to hand it into a
+/// `tokio::spawn`'d task that outlives the call.
 pub struct SkillCtx<'a> {
     pub server: &'a Lodestone,
     pub args: JsonObject,
+    /// rmcp peer handle. `None` only in hand-constructed test contexts.
+    pub peer: Option<rmcp::service::Peer<rmcp::RoleServer>>,
+    /// rmcp request `_meta` (the dictionary carrying `progressToken`, etc.).
+    pub meta: Option<rmcp::model::Meta>,
 }
 
 impl<'a> SkillCtx<'a> {
@@ -107,6 +125,12 @@ impl<'a> SkillCtx<'a> {
     pub fn parse<T: DeserializeOwned>(self) -> Result<(&'a Lodestone, T), McpError> {
         let args = parse_json_object::<T>(self.args)?;
         Ok((self.server, args))
+    }
+
+    /// Convenience: pull the MCP `progressToken` the caller put in
+    /// `_meta.progressToken`, if any.
+    pub fn progress_token(&self) -> Option<rmcp::model::ProgressToken> {
+        self.meta.as_ref().and_then(|m| m.get_progress_token())
     }
 }
 
@@ -149,7 +173,7 @@ pub(crate) fn schema_for<T: JsonSchema + 'static>() -> Arc<JsonObject> {
 // the tools exposed. A separate *capability* check answers "does this host
 // have what the family actually needs to run?" — a Docker daemon socket, a
 // reachable kubeconfig, `python3` on `$PATH`, `ffmpeg` on `$PATH`, NVML for
-// `system_gpu`, etc. Both gates are independent: a tool only fires when its
+// `system_gpu_nvidia`, etc. Both gates are independent: a tool only fires when its
 // family is enabled in config AND the capability probe returned `Ready`.
 //
 // The signal flows in three directions:
@@ -222,15 +246,37 @@ pub trait FamilyMeta: Send + Sync + 'static {
     /// Stable id used in logs, snapshot fields, dashboard groupings, and
     /// the error messages the LLM sees on a blocked dispatch.
     fn family(&self) -> &'static str;
-    /// The tools this family exposes. Lets the registry build the
-    /// `tool_name → family` reverse index in one pass.
-    fn tools(&self) -> &'static [&'static str];
-    /// Probe the host. Default = `Ready` (the common case). Override
-    /// when the family needs a binary on `$PATH`, a socket, a
-    /// kubeconfig, etc.
-    fn check_capability(&self) -> SkillCapability {
-        SkillCapability::Ready
-    }
+    /// The tools this family exposes. Derived from the module's
+    /// `skills()` registry rather than maintained as a separate const
+    /// list — every `Skill::name()` is `&'static str`, so we just collect
+    /// them. The single source of truth is the `skills()` `vec!` literal,
+    /// which means there's no risk of the const drifting from the boxed
+    /// skill list.
+    fn tools(&self) -> Vec<&'static str>;
+    /// Short, human-readable summary of what this family does and the
+    /// host requirement that makes it interesting (e.g. "Inspect/control
+    /// the local Docker daemon via the engine API"). Shown verbatim on
+    /// the dashboard's Tools page under the family group header.
+    ///
+    /// **Required, no default.** A `FamilyMeta` impl that didn't surface
+    /// a description would carry no useful signal — pure-Rust families
+    /// just don't register `FamilyMeta`. If you're wiring one up, you're
+    /// asserting "the dashboard / operator should see this family"; a
+    /// real one-line description is the price of admission.
+    fn description(&self) -> &'static str;
+    /// Probe the host for whatever this family depends on (a binary on
+    /// `$PATH`, a socket, a kubeconfig, …). Runs once at startup; the
+    /// result is cached on `Lodestone.skill_capabilities` and consulted
+    /// by the dispatch wrapper.
+    ///
+    /// **Required, no default.** Probing the host is the *whole reason*
+    /// a family registers `FamilyMeta` — a default `Ready` would mean
+    /// "I needed no probe," and a family with no probe shouldn't register
+    /// at all (pure-Rust families inherit the implicit-Ready path in
+    /// dispatch). If your family probably needs a probe but you can't
+    /// write one yet, return `Ready` explicitly so the choice is visible
+    /// in the source.
+    fn check_capability(&self) -> SkillCapability;
 }
 
 /// Every family registered with the capability framework. Adding a
@@ -254,6 +300,9 @@ pub fn families() -> Vec<Box<dyn FamilyMeta>> {
         Box::new(serial::Family),
         Box::new(printer::Family),
         Box::new(sdr::Family),
+        Box::new(mqtt::Family),
+        Box::new(meshtastic::Family),
+        Box::new(packages::Family),
     ]
 }
 
@@ -482,30 +531,96 @@ fn recall_preamble(hits: &[memory::RecallHit]) -> String {
     out
 }
 
-/// Turn one boxed skill into a dynamic tool route. The wrapper adds two
-/// intrinsic behaviors when memory is enabled:
+/// Global arguments injected into **every** tool's schema by [`route`].
+/// The wrapper extracts them before invoking the skill body, so the skill
+/// never sees them — its own typed args struct stays clean.
 ///
-/// 1. **Prior-solution recall** — if the tool's arguments carry a query,
-///    matching prior solutions are prepended as a preamble. The model never
-///    has to call `solution_find` explicitly.
-/// 2. **Conversation recording** — every tool call writes one row to
-///    `conversation_turns` so the model can later traverse "what else
-///    happened in this conversation" via `conversation_show`, and solutions
-///    recorded mid-call back-link to their conversation.
+/// Today there's one global: `background`. When the model sets
+/// `background: true` in a call, the dispatch wrapper spawns the skill
+/// body into [`crate::tasks::TaskRuntime`] and returns a `task_id`
+/// immediately. Progress + completion notifications fire through the
+/// usual MCP channels (`notifications/progress` for any caller-supplied
+/// `_meta.progressToken`, `notifications/tasks/status` on terminal
+/// transitions). The body itself runs unchanged.
+#[derive(Debug, Default, Clone, Copy)]
+struct GlobalToolArgs {
+    background: bool,
+}
+
+/// Strip the global args out of a call's argument map and return them in
+/// typed form. Mutates `args` in place — after this, the map is the
+/// "skill-only" subset suitable for `Skill::call`.
+fn extract_global_args(args: &mut JsonObject) -> GlobalToolArgs {
+    let background = args
+        .remove("background")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    GlobalToolArgs { background }
+}
+
+/// Inject the global-arg schema fragment (`background`, …) into a tool's
+/// own argument schema before exposing it via MCP `tools/list`. The model
+/// sees one merged schema; the dispatch wrapper splits the globals out
+/// before invoking the body. Idempotent — overrides only the
+/// global-named keys, leaves every skill-specific property alone.
+fn merge_global_args_into_schema(schema: &JsonObject) -> JsonObject {
+    let mut out = schema.clone();
+    let properties = out
+        .entry("properties".to_string())
+        .or_insert_with(|| serde_json::json!({}));
+    if let Some(props) = properties.as_object_mut() {
+        props.insert(
+            "background".to_string(),
+            serde_json::json!({
+                "type": "boolean",
+                "description": "Global flag. When true, spawn this call as a background task in the shared TaskRuntime: the response is a `task_id` (poll via `tasks_result`), and `notifications/progress` + `notifications/tasks/status` fire for any caller-supplied `_meta.progressToken`. Default false.",
+            }),
+        );
+    }
+    out
+}
+
+/// Turn one boxed skill into a dynamic tool route. The wrapper adds three
+/// intrinsic behaviors:
+///
+/// 1. **Global `background` flag** — every tool's exposed schema gains a
+///    `background: bool` property. When set to `true` the wrapper spawns
+///    the skill body into [`crate::tasks::TaskRuntime`] and returns a
+///    `task_id` immediately, instead of awaiting the body inline. The
+///    skill body itself sees only its own typed args.
+/// 2. **Prior-solution recall** (foreground path, memory-enabled only) —
+///    if the tool's arguments carry a query, matching prior solutions
+///    are prepended as a preamble. The model never has to call
+///    `solution_find` explicitly.
+/// 3. **Conversation recording** (foreground path, memory-enabled only) —
+///    every tool call writes one row to `conversation_turns` so the
+///    model can later traverse "what else happened in this conversation"
+///    via `conversation_show`, and solutions recorded mid-call back-link
+///    to their conversation.
+///
+/// Backgrounded calls deliberately skip (2) and (3) for v1 — the model
+/// can call `recall` / `conversation_*` itself if needed against the
+/// `tasks_result` body. We may move them inside the task body later.
 ///
 /// Conversation-traversal tools (`conversation_*`, `solution_conversations`)
-/// are themselves recorded — that's intentional, traversal calls are part of
-/// the conversation too.
+/// are themselves recorded — that's intentional, traversal calls are part
+/// of the conversation too.
 fn route(skill: Box<dyn Skill>) -> ToolRoute<Lodestone> {
     let tool_name: &'static str = skill.name();
+    let augmented_schema = merge_global_args_into_schema(skill.schema().as_ref());
     let tool = Tool::new(
         tool_name.to_string(),
         skill.description().to_string(),
-        skill.schema(),
+        Arc::new(augmented_schema),
     );
+    // Boxed → shared so the closure can clone into a `tokio::spawn` body
+    // on the background path. The foreground path treats it just like
+    // the prior `Box<dyn Skill>`.
+    let skill: Arc<dyn Skill> = Arc::from(skill);
     ToolRoute::new_dyn(tool, move |ctx: ToolCallContext<'_, Lodestone>| {
         let server = ctx.service;
-        let args = ctx.arguments.unwrap_or_default();
+        let mut args = ctx.arguments.unwrap_or_default();
+        let globals = extract_global_args(&mut args);
         let trigger = intent_trigger(tool_name, &args);
         // Runtime kill-switch from the dashboard's Tools settings drawer.
         // Reject before we run the skill body — also short-circuits the
@@ -543,7 +658,72 @@ fn route(skill: Box<dyn Skill>) -> ToolRoute<Lodestone> {
             let err = rmcp::ErrorData::invalid_request(msg, None);
             return Box::pin(async move { Err(err) });
         }
-        let sctx = SkillCtx { server, args };
+        let peer = Some(ctx.request_context.peer.clone());
+        let meta = Some(ctx.request_context.meta.clone());
+
+        // Background fork — `background: true` was extracted from args.
+        // Spawn the skill body into the shared TaskRuntime and return a
+        // task_id immediately. Notification observers are wired before
+        // we return so the FIRST `notifications/progress` (the
+        // task body's start tick) reaches the caller. Memory recall and
+        // conversation recording are deliberately skipped for v1 — the
+        // model can `recall` / `conversation_show` against
+        // `tasks_result` if needed.
+        if globals.background {
+            let owned_server = server.clone();
+            let runtime = server.task_runtime.clone();
+            let runtime_for_observers = runtime.clone();
+            let skill_for_spawn = skill.clone();
+            let label = format!("{tool_name} (background)");
+            let peer_for_body = peer.clone();
+            let meta_for_body = meta.clone();
+            let peer_for_observers = peer.clone();
+            return Box::pin(async move {
+                let task_id = runtime
+                    .spawn(tool_name, label, move |handle| async move {
+                        handle
+                            .progress(0.0, None, Some(format!("running {tool_name}")))
+                            .await;
+                        let sctx = SkillCtx {
+                            server: &owned_server,
+                            args,
+                            peer: peer_for_body,
+                            meta: meta_for_body,
+                        };
+                        let result = skill_for_spawn
+                            .call(sctx)
+                            .await
+                            .map_err(|e| anyhow::anyhow!("{}", e.message))?;
+                        handle.progress(1.0, None, Some("done".into())).await;
+                        let body = serde_json::to_value(&result).unwrap_or(serde_json::Value::Null);
+                        Ok(body)
+                    })
+                    .await;
+                if let (Some(p), Some(t)) = (
+                    peer_for_observers.clone(),
+                    meta.and_then(|m| m.get_progress_token()),
+                ) {
+                    runtime_for_observers.observe_progress(&task_id, p, t).await;
+                }
+                if let Some(p) = peer_for_observers {
+                    runtime_for_observers.observe_status(&task_id, p).await;
+                }
+                Ok(crate::text_result(format!(
+                    "Started {tool_name} in the background as {task_id}. Fetch the result \
+                     with `tasks_result {{\"task_id\":\"{task_id}\"}}`; cancel with \
+                     `tasks_cancel`. If the caller passed `_meta.progressToken`, \
+                     `notifications/progress` ticks and a final `notifications/tasks/status` \
+                     are flowing now."
+                )))
+            });
+        }
+
+        let sctx = SkillCtx {
+            server,
+            args,
+            peer,
+            meta,
+        };
         let fut = skill.call(sctx);
         Box::pin(async move {
             let mut result = fut.await?;
@@ -678,6 +858,10 @@ pub fn all_skills() -> Vec<Box<dyn Skill>> {
     skills.extend(systemd::skills());
     skills.extend(astro::skills());
     skills.extend(radio::skills());
+    skills.extend(mqtt::skills());
+    skills.extend(meshtastic::skills());
+    skills.extend(mcp_tasks::skills());
+    skills.extend(packages::skills());
     skills.extend(osm::skills());
     skills.extend(grid::skills());
     skills.extend(eia::skills());
@@ -729,53 +913,65 @@ pub fn registered_tool_names() -> Vec<String> {
 /// full only when it's *disabled*; its destructive actions stay exposed and are
 /// gated at **call time** by the confirmation [`guard`] (so any client gets the
 /// "confirm / trust / cancel" prompt, with `allow_destructive` as pre-authorization).
-/// Each family declares its own `TOOL_NAMES`, so `main.rs` hardcodes none.
+/// Each family's name list is derived from its own `skills()` registry — the
+/// boxed skills are constructed once (startup) and dropped after their names
+/// are extracted, so there's no separate `TOOL_NAMES` const to keep in sync.
 pub fn disabled_by_config(cfg: &crate::config::Config) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
-    let mut hide_if_off = |enabled: bool, all: &[&str]| {
+    let mut hide_if_off = |enabled: bool, family_skills: fn() -> Vec<Box<dyn Skill>>| {
         if !enabled {
-            out.extend(all.iter().map(|s| s.to_string()));
+            for s in family_skills() {
+                out.push(s.name().to_string());
+            }
         }
     };
-    hide_if_off(cfg.docker.enabled, docker::TOOL_NAMES);
-    hide_if_off(cfg.kubernetes.enabled, kubernetes::TOOL_NAMES);
-    hide_if_off(cfg.filesystem.enabled, filesystem::TOOL_NAMES);
-    hide_if_off(cfg.shell.enabled, shell::TOOL_NAMES);
-    hide_if_off(cfg.git.enabled, git::TOOL_NAMES);
-    hide_if_off(cfg.sysinfo.enabled, sysinfo::TOOL_NAMES);
+    hide_if_off(cfg.docker.enabled, docker::skills);
+    hide_if_off(cfg.kubernetes.enabled, kubernetes::skills);
+    hide_if_off(cfg.filesystem.enabled, filesystem::skills);
+    hide_if_off(cfg.shell.enabled, shell::skills);
+    hide_if_off(cfg.git.enabled, git::skills);
+    hide_if_off(cfg.sysinfo.enabled, sysinfo::skills);
     // FFmpeg conversion — off by default (needs a local ffmpeg).
-    hide_if_off(cfg.ffmpeg.enabled, ffmpeg::TOOL_NAMES);
-    hide_if_off(cfg.fcc.enabled, fcc::TOOL_NAMES);
-    hide_if_off(cfg.chart.enabled, chart::TOOL_NAMES);
-    hide_if_off(cfg.image.enabled, image::TOOL_NAMES);
-    hide_if_off(cfg.html.enabled, html::TOOL_NAMES);
+    hide_if_off(cfg.ffmpeg.enabled, ffmpeg::skills);
+    hide_if_off(cfg.fcc.enabled, fcc::skills);
+    hide_if_off(cfg.chart.enabled, chart::skills);
+    hide_if_off(cfg.image.enabled, image::skills);
+    hide_if_off(cfg.html.enabled, html::skills);
     // Spreadsheet read/query/write — off by default (file I/O).
-    hide_if_off(cfg.spreadsheet.enabled, spreadsheet::TOOL_NAMES);
+    hide_if_off(cfg.spreadsheet.enabled, spreadsheet::skills);
     // Database tools (ad-hoc connections, no preconfiguration) — off by default.
-    hide_if_off(cfg.databases.enabled, databases::TOOL_NAMES);
+    hide_if_off(cfg.databases.enabled, databases::skills);
     // File-store tools are gated by [store] (cache_status stays always-on).
-    hide_if_off(cfg.store.enabled, store::TOOL_NAMES);
+    hide_if_off(cfg.store.enabled, store::skills);
     // Serial / printer / SDR hardware skills — off by default.
-    hide_if_off(cfg.serial.enabled, serial::TOOL_NAMES);
-    hide_if_off(cfg.printer.enabled, printer::TOOL_NAMES);
-    hide_if_off(cfg.sdr.enabled, sdr::TOOL_NAMES);
+    hide_if_off(cfg.serial.enabled, serial::skills);
+    hide_if_off(cfg.printer.enabled, printer::skills);
+    hide_if_off(cfg.sdr.enabled, sdr::skills);
     // Background tasks — off by default.
-    hide_if_off(cfg.tasks.enabled, tasks::TOOL_NAMES);
+    hide_if_off(cfg.tasks.enabled, tasks::skills);
     // Memory & solution-history skills — on by default; gateable.
-    hide_if_off(cfg.memory.enabled, memory::TOOL_NAMES);
-    hide_if_off(cfg.signal.enabled, signal::TOOL_NAMES);
-    hide_if_off(cfg.wave.enabled, wave::TOOL_NAMES);
-    hide_if_off(cfg.binary.enabled, binary::TOOL_NAMES);
-    hide_if_off(cfg.pcap.enabled, pcap::TOOL_NAMES);
-    hide_if_off(cfg.disasm.enabled, disasm::TOOL_NAMES);
-    hide_if_off(cfg.notebook.enabled, notebook::TOOL_NAMES);
-    hide_if_off(cfg.python.enabled, python::TOOL_NAMES);
-    hide_if_off(cfg.systemd.enabled, systemd::TOOL_NAMES);
-    hide_if_off(cfg.astro.enabled, astro::TOOL_NAMES);
-    hide_if_off(cfg.radio.enabled, radio::TOOL_NAMES);
+    hide_if_off(cfg.memory.enabled, memory::skills);
+    hide_if_off(cfg.signal.enabled, signal::skills);
+    hide_if_off(cfg.wave.enabled, wave::skills);
+    hide_if_off(cfg.binary.enabled, binary::skills);
+    hide_if_off(cfg.pcap.enabled, pcap::skills);
+    hide_if_off(cfg.disasm.enabled, disasm::skills);
+    hide_if_off(cfg.notebook.enabled, notebook::skills);
+    hide_if_off(cfg.python.enabled, python::skills);
+    hide_if_off(cfg.systemd.enabled, systemd::skills);
+    hide_if_off(cfg.astro.enabled, astro::skills);
+    hide_if_off(cfg.radio.enabled, radio::skills);
     // Stock quotes — on by default, but gateable. Yahoo Finance shares the gate.
-    hide_if_off(cfg.stocks.enabled, stocks::TOOL_NAMES);
-    hide_if_off(cfg.stocks.enabled, yahoo::TOOL_NAMES);
+    hide_if_off(cfg.stocks.enabled, stocks::skills);
+    hide_if_off(cfg.stocks.enabled, yahoo::skills);
+    // MQTT pub/sub + the meshtastic decoder that rides on it. Both off
+    // by default; meshtastic additionally fails per-call if [mqtt] isn't
+    // wired up (see `require_client` in skills/meshtastic.rs).
+    hide_if_off(cfg.mqtt.enabled, mqtt::skills);
+    hide_if_off(cfg.meshtastic.enabled, meshtastic::skills);
+    // OS / distro package managers — off by default; destructive ops
+    // (install/upgrade/remove) ALSO route through guard at call time.
+    hide_if_off(cfg.packages.enabled, packages::skills);
     out
 }
 
@@ -786,6 +982,64 @@ mod tests {
 
     fn args(map: serde_json::Value) -> JsonObject {
         map.as_object().unwrap().clone()
+    }
+
+    #[test]
+    fn global_args_extracted_from_map_and_default_false() {
+        // Default: no `background` key → globals.background == false.
+        let mut a = args(json!({"x": 1}));
+        let g = extract_global_args(&mut a);
+        assert!(!g.background);
+        assert!(a.contains_key("x"));
+        assert!(!a.contains_key("background"));
+
+        // Explicit `background: true` → flag set, key removed from skill args.
+        let mut a = args(json!({"x": 1, "background": true}));
+        let g = extract_global_args(&mut a);
+        assert!(g.background);
+        assert!(a.contains_key("x"));
+        assert!(!a.contains_key("background"));
+
+        // Non-bool `background` is ignored (defensive — Anthropic's schema
+        // says boolean but a confused client might send anything).
+        let mut a = args(json!({"background": "yes"}));
+        let g = extract_global_args(&mut a);
+        assert!(!g.background);
+    }
+
+    #[test]
+    fn global_args_appear_in_merged_schema() {
+        // Skill-specific schema with one property `x`.
+        let original = args(json!({
+            "type": "object",
+            "properties": { "x": { "type": "string" } },
+            "required": ["x"],
+        }));
+        let merged = merge_global_args_into_schema(&original);
+        let props = merged
+            .get("properties")
+            .and_then(|v| v.as_object())
+            .expect("properties present");
+        assert!(props.contains_key("x"), "skill property preserved");
+        assert!(props.contains_key("background"), "background injected");
+        let bg = &props["background"];
+        assert_eq!(bg.get("type").and_then(|v| v.as_str()), Some("boolean"));
+        // The `required` field is left alone — background is optional.
+        let req = merged.get("required").and_then(|v| v.as_array()).unwrap();
+        assert_eq!(req.len(), 1);
+        assert_eq!(req[0].as_str(), Some("x"));
+    }
+
+    #[test]
+    fn global_args_inject_into_schema_with_no_properties() {
+        // Some hand-rolled schemas may not have a `properties` key at all.
+        let original = args(json!({"type": "object"}));
+        let merged = merge_global_args_into_schema(&original);
+        let props = merged
+            .get("properties")
+            .and_then(|v| v.as_object())
+            .unwrap();
+        assert!(props.contains_key("background"));
     }
 
     #[test]

@@ -144,21 +144,42 @@ pub struct ServerStatus {
     /// don't need a probe stay implicit. Dashboard groups its tool
     /// list by family + renders a badge per group based on this.
     pub skill_capabilities: Vec<SkillCapabilityEntry>,
+    /// One row per registered tool — name + description, sourced from
+    /// the tool's `Skill::description()` at startup. Covers active and
+    /// config-disabled tools alike so the dashboard can describe both.
+    /// Sorted by name for stable diff/display.
+    pub tool_descriptions: Vec<ToolDescription>,
 }
 
 /// One row on `ServerStatus.skill_capabilities`. `ready=true` means
 /// the family's tools are dispatchable; `false` carries the probe's
 /// one-line `reason` and (optionally) `hint` so the operator and the
-/// LLM both see what's missing and how to fix it.
+/// LLM both see what's missing and how to fix it. `description` comes
+/// from `FamilyMeta::description()` so the dashboard can render a
+/// one-line family blurb alongside its tools without round-tripping
+/// to `tools/list`.
 #[derive(Debug, Clone, Serialize)]
 pub struct SkillCapabilityEntry {
     pub family: String,
     pub tools: Vec<String>,
     pub ready: bool,
+    /// Human-readable summary of what this family does. Empty when
+    /// the family hasn't supplied one yet.
+    pub description: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hint: Option<String>,
+}
+
+/// One row on `ServerStatus.tool_descriptions`. Built once from the
+/// registered `Skill::description()` strings; the dashboard renders
+/// it under each tool name so the operator sees what the tool does
+/// without an extra `tools/list` round-trip.
+#[derive(Debug, Clone, Serialize)]
+pub struct ToolDescription {
+    pub name: String,
+    pub description: String,
 }
 
 /// One bit per secret the server might be configured with. The

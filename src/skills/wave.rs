@@ -12,8 +12,6 @@ use crate::skills::filesystem;
 use crate::skills::{schema_for, Skill, SkillCtx};
 use crate::{internal, invalid, text_result};
 
-pub const TOOL_NAMES: &[&str] = &["wave_info", "wave_samples"];
-
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct PathArgs {
     /// Path to a WAV file (must be inside one of `[filesystem].roots`).

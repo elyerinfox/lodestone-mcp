@@ -23,8 +23,6 @@ use crate::skills::{schema_for, Skill, SkillCtx};
 use crate::util::truncate_chars;
 use crate::{internal, text_result};
 
-pub const TOOL_NAMES: &[&str] = &["python_run"];
-
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct PythonRunArgs {
     /// The Python code to execute (fed to the interpreter via stdin).
@@ -177,8 +175,13 @@ impl crate::skills::FamilyMeta for Family {
     fn family(&self) -> &'static str {
         "python"
     }
-    fn tools(&self) -> &'static [&'static str] {
-        TOOL_NAMES
+    fn tools(&self) -> Vec<&'static str> {
+        skills().iter().map(|s| s.name()).collect()
+    }
+    fn description(&self) -> &'static str {
+        "Run short, sandboxed Python snippets via the host's `python3` interpreter for \
+         scripted data work the model can't do in-context (parsing, math, light scraping). \
+         Requires `python3` on `$PATH`."
     }
     fn check_capability(&self) -> crate::skills::SkillCapability {
         use crate::skills::{binary_on_path, SkillCapability};

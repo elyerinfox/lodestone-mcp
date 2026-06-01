@@ -18,6 +18,7 @@ mod providers;
 mod retrieval;
 mod skills;
 mod store;
+mod tasks;
 mod tracing_control;
 mod util;
 mod ws;
@@ -99,9 +100,6 @@ pub(crate) struct Lodestone {
     /// Per-session confirmation state for destructive actions (the client-agnostic
     /// alternative to MCP elicitation). Shared across cloned handles.
     pub(crate) guard: skills::guard::Guard,
-    /// Background-job registry (model-polled): `task_*` tools spawn long work and
-    /// poll for results here. Shared across cloned handles.
-    pub(crate) tasks: skills::tasks::Tasks,
     /// Persistent memory & solution-history store (the `memory_*` / `solution_*`
     /// tools). On-disk JSONL under `[memory].dir`. Shared across cloned handles.
     pub(crate) memory: skills::memory::Memory,
@@ -109,6 +107,18 @@ pub(crate) struct Lodestone {
     pub(crate) python: Arc<config::Python>,
     /// systemd skill settings.
     pub(crate) systemd: Arc<config::Systemd>,
+    /// Shared MQTT client (`Some` iff `[mqtt].enabled` and the broker
+    /// URL parsed at startup). Used by the standalone `mqtt_*` tools
+    /// AND by the meshtastic skill — same connection, same event loop,
+    /// same ring buffer.
+    pub(crate) mqtt: Option<Arc<skills::mqtt::MqttClient>>,
+    /// Global task runtime — the MCP **Tasks** primitive (2025-11-25)
+    /// Lodestone-side. Skills spawn long work into it and receive a
+    /// `taskId`; lifecycle changes push `notifications/tasks/status`
+    /// (via [`rmcp::model::CustomNotification`]) and per-tick
+    /// progress pushes `notifications/progress`. Shared across cloned
+    /// `Lodestone` handles.
+    pub(crate) task_runtime: tasks::TaskRuntime,
     /// Whole resolved server configuration, shared by `Arc`. Held so
     /// introspection tools (the `features` skill) can report every gateable
     /// family's on/off state and key knobs without dragging individual config
@@ -176,6 +186,7 @@ impl Lodestone {
         memory: skills::memory::Memory,
         python: config::Python,
         systemd: config::Systemd,
+        mqtt: Option<Arc<skills::mqtt::MqttClient>>,
         cfg: Arc<config::Config>,
         tools_enabled: &[String],
         tools_disabled: &[String],
@@ -207,10 +218,11 @@ impl Lodestone {
             databases: Arc::new(databases),
             store,
             guard: skills::guard::Guard::default(),
-            tasks: skills::tasks::Tasks::new(),
             memory,
             python: Arc::new(python),
             systemd: Arc::new(systemd),
+            mqtt,
+            task_runtime: tasks::TaskRuntime::new(),
             disabled_tools: Arc::new(tools_disabled.to_vec()),
             runtime_disabled_tools: Arc::new(std::sync::Mutex::new(
                 std::collections::HashSet::new(),
@@ -472,13 +484,30 @@ impl Lodestone {
                     };
                     rows.push(crate::ws::SkillCapabilityEntry {
                         family: fam.family().to_string(),
-                        tools: fam.tools().iter().map(|s| s.to_string()).collect(),
+                        tools: fam.tools().into_iter().map(|s| s.to_string()).collect(),
                         ready,
+                        description: fam.description().to_string(),
                         reason,
                         hint,
                     });
                 }
                 rows.sort_by(|a, b| a.family.cmp(&b.family));
+                rows
+            },
+            tool_descriptions: {
+                // Sourced from `Skill::description()` for every registered
+                // skill — both active (post-config-gating) and disabled
+                // tools, so the dashboard can describe what a gated tool
+                // would do too. Sorted by name for deterministic display
+                // and stable diffs.
+                let mut rows: Vec<crate::ws::ToolDescription> = skills::all_skills()
+                    .into_iter()
+                    .map(|s| crate::ws::ToolDescription {
+                        name: s.name().to_string(),
+                        description: s.description().to_string(),
+                    })
+                    .collect();
+                rows.sort_by(|a, b| a.name.cmp(&b.name));
                 rows
             },
         };
@@ -618,7 +647,7 @@ fn probe_tools() -> std::collections::HashMap<&'static str, skills::SkillCapabil
     for fam in skills::families() {
         let name = fam.family();
         for t in fam.tools() {
-            tool_to_family.insert(*t, name);
+            tool_to_family.insert(t, name);
         }
     }
     let mut map: std::collections::HashMap<&'static str, SkillCapability> =
@@ -1581,6 +1610,47 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
+    // MQTT — one shared client serving both the standalone mqtt_* tools
+    // and the meshtastic decoder layer. Skipped when [mqtt] is disabled
+    // or the broker URL is empty/invalid; on failure we log a WARN and
+    // leave the tools wired but failing per-call with an actionable
+    // message (the dispatch wrapper surfaces it to the LLM).
+    let mqtt_client: Option<Arc<skills::mqtt::MqttClient>> = if cfg.mqtt.enabled {
+        match skills::mqtt::MqttClient::start(&cfg.mqtt).await {
+            Ok(client) => {
+                tracing::info!(
+                    target: "mqtt",
+                    broker = %client.broker(),
+                    "MQTT client connected"
+                );
+                // Meshtastic auto-subscribe rides on the same client.
+                if cfg.meshtastic.enabled && cfg.meshtastic.auto_subscribe {
+                    let topic = skills::meshtastic::topic_filter(&cfg.meshtastic);
+                    if let Err(e) = client.subscribe(&topic, cfg.mqtt.default_qos).await {
+                        tracing::warn!(
+                            target: "meshtastic",
+                            topic, error = %e,
+                            "meshtastic auto-subscribe failed"
+                        );
+                    } else {
+                        tracing::info!(
+                            target: "meshtastic",
+                            topic,
+                            "meshtastic auto-subscribed to mesh JSON topic"
+                        );
+                    }
+                }
+                Some(client)
+            }
+            Err(e) => {
+                tracing::warn!(target: "mqtt", error = %e, "MQTT startup failed; mqtt_* and meshtastic_* tools will return per-call errors");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     let server = Lodestone::new(
         registry,
         cfg.stackexchange.default_site.clone(),
@@ -1604,6 +1674,7 @@ async fn main() -> anyhow::Result<()> {
         memory,
         cfg.python.clone(),
         cfg.systemd.clone(),
+        mqtt_client,
         cfg.clone(),
         &cfg.tools.enabled,
         &tools_disabled,

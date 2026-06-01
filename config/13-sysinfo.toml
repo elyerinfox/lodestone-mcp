@@ -3,10 +3,13 @@
 # =============================================================================
 #
 # Read-only host facts: OS/kernel/uptime, CPU (model, cores, usage), memory/swap,
-# mounted disks, and NVIDIA GPU stats (via NVML, when present). Cross-platform
-# (Linux /proc + /sys, Windows OS APIs). No writes, so on by default.
+# mounted disks, OS release (Linux), and GPU stats for NVIDIA (NVML), AMD (Linux
+# DRM sysfs), and Intel (Linux DRM sysfs). Each vendor is its own tool with its
+# own capability gate so unavailable backends short-circuit cleanly. No writes,
+# so on by default.
 #
-# Tools: system_info, system_disks, system_gpu.
+# Tools: system_info, system_disks, system_gpu_nvidia, system_gpu_amd,
+#        system_gpu_intel, system_os_release.
 # -----------------------------------------------------------------------------
 
 [sysinfo]
