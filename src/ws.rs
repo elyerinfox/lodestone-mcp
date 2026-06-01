@@ -75,10 +75,20 @@ pub struct Snapshot {
 pub struct BrowserState {
     /// Live page URL + title + age + idle for every open session.
     pub sessions: Vec<crate::skills::browser_session::SessionSummary>,
-    /// Named long-lived personas with their current state (`healthy` /
-    /// `suspect` / `blocked`), last warning, and underlying session.
-    /// Operator confirms reset via `POST /api/browser/personas/{name}/reset`.
+    /// Named long-lived LOCAL personas with their current state
+    /// (`healthy` / `suspect` / `blocked`), last warning, and
+    /// underlying session. Operator confirms reset via
+    /// `POST /api/browser/personas/{name}/reset`. Guest sessions
+    /// (peer-hosted) are NOT included here — see `guest_sessions`.
     pub personas: Vec<crate::skills::browser_session::PersonaSummary>,
+    /// Peer-hosted browser sessions — tabs we're driving on behalf
+    /// of constellation peers. Distinct from `personas` because they
+    /// have different ownership, lifecycle (reaped when the peer
+    /// departs), and security posture (SSRF-restricted, no
+    /// `browser_eval`). Each row carries the peer id + bare persona
+    /// name separately so the operator can see who they're hosting
+    /// for without parsing a `delegated:*` key.
+    pub guest_sessions: Vec<crate::skills::browser_session::GuestSessionSummary>,
     /// Runtime-tunable: close a session idle this long. Mirrors
     /// `BrowserSessionConfig.idle_timeout_secs`.
     pub idle_timeout_secs: u64,

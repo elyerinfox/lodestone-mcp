@@ -485,6 +485,7 @@ impl Lodestone {
                 crate::ws::BrowserState {
                     sessions: mgr.list_live().await,
                     personas: mgr.persona_list().await,
+                    guest_sessions: mgr.guest_session_list().await,
                     idle_timeout_secs: cfg.idle_timeout_secs,
                     max_concurrent: cfg.max_concurrent,
                 }

@@ -130,14 +130,45 @@ impl Persona {
     }
 }
 
-/// Persona name used internally for a delegated request. Namespacing
-/// includes the requesting peer id so peer A's `google` persona and peer
-/// B's `google` persona are isolated browser contexts — neither can see
-/// the other's cookies, even though they share the underlying name.
-/// Local (model-issued) persona names stay un-namespaced so the model's
-/// own warm state is reused across calls.
-fn delegated_persona_name(peer_id: &str, name: &str) -> String {
-    format!("delegated:{peer_id}:{name}")
+/// Per-peer key for a guest session — peer A's `google` and peer B's
+/// `google` are isolated browser contexts (separate cookies, separate
+/// fingerprint). Used as the map key in `guest_sessions`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct GuestKey {
+    peer_id: String,
+    persona_name: String,
+}
+
+/// One tab we're hosting on behalf of a constellation peer. The peer
+/// asked us to drive their `google` (or whatever) persona, so the
+/// cookies + warm state accumulate UNDER THEIR OWNERSHIP — when they
+/// leave the constellation we tear it down. Distinct concept from a
+/// LOCAL persona which the model owns and which we never auto-reap.
+///
+/// Implementation-wise this is just a `Persona` plus the owner key;
+/// keeping it a separate type makes the dashboard split (your
+/// personas vs hosted for peers) self-documenting at the type level
+/// instead of relying on a naming convention.
+struct GuestSession {
+    key: GuestKey,
+    persona: Arc<Persona>,
+}
+
+/// Dashboard row for a guest session. Distinct shape from
+/// `PersonaSummary` so the frontend can render two tables without
+/// having to branch on a kind discriminator.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct GuestSessionSummary {
+    /// node_id of the peer that owns this session's state.
+    pub peer_id: String,
+    /// Bare persona name the peer asked for (`"google"`, etc.) — same
+    /// label the peer would call it on its own end.
+    pub persona_name: String,
+    pub state: PersonaState,
+    pub session_id: Option<String>,
+    pub url: Option<String>,
+    pub last_warning: Option<String>,
+    pub age_secs: u64,
 }
 
 /// What the model wants back after an action.
@@ -246,11 +277,28 @@ impl Session {
 pub struct BrowserSessionManager {
     sessions: RwLock<HashMap<String, Arc<Session>>>,
     cfg: RwLock<BrowserSessionConfig>,
+    /// LOCAL personas — warm browser identities the model owns. Bare
+    /// names (`"google"`, `"github"`). Never auto-reaped; operator
+    /// owns the lifecycle via the dashboard or
+    /// `browser_persona_reset`.
     personas: RwLock<HashMap<String, Arc<Persona>>>,
-    /// Reverse index session_id → persona_name. The navigation paths
-    /// consult this to know whether to run the heuristic CAPTCHA/
-    /// block detector after each navigation.
-    session_to_persona: RwLock<HashMap<String, String>>,
+    /// GUEST sessions — tabs we host for constellation peers. Keyed
+    /// by `(peer_id, persona_name)` so peer A's `google` and peer B's
+    /// `google` are different browser contexts. SSRF-restricted at
+    /// the session level. Reaped when the peer leaves the
+    /// constellation, or when idle past `idle_timeout_secs * 2`.
+    /// Never visible to the local model's `browser_persona_*` tools.
+    guest_sessions: RwLock<HashMap<GuestKey, Arc<GuestSession>>>,
+    /// Reverse index session_id → owner. The detector consults this
+    /// to know which kind of warm slot to report a CAPTCHA / block
+    /// warning against.
+    session_owner: RwLock<HashMap<String, SessionOwner>>,
+}
+
+#[derive(Debug, Clone)]
+enum SessionOwner {
+    Local(String),
+    Guest(GuestKey),
 }
 
 impl BrowserSessionManager {
@@ -259,7 +307,8 @@ impl BrowserSessionManager {
             sessions: RwLock::new(HashMap::new()),
             cfg: RwLock::new(cfg),
             personas: RwLock::new(HashMap::new()),
-            session_to_persona: RwLock::new(HashMap::new()),
+            guest_sessions: RwLock::new(HashMap::new()),
+            session_owner: RwLock::new(HashMap::new()),
         });
         spawn_reaper(m.clone());
         m
@@ -381,42 +430,72 @@ impl BrowserSessionManager {
     /// persona when one matches. False positives are tolerable — the
     /// operator just clicks "reset" in the dashboard.
     async fn maybe_detect_poisoning(&self, session_id: &str, url: &str, title: &str) {
-        let persona_name = match self.session_to_persona.read().await.get(session_id).cloned() {
-            Some(n) => n,
+        let owner = match self.session_owner.read().await.get(session_id).cloned() {
+            Some(o) => o,
             None => return,
         };
         let lower_url = url.to_ascii_lowercase();
         let lower_title = title.to_ascii_lowercase();
         let url_signals = [
-            "captcha",
-            "challenge",
-            "checkpoint",
-            "blocked",
-            "ratelimit",
-            "rate-limit",
-            "/verify",
+            "captcha", "challenge", "checkpoint", "blocked", "ratelimit",
+            "rate-limit", "/verify",
         ];
         let title_signals = [
-            "captcha",
-            "are you a robot",
-            "are you human",
-            "just a moment",
-            "checking your browser",
-            "access denied",
-            "403 forbidden",
-            "429",
-            "too many requests",
-            "verify you are human",
-            "attention required",
+            "captcha", "are you a robot", "are you human", "just a moment",
+            "checking your browser", "access denied", "403 forbidden", "429",
+            "too many requests", "verify you are human", "attention required",
         ];
-        let url_hit = url_signals.iter().find(|s| lower_url.contains(*s));
-        let title_hit = title_signals.iter().find(|s| lower_title.contains(*s));
-        if let Some(hit) = url_hit.or(title_hit) {
-            self.persona_report_warning(
-                &persona_name,
-                &format!("matched signature {hit:?} in url/title"),
-            )
-            .await;
+        let hit = url_signals
+            .iter()
+            .find(|s| lower_url.contains(*s))
+            .or_else(|| title_signals.iter().find(|s| lower_title.contains(*s)));
+        if let Some(hit) = hit {
+            self.report_warning(&owner, &format!("matched signature {hit:?} in url/title"))
+                .await;
+        }
+    }
+
+    /// Mark a CAPTCHA / 429 / 403 hit against whichever warm-state
+    /// slot owns this session. First strike → suspect, second →
+    /// blocked. Routes to the local-persona registry or the guest-
+    /// session registry based on the owner enum.
+    async fn report_warning(&self, owner: &SessionOwner, reason: &str) {
+        let persona = match owner {
+            SessionOwner::Local(name) => {
+                self.personas.read().await.get(name).cloned()
+            }
+            SessionOwner::Guest(key) => self
+                .guest_sessions
+                .read()
+                .await
+                .get(key)
+                .map(|g| g.persona.clone()),
+        };
+        let Some(persona) = persona else { return };
+        let strikes = persona.strikes.fetch_add(1, Ordering::Relaxed) + 1;
+        *persona.last_warning.write().await = Some(reason.to_string());
+        let new_state = if strikes >= 2 {
+            PersonaState::Blocked
+        } else {
+            PersonaState::Suspect
+        };
+        *persona.state.write().await = new_state;
+        match owner {
+            SessionOwner::Local(name) => tracing::warn!(
+                persona = %name,
+                strikes,
+                state = ?new_state,
+                reason = %reason,
+                "local persona warning"
+            ),
+            SessionOwner::Guest(key) => tracing::warn!(
+                peer = %key.peer_id,
+                persona = %key.persona_name,
+                strikes,
+                state = ?new_state,
+                reason = %reason,
+                "guest session warning"
+            ),
         }
     }
 
@@ -577,7 +656,7 @@ impl BrowserSessionManager {
                 invalid(format!("unknown session_id: {session_id}"))
             })?
         };
-        self.session_to_persona.write().await.remove(session_id);
+        self.session_owner.write().await.remove(session_id);
         // Dispose the context — that closes every page belonging to it
         // (per chromium's `Target.disposeBrowserContext` docs) without
         // firing beforeunload hooks, and frees the per-context
@@ -790,17 +869,22 @@ impl BrowserSessionManager {
     }
 
     // ----------------------------------------------------------------
-    // Persona ops
+    // Persona ops — LOCAL warm identities the model owns
     // ----------------------------------------------------------------
+    //
+    // These act on `self.personas` only. The dashboard table "Your
+    // personas" comes from here. `browser_persona_get` is the model-
+    // facing tool. Peer-hosted state lives under the `guest_session_*`
+    // methods below — they're a separate concept with a separate
+    // registry and a separate dashboard table.
 
-    /// Get or create the named persona's session and return its id +
-    /// state. A `Blocked` persona returns Err so callers don't keep
-    /// hammering a dead session until reset; `Suspect` is still
-    /// usable but the caller can choose to back off.
+    /// Get or create the named LOCAL persona's session and return its
+    /// id + state. The model's own `browser_persona_get` tool calls
+    /// this. Always unrestricted — the operator opted in to running
+    /// tools locally, so SSRF guards don't apply.
     pub async fn persona_get(
         &self,
         name: &str,
-        restrict_to_public: bool,
     ) -> Result<(String, PersonaState), McpError> {
         let persona = self.ensure_persona(name).await;
         persona.touch();
@@ -810,54 +894,27 @@ impl BrowserSessionManager {
                 "persona {name:?} is blocked — reset from the dashboard before reusing"
             )));
         }
-        // Lock the persona's session slot so two concurrent callers don't
-        // each create a session in parallel.
         let mut slot = persona.session_id.write().await;
         if let Some(id) = slot.as_ref() {
             if self.sessions.read().await.contains_key(id) {
                 return Ok((id.clone(), state));
             }
-            // Session was reaped (idle); we'll spin up a new one.
         }
-        let (id, _, _) = if restrict_to_public {
-            self.open_restricted().await?
-        } else {
-            self.open().await?
-        };
+        let (id, _, _) = self.open().await?;
         *slot = Some(id.clone());
-        self.session_to_persona
+        self.session_owner
             .write()
             .await
-            .insert(id.clone(), persona.name.clone());
+            .insert(id.clone(), SessionOwner::Local(persona.name.clone()));
         Ok((id, state))
     }
 
-    /// Per-peer namespaced persona — used by the constellation
-    /// delegation path so peer A and peer B never share cookies on
-    /// the same logical persona name. Peer id comes from the
-    /// `X-Lodestone-Peer-Id` header on the inbound request (the
-    /// existing constellation auth gate has already verified the
-    /// cluster token, so a spoofed peer id only burns its own quota).
-    /// Always returns a restricted (SSRF-guarded) session.
-    pub async fn persona_get_for_peer(
-        &self,
-        peer_id: &str,
-        name: &str,
-    ) -> Result<(String, PersonaState), McpError> {
-        self.persona_get(&delegated_persona_name(peer_id, name), true)
-            .await
-    }
-
-    /// Force a fresh session on the named persona. Disposes the old
+    /// Force a fresh session on a LOCAL persona. Disposes the old
     /// session + context and creates a new one in `Healthy` state.
-    /// Bound to the dashboard's "reset" button. Returns the new
-    /// session id.
+    /// Bound to the dashboard's "reset" button on the personas table.
     pub async fn persona_reset(&self, name: &str) -> Result<String, McpError> {
         let persona = self.ensure_persona(name).await;
-        let old = {
-            let mut slot = persona.session_id.write().await;
-            slot.take()
-        };
+        let old = persona.session_id.write().await.take();
         if let Some(id) = old {
             let _ = self.close(&id).await;
         }
@@ -866,134 +923,181 @@ impl BrowserSessionManager {
         *persona.last_warning.write().await = None;
         let (id, _, _) = self.open().await?;
         *persona.session_id.write().await = Some(id.clone());
+        self.session_owner
+            .write()
+            .await
+            .insert(id.clone(), SessionOwner::Local(name.to_string()));
         Ok(id)
     }
 
-    /// Report a heuristic warning against a persona: a CAPTCHA appeared,
-    /// the page is a 429/403 challenge, etc. First strike → Suspect;
-    /// second → Blocked. Cheap callers can invoke this freely; the
-    /// state machine handles the throttling.
-    pub async fn persona_report_warning(&self, name: &str, reason: &str) {
-        let persona = self.ensure_persona(name).await;
-        let strikes = persona.strikes.fetch_add(1, Ordering::Relaxed) + 1;
-        *persona.last_warning.write().await = Some(reason.to_string());
-        let new_state = if strikes >= 2 {
-            PersonaState::Blocked
-        } else {
-            PersonaState::Suspect
-        };
-        *persona.state.write().await = new_state;
-        tracing::warn!(
-            persona = %name,
-            strikes,
-            state = ?new_state,
-            reason = %reason,
-            "browser persona warning"
-        );
-    }
-
-    /// Snapshot every persona's state for the dashboard.
+    /// Snapshot of every LOCAL persona — what the dashboard's "Your
+    /// personas" table renders and what `browser_persona_list`
+    /// returns. Guest sessions (peer-hosted) come from
+    /// `guest_session_list` and stay separate.
     pub async fn persona_list(&self) -> Vec<PersonaSummary> {
         let personas = self.personas.read().await;
         let now = now_ms();
         let mut rows: Vec<PersonaSummary> = Vec::with_capacity(personas.len());
         for p in personas.values() {
-            let session_id = p.session_id.read().await.clone();
-            let state = *p.state.read().await;
-            let url = if let Some(sid) = &session_id {
-                let table = self.sessions.read().await;
-                if let Some(sess) = table.get(sid) {
-                    sess.page.url().await.unwrap_or_default()
-                } else {
-                    None
-                }
-            } else {
-                None
-            };
-            rows.push(PersonaSummary {
-                name: p.name.clone(),
-                state,
-                session_id,
-                url,
-                last_warning: p.last_warning.read().await.clone(),
-                age_secs: ((now - p.created_at_ms) / 1000).max(0) as u64,
-            });
+            rows.push(summarize_persona(p, &self.sessions, now).await);
         }
         rows.sort_by(|a, b| a.name.cmp(&b.name));
         rows
     }
 
-    /// Drop every persona whose name starts with `delegated:<peer_id>:`.
-    /// Called from the constellation's peer-removal path when a peer
-    /// goes silent for long enough that we drop it from our peer
-    /// table — at that point its delegated personas are orphans and
-    /// should be cleaned up so they don't pin Chromium contexts.
-    /// Returns the number of personas dropped (for the operator log).
-    pub async fn evict_personas_for_peer(&self, peer_id: &str) -> usize {
-        let prefix = format!("delegated:{peer_id}:");
-        let names: Vec<String> = {
-            let personas = self.personas.read().await;
-            personas
+    // ----------------------------------------------------------------
+    // Guest-session ops — tabs we host on behalf of constellation peers
+    // ----------------------------------------------------------------
+    //
+    // These act on `self.guest_sessions` only. The dashboard table
+    // "Hosted for peers" comes from here. Driven exclusively by
+    // `/constellation/browser_persona` (inbound) — there is no MCP
+    // tool that touches this registry, so the local model never sees
+    // guest sessions and can't accidentally drive a peer's session.
+
+    /// Get-or-create the guest session for `(peer_id, name)`. Always
+    /// restricted (SSRF guard runs on every navigation). Returns the
+    /// session id + current state. A blocked guest session errors;
+    /// the requesting peer should retry against a peer with the cap.
+    pub async fn guest_session_get(
+        &self,
+        peer_id: &str,
+        name: &str,
+    ) -> Result<(String, PersonaState), McpError> {
+        let key = GuestKey {
+            peer_id: peer_id.to_string(),
+            persona_name: name.to_string(),
+        };
+        let guest = self.ensure_guest_session(&key).await;
+        guest.persona.touch();
+        let state = *guest.persona.state.read().await;
+        if state == PersonaState::Blocked {
+            return Err(invalid(format!(
+                "guest session for peer={peer_id} persona={name:?} is blocked"
+            )));
+        }
+        let mut slot = guest.persona.session_id.write().await;
+        if let Some(id) = slot.as_ref() {
+            if self.sessions.read().await.contains_key(id) {
+                return Ok((id.clone(), state));
+            }
+        }
+        let (id, _, _) = self.open_restricted().await?;
+        *slot = Some(id.clone());
+        self.session_owner
+            .write()
+            .await
+            .insert(id.clone(), SessionOwner::Guest(key));
+        Ok((id, state))
+    }
+
+    /// Tear down every guest session owned by a departing peer. Called
+    /// from the constellation peer-removal path when a peer drops out
+    /// of our peer table (exceeded MAX_PEER_MISSES). Returns the
+    /// number of sessions disposed.
+    pub async fn evict_guest_sessions_for_peer(&self, peer_id: &str) -> usize {
+        let keys: Vec<GuestKey> = {
+            let guests = self.guest_sessions.read().await;
+            guests
                 .keys()
-                .filter(|n| n.starts_with(&prefix))
+                .filter(|k| k.peer_id == peer_id)
                 .cloned()
                 .collect()
         };
-        let count = names.len();
-        for name in names {
-            // persona_reset() disposes the current session+context AND
-            // creates a fresh one. We want the dispose without the
-            // recreate, so do the same work inline.
-            if let Some(persona) = self.personas.read().await.get(&name).cloned() {
-                let sid = persona.session_id.write().await.take();
+        let count = keys.len();
+        for key in keys {
+            if let Some(guest) = self.guest_sessions.read().await.get(&key).cloned() {
+                let sid = guest.persona.session_id.write().await.take();
                 if let Some(id) = sid {
                     let _ = self.close(&id).await;
                 }
             }
-            self.personas.write().await.remove(&name);
-            tracing::info!(persona = %name, peer = %peer_id, "evicted delegated persona (peer departed)");
+            self.guest_sessions.write().await.remove(&key);
+            tracing::info!(
+                peer = %key.peer_id,
+                persona = %key.persona_name,
+                "evicted guest session (peer departed)"
+            );
         }
         count
     }
 
-    /// Drop personas that haven't been touched for `idle_secs` AND whose
-    /// session is already gone (so we don't reap an actively-used
-    /// persona just because its name happens to be stale). Called from
-    /// the reaper alongside session cleanup. Local (un-namespaced)
-    /// personas are protected — they're tied to the operator's choice
-    /// of name and shouldn't disappear without explicit reset.
-    pub async fn reap_idle_personas(&self, idle_secs: u64) -> usize {
+    /// Drop guest sessions that haven't been touched for `idle_secs`
+    /// AND whose underlying session is already gone. Silent departures
+    /// that didn't trigger the peer-table eviction still get cleaned
+    /// up this way.
+    pub async fn reap_idle_guest_sessions(&self, idle_secs: u64) -> usize {
         let now = now_ms();
         let cutoff_ms = (idle_secs as i64) * 1000;
-        let candidates: Vec<String> = {
-            let personas = self.personas.read().await;
-            personas
-                .values()
-                .filter(|p| p.name.starts_with("delegated:"))
-                .filter(|p| now - p.last_touched_ms.load(Ordering::Relaxed) >= cutoff_ms)
-                .map(|p| p.name.clone())
-                .collect()
+        let candidates: Vec<GuestKey> = {
+            let guests = self.guest_sessions.read().await;
+            let mut out = Vec::new();
+            for (k, g) in guests.iter() {
+                if now - g.persona.last_touched_ms.load(Ordering::Relaxed) >= cutoff_ms {
+                    out.push(k.clone());
+                }
+            }
+            out
         };
         let mut count = 0;
         let sessions_snapshot = self.sessions.read().await.clone();
-        for name in candidates {
-            let persona = match self.personas.read().await.get(&name).cloned() {
-                Some(p) => p,
+        for key in candidates {
+            let guest = match self.guest_sessions.read().await.get(&key).cloned() {
+                Some(g) => g,
                 None => continue,
             };
-            // Skip if session is still alive — persona is "idle" by
-            // touch but actively backing a session another path is
-            // still draining. The session's own idle reaper will get
-            // it eventually.
-            let sid = persona.session_id.read().await.clone();
+            let sid = guest.persona.session_id.read().await.clone();
             if sid.as_ref().is_some_and(|id| sessions_snapshot.contains_key(id)) {
                 continue;
             }
-            self.personas.write().await.remove(&name);
+            self.guest_sessions.write().await.remove(&key);
             count += 1;
-            tracing::info!(persona = %name, "reaped idle delegated persona");
+            tracing::info!(
+                peer = %key.peer_id,
+                persona = %key.persona_name,
+                "reaped idle guest session"
+            );
         }
         count
+    }
+
+    /// Snapshot of every guest session for the dashboard's "Hosted for
+    /// peers" table. Each row carries `peer_id` + `persona_name`
+    /// separately so the operator can see who they're hosting for and
+    /// which named warm slot it is, without parsing a delegated:* key.
+    pub async fn guest_session_list(&self) -> Vec<GuestSessionSummary> {
+        let guests = self.guest_sessions.read().await;
+        let now = now_ms();
+        let mut rows: Vec<GuestSessionSummary> = Vec::with_capacity(guests.len());
+        for g in guests.values() {
+            let summary = summarize_persona(&g.persona, &self.sessions, now).await;
+            rows.push(GuestSessionSummary {
+                peer_id: g.key.peer_id.clone(),
+                persona_name: g.key.persona_name.clone(),
+                state: summary.state,
+                session_id: summary.session_id,
+                url: summary.url,
+                last_warning: summary.last_warning,
+                age_secs: summary.age_secs,
+            });
+        }
+        rows.sort_by(|a, b| a.peer_id.cmp(&b.peer_id).then(a.persona_name.cmp(&b.persona_name)));
+        rows
+    }
+
+    async fn ensure_guest_session(&self, key: &GuestKey) -> Arc<GuestSession> {
+        if let Some(g) = self.guest_sessions.read().await.get(key) {
+            return g.clone();
+        }
+        let mut w = self.guest_sessions.write().await;
+        w.entry(key.clone())
+            .or_insert_with(|| {
+                Arc::new(GuestSession {
+                    key: key.clone(),
+                    persona: Arc::new(Persona::new(key.persona_name.clone())),
+                })
+            })
+            .clone()
     }
 
     async fn ensure_persona(&self, name: &str) -> Arc<Persona> {
@@ -1013,6 +1117,38 @@ impl BrowserSessionManager {
             .get(session_id)
             .cloned()
             .ok_or_else(|| invalid(format!("unknown session_id: {session_id}")))
+    }
+}
+
+/// Shared helper: build a `PersonaSummary` from a Persona + the live
+/// session table. Used by both `persona_list` (local) and
+/// `guest_session_list` (peer-hosted) since the on-the-wire shape of
+/// each row's session info is identical — only the row's extra
+/// metadata differs.
+async fn summarize_persona(
+    persona: &Persona,
+    sessions: &RwLock<HashMap<String, Arc<Session>>>,
+    now: i64,
+) -> PersonaSummary {
+    let session_id = persona.session_id.read().await.clone();
+    let state = *persona.state.read().await;
+    let url = if let Some(sid) = &session_id {
+        let table = sessions.read().await;
+        if let Some(sess) = table.get(sid) {
+            sess.page.url().await.unwrap_or_default()
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    PersonaSummary {
+        name: persona.name.clone(),
+        state,
+        session_id,
+        url,
+        last_warning: persona.last_warning.read().await.clone(),
+        age_secs: ((now - persona.created_at_ms) / 1000).max(0) as u64,
     }
 }
 
@@ -1162,11 +1298,13 @@ fn spawn_reaper(manager: Arc<BrowserSessionManager>) {
                 tracing::info!(session_id = %id, "browser session idle-expired");
                 let _ = manager.close(&id).await;
             }
-            // Persona-level idle cleanup: a delegated persona whose owner
-            // walked away leaves a tiny bookkeeping struct sitting in
-            // memory even after the session is reaped. Give it twice
-            // the session idle window before dropping the entry.
-            let _ = manager.reap_idle_personas(timeout_secs * 2).await;
+            // Guest-session cleanup: a guest session whose owner walked
+            // away leaves a tiny bookkeeping struct sitting in memory
+            // even after the underlying session is reaped. Give it
+            // twice the session idle window before dropping the entry.
+            // Local personas are NEVER auto-reaped — the operator owns
+            // their lifecycle.
+            let _ = manager.reap_idle_guest_sessions(timeout_secs * 2).await;
         }
     });
 }
@@ -1641,7 +1779,7 @@ impl Skill for BrowserPersonaGet {
         Box::pin(async move {
             let (_server, args) = ctx.parse::<PersonaGetArgs>()?;
             let mgr = manager().await;
-            let (session_id, state) = mgr.persona_get(&args.name, false).await?;
+            let (session_id, state) = mgr.persona_get(&args.name).await?;
             Ok(json(serde_json::json!({
                 "session_id": session_id,
                 "state": state,

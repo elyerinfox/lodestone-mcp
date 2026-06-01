@@ -78,13 +78,15 @@
     </section>
 
     <section v-if="snapshot.browser.personas.length > 0">
-      <SectionHeading>Named personas</SectionHeading>
+      <SectionHeading>Your personas</SectionHeading>
       <p class="mb-3 text-xs text-slate-400">
-        Long-lived warm sessions for one site or vendor. The persona state
-        machine flags poisoned sessions (CAPTCHA / 403 challenge / 429)
-        as <span class="font-mono text-amber-300">suspect</span> on first
-        warning and <span class="font-mono text-accent-err">blocked</span>
-        on second. Reset disposes the session and starts fresh.
+        Long-lived warm sessions you own — one per site or vendor.
+        The state machine flags poisoned sessions (CAPTCHA / 403
+        challenge / 429) as
+        <span class="font-mono text-amber-300">suspect</span> on first
+        warning and
+        <span class="font-mono text-accent-err">blocked</span> on
+        second. Reset disposes the session and starts fresh.
       </p>
       <div class="overflow-hidden rounded-lg border border-slate-800 bg-surface-1">
         <table class="w-full text-sm">
@@ -141,6 +143,66 @@
       </div>
       <div v-if="resetError" class="mt-3 rounded border border-accent-err/40 bg-accent-err/10 p-2 text-xs text-accent-err">
         {{ resetError }}
+      </div>
+    </section>
+
+    <section v-if="snapshot.browser.guest_sessions.length > 0">
+      <SectionHeading>Hosted for peers</SectionHeading>
+      <p class="mb-3 text-xs text-slate-400">
+        Browser tabs you're driving on behalf of constellation peers
+        via <span class="font-mono">/constellation/browser_persona</span>.
+        Different ownership and lifecycle from your own personas above:
+        each row is isolated per peer (one peer's
+        <span class="font-mono">"google"</span> never sees another peer's
+        cookies), every navigation goes through the SSRF guard, and
+        sessions are torn down automatically when the peer drops out of
+        your peer table. Listed here so you can see who you're hosting
+        for and what they're doing.
+      </p>
+      <div class="overflow-hidden rounded-lg border border-slate-800 bg-surface-1">
+        <table class="w-full text-sm">
+          <thead class="bg-surface-2 text-xs uppercase text-slate-400">
+            <tr>
+              <th class="px-4 py-2 text-left">Peer</th>
+              <th class="px-4 py-2 text-left">Persona</th>
+              <th class="px-4 py-2 text-left">State</th>
+              <th class="px-4 py-2 text-left">URL</th>
+              <th class="px-4 py-2 text-left">Last warning</th>
+              <th class="px-4 py-2 text-right">Age</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-800">
+            <tr
+              v-for="g in snapshot.browser.guest_sessions"
+              :key="`${g.peer_id}|${g.persona_name}`"
+              class="hover:bg-surface-2/60"
+            >
+              <td class="px-4 py-2 font-mono text-xs">{{ g.peer_id }}</td>
+              <td class="px-4 py-2 font-mono text-xs">{{ g.persona_name }}</td>
+              <td class="px-4 py-2">
+                <span
+                  class="rounded px-2 py-0.5 text-xs"
+                  :class="
+                    g.state === 'healthy'
+                      ? 'bg-accent-ok/20 text-accent-ok'
+                      : g.state === 'suspect'
+                      ? 'bg-amber-700/20 text-amber-300'
+                      : 'bg-accent-err/20 text-accent-err'
+                  "
+                >{{ g.state }}</span>
+              </td>
+              <td class="px-4 py-2 font-mono text-xs text-slate-400 truncate max-w-md">
+                {{ g.url || '—' }}
+              </td>
+              <td class="px-4 py-2 text-xs text-slate-400 truncate max-w-xs">
+                {{ g.last_warning || '—' }}
+              </td>
+              <td class="px-4 py-2 text-right font-mono text-xs text-slate-400">
+                {{ fmtSecs(g.age_secs) }}
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </section>
 

@@ -1081,7 +1081,7 @@ impl Constellation {
         }
         let mgr = crate::skills::browser_session::manager().await;
         let (session_id, _state) = mgr
-            .persona_get_for_peer(peer_id, &req.persona_name)
+            .guest_session_get(peer_id, &req.persona_name)
             .await
             .map_err(|e| BrowserPersonaReject {
                 reason: "persona_unavailable",
@@ -1522,12 +1522,12 @@ impl Constellation {
                         if let Some(mgr) =
                             crate::skills::browser_session::manager_if_init()
                         {
-                            let dropped = mgr.evict_personas_for_peer(&node_id).await;
+                            let dropped = mgr.evict_guest_sessions_for_peer(&node_id).await;
                             if dropped > 0 {
                                 tracing::info!(
                                     peer_node_id = %node_id,
-                                    personas = dropped,
-                                    "peer departed — evicted its delegated browser personas",
+                                    guest_sessions = dropped,
+                                    "peer departed — evicted its guest browser sessions",
                                 );
                             }
                         }

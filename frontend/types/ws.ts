@@ -115,9 +115,20 @@ export interface BrowserPersona {
   age_secs: number
 }
 
+export interface GuestSession {
+  peer_id: string
+  persona_name: string
+  state: PersonaState
+  session_id: string | null
+  url?: string | null
+  last_warning?: string | null
+  age_secs: number
+}
+
 export interface BrowserState {
   sessions: BrowserSession[]
   personas: BrowserPersona[]
+  guest_sessions: GuestSession[]
   idle_timeout_secs: number
   max_concurrent: number
 }
