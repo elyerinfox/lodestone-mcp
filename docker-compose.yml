@@ -40,9 +40,13 @@ services:
       # LODESTONE_SEARCH_STRATEGY: "aggregate"
       # LODESTONE_CODE_SITES: "github.com,gitlab.com,codeberg.org"
       # LODESTONE_GITHUB_TOKEN: "ghp_..."
-    # Or mount a full config instead of using env vars:
-    # volumes:
-    #   - ./lodestone.toml:/app/lodestone.toml:ro
+    # Mount the host's lodestone.toml into the container so the
+    # personal-overrides file (gitignored, may carry tokens) takes
+    # effect on the compose-running binary. Without this the container
+    # only sees the baked-in config/ baseline. Comment out to fall
+    # back to the shipped defaults.
+    volumes:
+      - ./lodestone.toml:/app/lodestone.toml:ro
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8000/health"]
