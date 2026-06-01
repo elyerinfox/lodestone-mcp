@@ -25,7 +25,11 @@ export default defineNuxtConfig({
     // Without this, the SPA HTML loads but every `/_nuxt/…` reference
     // resolves to a 404 against the bare backend (`/` → MCP only) and
     // the page hangs with no styles + no JS.
-    baseURL: '/dashboard/',
+    //
+    // For the standalone container build (frontend/Dockerfile), nginx
+    // serves the SPA at root — override via NUXT_APP_BASE_URL=/ at
+    // build time so the generated assets use root-relative paths.
+    baseURL: process.env.NUXT_APP_BASE_URL || '/dashboard/',
     buildAssetsDir: '/_nuxt/',
     head: {
       title: 'lodestone-mcp dashboard',

@@ -1,18 +1,28 @@
-# `docker compose up --build` produces a fully-bundled image:
+# Two-service deployment: MCP server + standalone dashboard.
 #
-#   - MCP endpoint        http://localhost:8000/mcp
-#   - Dashboard SPA       http://localhost:8000/dashboard/
-#   - WebSocket feed      ws://localhost:8000/ws/status
-#   - Health check        http://localhost:8000/health
+#   docker compose up --build
 #
-# The Nuxt dashboard is built inside the image (Dockerfile stage 1,
-# node:22-bookworm-slim) and embedded into the binary at compile time.
-# No host Node / npm required. To build a dashboard-less image,
-# either pass `--target build` (stops before the runtime stage and
-# still has the dashboard) — or edit the Dockerfile to swap the
-# COPY for `RUN mkdir -p frontend/.output/public`, which produces a
-# binary that serves the "not built" page on /dashboard. The MCP
-# endpoints work in both cases.
+# Produces:
+#   - MCP endpoint    http://localhost:8000/mcp     (lodestone service)
+#   - Dashboard       http://localhost:3000/        (dashboard service)
+#   - WebSocket feed  ws://localhost:8000/ws/status (lodestone service)
+#   - Health          http://localhost:8000/health  + http://localhost:3000/health
+#
+# The dashboard SPA is served by nginx (frontend/Dockerfile). It talks
+# to the MCP server's /ws/status via NUXT_PUBLIC_WS_URL, set from the
+# host's perspective so the SPA running in your browser knows where to
+# point. If you set [network].token on the MCP side, set the same
+# value as NUXT_PUBLIC_WS_TOKEN here so the SPA can authenticate.
+#
+# To skip the dashboard entirely and just run the MCP server, comment
+# out the `dashboard` service. The MCP container will still serve
+# /dashboard, but it'll be the "not built" page — every other endpoint
+# (/mcp, /ws/status, /api/settings/*, /constellation/*) works.
+#
+# To bake the dashboard INTO the MCP binary as a single artifact
+# instead of running it as a separate container, see
+# docs/building.md — the `make build-with-dashboard-docker` flow does
+# this on the host so the binary embeds the SPA via include_dir!().
 
 services:
   lodestone:
@@ -30,10 +40,6 @@ services:
       # LODESTONE_SEARCH_STRATEGY: "aggregate"
       # LODESTONE_CODE_SITES: "github.com,gitlab.com,codeberg.org"
       # LODESTONE_GITHUB_TOKEN: "ghp_..."
-      # If you set [network].token (recommended when running on a LAN-reachable
-      # interface), pass the same value to the dashboard so the in-browser SPA
-      # can authenticate the /ws/status feed and /api/settings/* endpoints.
-      # NUXT_PUBLIC_WS_TOKEN: "your-shared-secret"
     # Or mount a full config instead of using env vars:
     # volumes:
     #   - ./lodestone.toml:/app/lodestone.toml:ro
@@ -44,3 +50,22 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+
+  dashboard:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        # The SPA runs in YOUR browser, so the URL is from the
+        # browser's perspective (the host's published port), not the
+        # dashboard container's perspective. Rebuild with a different
+        # value if you publish the MCP service somewhere else:
+        #   docker compose build --build-arg NUXT_PUBLIC_WS_URL=… dashboard
+        NUXT_PUBLIC_WS_URL: ws://localhost:8000/ws/status
+    image: lodestone-dashboard
+    ports:
+      - "3000:80"
+    depends_on:
+      lodestone:
+        condition: service_healthy
+    restart: unless-stopped

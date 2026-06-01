@@ -1,0 +1,13 @@
+# Excluded from the docker build context for `frontend/Dockerfile`.
+# Stage 1 installs deps inside the container with `npm ci`, so the
+# host's node_modules / .output / .nuxt would just slow the upload
+# and (on Windows) trip over symlinked binaries.
+
+node_modules
+.output
+.nuxt
+.cache
+
+# IDE noise
+.vscode
+.idea

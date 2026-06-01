@@ -44,7 +44,8 @@ endif
         run run-galaxy clean docker docker-build docker-run docker-stop \
         docker-smoke install-hooks doc deps-check \
         frontend frontend-docker frontend-clean \
-        build-with-dashboard build-with-dashboard-docker
+        build-with-dashboard build-with-dashboard-docker \
+        dashboard-image dashboard-run compose-up compose-down
 
 ## ─── Help ───────────────────────────────────────────────────────────────────
 
@@ -129,6 +130,20 @@ build-with-dashboard: frontend build-release ## Build the dashboard (host Node) 
 
 build-with-dashboard-docker: frontend-docker build-release ## Build the dashboard (Docker Node) then a release binary on the host.
 	@printf "$(BOLD)✔ Release binary with embedded dashboard at target/release/lodestone-mcp.$(RST)\n"
+
+dashboard-image: ## Build the standalone dashboard Docker image (frontend/Dockerfile) — served by nginx.
+	@printf "$(BOLD)Building lodestone-dashboard image (frontend/Dockerfile)…$(RST)\n"
+	$(DOCKER) build -t lodestone-dashboard -f frontend/Dockerfile frontend
+	@printf "$(BOLD)✔ Image built: lodestone-dashboard. Run with 'make dashboard-run'.$(RST)\n"
+
+dashboard-run: ## Run the standalone dashboard image on host port 3000 (assumes MCP at :8000).
+	$(DOCKER) run --rm -p 3000:80 lodestone-dashboard
+
+compose-up: ## docker compose up --build (MCP on :8000, standalone dashboard on :3000).
+	$(DOCKER) compose up --build
+
+compose-down: ## docker compose down (stop and remove the compose stack).
+	$(DOCKER) compose down
 
 ## ─── Run ───────────────────────────────────────────────────────────────────
 

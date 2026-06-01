@@ -218,11 +218,17 @@ project pulls in, by purpose, is in
 
 (See `mcp.example.json`.)
 
-**Docker** — the image bundles Chromium:
+**Docker** — two services, two images, one command:
 
 ```sh
-docker compose up --build      # or: docker build -t lodestone-mcp . && docker run --rm -p 8000:8000 lodestone-mcp
+docker compose up --build
+# → MCP server   http://localhost:8000   (lodestone-mcp,   built from ./Dockerfile)
+# → Dashboard    http://localhost:3000   (lodestone-dashboard, built from frontend/Dockerfile)
 ```
+
+Skip the dashboard with `docker compose up --build lodestone`. To bake
+both into a single binary instead of running them separately, see
+`make build-with-dashboard-docker` in [docs/building.md](docs/building.md).
 
 ## Configuration
 

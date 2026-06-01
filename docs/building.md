@@ -134,44 +134,81 @@ it's `rm -rf frontend/.output frontend/node_modules`.
 
 ## 3. Docker (everything in containers)
 
+The shipped compose file runs the MCP server and the dashboard as
+**two separate services**. They have separate Dockerfiles, separate
+images, separate ports — independently buildable, independently
+upgradable, independently scalable.
+
 ```sh
 docker compose up --build
 # or
+make compose-up
+```
+
+| Service | Image | Built from | Port | What it serves |
+| --- | --- | --- | --- | --- |
+| `lodestone` | `lodestone-mcp` | `./Dockerfile` (Rust + Chromium) | `8000` | MCP endpoint, WS feed, settings API, constellation endpoints. `/dashboard` serves the "not built" page in this container — the SPA lives in the dashboard container. |
+| `dashboard` | `lodestone-dashboard` | `./frontend/Dockerfile` (nginx + Nuxt SPA) | `3000` | The dashboard SPA, served at `/`. Talks to the MCP service's `/ws/status` via the build-time `NUXT_PUBLIC_WS_URL` arg. |
+
+The two services don't depend on each other at the application layer
+— the dashboard talks to the MCP server **from your browser**, not
+from inside the dashboard container. nginx just ships the static
+SPA. `depends_on` is only for the MCP service's healthcheck so the
+dashboard doesn't start before the MCP endpoint is reachable.
+
+### Just the MCP server
+
+```sh
+docker compose up --build lodestone
+# or:
 docker build -t lodestone-mcp .
 docker run --rm -p 8000:8000 lodestone-mcp
 ```
 
-The shipped image is **three-stage** and bundles the dashboard:
+Skip the dashboard service entirely. `/dashboard/` on the MCP
+container returns the small "not built" page; the MCP endpoints
+(`/mcp`, `/ws/status`, `/api/settings/*`, `/constellation/*`) all
+work.
 
-- **Stage 1 — `frontend`** — `node:22-bookworm-slim`. Runs `npm ci`
-  then `npm run generate` to produce `frontend/.output/public/`.
-  Docker layer caching means this stage only re-runs when files
-  under `frontend/` actually change.
-- **Stage 2 — `build`** — `rust:1-bookworm`. `cargo build --release`,
-  copying the stage-1 SPA into `frontend/.output/public/` so
-  `include_dir!()` embeds it.
-- **Stage 3 — `runtime`** — `debian:bookworm-slim` plus `chromium`,
-  `ca-certificates`, `fonts-liberation`. Sets `LODESTONE_BIND=
-  0.0.0.0:8000`, `LODESTONE_CHROME_PATH=/usr/bin/chromium`, and
-  `LODESTONE_CHROME_NO_SANDBOX=1` (root containers need that flag).
+### Just the dashboard
 
-The resulting image serves both `/mcp` and the embedded dashboard at
-`/dashboard/` from the same port.
-
-### Building a dashboard-less Docker image
-
-If you want a lighter image without the SPA — for an MCP-only
-deployment — edit the Dockerfile's build stage:
-
-```dockerfile
-# Replace this line:
-COPY --from=frontend /app/frontend/.output/public /app/frontend/.output/public
-# with:
-RUN mkdir -p frontend/.output/public
+```sh
+make dashboard-image
+docker run --rm -p 3000:80 lodestone-dashboard
 ```
 
-The binary still serves `/dashboard/` but it returns the "not built"
-page. Removes the Node stage from your rebuild path entirely.
+Useful when the MCP server is running elsewhere (a remote host, a
+different compose stack). The standalone image bakes its WebSocket
+target at build time via `--build-arg NUXT_PUBLIC_WS_URL=...`; the
+default points at `ws://localhost:8000/ws/status`. Override it with:
+
+```sh
+docker build \
+  --build-arg NUXT_PUBLIC_WS_URL=wss://mcp.example.com/ws/status \
+  -t lodestone-dashboard -f frontend/Dockerfile frontend
+```
+
+### Pointing the compose dashboard at a different MCP
+
+Edit `docker-compose.yml`'s `dashboard.build.args.NUXT_PUBLIC_WS_URL`,
+then `docker compose build dashboard`. The SPA bakes the URL in at
+`nuxt generate` time, so a rebuild is required for the change to
+take effect.
+
+### Bake the dashboard INTO the MCP binary instead
+
+`docker compose up --build` runs them as two containers. To produce
+a single binary that serves both the MCP endpoints AND the dashboard
+at `/dashboard/` (no second container), build on the host:
+
+```sh
+make build-with-dashboard-docker    # node:22-bookworm-slim builds the SPA,
+                                    # cargo embeds it via include_dir!()
+```
+
+The resulting binary at `target/release/lodestone-mcp` ships both —
+useful for single-artifact deployments. See section [2b](#2b-backend-on-host-frontend-built-in-docker)
+for the longer walk-through.
 
 ### Mounting a custom config
 ```sh
