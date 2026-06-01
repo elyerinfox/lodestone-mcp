@@ -4,9 +4,9 @@
 #
 # Produces:
 #   - MCP endpoint    http://localhost:8000/mcp     (lodestone service)
-#   - Dashboard       http://localhost:3000/        (dashboard service)
+#   - Dashboard       http://localhost:8001/        (dashboard service)
 #   - WebSocket feed  ws://localhost:8000/ws/status (lodestone service)
-#   - Health          http://localhost:8000/health  + http://localhost:3000/health
+#   - Health          http://localhost:8000/health  + http://localhost:8001/health
 #
 # The dashboard SPA is served by nginx (frontend/Dockerfile). It talks
 # to the MCP server's /ws/status via NUXT_PUBLIC_WS_URL, set from the
@@ -64,7 +64,7 @@ services:
         NUXT_PUBLIC_WS_URL: ws://localhost:8000/ws/status
     image: lodestone-dashboard
     ports:
-      - "3000:80"
+      - "8001:80"
     depends_on:
       lodestone:
         condition: service_healthy

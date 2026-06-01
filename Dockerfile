@@ -48,6 +48,12 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /app/target/release/lodestone-mcp /usr/local/bin/lodestone-mcp
+# The runtime looks for `config/` relative to its WORKDIR. Without it
+# the binary falls back to compile-time defaults — which leaves the
+# constellation off and, as a side effect, leaves the /api/* routes
+# unmounted (they're gated on a constellation handle existing). Ship
+# the same shipped baseline operators get on a host install.
+COPY config /app/config
 WORKDIR /app
 
 # Defaults for running in a container:

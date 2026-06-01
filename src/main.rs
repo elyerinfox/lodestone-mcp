@@ -1081,6 +1081,60 @@ fn api_routes(
         }
     }
 
+    /// `GET /api/memory/graph` — solution graph snapshot for the
+    /// dashboard explorer. Query params:
+    ///   - `mode`: `all` (default) | `filter` | `focus`
+    ///   - `tag`, `query`, `hide_superseded` (for `filter` mode)
+    ///   - `id`, `depth` (for `focus` mode)
+    /// Returns `{ nodes: [...], edges: [...] }`. Auth: same bearer
+    /// as the WS feed and other /api/* endpoints.
+    #[derive(serde::Deserialize)]
+    struct GraphQuery {
+        #[serde(default)]
+        mode: Option<String>,
+        #[serde(default)]
+        tag: Option<String>,
+        #[serde(default)]
+        query: Option<String>,
+        #[serde(default)]
+        hide_superseded: Option<bool>,
+        #[serde(default)]
+        id: Option<String>,
+        #[serde(default)]
+        depth: Option<u32>,
+    }
+    async fn memory_graph(
+        State(state): State<ApiState>,
+        headers: HeaderMap,
+        axum::extract::Query(q): axum::extract::Query<GraphQuery>,
+    ) -> axum::response::Response {
+        if !state.constellation.token_ok(presented_token(&headers)) {
+            return (StatusCode::UNAUTHORIZED, "unauthorized\n").into_response();
+        }
+        let mode = match q.mode.as_deref() {
+            Some("filter") => crate::skills::memory::GraphMode::Filter {
+                tag: q.tag,
+                query: q.query,
+                hide_superseded: q.hide_superseded.unwrap_or(false),
+            },
+            Some("focus") => match q.id {
+                Some(id) if !id.trim().is_empty() => {
+                    crate::skills::memory::GraphMode::Focus {
+                        id,
+                        depth: q.depth.unwrap_or(2),
+                    }
+                }
+                _ => {
+                    return (StatusCode::BAD_REQUEST, "focus mode requires id\n")
+                        .into_response()
+                }
+            },
+            _ => crate::skills::memory::GraphMode::All,
+        };
+        let snap = state.server.memory.graph_snapshot(mode).await;
+        Json(snap).into_response()
+    }
+
     let state = ApiState {
         server,
         constellation,
@@ -1102,6 +1156,7 @@ fn api_routes(
             "/api/browser/personas/{name}/reset",
             axum::routing::post(reset_browser_persona),
         )
+        .route("/api/memory/graph", axum::routing::get(memory_graph))
         .with_state(state)
 }
 

@@ -823,6 +823,122 @@ impl Memory {
         crate::provider::concept_tokens(query).len()
     }
 
+    /// Snapshot of the solution graph for the dashboard explorer
+    /// (`/api/memory/graph`). Three modes:
+    ///
+    /// - `Mode::All`: every solution + every typed edge.
+    /// - `Mode::Filter`: tag + free-text + hide-superseded filters
+    ///   applied SQL-side so the wire payload is bounded.
+    /// - `Mode::Focus`: BFS from a focus node out to `depth` hops,
+    ///   returning every node reached + every edge between them.
+    ///
+    /// Returns empty when memory is disabled or the DB read fails;
+    /// the caller (the HTTP handler) renders that as a 200 with an
+    /// empty graph rather than an error.
+    pub(crate) async fn graph_snapshot(&self, mode: GraphMode) -> GraphSnapshot {
+        if !self.enabled() {
+            return GraphSnapshot::default();
+        }
+        // Pull every solution + edge once; filter / focus modes prune
+        // afterward. The store caps at `max_entries` (default 10 000),
+        // so the worst-case payload is small enough to keep this
+        // simple. If the cap ever grows past ~50 000 rows, push the
+        // filter into SQL with parameterized queries.
+        let solutions: Vec<SolutionGraphRow> = sqlx::query_as(
+            "SELECT id, problem, canon_key, updated_at FROM solutions",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .unwrap_or_default();
+        let edges: Vec<EdgeRow> =
+            sqlx::query_as("SELECT from_id, kind, to_id FROM solution_links")
+                .fetch_all(&self.pool)
+                .await
+                .unwrap_or_default();
+        // Latest revision per solution → summary + tags + supersession head.
+        let revs: Vec<RevRow> = sqlx::query_as(
+            "SELECT solution_id, MAX(rev) AS rev, summary FROM solution_revisions \
+             GROUP BY solution_id",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .unwrap_or_default();
+        let mut rev_by_id: HashMap<String, (i64, String)> = HashMap::new();
+        for r in revs {
+            rev_by_id.insert(r.solution_id, (r.rev, r.summary));
+        }
+        let tag_rows: Vec<TagRow> =
+            sqlx::query_as("SELECT solution_id, tag FROM solution_tags")
+                .fetch_all(&self.pool)
+                .await
+                .unwrap_or_default();
+        let mut tags_by_id: HashMap<String, Vec<String>> = HashMap::new();
+        for t in tag_rows {
+            tags_by_id.entry(t.solution_id).or_default().push(t.tag);
+        }
+        // Supersession-head walk: for each solution, walk superseded-by
+        // edges forward to find the current head (the one nothing
+        // supersedes). Capped at 16 hops to avoid pathological cycles.
+        let mut superseded_by: HashMap<String, String> = HashMap::new();
+        for e in &edges {
+            if e.kind == "superseded-by" {
+                superseded_by.insert(e.from_id.clone(), e.to_id.clone());
+            }
+        }
+        let mut head_by_id: HashMap<String, Option<String>> = HashMap::new();
+        for s in &solutions {
+            let mut cur = s.id.clone();
+            let mut moved = false;
+            for _ in 0..16 {
+                if let Some(next) = superseded_by.get(&cur) {
+                    cur = next.clone();
+                    moved = true;
+                } else {
+                    break;
+                }
+            }
+            head_by_id.insert(s.id.clone(), if moved { Some(cur) } else { None });
+        }
+
+        let nodes: Vec<GraphNode> = solutions
+            .into_iter()
+            .map(|s| {
+                let (revision_count, summary) = rev_by_id
+                    .get(&s.id)
+                    .map(|(r, sm)| (*r as u32, sm.clone()))
+                    .unwrap_or_default();
+                GraphNode {
+                    tags: tags_by_id.get(&s.id).cloned().unwrap_or_default(),
+                    superseded_by_head: head_by_id.get(&s.id).cloned().flatten(),
+                    id: s.id,
+                    problem: s.problem,
+                    summary,
+                    updated_at: s.updated_at,
+                    revision_count,
+                }
+            })
+            .collect();
+        let edges: Vec<GraphEdge> = edges
+            .into_iter()
+            .map(|e| GraphEdge {
+                from: e.from_id,
+                to: e.to_id,
+                kind: e.kind,
+            })
+            .collect();
+
+        let full = GraphSnapshot { nodes, edges };
+        match mode {
+            GraphMode::All => full,
+            GraphMode::Filter {
+                tag,
+                query,
+                hide_superseded,
+            } => filter_snapshot(full, tag.as_deref(), query.as_deref(), hide_superseded),
+            GraphMode::Focus { id, depth } => focus_snapshot(full, &id, depth.clamp(1, 5)),
+        }
+    }
+
     /// Live counts across the memory store. Used by the `features` tool to
     /// show operators / models what's actually been recorded; gracefully
     /// returns zeros when memory is disabled or the DB is unreachable.
@@ -859,6 +975,168 @@ impl Memory {
             phrasings_embedded: count_nonnull(&self.pool, "solution_phrasings", "embedding").await,
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Graph snapshot for /api/memory/graph (dashboard explorer)
+// ---------------------------------------------------------------------------
+
+/// Selector for what the explorer wants to render. Mirrors the
+/// `?mode=` query parameter on `/api/memory/graph`.
+#[derive(Debug, Clone)]
+pub(crate) enum GraphMode {
+    /// Every solution + every typed edge.
+    All,
+    /// Optional tag filter (exact match) + optional free-text
+    /// filter (substring of problem or summary) + optional
+    /// hide-superseded.
+    Filter {
+        tag: Option<String>,
+        query: Option<String>,
+        hide_superseded: bool,
+    },
+    /// BFS from `id` out to `depth` hops (clamped 1..=5).
+    Focus { id: String, depth: u32 },
+}
+
+#[derive(Debug, Default, serde::Serialize)]
+pub(crate) struct GraphSnapshot {
+    pub nodes: Vec<GraphNode>,
+    pub edges: Vec<GraphEdge>,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub(crate) struct GraphNode {
+    pub id: String,
+    pub problem: String,
+    pub summary: String,
+    pub tags: Vec<String>,
+    pub revision_count: u32,
+    pub updated_at: i64,
+    /// `Some(head_id)` when this node has been superseded; the head is
+    /// the current canonical solution to walk to. `None` when this
+    /// node IS the head (or has no supersession chain).
+    pub superseded_by_head: Option<String>,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub(crate) struct GraphEdge {
+    pub from: String,
+    pub to: String,
+    pub kind: String,
+}
+
+// Private row types the sqlx queries deserialize into.
+#[derive(sqlx::FromRow)]
+struct SolutionGraphRow {
+    id: String,
+    problem: String,
+    #[allow(dead_code)]
+    canon_key: String,
+    updated_at: i64,
+}
+
+#[derive(sqlx::FromRow)]
+struct EdgeRow {
+    from_id: String,
+    kind: String,
+    to_id: String,
+}
+
+#[derive(sqlx::FromRow)]
+struct RevRow {
+    solution_id: String,
+    rev: i64,
+    summary: String,
+}
+
+#[derive(sqlx::FromRow)]
+struct TagRow {
+    solution_id: String,
+    tag: String,
+}
+
+fn filter_snapshot(
+    full: GraphSnapshot,
+    tag: Option<&str>,
+    query: Option<&str>,
+    hide_superseded: bool,
+) -> GraphSnapshot {
+    let needle = query.map(|q| q.to_ascii_lowercase());
+    let tag_lc = tag.map(|t| t.to_ascii_lowercase());
+    let nodes: Vec<GraphNode> = full
+        .nodes
+        .into_iter()
+        .filter(|n| {
+            if hide_superseded && n.superseded_by_head.is_some() {
+                return false;
+            }
+            if let Some(t) = &tag_lc {
+                if !n.tags.iter().any(|x| x.to_ascii_lowercase() == *t) {
+                    return false;
+                }
+            }
+            if let Some(q) = &needle {
+                let haystack = format!(
+                    "{} {}",
+                    n.problem.to_ascii_lowercase(),
+                    n.summary.to_ascii_lowercase()
+                );
+                if !haystack.contains(q) {
+                    return false;
+                }
+            }
+            true
+        })
+        .collect();
+    let kept: std::collections::HashSet<String> = nodes.iter().map(|n| n.id.clone()).collect();
+    let edges = full
+        .edges
+        .into_iter()
+        .filter(|e| kept.contains(&e.from) && kept.contains(&e.to))
+        .collect();
+    GraphSnapshot { nodes, edges }
+}
+
+fn focus_snapshot(full: GraphSnapshot, focus_id: &str, depth: u32) -> GraphSnapshot {
+    // Build adjacency for undirected BFS — links are directional in
+    // the DB but the explorer treats them as bidirectional so
+    // "supersedes" surfaces both endpoints when you focus on either.
+    use std::collections::{HashMap, HashSet, VecDeque};
+    let mut adj: HashMap<&str, Vec<&str>> = HashMap::new();
+    for e in &full.edges {
+        adj.entry(e.from.as_str()).or_default().push(e.to.as_str());
+        adj.entry(e.to.as_str()).or_default().push(e.from.as_str());
+    }
+    let mut reached: HashSet<String> = HashSet::new();
+    let mut queue: VecDeque<(String, u32)> = VecDeque::new();
+    if full.nodes.iter().any(|n| n.id == focus_id) {
+        queue.push_back((focus_id.to_string(), 0));
+        reached.insert(focus_id.to_string());
+    }
+    while let Some((cur, d)) = queue.pop_front() {
+        if d >= depth {
+            continue;
+        }
+        if let Some(neighbors) = adj.get(cur.as_str()) {
+            for n in neighbors {
+                if reached.insert(n.to_string()) {
+                    queue.push_back((n.to_string(), d + 1));
+                }
+            }
+        }
+    }
+    let nodes = full
+        .nodes
+        .into_iter()
+        .filter(|n| reached.contains(&n.id))
+        .collect::<Vec<_>>();
+    let edges = full
+        .edges
+        .into_iter()
+        .filter(|e| reached.contains(&e.from) && reached.contains(&e.to))
+        .collect();
+    GraphSnapshot { nodes, edges }
 }
 
 /// Aggregate counts emitted by [`Memory::stats`].
@@ -1639,7 +1917,7 @@ async fn write_solution_full(
     .bind(now)
     .bind(&summary)
     .bind(&content)
-    .bind::<Option<String>>(None)
+    .bind("")
     .bind(conv_id.as_deref())
     .execute(&mut *tx)
     .await
