@@ -841,26 +841,15 @@ fn build_instructions(cfg: &Config) -> String {
         }
     }
 
-    // ---- Footer: introspection pointers ----
+    // ---- Footer: one-line reminder back to the LOOKUP TOOLS section. ----
+    // The full pointer list is already at the top of the handshake; a second
+    // copy at the bottom was pure redundancy. Leave a single nudge so a model
+    // that scrolled past it can still find its way back.
     let _ = writeln!(out);
-    let _ = writeln!(out, "WHERE TO LOOK UP DETAILS");
     let _ = writeln!(
         out,
-        "- `features` — per-family on/off + every knob value the operator set + live counts."
-    );
-    let _ = writeln!(
-        out,
-        "- `describe_skill name=\"<tool>\"` — one tool's full description, JSON Schema, use cases, \
-         and worked example arguments. Call this if a tool's exact arg shape is unclear."
-    );
-    let _ = writeln!(
-        out,
-        "- `describe_family name=\"<family>\"` — one family's description, capability state, tool \
-         list, and canonical multi-tool flow."
-    );
-    let _ = writeln!(
-        out,
-        "- `list_providers` — active search providers + their order."
+        "When in doubt, jump back to the LOOKUP TOOLS section above (`describe_skill`, \
+         `describe_family`, `features`, `list_providers`)."
     );
 
     out
