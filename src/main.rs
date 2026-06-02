@@ -17,6 +17,7 @@ mod provider;
 mod providers;
 mod retrieval;
 mod skills;
+mod smoketest;
 mod store;
 mod tasks;
 mod tracing_control;
