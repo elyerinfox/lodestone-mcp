@@ -293,70 +293,70 @@ standards body in the per-tool description (see
   (`bio_uniprot_get`), RCSB Protein Data Bank (`bio_pdb_get`), and
   Ensembl (`bio_ensembl_lookup`).
 
-### Nuclear physics
+### Nuclear & radiation sciences
 
-Vendored AME2020 / NUBASE2020 nuclide subset (`nuke_nuclide_lookup`),
-Bethe-Weizsäcker semi-empirical mass formula with the Krane coefficient
-set (`nuke_binding_energy`), atomic-mass-unit ↔ MeV via CODATA 2022
-(`nuke_unit_convert`), reaction Q-values from atomic masses
-(`nuke_q_value`), first-order decay law (`nuke_decay_law`), and the
-closed-form Bateman two-step chain with proper handling of the
-λ_A = λ_B limit (`nuke_decay_chain`). Full source list in
-**[skills/nuclear.md](docs/skills/nuclear.md)**.
-
-### Radiation protection
-
-Gy ↔ rad / Sv ↔ rem / R ↔ air-kerma conversions (`rad_units`),
-exponential attenuation with HVL / TVL (`rad_attenuation`),
-shielding-thickness calculator driven by **NIST XCOM mass-attenuation
-coefficients** for Pb / concrete / steel / water / Al
-(`rad_shielding_thickness`), inverse-square distance dose
-(`rad_inverse_square`), idealized point-source dose rate from a
-vendored Γ table (`rad_dose_rate`), the full ICRP 103 piecewise
-neutron-w_R equivalent dose (`rad_equivalent_dose`), biokinetic
-effective half-life (`rad_effective_half_life`), the classic ALARA
-time / distance / shielding triad (`rad_alara`), and side-by-side ICRP
-103 vs US 10 CFR 20 occupational limits (`rad_occupational_limits`).
-Plus a vendored radioisotope reference table covering industrial,
-research, calibration, and medical sources (Co-60, Cs-137, Ir-192,
-Am-241, Ra-223, Mo-99, Tc-99m, I-131, F-18, Ga-68, Lu-177, Y-90, …)
-via `rad_isotope_lookup`. Sources in
+Citation-backed nuclear physics and radiation-protection / dosage
+reference. See **[skills/nuclear.md](docs/skills/nuclear.md)** and
 **[skills/radiology.md](docs/skills/radiology.md)**.
 
-### Machining
+- **Nuclear physics** — vendored AME2020 / NUBASE2020 nuclide subset
+  (`nuke_nuclide_lookup`), Bethe-Weizsäcker semi-empirical mass formula
+  with the Krane coefficient set (`nuke_binding_energy`),
+  atomic-mass-unit ↔ MeV via CODATA 2022 (`nuke_unit_convert`),
+  reaction Q-values from atomic masses (`nuke_q_value`), first-order
+  decay law (`nuke_decay_law`), and the closed-form Bateman two-step
+  chain with proper handling of the λ_A = λ_B limit
+  (`nuke_decay_chain`).
+- **Radiation protection / dosage** — Gy ↔ rad / Sv ↔ rem / R ↔
+  air-kerma conversions (`rad_units`), exponential attenuation with
+  HVL / TVL (`rad_attenuation`), shielding-thickness calculator driven
+  by **NIST XCOM mass-attenuation coefficients** for Pb / concrete /
+  steel / water / Al (`rad_shielding_thickness`), inverse-square
+  distance dose (`rad_inverse_square`), idealized point-source dose
+  rate from a vendored Γ table (`rad_dose_rate`), the full ICRP 103
+  piecewise neutron-w_R equivalent dose (`rad_equivalent_dose`),
+  biokinetic effective half-life (`rad_effective_half_life`), the
+  classic ALARA time / distance / shielding triad (`rad_alara`), and
+  side-by-side ICRP 103 vs US 10 CFR 20 occupational limits
+  (`rad_occupational_limits`). Plus a vendored radioisotope reference
+  table covering industrial, research, calibration, and medical
+  sources (Co-60, Cs-137, Ir-192, Am-241, Ra-223, Mo-99, Tc-99m,
+  I-131, F-18, Ga-68, Lu-177, Y-90, …) via `rad_isotope_lookup`.
 
-Cutting speed → RPM (`mach_cutting_speed`), feed rate
-(`mach_feed_rate`), material removal rate (`mach_mrr_milling`),
-Sandvik **Kienzle cutting power** with vendored k_c1 / m_c per
-material group (`mach_cutting_power`), theoretical surface finish in
-turning (`mach_surface_finish_turning`), Shigley **beam deflection**
-for the four common cases (`mach_beam_deflection`), area moment of
-inertia for rectangle / round (`mach_section_inertia`), axial
-stress / strain (`mach_stress_strain`), Shigley-table bolt torque
-(`mach_bolt_torque`), vendored **UNC + ISO metric coarse** thread +
-tap-drill table (`mach_thread_spec`), MatWeb / ASM **material
-properties** (`mach_material`), and ASTM E140 **hardness conversion**
-(`mach_hardness_convert`). Sources in
-**[skills/machinist.md](docs/skills/machinist.md)**.
+### Mechanical engineering & manufacturing
 
-### CNC / OpenSCAD
+Citation-backed machinist + mech-eng reference, RS-274/NGC G-code
+generation, and OpenSCAD source generation, plus a small mesh /
+3-D-interchange surface for the CAD adjacency. See
+**[skills/machinist.md](docs/skills/machinist.md)**,
+**[skills/cnc.md](docs/skills/cnc.md)**, and
+**[skills/interchange.md](docs/skills/interchange.md)**.
 
-Emit portable RS-274/NGC G-code for single drilled holes
-(`gcode_drill_hole`) and circular bolt patterns
-(`gcode_bolt_pattern`); parse and summarize any G-code program
-(`gcode_parse_summary`) — command counts, modal state, bounding box,
-axis travel. Generate OpenSCAD source for primitives (`scad_box`,
-`scad_cylinder`, `scad_sphere`) and the canonical
-"flange with N bolt holes on a PCD" idiom (`scad_flange`). Targets
-the LinuxCNC / Grbl / Marlin intersection so output is portable.
-Sources in **[skills/cnc.md](docs/skills/cnc.md)**.
-
-### Mesh / 3-D interchange
-
-Probe an STL file (binary or ASCII), returning triangle count,
-axis-aligned bounding box, surface area, and centroid
-(`interchange_stl_info`). Foundation for richer MAVLink / NetCDF /
-DICOM surfaces in a follow-up release.
+- **Machining & mech-eng** — cutting speed → RPM
+  (`mach_cutting_speed`), feed rate (`mach_feed_rate`), material
+  removal rate (`mach_mrr_milling`), Sandvik **Kienzle cutting
+  power** with vendored k_c1 / m_c per material group
+  (`mach_cutting_power`), theoretical surface finish in turning
+  (`mach_surface_finish_turning`), Shigley **beam deflection** for
+  the four common cases (`mach_beam_deflection`), area moment of
+  inertia for rectangle / round (`mach_section_inertia`), axial
+  stress / strain (`mach_stress_strain`), Shigley-table bolt torque
+  (`mach_bolt_torque`), vendored **UNC + ISO metric coarse** thread +
+  tap-drill table (`mach_thread_spec`), MatWeb / ASM **material
+  properties** (`mach_material`), and ASTM E140 **hardness
+  conversion** (`mach_hardness_convert`).
+- **CNC / OpenSCAD** — emit portable RS-274/NGC G-code for single
+  drilled holes (`gcode_drill_hole`) and circular bolt patterns
+  (`gcode_bolt_pattern`); parse and summarize any G-code program
+  (`gcode_parse_summary`) — command counts, modal state, bounding
+  box, axis travel. Generate OpenSCAD source for primitives
+  (`scad_box`, `scad_cylinder`, `scad_sphere`) and the canonical
+  "flange with N bolt holes on a PCD" idiom (`scad_flange`). Targets
+  the LinuxCNC / Grbl / Marlin intersection so output is portable.
+- **Mesh / 3-D interchange** — probe an STL file (binary or ASCII),
+  returning triangle count, axis-aligned bounding box, surface area,
+  and centroid (`interchange_stl_info`). Foundation for richer
+  MAVLink / NetCDF / DICOM surfaces in a follow-up release.
 
 ### Software & infrastructure
 
