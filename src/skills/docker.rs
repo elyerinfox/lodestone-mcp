@@ -404,6 +404,12 @@ struct DockerLogsArgs {
 struct DockerPullArgs {
     /// Image to pull, e.g. `nginx`, `nginx:1.27`, `ghcr.io/owner/image:tag`.
     image: String,
+    /// One-time token from a prior call's confirmation prompt. Omit on the first call.
+    #[serde(default)]
+    confirm: Option<String>,
+    /// With `confirm`, also stop asking for this tool for the rest of the session.
+    #[serde(default)]
+    trust: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -416,6 +422,24 @@ struct DockerRunArgs {
     /// Optional command to run (split on whitespace).
     #[serde(default)]
     command: Option<String>,
+    /// One-time token from a prior call's confirmation prompt. Omit on the first call.
+    #[serde(default)]
+    confirm: Option<String>,
+    /// With `confirm`, also stop asking for this tool for the rest of the session.
+    #[serde(default)]
+    trust: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct DockerStartArgs {
+    /// A container name or id.
+    container: String,
+    /// One-time token from a prior call's confirmation prompt. Omit on the first call.
+    #[serde(default)]
+    confirm: Option<String>,
+    /// With `confirm`, also stop asking for this tool for the rest of the session.
+    #[serde(default)]
+    trust: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -484,6 +508,12 @@ struct DockerBuildArgs {
     /// Dockerfile path relative to the context. Defaults to `Dockerfile`.
     #[serde(default)]
     dockerfile: Option<String>,
+    /// One-time token from a prior call's confirmation prompt. Omit on the first call.
+    #[serde(default)]
+    confirm: Option<String>,
+    /// With `confirm`, also stop asking for this tool for the rest of the session.
+    #[serde(default)]
+    trust: Option<bool>,
 }
 
 pub struct DockerPs;
@@ -597,14 +627,31 @@ impl Skill for DockerPull {
         "docker_pull"
     }
     fn description(&self) -> &'static str {
-        "Pull an image onto the LOCAL Docker daemon, e.g. `nginx:1.27` or `ghcr.io/owner/image:tag`."
+        "Pull an image onto the LOCAL Docker daemon, e.g. `nginx:1.27` or `ghcr.io/owner/image:tag`. \
+        Destructive (network egress + writes to the local image store): the first call returns a \
+        confirmation token and does nothing — call again with confirm=<token> to proceed (or \
+        confirm + trust=true to allow for the session)."
     }
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<DockerPullArgs>()
     }
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
-            let (_server, args) = ctx.parse::<DockerPullArgs>()?;
+            let (server, args) = ctx.parse::<DockerPullArgs>()?;
+            // Per-image guard binding so trusting `nginx:1.27` doesn't
+            // silently authorize pulling some other registry image.
+            let bind = format!("docker_pull:{}", args.image);
+            let summary = format!("pull image {}", args.image);
+            if let Decision::Challenge(msg) = server.guard.check(
+                &bind,
+                "docker_pull",
+                server.docker.allow_destructive,
+                &summary,
+                args.confirm.as_deref(),
+                args.trust.unwrap_or(false),
+            ) {
+                return Ok(text_result(msg));
+            }
             Ok(text_result(pull(&args.image).await.map_err(internal)?))
         })
     }
@@ -617,14 +664,45 @@ impl Skill for DockerRun {
     }
     fn description(&self) -> &'static str {
         "Create and start a container on the LOCAL Docker daemon from an image, with an optional \
-        name and command. Pulls the image first if needed."
+        name and command. Pulls the image first if needed. Destructive (effectively executes \
+        arbitrary code from the image entrypoint): the first call returns a confirmation token \
+        and does nothing — call again with confirm=<token> to proceed (or confirm + trust=true \
+        to allow for the session)."
     }
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<DockerRunArgs>()
     }
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
-            let (_server, args) = ctx.parse::<DockerRunArgs>()?;
+            let (server, args) = ctx.parse::<DockerRunArgs>()?;
+            let bind = format!(
+                "docker_run:{}|{}|{}",
+                args.image,
+                args.name.as_deref().unwrap_or(""),
+                args.command.as_deref().unwrap_or("")
+            );
+            let summary = format!(
+                "run {}{}{}",
+                args.image,
+                args.name
+                    .as_deref()
+                    .map(|n| format!(" as {n}"))
+                    .unwrap_or_default(),
+                args.command
+                    .as_deref()
+                    .map(|c| format!(" with `{c}`"))
+                    .unwrap_or_default()
+            );
+            if let Decision::Challenge(msg) = server.guard.check(
+                &bind,
+                "docker_run",
+                server.docker.allow_destructive,
+                &summary,
+                args.confirm.as_deref(),
+                args.trust.unwrap_or(false),
+            ) {
+                return Ok(text_result(msg));
+            }
             let out = run(&args.image, args.name.as_deref(), args.command.as_deref())
                 .await
                 .map_err(internal)?;
@@ -640,14 +718,28 @@ impl Skill for DockerStart {
     }
     fn description(&self) -> &'static str {
         "Start an existing (stopped) container on the LOCAL Docker daemon. Accepts a container name \
-        or id."
+        or id. Destructive (resumes a process that may bind ports, mount volumes, or execute its \
+        entrypoint): the first call returns a confirmation token and does nothing — call again \
+        with confirm=<token> to proceed (or confirm + trust=true to allow for the session)."
     }
     fn schema(&self) -> Arc<JsonObject> {
-        schema_for::<DockerNameArgs>()
+        schema_for::<DockerStartArgs>()
     }
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
-            let (_server, args) = ctx.parse::<DockerNameArgs>()?;
+            let (server, args) = ctx.parse::<DockerStartArgs>()?;
+            let bind = format!("docker_start:{}", args.container);
+            let summary = format!("start container {}", args.container);
+            if let Decision::Challenge(msg) = server.guard.check(
+                &bind,
+                "docker_start",
+                server.docker.allow_destructive,
+                &summary,
+                args.confirm.as_deref(),
+                args.trust.unwrap_or(false),
+            ) {
+                return Ok(text_result(msg));
+            }
             Ok(text_result(start(&args.container).await.map_err(internal)?))
         })
     }
@@ -810,7 +902,10 @@ impl Skill for DockerBuild {
     fn description(&self) -> &'static str {
         "Build an image on the LOCAL Docker daemon from a context directory (tarred and sent to the \
         daemon). Provide the context path and an image tag; the Dockerfile defaults to `Dockerfile` \
-        in the context. Returns the build log."
+        in the context. Destructive (every Dockerfile RUN step is arbitrary code execution under \
+        the daemon): the first call returns a confirmation token and does nothing — call again \
+        with confirm=<token> to proceed (or confirm + trust=true to allow for the session). \
+        Returns the build log."
     }
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<DockerBuildArgs>()
@@ -819,6 +914,21 @@ impl Skill for DockerBuild {
         Box::pin(async move {
             let (server, args) = ctx.parse::<DockerBuildArgs>()?;
             let dockerfile = args.dockerfile.as_deref().unwrap_or("Dockerfile");
+            let bind = format!("docker_build:{}|{}|{}", args.context, dockerfile, args.tag);
+            let summary = format!(
+                "build image {} from {} (Dockerfile: {})",
+                args.tag, args.context, dockerfile
+            );
+            if let Decision::Challenge(msg) = server.guard.check(
+                &bind,
+                "docker_build",
+                server.docker.allow_destructive,
+                &summary,
+                args.confirm.as_deref(),
+                args.trust.unwrap_or(false),
+            ) {
+                return Ok(text_result(msg));
+            }
             let out = build(&args.context, dockerfile, &args.tag)
                 .await
                 .map_err(internal)?;

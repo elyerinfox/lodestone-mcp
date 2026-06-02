@@ -376,6 +376,12 @@ struct K8sApplyArgs {
     /// One or more Kubernetes manifests (a "kubefile"): YAML, multi-document
     /// (`---`-separated) allowed. Server-side applied.
     manifest: String,
+    /// One-time token from a prior call's confirmation prompt. Omit on the first call.
+    #[serde(default)]
+    confirm: Option<String>,
+    /// With `confirm`, also stop asking for this tool for the rest of the session.
+    #[serde(default)]
+    trust: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -389,6 +395,12 @@ struct K8sScaleArgs {
     /// Namespace. Omit to use the configured/default namespace.
     #[serde(default)]
     namespace: Option<String>,
+    /// One-time token from a prior call's confirmation prompt. Omit on the first call.
+    #[serde(default)]
+    confirm: Option<String>,
+    /// With `confirm`, also stop asking for this tool for the rest of the session.
+    #[serde(default)]
+    trust: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -531,8 +543,10 @@ impl Skill for K8sApply {
     }
     fn description(&self) -> &'static str {
         "Apply a Kubernetes manifest ('kubefile') to the cluster via server-side apply. `manifest` \
-        is YAML (multi-document allowed). Creates or updates the objects. Reads your kubeconfig; no \
-        kubectl."
+        is YAML (multi-document allowed). Creates or updates the objects. Destructive (arbitrary \
+        cluster mutation — RBAC, workloads, secrets): the first call returns a confirmation \
+        token and does nothing — call again with confirm=<token> to proceed (or confirm + \
+        trust=true to allow for the session). Reads your kubeconfig; no kubectl."
     }
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<K8sApplyArgs>()
@@ -540,6 +554,25 @@ impl Skill for K8sApply {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (server, args) = ctx.parse::<K8sApplyArgs>()?;
+            // Bind the guard token to the hash of the manifest body so trusting
+            // one manifest doesn't authorize applying a different one in the
+            // same session. Keep the displayed summary short.
+            let bind = format!(
+                "k8s_apply:{}",
+                crate::constellation::hash_key(&args.manifest)
+            );
+            let manifest_preview: String = args.manifest.chars().take(80).collect();
+            let summary = format!("apply manifest ({} bytes): {manifest_preview}…", args.manifest.len());
+            if let Decision::Challenge(msg) = server.guard.check(
+                &bind,
+                "k8s_apply",
+                server.k8s.allow_destructive,
+                &summary,
+                args.confirm.as_deref(),
+                args.trust.unwrap_or(false),
+            ) {
+                return Ok(text_result(msg));
+            }
             let out = apply(&server.k8s_opts(), &args.manifest)
                 .await
                 .map_err(internal)?;
@@ -554,8 +587,10 @@ impl Skill for K8sScale {
         "k8s_scale"
     }
     fn description(&self) -> &'static str {
-        "Scale a Kubernetes workload (deployment/statefulset/replicaset) to a replica count. Reads \
-        your kubeconfig; no kubectl."
+        "Scale a Kubernetes workload (deployment/statefulset/replicaset) to a replica count. \
+        Destructive (can take a production workload to 0): the first call returns a confirmation \
+        token and does nothing — call again with confirm=<token> to proceed (or confirm + \
+        trust=true to allow for the session). Reads your kubeconfig; no kubectl."
     }
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<K8sScaleArgs>()
@@ -563,6 +598,29 @@ impl Skill for K8sScale {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (server, args) = ctx.parse::<K8sScaleArgs>()?;
+            let ns_seg = args.namespace.as_deref().unwrap_or("");
+            let bind = format!("k8s_scale:{}:{}:{}", args.kind, args.name, ns_seg);
+            let summary = format!(
+                "scale {}/{} to {} replica(s){}",
+                args.kind,
+                args.name,
+                args.replicas,
+                if ns_seg.is_empty() {
+                    String::new()
+                } else {
+                    format!(" in {ns_seg}")
+                }
+            );
+            if let Decision::Challenge(msg) = server.guard.check(
+                &bind,
+                "k8s_scale",
+                server.k8s.allow_destructive,
+                &summary,
+                args.confirm.as_deref(),
+                args.trust.unwrap_or(false),
+            ) {
+                return Ok(text_result(msg));
+            }
             let out = scale(
                 &server.k8s_opts(),
                 &args.kind,

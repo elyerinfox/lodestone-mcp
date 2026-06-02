@@ -152,18 +152,14 @@ impl Skill for DetectLanguage {
         schema_for::<DetectLanguageArgs>()
     }
     fn retrieval_policy(&self) -> crate::skills::RetrievalPolicy {
-        crate::skills::RetrievalPolicy::Shared {
-            source: crate::constellation::Source::Other,
-        }
+        // Same per-user carve-out as `translate` above — the input is
+        // arbitrary caller text and shouldn't enter the constellation digest.
+        crate::skills::RetrievalPolicy::None
     }
 
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (server, args) = ctx.parse::<DetectLanguageArgs>()?;
-            let key = format!("detect|{}", args.text);
-            if let Some(cached) = server.retrieval_get(&key).await {
-                return Ok(text_result(cached));
-            }
             let t = translate(&server.http, &args.text, "en", "auto")
                 .await
                 .map_err(internal)?;
@@ -171,7 +167,6 @@ impl Skill for DetectLanguage {
                 return Ok(text_result("Could not detect the language."));
             }
             let out = format!("Detected language: {}", t.source_lang);
-            server.retrieval_put(key, &out);
             Ok(text_result(out))
         })
     }

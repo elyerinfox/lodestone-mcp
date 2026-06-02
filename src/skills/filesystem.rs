@@ -167,6 +167,13 @@ struct WriteArgs {
     path: String,
     /// The full file contents to write.
     content: String,
+    /// One-time token from a prior call's confirmation prompt. Only checked
+    /// when the target file already exists (overwrite is destructive).
+    #[serde(default)]
+    confirm: Option<String>,
+    /// With `confirm`, also stop asking for this tool for the rest of the session.
+    #[serde(default)]
+    trust: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -180,6 +187,12 @@ struct EditArgs {
     /// Replace every occurrence instead of requiring a unique match.
     #[serde(default)]
     replace_all: Option<bool>,
+    /// One-time token from a prior call's confirmation prompt. Omit on the first call.
+    #[serde(default)]
+    confirm: Option<String>,
+    /// With `confirm`, also stop asking for this tool for the rest of the session.
+    #[serde(default)]
+    trust: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -409,7 +422,10 @@ impl Skill for FsWrite {
     }
     fn description(&self) -> &'static str {
         "Create or overwrite a file with the given content, confined to the roots. The parent \
-        directory must already exist (use fs_mkdir first)."
+        directory must already exist (use fs_mkdir first). Overwriting an existing file is \
+        destructive: the first call to overwrite returns a confirmation token and does nothing — \
+        call again with confirm=<token> to proceed (or confirm + trust=true to allow for the \
+        session). Creating a new file does not require confirmation."
     }
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<WriteArgs>()
@@ -418,6 +434,31 @@ impl Skill for FsWrite {
         Box::pin(async move {
             let (server, args) = ctx.parse::<WriteArgs>()?;
             let path = resolve(&server.fs, &args.path)?;
+            // Only guard the overwrite case — creating a new file is innocuous.
+            // Use the blocking `std::fs::metadata` (cheap) under spawn_blocking
+            // rather than `tokio::fs::try_exists`, which has surprised us on
+            // Windows long-path (`\\?\`) inputs (returns false on a file that
+            // exists). metadata().is_ok() is rock-solid here.
+            let file_exists = {
+                let p = path.clone();
+                tokio::task::spawn_blocking(move || std::fs::metadata(&p).is_ok())
+                    .await
+                    .unwrap_or(false)
+            };
+            if file_exists {
+                let bind = format!("fs_write:{}", path.display());
+                let summary = format!("overwrite {} ({} bytes)", path.display(), args.content.len());
+                if let Decision::Challenge(msg) = server.guard.check(
+                    &bind,
+                    "fs_write",
+                    server.fs.allow_destructive,
+                    &summary,
+                    args.confirm.as_deref(),
+                    args.trust.unwrap_or(false),
+                ) {
+                    return Ok(text_result(msg));
+                }
+            }
             tokio::fs::write(&path, args.content.as_bytes())
                 .await
                 .map_err(|e| invalid(format!("could not write '{}': {e}", path.display())))?;
@@ -437,7 +478,10 @@ impl Skill for FsEdit {
     }
     fn description(&self) -> &'static str {
         "Edit a file by replacing `old_string` with `new_string`. By default `old_string` must \
-        occur exactly once (set replace_all to replace every occurrence). Confined to the roots."
+        occur exactly once (set replace_all to replace every occurrence). Confined to the roots. \
+        Destructive (mutates an existing file): the first call returns a confirmation token and \
+        does nothing — call again with confirm=<token> to proceed (or confirm + trust=true to \
+        allow for the session)."
     }
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<EditArgs>()
@@ -448,6 +492,20 @@ impl Skill for FsEdit {
             let path = resolve(&server.fs, &args.path)?;
             if args.old_string == args.new_string {
                 return Err(invalid("old_string and new_string are identical"));
+            }
+            // Per-file guard binding so trusting one edit doesn't authorize
+            // edits to other files in the same session.
+            let bind = format!("fs_edit:{}", path.display());
+            let summary = format!("edit {}", path.display());
+            if let Decision::Challenge(msg) = server.guard.check(
+                &bind,
+                "fs_edit",
+                server.fs.allow_destructive,
+                &summary,
+                args.confirm.as_deref(),
+                args.trust.unwrap_or(false),
+            ) {
+                return Ok(text_result(msg));
             }
             let content = tokio::fs::read_to_string(&path)
                 .await
