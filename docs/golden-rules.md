@@ -190,3 +190,67 @@ truth — the README and CONTRIBUTING link here rather than restating them.
     codebase audit ([`audit-report.md`](audit-report.md)) caught eight
     wrong-answer bugs in tools that had been merged because they "looked
     right"; this rule exists so future tools never reach that state.
+
+13. **Remotely-retrieved academic and scientific data is shared over the
+    constellation.** Helping the greater good is part of the project's
+    purpose: a paper or dataset one node fetched should be reachable
+    from any other lodestone in the same constellation without re-hitting
+    the upstream. Every tool that pulls academic / scientific content
+    from a remote source — papers (arXiv, PubMed, PMC, OpenAlex,
+    Unpaywall, doi.org), encyclopedic references (Wikipedia, RFC,
+    standards), life-sciences entries (UniProt, RCSB PDB, Ensembl, NCBI
+    databases), open-science feeds (NASA, NOAA, USGS, ESA, SWPC, IAEA,
+    OpenSky) — **must** route through `retrieval_get` / `retrieval_put`
+    so the response is keyed by a stable canonical identifier and joins
+    the constellation digest on the next sync.
+
+    Stable canonical keys are non-negotiable: a peer must be able to
+    ask for the same artifact by the same key independently. Examples
+    of the canonical-key shape the existing tools already use:
+
+    - `arxiv|<id>`, `arxiv_search|<query>`
+    - `pubmed|<pmid>`, `pubmed_search|<query>`, `ncbi|<db>|<id>`
+    - `unpaywall|<doi>`, `openalex|<id>`
+    - `wikipedia|<lang>|<title>`
+    - `rfc|<number>`, `standards|<query>`
+    - `uniprot|<accession>`, `pdb|<id>`, `ensembl|<id>|expand=<bool>`
+    - `nasa_neo|<date>`, `nasa_mars|<rover>|<sol>|<limit>`
+    - `swpc|planetary-k-index`, `swpc|plasma-1-day`
+    - `usgs_quake|<minimum>|<period>`, `opensky|<bbox>`
+
+    When you add the next academic / scientific retrieval tool:
+
+    1. **Pick the canonical key.** Use the upstream's stable identifier
+       (DOI, accession, PMID, etc.). If there are multiple aliases for
+       the same artifact (raw URL + DOI + arxiv id), use
+       [`retrieval_put_indexed`](../src/main.rs) so the entry is
+       discoverable under every alias.
+    2. **Look up by key before the network call.** `if let Some(c) =
+       server.retrieval_get(&key).await { return Ok(text_result(c)); }`
+       — this consults the local TTL cache and, on miss, asks every
+       Bloom-matching peer before falling through.
+    3. **Write the canonical body back** after a successful fetch.
+       `server.retrieval_put(key, &body);` advertises the new entry on
+       the next constellation digest cycle.
+    4. **Keep keyed-source payloads out of the cache.** Golden rule 11
+       still applies — a record fetched from a keyed provider (a paid
+       endpoint, a token-gated search) **must not** be `retrieval_put`
+       since the body would then be served to peers without the
+       consenting credential. Use the request-scoped cache instead.
+    5. **Document the share** in the per-skill doc's *Constellation
+       sharing* section (see [skills/bio_data.md](skills/bio_data.md) for
+       the reference shape) so the operator knows the artifact crosses
+       the mesh.
+
+    The constellation already enforces the privacy and trust model
+    around what crosses the wire: only hashes of the canonical keys
+    appear in the digest (raw queries never traverse), the multi-peer
+    consensus floor (`[network].min_agreement`) bounds single-peer
+    influence, and the on-the-wire payloads are exactly what the
+    skill chose to `retrieval_put` — no implicit fan-out of anything
+    else. The rule above is about *what tools route through that
+    mechanism*. Academic and scientific retrieval should; per-user or
+    locally-computed work shouldn't.
+
+    The audit in [audit-report.md](audit-report.md) tracks which
+    tools currently comply and which are queued for retrofit.
