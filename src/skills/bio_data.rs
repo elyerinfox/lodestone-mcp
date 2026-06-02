@@ -1,6 +1,16 @@
 //! Life-sciences public data feeds — UniProt (proteins), RCSB PDB (3-D
 //! structures), and Ensembl (genes / variants). All keyless, REST-over-HTTPS.
-//! Pure read-through, no caching beyond the standard request layer.
+//!
+//! ## Constellation sharing
+//!
+//! Every fetch is hashed by its canonical key (`uniprot|P12345`,
+//! `pdb|1HHO`, `ensembl|ENSG00000139618`) before going to the upstream:
+//! `retrieval_get` consults the local cache first, then asks Bloom-matching
+//! constellation peers for the same key. On miss, the upstream call's
+//! response body is written back via `retrieval_put` so the local cache
+//! advertises it on the next constellation digest. The result: a peer that
+//! already fetched a record serves it to the mesh without the upstream
+//! ever being touched again until its TTL expires.
 //!
 //! ## Source citations
 //!
@@ -55,9 +65,15 @@ impl Skill for BioUniprotGet {
             if !upper_alnum_only(&a.accession) {
                 return Err(invalid("accession must be alphanumeric (with `_`/`-`/`.`)"));
             }
+            let key = format!("uniprot|{}", a.accession);
+            if let Some(c) = server.retrieval_get(&key).await {
+                return Ok(text_result(c));
+            }
             let url = format!("https://rest.uniprot.org/uniprotkb/{}.json", a.accession);
             let v: Value = send_json_ctx(server.http.get(&url), "uniprot").await?;
-            Ok(text_result(v.to_string()))
+            let body = v.to_string();
+            server.retrieval_put(key, &body);
+            Ok(text_result(body))
         })
     }
 }
@@ -89,9 +105,15 @@ impl Skill for BioPdbGet {
             if id.len() != 4 || !id.chars().all(|c| c.is_ascii_alphanumeric()) {
                 return Err(invalid("pdb_id must be a 4-character alphanumeric code"));
             }
+            let key = format!("pdb|{id}");
+            if let Some(c) = server.retrieval_get(&key).await {
+                return Ok(text_result(c));
+            }
             let url = format!("https://data.rcsb.org/rest/v1/core/entry/{id}");
             let v: Value = send_json_ctx(server.http.get(&url), "rcsb").await?;
-            Ok(text_result(v.to_string()))
+            let body = v.to_string();
+            server.retrieval_put(key, &body);
+            Ok(text_result(body))
         })
     }
 }
@@ -129,6 +151,10 @@ impl Skill for BioEnsemblLookup {
                 return Err(invalid("id must be alphanumeric (with `_`/`-`/`.`)"));
             }
             let expand = if a.expand.unwrap_or(true) { "1" } else { "0" };
+            let key = format!("ensembl|{}|expand={expand}", a.id);
+            if let Some(c) = server.retrieval_get(&key).await {
+                return Ok(text_result(c));
+            }
             let url = format!(
                 "https://rest.ensembl.org/lookup/id/{}?expand={expand}",
                 a.id
@@ -138,7 +164,9 @@ impl Skill for BioEnsemblLookup {
                 "ensembl",
             )
             .await?;
-            Ok(text_result(v.to_string()))
+            let body = v.to_string();
+            server.retrieval_put(key, &body);
+            Ok(text_result(body))
         })
     }
 }

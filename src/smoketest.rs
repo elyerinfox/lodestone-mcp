@@ -792,6 +792,152 @@ fn smoketests() -> Vec<(&'static str, Value)> {
             json!({"vmax": 10.0, "km": 1.0, "substrate": 1.0}),
         ),
         ("bio_hardy_weinberg", json!({"p": 0.4})),
+        // ── 0.1.5: nuclear ───────────────────────────────────────────────
+        ("nuke_nuclide_lookup", json!({"nuclide": "U-235"})),
+        ("nuke_binding_energy", json!({"a": 56, "z": 26})),
+        (
+            "nuke_q_value",
+            json!({
+                "reactants_u": [2.014101778, 3.016049281],
+                "products_u": [4.002603254, 1.008664916]
+            }),
+        ),
+        (
+            "nuke_decay_law",
+            json!({"n0": 1.0e6, "half_life_s": 21600.0, "time_s": 86400.0}),
+        ),
+        (
+            "nuke_decay_chain",
+            json!({
+                "n_a0": 1.0e10,
+                "half_life_a_s": 237513.6,
+                "half_life_b_s": 21624.12,
+                "time_s": 86400.0
+            }),
+        ),
+        (
+            "nuke_unit_convert",
+            json!({"direction": "u_to_mev", "value": 1.0}),
+        ),
+        // ── 0.1.5: radiology ─────────────────────────────────────────────
+        ("rad_isotope_lookup", json!({"isotope": "Co-60"})),
+        ("rad_units", json!({"direction": "gy_to_rad", "value": 1.5})),
+        (
+            "rad_attenuation",
+            json!({"mu": 62.9, "thickness": 0.5, "i0": 1.0}),
+        ),
+        (
+            "rad_inverse_square",
+            json!({"d_ref": 100.0, "r_ref": 1.0, "r_target": 2.0}),
+        ),
+        (
+            "rad_dose_rate",
+            json!({"isotope": "Co-60", "activity_gbq": 1.0, "distance_m": 1.0}),
+        ),
+        (
+            "rad_equivalent_dose",
+            json!({"d_gy": 0.01, "radiation": "alpha"}),
+        ),
+        (
+            "rad_effective_half_life",
+            json!({"t_phys": 8.02, "t_bio": 24.0}),
+        ),
+        ("rad_occupational_limits", json!({})),
+        (
+            "rad_shielding_thickness",
+            json!({"energy_kev": 1250.0, "material": "lead", "transmission": 0.01}),
+        ),
+        (
+            "rad_alara",
+            json!({
+                "dose_rate_msv_h_ref": 0.5,
+                "distance_ref_m": 1.0,
+                "distance_worker_m": 3.0,
+                "time_h": 2.0,
+                "shielding_transmission": 0.1
+            }),
+        ),
+        // ── 0.1.5: machinist ─────────────────────────────────────────────
+        (
+            "mach_cutting_speed",
+            json!({"v": 100.0, "diameter": 20.0, "units": "metric"}),
+        ),
+        (
+            "mach_feed_rate",
+            json!({"feed_per_tooth": 0.05, "teeth": 4, "rpm": 5000.0}),
+        ),
+        (
+            "mach_mrr_milling",
+            json!({"a_e_mm": 5.0, "a_p_mm": 2.0, "feed_mm_min": 1000.0}),
+        ),
+        (
+            "mach_cutting_power",
+            json!({"mrr_cm3_min": 10.0, "h_m_mm": 0.05, "material": "al-6061"}),
+        ),
+        (
+            "mach_surface_finish_turning",
+            json!({"feed_mm_rev": 0.1, "nose_radius_mm": 0.4}),
+        ),
+        (
+            "mach_section_inertia",
+            json!({"shape": "round", "d_m": 0.01}),
+        ),
+        (
+            "mach_beam_deflection",
+            json!({
+                "case": "cantilever_end_load",
+                "load": 100.0,
+                "length_m": 0.5,
+                "e_pa": 2.0e11,
+                "i_m4": 1.0e-9
+            }),
+        ),
+        (
+            "mach_stress_strain",
+            json!({"force_n": 10000.0, "area_m2": 1.0e-4, "e_pa": 2.0e11}),
+        ),
+        (
+            "mach_bolt_torque",
+            json!({"diameter_m": 0.012, "preload_n": 30000.0, "condition": "lubricated"}),
+        ),
+        ("mach_thread_spec", json!({"thread": "M8"})),
+        ("mach_material", json!({"material": "al-6061-t6"})),
+        ("mach_hardness_convert", json!({"hrc": 40.0})),
+        // ── 0.1.5: cnc / scad ────────────────────────────────────────────
+        (
+            "gcode_drill_hole",
+            json!({
+                "x": 10.0, "y": 20.0, "depth": 5.0, "safe_z": 5.0,
+                "plunge_feed": 100.0, "rpm": 2000.0
+            }),
+        ),
+        (
+            "gcode_bolt_pattern",
+            json!({
+                "pcd": 80.0, "n": 6, "depth": 6.0, "safe_z": 5.0,
+                "plunge_feed": 100.0, "rpm": 2000.0
+            }),
+        ),
+        (
+            "gcode_parse_summary",
+            json!({"gcode": "G21 G90 G17 G94\nG0 X0 Y0 Z5\nG1 Z-3 F100\nM30\n"}),
+        ),
+        (
+            "scad_box",
+            json!({"x": 30.0, "y": 20.0, "z": 10.0, "center": true}),
+        ),
+        (
+            "scad_cylinder",
+            json!({"height": 10.0, "r": 5.0, "fn_": 64}),
+        ),
+        ("scad_sphere", json!({"r": 5.0, "fn_": 64})),
+        (
+            "scad_flange",
+            json!({
+                "od": 100.0, "thickness": 10.0, "pcd": 80.0,
+                "n": 6, "hole_r": 3.5
+            }),
+        ),
     ]
 }
 

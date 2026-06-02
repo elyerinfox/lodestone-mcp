@@ -233,6 +233,12 @@ impl Skill for AtmSpaceWeatherKp {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let server = ctx.server;
+            // Shared over the constellation by canonical key so peers can
+            // serve the same 3-hour Kp window without each node re-fetching.
+            let key = "swpc|planetary-k-index".to_string();
+            if let Some(c) = server.retrieval_get(&key).await {
+                return Ok(text_result(c));
+            }
             let r = server
                 .http
                 .get("https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json")
@@ -246,7 +252,9 @@ impl Skill for AtmSpaceWeatherKp {
                 )));
             }
             let body = r.text().await.map_err(|e| internal(anyhow::anyhow!(e)))?;
-            Ok(text_result(truncate_chars(&body, server.max_chars)))
+            let body = truncate_chars(&body, server.max_chars);
+            server.retrieval_put(key, &body);
+            Ok(text_result(body))
         })
     }
 }

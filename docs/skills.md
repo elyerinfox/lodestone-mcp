@@ -220,7 +220,20 @@ Needleman-Wunsch, Smith-Waterman, Michaelis-Menten, Hardy-Weinberg).
 | --- | --- | --- |
 | [chemistry](skills/chemistry.md) | `chem_periodic_table`, `chem_molar_mass`, `chem_formula_hill`, `chem_balance_equation`, `chem_ph`, `chem_buffer`, `chem_ideal_gas`, `chem_dilution`, `chem_gibbs`, `chem_radioactive_decay` | Periodic table (IUPAC CIAAW 2021), formula parser, exact-rational equation balancer (Bareiss + LCM/GCD), pH / Henderson-Hasselbalch buffer, ideal gas, dilution, ΔG = ΔH − TΔS, first-order decay. |
 | [biology](skills/biology.md) | `bio_dna_complement`, `bio_transcribe`, `bio_translate`, `bio_gc_content`, `bio_codon_lookup`, `bio_protein_mw`, `bio_orf_finder`, `bio_pcr_tm`, `bio_align_global`, `bio_align_local`, `bio_michaelis_menten`, `bio_hardy_weinberg` | DNA / RNA / protein ops via NCBI table 1, Unimod monoisotopic masses, Wallace + Marmur Tm, Needleman-Wunsch / Smith-Waterman, Michaelis-Menten, Hardy-Weinberg. |
-| [bio_data](skills/bio_data.md) | `bio_uniprot_get`, `bio_pdb_get`, `bio_ensembl_lookup` | Keyless live fetches from UniProt, RCSB PDB, Ensembl. |
+| [bio_data](skills/bio_data.md) | `bio_uniprot_get`, `bio_pdb_get`, `bio_ensembl_lookup` | Keyless live fetches from UniProt, RCSB PDB, Ensembl. **Shared over the constellation** — peers serve cached results to the mesh. |
+
+## Nuclear, radiology & manufacturing (0.1.5)
+
+Citation-backed nuclear physics, radiation protection / dosage,
+machinist + mechanical-engineering reference, and CNC / OpenSCAD source
+generation. All pure-Rust local compute; no host requirements.
+
+| Skill | Tools | What |
+| --- | --- | --- |
+| [nuclear](skills/nuclear.md) | `nuke_nuclide_lookup`, `nuke_binding_energy`, `nuke_q_value`, `nuke_decay_law`, `nuke_decay_chain`, `nuke_unit_convert` | AME2020 / NUBASE2020 nuclide subset, Bethe-Weizsäcker SEMF (Krane), Q-values, Bateman two-step decay, CODATA 2022 u↔MeV. |
+| [radiology](skills/radiology.md) | `rad_isotope_lookup`, `rad_units`, `rad_attenuation`, `rad_inverse_square`, `rad_dose_rate`, `rad_equivalent_dose`, `rad_effective_half_life`, `rad_occupational_limits`, `rad_shielding_thickness`, `rad_alara` | NNDC NuDat 3 isotope table + ORNL/RSIC-45 Γ; ICRP 103 weighting factors; NIST XCOM mass-attenuation interpolation; ICRP 103 + US 10 CFR 20 limits; ALARA helper. |
+| [machinist](skills/machinist.md) | `mach_cutting_speed`, `mach_feed_rate`, `mach_mrr_milling`, `mach_cutting_power`, `mach_surface_finish_turning`, `mach_beam_deflection`, `mach_section_inertia`, `mach_stress_strain`, `mach_bolt_torque`, `mach_thread_spec`, `mach_material`, `mach_hardness_convert` | Machinery's Handbook 31 e. kinematics, Sandvik Kienzle k_c, ISO 4287 surface finish, Shigley beam table A-9 + nut-factor table, ASME B1.1 / ISO 261 thread tables, MatWeb/ASM material data, ASTM E140 hardness conversion. |
+| [cnc](skills/cnc.md) | `gcode_drill_hole`, `gcode_bolt_pattern`, `gcode_parse_summary`, `scad_box`, `scad_cylinder`, `scad_sphere`, `scad_flange` | RS-274/NGC G-code emit + parse; OpenSCAD primitives and an idiomatic bolt-circle flange generator. |
 
 ## Finance & markets (keyless)
 

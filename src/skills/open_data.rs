@@ -1,5 +1,14 @@
 //! Open data feeds — keyless HTTP fetches for OpenSky aircraft state,
 //! USGS Earthquake live GeoJSON, NOAA SWPC solar wind, GeoNames, GBIF.
+//!
+//! ## Constellation sharing
+//!
+//! Every response is keyed by its query parameters and goes through
+//! `retrieval_get` / `retrieval_put` so a constellation peer that already
+//! fetched the same window (`opensky|<bbox>`, `usgs_quake|<min>|<period>`,
+//! `swpc|plasma-1-day`) can serve it within the cache TTL. Live feeds are
+//! still live — the cache TTL governs how stale a peer-served response may
+//! be — but the upstream isn't hammered by every node independently.
 
 use std::sync::Arc;
 
@@ -55,14 +64,24 @@ impl Skill for OpenSkyStates {
         Box::pin(async move {
             let server = ctx.server;
             let (_s, a) = ctx.parse::<OpenSkyArgs>()?;
-            let url = match a.bbox {
-                Some(b) => format!(
-                    "https://opensky-network.org/api/states/all?lamin={}&lomin={}&lamax={}&lomax={}",
-                    b[0], b[1], b[2], b[3]
+            let (url, key) = match a.bbox {
+                Some(b) => (
+                    format!(
+                        "https://opensky-network.org/api/states/all?lamin={}&lomin={}&lamax={}&lomax={}",
+                        b[0], b[1], b[2], b[3]
+                    ),
+                    format!("opensky|{},{},{},{}", b[0], b[1], b[2], b[3]),
                 ),
-                None => "https://opensky-network.org/api/states/all".into(),
+                None => (
+                    "https://opensky-network.org/api/states/all".into(),
+                    "opensky|all".into(),
+                ),
             };
+            if let Some(c) = server.retrieval_get(&key).await {
+                return Ok(text_result(c));
+            }
             let body = fetch(server, &url).await?;
+            server.retrieval_put(key, &body);
             Ok(text_result(body))
         })
     }
@@ -104,10 +123,15 @@ impl Skill for UsgsEarthquakes {
             if !["all", "1.0", "2.5", "4.5", "significant"].contains(&minimum.as_str()) {
                 return Err(invalid("minimum must be all/1.0/2.5/4.5/significant"));
             }
+            let key = format!("usgs_quake|{minimum}|{period}");
+            if let Some(c) = server.retrieval_get(&key).await {
+                return Ok(text_result(c));
+            }
             let url = format!(
                 "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/{minimum}_{period}.geojson"
             );
             let body = fetch(server, &url).await?;
+            server.retrieval_put(key, &body);
             Ok(text_result(body))
         })
     }
@@ -127,11 +151,17 @@ impl Skill for SwpcSolarWind {
     }
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
+            let server = ctx.server;
+            let key = "swpc|plasma-1-day".to_string();
+            if let Some(c) = server.retrieval_get(&key).await {
+                return Ok(text_result(c));
+            }
             let body = fetch(
-                ctx.server,
+                server,
                 "https://services.swpc.noaa.gov/products/solar-wind/plasma-1-day.json",
             )
             .await?;
+            server.retrieval_put(key, &body);
             Ok(text_result(body))
         })
     }

@@ -6,6 +6,136 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-06-02
+
+Nuclear physics, radiation protection / dosage, machinist + mechanical
+engineering, and CNC / OpenSCAD generation. Every formula and constant
+in the new families was validated against a primary or canonical source
+**before** implementation via parallel research agents, and the sources
+are baked into both the module-level docs and each tool's
+`description()`. Constellation-share invariant established for **all**
+scientific data retrieval, retroactive to the bio_data / open_data /
+SWPC families landed earlier.
+
+### Added
+
+- **Nuclear physics family** (`nuke_*`, 6 tools): `nuke_nuclide_lookup`
+  (vendored AME2020 atomic masses + NUBASE2020 half-lives and decay
+  modes for ~30 stable + radioactive nuclides), `nuke_binding_energy`
+  (Bethe-Weizsäcker semi-empirical mass formula with Krane defaults:
+  a_V = 15.5, a_S = 16.8, a_C = 0.72, a_A = 23.0, a_P = 34 MeV;
+  k_P = −3/4), `nuke_q_value` (atomic-mass reaction Q with CODATA 2022
+  factor 1 u = 931.494 103 72 MeV/c²), `nuke_decay_law`,
+  `nuke_decay_chain` (closed-form Bateman two-step **with the
+  L'Hôpital special case for λ_A = λ_B** so the numerics don't blow up
+  near equal rates), and `nuke_unit_convert` (u ↔ MeV/c², Bq ↔ Ci,
+  barn ↔ cm²).
+
+- **Radiation protection family** (`rad_*`, 10 tools), explicitly
+  **general radioactivity** (industrial / research / calibration /
+  medical alike, not specifically medical imaging):
+  `rad_isotope_lookup` (NNDC NuDat 3 isotope table including
+  industrial sources Co-60, Cs-137, Ir-192, Am-241 and calibration
+  isotopes Ba-133, Eu-152, Na-22 alongside clinical tracers),
+  `rad_units` (Gy ↔ rad, Sv ↔ rem, R ↔ Gy_air via NIST W/e = 33.97 J/C),
+  `rad_attenuation` (Beer-Lambert + HVL + TVL), `rad_inverse_square`,
+  `rad_dose_rate` (idealized point source from vendored Γ per
+  ORNL/RSIC-45/R1), `rad_equivalent_dose` (full ICRP 103 piecewise
+  continuous neutron-w_R function), `rad_effective_half_life`,
+  `rad_occupational_limits` (ICRP 103 alongside US 10 CFR 20 with
+  the unharmonized lens-of-eye limit difference called out),
+  `rad_shielding_thickness` (NIST XCOM log-log-interpolated
+  attenuation tables for Pb, ordinary concrete, iron/steel, water,
+  aluminum at 100-2000 keV anchors), and `rad_alara` (combined
+  time × distance × shielding triad).
+
+- **Machinist / mech-eng family** (`mach_*`, 12 tools):
+  `mach_cutting_speed` and `mach_feed_rate` (Machinery's Handbook
+  31 e.), `mach_mrr_milling`, `mach_cutting_power` (Sandvik Kienzle
+  k_c = k_c1 · h_m^(−m_c) with vendored coefficients for Al 6061,
+  steel 1020, SS 304, gray cast iron, Ti-6Al-4V),
+  `mach_surface_finish_turning` (ISO 4287 theoretical Ra),
+  `mach_beam_deflection` (Shigley table A-9: cantilever ± end /
+  uniform load; simply-supported ± center / uniform load),
+  `mach_section_inertia` (rectangle b·h³/12, round π·d⁴/64),
+  `mach_stress_strain`, `mach_bolt_torque` (Shigley K-factor table —
+  dry as-received K = 0.30 surfaced explicitly; popular 0.20 default
+  is for lubricated), `mach_thread_spec` (vendored ASME B1.1 UNC and
+  ISO 261 metric coarse tables with 75 % engagement tap drills),
+  `mach_material` (MatWeb / ASM yield / ultimate / ρ / E / ν for 1018,
+  4140 Q&T, SS 304, 6061-T6, 7075-T6, Ti-6Al-4V, brass C260),
+  `mach_hardness_convert` (ASTM E140-12b interpolated HRC ↔ HV ↔ HB).
+
+- **CNC / OpenSCAD family** (`gcode_*`, `scad_*`, 7 tools):
+  `gcode_drill_hole` and `gcode_bolt_pattern` (portable
+  RS-274/NGC v3 — LinuxCNC dialect; preamble `G17 G21 G90 G94`),
+  `gcode_parse_summary` (per-command counts, modal state, axis
+  travel, bounding box; handles `( ... )` and `;` comments),
+  `scad_box`, `scad_cylinder`, `scad_sphere`, and `scad_flange`
+  (idiomatic `difference()` of disc + N-rotated-translated
+  cylinders, with the canonical −1/+2 mm Z over-extrusion so holes
+  cleanly cut both faces).
+
+- **Smoketest extended to 163/163 tools** — every new chemistry /
+  biology / nuclear / radiology / machinist / CNC tool exercised
+  end-to-end through `Skill::call` against real JSON args.
+
+### Changed
+
+- **Constellation sharing invariant for scientific data retrieval.**
+  All life-sciences REST fetches (`bio_uniprot_get`, `bio_pdb_get`,
+  `bio_ensembl_lookup`), live open-data feeds
+  (`opensky_states`, `usgs_earthquakes`, `swpc_solar_wind`), and the
+  space-weather Kp fetch (`atm_space_weather_kp`) now go through
+  `server.retrieval_get` and `server.retrieval_put` so a constellation
+  peer that already fetched a record can serve it to the mesh
+  without anyone re-hitting the upstream until the cache TTL expires.
+  Keys are stable canonical strings — `uniprot|P12345`, `pdb|1HHO`,
+  `ensembl|<id>|expand=…`, `opensky|<bbox>`, `usgs_quake|<min>|<period>`,
+  `swpc|plasma-1-day`, `swpc|planetary-k-index`.
+
+### Validation
+
+Every formula and constant in the new families was checked against a
+primary or canonical source via parallel research **before**
+implementation; sources are baked into module top-docs and each tool's
+`description()`:
+
+- **CODATA 2022** for u ↔ MeV (`Rev. Mod. Phys.` 97, 025002).
+- **AME2020 / NUBASE2020** for nuclide masses + half-lives + decay
+  modes (`Chin. Phys. C` 45, 030001 / 030003).
+- **Krane** *Introductory Nuclear Physics*, Wiley 1988, §3.3 for the
+  semi-empirical mass formula.
+- **Bateman** *Proc. Camb. Phil. Soc.* 1910, 15:423 for the two-step
+  decay-chain closed form; the L'Hôpital regime for equal rates is
+  guarded explicitly.
+- **ICRU 85** (dose unit definitions); **NIST W/e = 33.97 J/C** for
+  R ↔ Gy_air.
+- **ICRP Publication 103** for radiation weighting factors, including
+  the piecewise-continuous neutron-w_R function Eq. (B.1.1).
+- **ICRP Publication 118** (lens-of-eye limit revision) noted alongside
+  US 10 CFR 20 in `rad_occupational_limits`.
+- **NIST XCOM** for mass attenuation coefficients; **ORNL/RSIC-45/R1**
+  (Unger & Trubey 1982) for specific air-kerma rate constants Γ.
+- **NNDC NuDat 3.0** + **IAEA Live Chart** for isotope data.
+- **Machinery's Handbook 31st ed.** for cutting kinematics, threads,
+  and tap drills.
+- **Sandvik Coromant** for the Kienzle k_c1 / m_c coefficients.
+- **ISO 4287:1997** for surface-texture parameters.
+- **Shigley's** *Mechanical Engineering Design*, 11th ed., Tables A-9
+  and 8-15 for beam deflection and bolt nut factors. The Shigley
+  K = 0.30 dry value (which differs from the popular 0.20 shorthand)
+  is surfaced explicitly in the bolt-torque tool description.
+- **ASME B1.1** + **ISO 261** for thread specifications.
+- **ASTM E140-12b** Table 1 for hardness conversions.
+- **NIST RS-274/NGC v3** for the canonical G-code dialect.
+
+The equation balancer's previously-flagged SVD approach was already
+replaced in 0.1.4 with exact rational arithmetic; this release does the
+same for the new families' algorithms — every numeric path is either a
+closed-form expression with a cited source or a defensively-coded
+discrete computation.
+
 ## [0.1.4] - 2026-06-02
 
 Chemistry and life-sciences capability release. Every algorithm carries a
