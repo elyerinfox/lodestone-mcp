@@ -150,6 +150,251 @@ extension; see [TODO.md](../TODO.md).)
    are written there after each sync and reloaded on startup, so earned trust
    survives restarts.
 
+## Request flows
+
+The constellation isn't a black box — every academic / scientific
+retrieval (golden rule 13) takes one of the paths below. The end-to-end
+mechanism is `retrieval_get` / `retrieval_put` (defined in
+[`src/main.rs`](../src/main.rs)) chained through the constellation's
+Bloom-digest sync; this section spells out each branch.
+
+### Path A — local cache hit (warm path, no network)
+
+The fastest case. We've fetched this document before and it's still
+within its TTL.
+
+```
+skill: retrieval_get("arxiv|2401.01860")
+   │
+   ▼
+local cache (TtlCache)
+   │
+   ├── hit ──► return bytes  ◄── done; zero network calls
+```
+
+This is the path that fires when the same model asks the same query
+twice in a session, or when a skill that emits aliases (e.g.
+`retrieval_put_indexed` with primary id + URL + content hash) is queried
+by an alternate identifier the caller chose.
+
+### Path B — peer cache hit (mesh-served, upstream untouched)
+
+We don't have it locally, but a peer's Bloom digest claims they do.
+This is the "helping the greater good" path that GR #13 is built on.
+
+```
+skill: retrieval_get("arxiv|2401.01860")
+   │
+   ▼
+1. local cache              ─── miss
+2. hash the key             ─── h = hash("arxiv|2401.01860")
+3. check each peer's Bloom  ─── peer X advertises a match
+4. POST /constellation/query
+   to peer X
+   body: { key: h }
+   header: Authorization: Bearer <network.token>
+   │
+   ▼
+peer X returns the cached bytes
+   │
+   ▼
+5. local cache.put(key, body)   ◄── store for next time
+6. return bytes                  ◄── upstream NEVER touched
+```
+
+Notes:
+- The hash on the wire is `h`, not `"arxiv|2401.01860"`. Raw queries
+  do not traverse the mesh (see [Privacy](#guarantees)).
+- If multiple peers' Blooms match, we ask up to `[network].max_peers`
+  in parallel and apply the consensus floor `[network].min_agreement`.
+  Below the floor we treat it as a miss and continue to Path C.
+- Bloom filters have a small false-positive rate. A peer returning
+  "not in my cache" after a Bloom match costs one wasted RTT; we
+  continue to the next candidate.
+
+### Path C — mesh miss, upstream OK (cold path, we become the seed)
+
+Brand-new document; nobody on the mesh has it; the upstream is
+reachable. We fetch from the upstream and then advertise the result
+so peers don't have to.
+
+```
+skill: retrieval_get("arxiv|2401.01860")
+   │
+   ▼
+1. local cache         ─── miss
+2. peer Bloom check    ─── miss (no peer advertises h)
+3. return None         ─── from retrieval_get
+   │
+   ▼
+4. skill calls the upstream HTTP API (arxiv.org)
+   │
+   ▼
+5. upstream returns the bytes
+   │
+   ▼
+6. retrieval_put("arxiv|2401.01860", body)
+   • TtlCache.put — bytes available locally now
+   • on the next constellation sync (≤ sync_secs, default 30 s)
+     the key's hash is added to our advertised Bloom filter
+   │
+   ▼
+7. return bytes to the model
+```
+
+After step 6, any peer that subsequently calls `retrieval_get` for the
+same artifact will hit us via Path B and avoid the upstream entirely.
+That's the "ratchet" that gives the constellation its value — every
+cold-path fetch raises the warm-path coverage of the whole mesh.
+
+For tools whose aliases are known at fetch time
+(arxiv id ↔ abs URL ↔ pdf URL; DOI ↔ raw URL; UniProt accession ↔
+entry name), the skill calls `retrieval_put_indexed(Identifiers,
+body)` instead so the artifact is discoverable under every public name.
+That's what closes the alignment gap for long-tail content — a peer
+asking by URL still finds an entry we cached by DOI, and vice versa.
+
+### Path D — mesh miss, upstream rate-limited (the honest gap)
+
+Brand-new document, nobody on the mesh has it, AND the upstream is
+returning 429 / CAPTCHA / quota exceeded.
+
+```
+skill: retrieval_get("arxiv|2401.01860")
+   │
+   ▼
+1. local cache         ─── miss
+2. peer Bloom check    ─── miss
+3. return None
+   │
+   ▼
+4. skill calls arxiv.org
+   │
+   ▼
+5. upstream returns 429 / 403 / CAPTCHA wall
+   │
+   ▼
+6. skill returns an error to the model.
+   No retrieval_put — nothing to share.
+```
+
+**The constellation does not "ask a peer to fetch on our behalf"**.
+Today it is a passive cache of what peers have already fetched
+themselves — not a fetch-relay across other nodes' IPs / quotas /
+credentials. The mitigations at this point are skill-level, not
+constellation-level:
+
+- **Search**: `[search].strategy = fallback` walks an ordered provider
+  list (DDG → Mojeek → SearXNG → keyed engines), so a CAPTCHA wall on
+  one engine doesn't kill the call.
+- **`wayback_fetch`**: explicit Internet Archive fallback for an
+  individual URL that 404s on the live web.
+- **`render=true`**: routes the fetch through headless Chrome; helps
+  with some scrape-blocked sites but doesn't bypass account-bound
+  rate limits.
+- **Per-provider proxy** (`[providers].<id>.proxy`): outbound proxy
+  that doesn't share the blocked egress IP.
+
+An "opt-in fetch relay" — where a node says "I'm rate-limited on
+`arxiv|<id>`, will any peer fetch and `retrieval_put` it for me?" — is
+a design point we have **not** built. The trade-offs (the relay burns
+its own quota; trust that the relay didn't tamper; privacy / what the
+relay learns; abuse / one bad node spamming the mesh; spec creep from
+passive cache to active forwarding) are real and are tracked in
+[TODO.md](../TODO.md).
+
+### Path E — alias hit via multi-identifier index
+
+The artifact exists on a peer under one identifier (say, the raw URL
+the peer fetched from), and we ask by a different identifier (the DOI
+the skill prefers). The constellation finds it because the peer used
+`retrieval_put_indexed` with both aliases.
+
+```
+peer cached earlier as:
+  Identifiers {
+    primary: "arxiv|2401.01860",
+    aliases: { url: "https://arxiv.org/abs/2401.01860",
+               doi: "10.48550/arXiv.2401.01860" }
+  }
+  → all three hashes go on the peer's advertised Bloom
+
+we ask now as:
+  retrieval_get("doi|10.48550/arXiv.2401.01860")
+   │
+   ▼
+1. local cache         ─── miss
+2. compute h_doi       ─── matches peer's Bloom (via the alias)
+3. POST /constellation/query
+   → peer X returns the bytes (lookup by alias-hash works)
+4. local cache.put(...)
+5. return bytes
+```
+
+This is the "we close the alignment gap on long-tail rate-limited
+content" path. Without aliases, two nodes asking for the same paper
+by different identifiers would each fetch from the upstream
+independently.
+
+### Path F — relayed peer-of-peer hop
+
+We don't have it; our direct peers' Blooms don't match; but a peer
+two hops away does. Relay carries the query along the graph for up
+to `[network].relay_hops` hops (clamped to 2 in the current implementation).
+
+```
+us → peer A: POST /constellation/query
+              body: { key: h, ttl: 2, seen: [us] }
+              │
+              ▼
+            peer A: local check — miss
+                    Bloom check — peer B claims to have it
+                    seen ← [us, A]; ttl ← 1
+                    forwards to peer B
+              │
+              ▼
+            peer B: local check — hit
+                    returns bytes back to peer A
+              │
+              ▼
+            peer A returns the bytes to us
+              │
+              ▼
+us: local cache.put(...), return bytes
+```
+
+Constraints that keep relay honest:
+
+- `ttl` decrements on every hop; ≤ 0 ⇒ no further forwarding.
+- `seen` set carries every node id that touched the request; a peer
+  that's already in `seen` won't re-forward (loop break).
+- Each **top-level** peer is exactly one consensus vote no matter how
+  many sub-peers it relayed through — relaying cannot manufacture
+  corroboration to meet `min_agreement`.
+- Fan-out is bounded by `max_peers` and the per-request timeout
+  (`request_timeout_ms`).
+
+### Path G — opted-out / constellation disabled
+
+When `[network].enabled = false` (the default for the constellation
+family — confirmed in the 0.1.6 defaults review), only Path A and a
+direct version of Path C exist:
+
+```
+skill: retrieval_get("arxiv|2401.01860")
+   │
+   ├── local cache hit ──► return bytes
+   │
+   └── miss ──► skill calls upstream directly ──► retrieval_put locally
+                                                  (no advertisement,
+                                                   no peer ever sees it)
+```
+
+This is the safe-default mode. Nothing crosses the mesh. The local
+cache still serves the same node's repeated queries. Operators who
+have not deliberately joined a constellation (via static `peers` or
+mDNS) operate in this mode.
+
 ## Inspecting the mesh
 
 The **`constellation_status`** tool (skill) returns this node's id and every known peer's
