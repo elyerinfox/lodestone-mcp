@@ -5,27 +5,13 @@ correct, and how to extend it (the common case: adding a search provider).
 
 ## Golden rules (non-negotiable)
 
-The project invariants are maintained in one place:
-**[docs/golden-rules.md](docs/golden-rules.md)**. New code and providers must
-uphold all of them; a change that breaks one is wrong by definition. In brief:
-
-1. Scrape is the default; render is optional (model-controlled).
-2. The LLM always decides.
-3. Keyless by default (credentials strictly optional).
-4. Parallelize — always.
-5. Everything is enable/disable-able.
-6. Every provider is documented.
-7. Every tool is a self-contained skill module under a common contract (no tool
-   logic in `main.rs`).
-8. Destructive actions never fire unguarded (prompt, disable, or guard-challenge).
-9. One tool per method — no hidden auto-selection (the method is in the tool name).
-10. `cargo fmt` and `cargo clippy --all-targets -- -D warnings` pass before every
-    commit (CI enforces both — see "Build & verify" below for details + tooling).
-11. Sensitive information must never be shared — secrets are never logged,
-    returned in tool responses, committed to git, advertised over the
-    constellation, or echoed back; bearer-token checks go through `ct_eq`.
-
-Read [docs/golden-rules.md](docs/golden-rules.md) for the full statement of each.
+The project invariants are maintained in one place — read them there:
+**[docs/golden-rules.md](docs/golden-rules.md)**. New code, new providers,
+and behaviour changes to existing skills must uphold every rule in that
+document; a change that breaks one is wrong by definition. This guide
+does not restate them — the golden-rules file is the single source of
+truth, and summarizing it here just creates two versions to keep in
+sync.
 
 ## Architecture at a glance
 
@@ -239,6 +225,7 @@ oracle.
 | `sat_passes { tle, observer }` — split out from a pre-existing `satellite_compute` tool that took a `mode` arg. | `satellite_compute { mode: "pass" \| "position" \| "look" }` — one tool, mode-switched. | Rule 9 (one tool per method). The method belongs in the name; `sat_passes` / `sat_position` / `sat_observe` is what we shipped. |
 | `image_thumbnail_extract { path }` — pure-Rust EXIF thumbnail walk, paths confined to `[filesystem].roots`. | `image_recognize { path }` — runs a remote ML model. | Rule 3 (keyless) and Rule 7 (skill domain logic lives in its module). Remote ML is someone else's project; the host model can call it from its own toolkit. |
 | `physical_constant { name? }` — bare lookup, ~50 SI constants compiled in. | `auto_buy_stocks { ticker, qty }` — placing real trades. | Wrong project, rule 8, also rule 5 (every capability ships with an off switch — there's no off switch for "I bought $5k of NVDA"). |
+| `nuke_q_value` — atomic-mass reaction Q with the CODATA 2022 u↔MeV factor cited inline, vendored AME2020 atomic-mass subset, test pinning D+T → ⁴He+n at 17.589 MeV. | `radio_signal_strength { ssid }` — returns a number with no cited reference for the propagation model, no test, no honest caveat about indoor multipath. | Rule 12 (cite the source, ship a test reproducing a known-correct result). A tool that quotes a constant without naming the source — or a formula without naming the paper — produces *plausibly* wrong output that the model will defend. |
 
 ### New search / data provider
 
@@ -715,8 +702,12 @@ Three small edits, all mechanical:
 - `docs/skills/<name>.md` (copy an existing one as a template).
 - Row in [`docs/skills.md`](docs/skills.md) and [`docs/tools.md`](docs/tools.md).
 - An entry under "Added" in [`CHANGELOG.md`](CHANGELOG.md)'s `[Unreleased]`.
-- For destructive tools: register them with the [`guard`](src/skills/guard.rs)
-  and verify the `allow_destructive` knob actually pre-authorizes the action.
+- For destructive tools: see [golden rule 8](docs/golden-rules.md).
+- For factual / mathematical skills: see [golden rule
+  12](docs/golden-rules.md). The 0.1.4 / 0.1.5 modules (`chemistry`,
+  `biology`, `nuclear`, `radiology`, `machinist`, `cnc`) are the reference
+  pattern; the running validation ledger is
+  [`docs/audit-report.md`](docs/audit-report.md).
 
 ### 4. (When the family needs a host resource) Implement `FamilyMeta`
 

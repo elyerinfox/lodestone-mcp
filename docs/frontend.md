@@ -206,7 +206,7 @@ on the Vue files is faster with the Nuxt dev server's hot reload:
 
 ```sh
 # Terminal A — backend
-cargo run                        # binds 0.0.0.0:8000 by default
+cargo run --bin lodestone-mcp    # binds 0.0.0.0:8000 by default
 
 # Terminal B — dashboard with hot reload
 cd frontend

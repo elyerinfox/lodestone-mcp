@@ -90,12 +90,17 @@ wrong.
 
 Web search alone doesn't fix this — the LLM is still the one reading and
 summarizing pages, and modern search results are increasingly SEO-shaped
-(Bevendorff et al., ECIR 2024). The bet is that a constellation of small,
-boring, verifiable tools beats one big model trying to be everything — the
-"compound AI systems" thesis (Zaharia et al., BAIR 2024) — and it's borne out
-empirically: Toolformer (Schick et al., NeurIPS 2023) and WebGPT (Nakano et
-al., 2021) both showed tool-augmented smaller models outperforming much larger
-un-tooled ones on the tasks they target.
+([Bevendorff et al., *Is Google Getting Worse?*, ECIR
+2024](https://arxiv.org/abs/2401.01860)). The bet is that a constellation
+of small, boring, verifiable tools beats one big model trying to be
+everything — the "compound AI systems" thesis ([Zaharia et al.,
+*The Shift from Models to Compound AI Systems*, BAIR
+2024](https://bair.berkeley.edu/blog/2024/02/18/compound-ai-systems/))
+— and it's borne out empirically: [Toolformer (Schick et al., NeurIPS
+2023)](https://arxiv.org/abs/2302.04761) and [WebGPT (Nakano et al.,
+2021)](https://arxiv.org/abs/2112.09332) both showed tool-augmented
+smaller models outperforming much larger un-tooled ones on the tasks
+they target.
 
 ## How it works
 
@@ -399,8 +404,15 @@ Requires a recent Rust toolchain. Node is **not** needed for the MCP server —
 the dashboard ships as a separate service (own image, own container).
 
 ```sh
-cargo run                            # MCP server only, no dashboard.
+cargo run --bin lodestone-mcp        # MCP server only, no dashboard.
 ```
+
+The crate ships **two binaries** — `lodestone-mcp` (the MCP server) and
+`lodestone-galaxy` (the optional rendezvous broker that links separate
+constellations across networks — see
+**[docs/constellation.md](docs/constellation.md#galaxy--linking-constellations)**).
+Bare `cargo run` is ambiguous; always pass `--bin lodestone-mcp` to launch
+the server.
 
 Listens on `http://127.0.0.1:8000/mcp` (and `GET /health` returns `ok`). Keyless out
 of the box. The headless browser is always compiled in; the `google` engine,
@@ -414,13 +426,15 @@ Endpoints the binary exposes: `/mcp`, `/ws/status`, `/api/settings/*`,
 crate and npm package the project pulls in, by purpose, is in
 **[docs/dependencies.md](docs/dependencies.md)**.
 
-**LM Studio** — add to `%USERPROFILE%\.lmstudio\mcp.json` (or `~/.lmstudio/mcp.json`):
+### Wiring it into an MCP host
 
-```json
-{ "mcpServers": { "lodestone": { "url": "http://127.0.0.1:8000/mcp" } } }
-```
-
-(See `mcp.example.json`.)
+Lodestone speaks **MCP over Streamable HTTP** at `/mcp`. Any compliant
+MCP host can connect — point yours at `http://127.0.0.1:8000/mcp` and
+go. Per-host config snippets (LM Studio, Claude Code, Claude Desktop,
+Continue, Cline, Cursor, Goose, Zed, and the canonical stdio-bridge
+pattern for any other host) live in
+**[docs/setup.md](docs/setup.md)**. The canonical client config shape
+is also in **[`mcp.example.json`](mcp.example.json)** at the repo root.
 
 **Docker** — two services, two images, one command:
 
@@ -502,11 +516,8 @@ by default — see [docs/constellation.md → Galaxy](docs/constellation.md#gala
 ## Golden rules
 
 The project's non-negotiable invariants live in
-[docs/golden-rules.md](docs/golden-rules.md): scrape-by-default/render-optional · the
-LLM decides · keyless by default · always parallelize · everything is
-enable/disable-able · every provider/skill is documented · every tool is a
-self-contained skill module · **destructive actions never fire unguarded** · one
-tool per method (no hidden auto-selection).
+**[docs/golden-rules.md](docs/golden-rules.md)** — read them there. The
+README does not restate them so there's a single source of truth.
 
 ## Disclaimer
 

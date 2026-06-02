@@ -1,9 +1,17 @@
-# Skill correctness audit (0.1.6)
+# Skill correctness audit
 
-A cross-codebase audit of every skill that makes factual or mathematical
-claims. Findings were collected by six parallel research agents, each
-reading the relevant Rust source and cross-checking against canonical
-sources (IEEE/ISO/IUPAC/NIST/CODATA, vendor handbooks, original papers).
+The project's running ledger of how every factual claim in a skill was
+verified and where the canonical source lives. This document is part of
+the **citation + verification invariant** ([golden rule
+12](golden-rules.md#:~:text=Cite%20your%20sources)) — whenever a formula,
+constant, or vendored table is added, changed, or refreshed, the entry
+here is updated to match.
+
+The current pass (cut alongside 0.1.6) was a cross-codebase audit of
+every skill that makes a factual or mathematical claim. Findings were
+collected by six parallel research agents, each reading the relevant
+Rust source and cross-checking against canonical sources (IEEE / ISO /
+IUPAC / NIST / CODATA, vendor handbooks, original papers).
 
 This document captures the **findings** (✓ verified, ⚠ caveat surfaced,
 ✗ bug fixed) and the **actions taken** in 0.1.6.

@@ -581,7 +581,7 @@ defaults and the matching `LODESTONE_NETWORK_*` env vars.
 # Node A (will fill its cache and serve B)
 LODESTONE_BIND=127.0.0.1:8000 \
 LODESTONE_NETWORK_ENABLED=1 LODESTONE_NETWORK_MDNS=0 \
-cargo run
+cargo run --bin lodestone-mcp
 
 # Node B, pointed at A, with min_agreement=1 so a single peer is trusted in the
 # demo (production keeps the default of 2+)
@@ -589,7 +589,7 @@ LODESTONE_BIND=127.0.0.1:8001 \
 LODESTONE_NETWORK_ENABLED=1 LODESTONE_NETWORK_MDNS=0 \
 LODESTONE_NETWORK_PEERS=http://127.0.0.1:8000 \
 LODESTONE_NETWORK_NODE_ID=node-b \
-cargo run
+cargo run --bin lodestone-mcp
 ```
 
 Run a `web_search` on **A** (fills A's cache). Within `sync_secs`, B pulls A's

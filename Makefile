@@ -140,8 +140,8 @@ compose-down: ## docker compose down (stop and remove the compose stack).
 
 ## ─── Run ───────────────────────────────────────────────────────────────────
 
-run: ## Run the dev server (cargo run, debug profile, bind 0.0.0.0:$(PORT) via [server].bind in config).
-	$(CARGO) run
+run: ## Run the dev MCP server (cargo run --bin lodestone-mcp, debug profile, bind 0.0.0.0:$(PORT) via [server].bind in config).
+	$(CARGO) run --bin lodestone-mcp
 
 run-galaxy: ## Run the lodestone-galaxy broker binary (cargo run --bin lodestone-galaxy).
 	$(CARGO) run --bin lodestone-galaxy

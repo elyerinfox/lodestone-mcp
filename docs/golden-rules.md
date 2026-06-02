@@ -140,3 +140,53 @@ truth — the README and CONTRIBUTING link here rather than restating them.
     an API key, a webhook URL), document explicitly that it's a secret in
     its arg's `#[doc]` and verify it doesn't escape into any response or
     log line.
+
+12. **Cite your sources; make outputs auditable and verifiable.** Every
+    skill (and every solution / formula / vendored data table within a
+    skill) that makes a factual or mathematical claim must:
+
+    1. **Cite the canonical source** for each formula, constant, and
+       vendored data table. Cite in the module's top-doc *and* in the
+       relevant tool's `description()` (which the LLM reads at
+       `tools/list` time). Cite primary literature when it exists
+       (Krane *Introductory Nuclear Physics* §3.3; ICRP Publication 103
+       Annex B; AME2020; NIST CODATA 2022; ITU-R P.838-3; …), or a
+       canonical engineering reference (Machinery's Handbook 31st ed.;
+       Shigley's *Mechanical Engineering Design* Table A-9; RFC 9106;
+       …). Generic textbook attribution ("standard formula") is **not** a
+       citation — name the source.
+    2. **Pin the version / edition** of any cited reference, table, or
+       data file. "Atomic weights" without "IUPAC CIAAW 2021" hides
+       which revision was vendored; "OWASP recommendation" without
+       "OWASP Password Storage Cheat Sheet 2023" goes stale silently.
+    3. **Surface intentional limits explicitly.** If a formula is a
+       *simplified* form of a canonical model (Saastamoinen without the
+       `B(h)`/`δR` terms; ITU-R P.838 without the full 4-term fit), the
+       tool description must say so in one short sentence. Same for
+       narrow-beam attenuation, idealized point sources, small-angle
+       approximations, etc. The model needs to know when an answer is a
+       first-cut estimate.
+    4. **Be auditably verifiable.** Each skill must ship at least one
+       unit test that reproduces a known-correct result from the cited
+       source — a textbook worked example, a tabulated value, or a
+       canonical test vector (D + T → ⁴He + n: Q = 17.589 MeV; CRC-32
+       of `"123456789"` = 0xCBF43926; IUPAC abridged atomic weight of
+       Fe = 55.845 g/mol). For purely numerical tools the test is the
+       golden value with a documented tolerance; for symbolic /
+       structural tools (e.g. a G-code emitter, a CoT encoder) the
+       test confirms the wire-format conformance the standard
+       requires.
+    5. **Validation goes in `docs/audit-report.md`.** The audit report
+       is the project's running ledger of how each factual claim was
+       verified and where the source lives. When you change a formula
+       or refresh a vendored table, update the audit-report entry and
+       cite the change.
+
+    Why: the LLM uses these tools to ground its answers. A tool that
+    silently rounds, picks the wrong table, or quotes an out-of-date
+    constant doesn't just produce wrong output — it produces *plausibly
+    wrong output* the model will defend. Citation + auditable verification
+    is what keeps every layer above the tool honest. The 0.1.6 cross-
+    codebase audit ([`audit-report.md`](audit-report.md)) caught eight
+    wrong-answer bugs in tools that had been merged because they "looked
+    right"; this rule exists so future tools never reach that state.

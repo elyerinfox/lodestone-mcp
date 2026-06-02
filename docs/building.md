@@ -124,7 +124,7 @@ Two terminals, separate processes, HMR on the frontend.
 
 ### Terminal A — backend
 ```sh
-cargo run
+cargo run --bin lodestone-mcp
 ```
 Listens on `127.0.0.1:8000/mcp` + `/ws/status` + `/api/*`. Hot-restart
 with `cargo watch -x run` (install with `cargo install cargo-watch`).
@@ -228,7 +228,7 @@ if you have network and want full coverage.
 | `make dashboard-run` | Run the standalone dashboard image on host port 3000. |
 | `make compose-up` / `make compose-down` | Bring the two-service stack up / down. |
 | `make docker` | `docker build` the MCP image + run the `/health` smoke test. |
-| `make run` | `cargo run` (debug profile). |
+| `make run` | `cargo run --bin lodestone-mcp` (debug profile). |
 
 Override on the command line: `make frontend-docker
 NODE_IMAGE=node:22.10-bookworm`, `make docker
