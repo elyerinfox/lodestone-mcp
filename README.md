@@ -5,8 +5,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.74%2B-orange?logo=rust)](https://www.rust-lang.org)
 [![MCP](https://img.shields.io/badge/MCP-Streamable%20HTTP-7c3aed)](https://modelcontextprotocol.io)
-[![Tools](https://img.shields.io/badge/tools-%7E400-success)](docs/tools.md)
-[![Skills](https://img.shields.io/badge/skill%20families-%7E85-success)](docs/skills.md)
+[![Tools](https://img.shields.io/badge/tools-%7E465-success)](docs/tools.md)
+[![Skills](https://img.shields.io/badge/skill%20families-%7E100-success)](docs/skills.md)
 
 A **keyless-by-default, self-hosted [MCP](https://modelcontextprotocol.io) server**
 that gives a local LLM a broad, composable toolkit — **search and retrieve** the open
@@ -52,8 +52,8 @@ One stone, many bearings.
 
 ## What it is
 
-- **A keyless toolkit for a local model** — one MCP server exposing **~400
-  small, composable [tools](docs/tools.md)** organized into ~85
+- **A keyless toolkit for a local model** — one MCP server exposing **~465
+  small, composable [tools](docs/tools.md)** organized into ~100
   [skill families](docs/skills.md), each independently gateable.
 - **Search _and_ retrieve.** Finding a link is half the job; reading the page, file,
   PDF, or answer is the other half. Retrieval is first-class.

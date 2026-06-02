@@ -61,7 +61,7 @@ src/
                  `Skill` contract (name/description/schema/call); mod.rs assembles
                  them into routes and computes config gating (disabled_by_config).
                  A skill owns its domain logic + arg structs + formatters.
-                 ~85 family modules covering:
+                 ~100 family modules covering:
                  - Search / retrieval / archive / RFC / standards / arxiv /
                    pubmed / openaccess / huggingface / wikipedia / news / kernel
                    / github.
