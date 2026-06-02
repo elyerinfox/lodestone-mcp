@@ -167,10 +167,10 @@ within its TTL. Zero network calls.
 sequenceDiagram
     autonumber
     participant S as Skill
-    participant L as Local cache (TtlCache)
-    S->>L: retrieval_get("arxiv|2401.01860")
+    participant L as Local cache
+    S->>L: retrieval_get(key)
     L-->>S: cached bytes
-    Note over S,L: done; zero network calls
+    Note over S,L: done — zero network calls
 ```
 
 This is the path that fires when the same model asks the same query
@@ -189,17 +189,17 @@ sequenceDiagram
     participant S as Skill
     participant L as Local cache
     participant P as Peer X
-    S->>L: retrieval_get("arxiv|2401.01860")
+    S->>L: retrieval_get(key)
     L-->>S: miss
     Note over S: hash the key, check peer Blooms
-    S->>P: POST /constellation/query { key: h }<br/>Authorization: Bearer <network.token>
+    S->>P: POST constellation query with hashed key
     P-->>S: cached bytes
     S->>L: cache.put(key, body)
     Note over S: return bytes — upstream NEVER touched
 ```
 
 Notes:
-- The hash on the wire is `h`, not `"arxiv|2401.01860"`. Raw queries
+- The hash on the wire is `h`, not the raw key string. Raw queries
   do not traverse the mesh (see [Privacy](#guarantees)).
 - If multiple peers' Blooms match, we ask up to `[network].max_peers`
   in parallel and apply the consensus floor `[network].min_agreement`.
@@ -219,16 +219,16 @@ sequenceDiagram
     autonumber
     participant S as Skill
     participant L as Local cache
-    participant P as Peers (Bloom check)
-    participant U as Upstream (arxiv.org)
-    S->>L: retrieval_get("arxiv|2401.01860")
+    participant P as Peers
+    participant U as Upstream
+    S->>L: retrieval_get(key)
     L-->>S: miss
     S->>P: check advertised Blooms
     P-->>S: no match
     S->>U: HTTP fetch
     U-->>S: document bytes
     S->>L: retrieval_put(key, body)
-    Note over S,L: on the next constellation sync (≤ sync_secs,<br/>default 30 s) the key hash is added to OUR<br/>advertised Bloom filter
+    Note over S,L: on the next constellation sync the key hash<br/>is added to OUR advertised Bloom filter
 ```
 
 After step 7, any peer that subsequently calls `retrieval_get` for the
@@ -253,14 +253,14 @@ sequenceDiagram
     autonumber
     participant S as Skill
     participant L as Local cache
-    participant P as Peers (Bloom check)
-    participant U as Upstream (arxiv.org)
+    participant P as Peers
+    participant U as Upstream
     S->>L: retrieval_get(key)
     L-->>S: miss
     S->>P: check advertised Blooms
     P-->>S: no match
     S->>U: HTTP fetch
-    U-->>S: 429 / 403 / CAPTCHA
+    U-->>S: 429 or 403 or CAPTCHA
     Note over S: skill returns error to the model<br/>NO retrieval_put — nothing to share<br/>NO peer-relay (today)
 ```
 
@@ -281,11 +281,11 @@ constellation-level:
 - **Per-provider proxy** (`[providers].<id>.proxy`): outbound proxy
   that doesn't share the blocked egress IP.
 
-An "opt-in fetch relay" — where a node says "I'm rate-limited on
-`arxiv|<id>`, will any peer fetch and `retrieval_put` it for me?" — is
-a design point we have **not** built. The trade-offs (the relay burns
-its own quota; trust that the relay didn't tamper; privacy / what the
-relay learns; abuse / one bad node spamming the mesh; spec creep from
+An "opt-in fetch relay" — where a node says "I'm rate-limited on this
+key, will any peer fetch and `retrieval_put` it for me?" — is a design
+point we have **not** built. The trade-offs (the relay burns its own
+quota; trust that the relay didn't tamper; privacy / what the relay
+learns; abuse / one bad node spamming the mesh; spec creep from
 passive cache to active forwarding) are real and are tracked in
 [TODO.md](../TODO.md).
 
@@ -302,13 +302,13 @@ sequenceDiagram
     participant S as Skill
     participant L as Local cache
     participant P as Peer X
-    Note over P: previously cached as Identifiers {<br/>primary: arxiv|2401.01860,<br/>aliases: { url: ..., doi: ... } }<br/>all three hashes advertised on Bloom
-    S->>L: retrieval_get("doi|10.48550/arXiv.2401.01860")
+    Note over P: previously cached with multiple alias hashes<br/>all advertised on the same Bloom
+    S->>L: retrieval_get(doi_key)
     L-->>S: miss
-    Note over S: h_doi matches peer X's Bloom via the alias
-    S->>P: POST /constellation/query { key: h_doi }
-    P-->>S: bytes (looked up via alias-hash index)
-    S->>L: cache.put(...)
+    Note over S: h_doi matches peer X Bloom via the alias
+    S->>P: POST constellation query with h_doi
+    P-->>S: bytes looked up via alias-hash index
+    S->>L: cache.put
 ```
 
 This is the path that closes the alignment gap on long-tail content.
@@ -326,15 +326,15 @@ sequenceDiagram
     autonumber
     participant Us as Us
     participant A as Peer A
-    participant B as Peer B (2 hops away)
-    Us->>A: POST /constellation/query { key: h, ttl: 2, seen: [Us] }
-    Note over A: local miss<br/>Bloom: peer B claims a match<br/>seen ← [Us, A]; ttl ← 1
-    A->>B: POST /constellation/query { key: h, ttl: 1, seen: [Us, A] }
+    participant B as Peer B
+    Us->>A: POST query — ttl=2, seen contains Us
+    Note over A: local miss<br/>Bloom — peer B claims a match<br/>seen now lists Us and A, ttl becomes 1
+    A->>B: POST query — ttl=1, seen contains Us and A
     Note over B: local HIT
     B-->>A: bytes
     A-->>Us: bytes
-    Us->>Us: cache.put(...)
-    Note over Us: A counts as ONE consensus vote regardless of how<br/>many sub-peers it relayed through — relay cannot<br/>manufacture corroboration to meet min_agreement
+    Us->>Us: cache.put
+    Note over Us: A counts as ONE consensus vote no matter<br/>how many sub-peers it relayed through —<br/>relay cannot manufacture corroboration
 ```
 
 Constraints that keep relay honest:
@@ -361,7 +361,7 @@ sequenceDiagram
     participant S as Skill
     participant L as Local cache
     participant U as Upstream
-    Note over S: [network].enabled = false (default)
+    Note over S: network.enabled = false (default)
     S->>L: retrieval_get(key)
     alt cache hit
         L-->>S: cached bytes
@@ -369,7 +369,7 @@ sequenceDiagram
         L-->>S: miss
         S->>U: HTTP fetch
         U-->>S: bytes
-        S->>L: retrieval_put (local only; no advertise)
+        S->>L: retrieval_put — local only, no advertise
     end
 ```
 
