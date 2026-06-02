@@ -20,9 +20,12 @@ use crate::{invalid, text_result};
 static IMPLICIT_VAR: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"([0-9.)])x").unwrap());
 static IMPLICIT_PAREN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"([0-9.)])\(").unwrap());
 
-/// Insert implicit `*` so `2x`/`2(…)` parse. Shared with `algebra`.
+/// Normalize a meval-bound expression: rewrite Python-style `**` to `^`
+/// (LLMs reach for `**` half the time — `meval` only understands `^`), then
+/// insert explicit `*` so `2x` / `2(…)` parse. Shared with `algebra`.
 pub(crate) fn normalize(s: &str) -> String {
-    let s = IMPLICIT_VAR.replace_all(s, "${1}*x");
+    let s = s.replace("**", "^");
+    let s = IMPLICIT_VAR.replace_all(&s, "${1}*x");
     IMPLICIT_PAREN.replace_all(&s, "${1}*(").into_owned()
 }
 
@@ -85,6 +88,14 @@ mod tests {
     fn normalizes_implicit_multiplication() {
         assert_eq!(normalize("2x + 3"), "2*x + 3");
         assert_eq!(normalize("2(3+4)"), "2*(3+4)");
+    }
+
+    #[test]
+    fn normalizes_python_power_operator() {
+        assert_eq!(normalize("2**10"), "2^10");
+        assert_eq!(meval::eval_str(normalize("2**10")).unwrap(), 1024.0);
+        // Combines with implicit-multiplication insertion.
+        assert_eq!(normalize("2**(3+1)"), "2^(3+1)");
     }
 
     #[test]
