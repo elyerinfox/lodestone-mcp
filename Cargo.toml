@@ -101,3 +101,36 @@ iced-x86 = { version = "1", default-features = false, features = ["std", "decode
 # from the same MQTT subscription buffer and publishes back through the same
 # client when sending mesh traffic.
 rumqttc = { version = "0.24", default-features = false, features = ["use-rustls"] }
+# Numerical linear algebra surface used by tracking (Kalman family), nav aiding
+# (DOP, ECEF/ECI transforms), and the cross-cutting `linalg_*` tools.
+nalgebra = "0.33"
+# Karney's geographiclib port — Vincenty/Karney geodesic, MGRS, geodesic polygon
+# area. Powers the `geo_*` ellipsoidal suite.
+geographiclib-rs = "0.2"
+# Big-integer math for the crypto_math family (Miller-Rabin, modexp, CRT).
+num-bigint = { version = "0.4", features = ["rand"] }
+num-traits = "0.2"
+num-integer = "0.1"
+# Elliptic-curve point operations exposed as math tools.
+p256 = { version = "0.13", features = ["arithmetic"] }
+# CRC variants (CRC-8/16/32/64 with arbitrary polynomial / init / xorout).
+crc = "3"
+# Key derivation function families surfaced as deterministic tools.
+hmac = "0.12"
+sha2 = "0.10"
+sha1 = "0.10"
+hkdf = "0.12"
+pbkdf2 = { version = "0.12", default-features = false, features = ["hmac"] }
+argon2 = { version = "0.5", default-features = false, features = ["alloc"] }
+# Reed-Solomon codec (channel coding).
+reed-solomon-erasure = "6"
+# Iterative LP solver — used by `opt_linprog`.
+minilp = "0.2"
+# Graph algorithms (Dijkstra, max-flow, Hungarian-style assignment).
+pathfinding = "4"
+# Acceptable rand source for SA/GA harnesses and particle filters.
+rand = "0.8"
+# Open-format converters: KML, GPX, well-known text/binary.
+wkt = "0.10"
+quick-xml = { version = "0.36", features = ["serialize"] }
+gpx = "0.10"
