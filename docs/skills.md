@@ -180,6 +180,35 @@ through — no tools of its own.
 | [physics](skills/physics.md) | `physics_formula`, `physics_formula_list`, `physical_constant`, `wave_frequency` | ~70 physics formulas (mechanics→fluids) + SI constants + wave f/λ/T. |
 | [formula](skills/formula.md) | (infrastructure) | Shared registry engine: input validation, listing, uniform response shape. Every `*_formula` / `*_formula_list` tool dispatches through it. |
 
+## Math & science — extended (0.1.2)
+
+Pure-Rust math / signal / RF / navigation suite. All on by default, no host
+requirements. The skill modules are self-contained — each parses its typed
+args, runs the algorithm, returns a JSON result (or SVG for the chart tools).
+
+| Skill | Tools | What |
+| --- | --- | --- |
+| [linalg](skills/linalg.md) | `linalg_solve`, `linalg_lstsq`, `linalg_svd`, `linalg_eigen`, `linalg_qr`, `linalg_inv`, `linalg_det`, `linalg_rank`, `linalg_norm`, `linalg_matmul` | Linear algebra via `nalgebra` — solve, least-squares, decompositions, norms. |
+| [quaternion](skills/quaternion.md) | `quat_from_euler`, `quat_to_euler`, `quat_compose`, `quat_rotate`, `quat_conjugate`, `quat_normalize`, `quat_slerp`, `frame_dcm_from_euler` | Quaternion + DCM attitude math, Hamilton convention. |
+| [ode](skills/ode.md) | `ode_rk4` | Classical RK4 integrator; per-state RHS supplied as `meval` expressions. |
+| [geodesy](skills/geodesy.md) | `geo_vincenty_inverse`, `geo_vincenty_direct`, `geo_great_circle_polyline`, `geo_cross_track`, `geo_polygon_area_geodesic`, `geo_utm_from_latlon`, `geo_latlon_from_utm`, `geo_mgrs_from_latlon`, `geo_latlon_from_mgrs`, `geo_ecef_from_latlon`, `geo_latlon_from_ecef`, `geo_helmert` | Full WGS84 suite — Vincenty/Karney geodesics, UTM, MGRS, ECEF, 7-param Helmert. |
+| [atmospheric](skills/atmospheric.md) | `atm_isa`, `atm_density_altitude`, `atm_dewpoint`, `atm_wbgt`, `atm_space_weather_kp` | US-1976 ISA, density altitude, Magnus dewpoint, Stull WBGT, live NOAA SWPC Kp. |
+| [info_theory](skills/info_theory.md) | `it_shannon_capacity`, `it_entropy`, `it_kl_divergence`, `it_js_divergence`, `it_mutual_information`, `code_hamming_distance`, `code_crc`, `code_rs_encode`, `code_convolutional_encode` | Shannon capacity, Rényi entropy, KL/JS/MI, CRC variants, Reed-Solomon encode, K=7 rate-½ convolutional encoder. |
+| [crypto_math](skills/crypto_math.md) | `crypto_miller_rabin`, `crypto_modexp`, `crypto_mod_inverse`, `crypto_crt`, `crypto_hkdf`, `crypto_pbkdf2`, `crypto_argon2`, `crypto_hmac`, `crypto_jwt_decode` | Miller-Rabin, modular arithmetic, CRT, HKDF, PBKDF2, Argon2id, HMAC, JWT decode (no verify). Educational / math focus — not a production TLS surface. |
+| [rf_link](skills/rf_link.md) | `rf_two_ray_path_loss`, `rf_hata_path_loss`, `rf_cost231_path_loss`, `rf_egli_path_loss`, `rf_itu_p676_absorption`, `rf_itu_p838_rain`, `rf_doppler_shift`, `rf_polarization_loss`, `rf_fresnel_zone_radius`, `rf_knife_edge_diffraction`, `rf_friis_with_noise` | Hata / COST-231 / Egli / ITU path loss, atmospheric + rain attenuation, Fresnel / knife-edge, Friis with kTBF noise floor. |
+| [radar](skills/radar.md) | `radar_monostatic`, `radar_bistatic`, `radar_integration_gain`, `radar_pulse_compression_gain`, `radar_cfar_threshold`, `radar_clutter_threshold`, `radar_doppler_shift` | Mono/bistatic equations, integration + pulse-compression gain, CA/OS CFAR, clutter PDFs. |
+| [dsp_advanced](skills/dsp_advanced.md) | `signal_spectrogram`, `signal_cross_correlation`, `signal_hilbert`, `signal_cepstrum`, `signal_ber_curve`, `signal_iq_demod` | STFT spectrogram, FFT xcorr, Hilbert, cepstrum, BER curves (BPSK/QPSK/QAM/FSK), IQ demod. Extends the existing `signal_*` family. |
+| [tracking](skills/tracking.md) | `track_kalman_step`, `track_hungarian`, `track_ransac_line` | Single-step linear KF (with NIS), Kuhn-Munkres assignment, RANSAC line fit. |
+| [acoustic](skills/acoustic.md) | `acoustic_sound_speed_water`, `acoustic_sound_speed_air`, `acoustic_snell`, `acoustic_transmission_loss`, `acoustic_sonar_equation` | Mackenzie / air speed, Snell refraction, Thorp absorption, sonar equation. |
+| [nav_aiding](skills/nav_aiding.md) | `nav_dop`, `nav_klobuchar`, `nav_saastamoinen`, `nav_ecef_to_enu`, `nav_imu_drift` | GNSS DOP, Klobuchar ionospheric delay, Saastamoinen tropospheric, ECEF→ENU, IMU drift error budget. |
+| [trajectory](skills/trajectory.md) | `traj_projectile_drag`, `traj_hohmann`, `traj_reentry_heating` | Projectile RK4 with drag + wind, Hohmann transfer Δv, Sutton-Graves reentry heating. |
+| [earth_models](skills/earth_models.md) | `earth_sidereal_time`, `earth_magnetic_declination` | Meeus GMST/LST + centred-dipole magnetic declination. |
+| [optimization](skills/optimization.md) | `opt_tsp_2opt`, `opt_shortest_path` | TSP nearest-neighbour + 2-opt; Dijkstra shortest path. |
+| [open_data](skills/open_data.md) | `open_data_opensky_states`, `open_data_usgs_earthquakes`, `open_data_swpc_solar_wind` | Live keyless feeds: aircraft state vectors, earthquake GeoJSON, solar wind plasma. |
+| [geo_convert](skills/geo_convert.md) | `convert_nmea_decode`, `convert_cot_encode`, `convert_geojson_to_wkt` | NMEA-0183 sentence decode (XOR checksum verified), Cursor-on-Target XML emit, GeoJSON → WKT. |
+| [interchange](skills/interchange.md) | `interchange_stl_info` | STL mesh probe (binary + ASCII): triangle count, AABB, area, centroid. |
+| [new_charts](skills/new_charts.md) | `chart_polar`, `chart_smith`, `chart_waterfall`, `chart_compass_rose`, `chart_skyplot`, `chart_density_map` | Specialist SVG plots: antenna pattern, RF impedance, spectrogram heatmap, wind rose, sky plot, 2-D density heatmap. |
+
 ## Finance & markets (keyless)
 
 | Skill | Tools | What |

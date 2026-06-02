@@ -77,7 +77,11 @@ impl Skill for TrajProjectileDrag {
             let mut ys = Vec::new();
             let mut vxs = Vec::new();
             let mut vys = Vec::new();
-            t_s.push(t); xs.push(x); ys.push(y); vxs.push(vx); vys.push(vy);
+            t_s.push(t);
+            xs.push(x);
+            ys.push(y);
+            vxs.push(vx);
+            vys.push(vy);
 
             let drag_acc = |vx: f64, vy: f64| -> (f64, f64) {
                 let v_rel_x = vx - wind;
@@ -88,20 +92,28 @@ impl Skill for TrajProjectileDrag {
 
             let mut apex = 0.0_f64;
             while t < t_max {
-                if y < 0.0 && t > 0.0 { break; }
+                if y < 0.0 && t > 0.0 {
+                    break;
+                }
                 let (k1x, k1y) = drag_acc(vx, vy);
                 let (k2x, k2y) = drag_acc(vx + 0.5 * dt * k1x, vy + 0.5 * dt * k1y);
                 let (k3x, k3y) = drag_acc(vx + 0.5 * dt * k2x, vy + 0.5 * dt * k2y);
                 let (k4x, k4y) = drag_acc(vx + dt * k3x, vy + dt * k3y);
-                let ax = (k1x + 2.0*k2x + 2.0*k3x + k4x) / 6.0;
-                let ay = (k1y + 2.0*k2y + 2.0*k3y + k4y) / 6.0;
+                let ax = (k1x + 2.0 * k2x + 2.0 * k3x + k4x) / 6.0;
+                let ay = (k1y + 2.0 * k2y + 2.0 * k3y + k4y) / 6.0;
                 vx += ax * dt;
                 vy += ay * dt;
                 x += vx * dt;
                 y += vy * dt;
                 t += dt;
-                if y > apex { apex = y; }
-                t_s.push(t); xs.push(x); ys.push(y); vxs.push(vx); vys.push(vy);
+                if y > apex {
+                    apex = y;
+                }
+                t_s.push(t);
+                xs.push(x);
+                ys.push(y);
+                vxs.push(vx);
+                vys.push(vy);
             }
             let impact_v = (vx.powi(2) + vy.powi(2)).sqrt();
             Ok(text_result(

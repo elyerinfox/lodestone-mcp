@@ -169,9 +169,7 @@ impl Skill for LinalgSvd {
             let (_s, args) = ctx.parse::<MatArgs>()?;
             let a = parse_matrix(&args.matrix, "matrix").map_err(invalid)?;
             let svd = a.svd(true, true);
-            let u = svd
-                .u
-                .ok_or_else(|| internal(anyhow!("U not computed")))?;
+            let u = svd.u.ok_or_else(|| internal(anyhow!("U not computed")))?;
             let vt = svd
                 .v_t
                 .ok_or_else(|| internal(anyhow!("V_t not computed")))?;
@@ -435,7 +433,7 @@ mod tests {
     #[test]
     fn solve_2x2() {
         // [[1,2],[3,4]] x = [5,6]  → x = [-4, 4.5]
-        let a = parse_matrix(&vec![vec![1.0, 2.0], vec![3.0, 4.0]], "a").unwrap();
+        let a = parse_matrix(&[vec![1.0, 2.0], vec![3.0, 4.0]], "a").unwrap();
         let b = parse_vector(&[5.0, 6.0], "b").unwrap();
         let x = a.lu().solve(&b).unwrap();
         assert!((x[0] - -4.0).abs() < 1e-9);
@@ -444,12 +442,12 @@ mod tests {
 
     #[test]
     fn det_2x2() {
-        let a = parse_matrix(&vec![vec![1.0, 2.0], vec![3.0, 4.0]], "a").unwrap();
+        let a = parse_matrix(&[vec![1.0, 2.0], vec![3.0, 4.0]], "a").unwrap();
         assert!((a.determinant() - (-2.0)).abs() < 1e-9);
     }
 
     #[test]
     fn ragged_rejected() {
-        assert!(parse_matrix(&vec![vec![1.0, 2.0], vec![3.0]], "x").is_err());
+        assert!(parse_matrix(&[vec![1.0, 2.0], vec![3.0]], "x").is_err());
     }
 }

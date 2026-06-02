@@ -70,8 +70,11 @@ impl Skill for DspSpectrogram {
             let mut planner = FftPlanner::<f64>::new();
             let fft = planner.plan_fft_forward(a.window_size);
             let hann: Vec<f64> = (0..a.window_size)
-                .map(|n| 0.5 * (1.0 - (2.0 * std::f64::consts::PI * n as f64
-                    / (a.window_size - 1) as f64).cos()))
+                .map(|n| {
+                    0.5 * (1.0
+                        - (2.0 * std::f64::consts::PI * n as f64 / (a.window_size - 1) as f64)
+                            .cos())
+                })
                 .collect();
             let nfreq = a.window_size / 2 + 1;
             let mut mag: Vec<Vec<f64>> = Vec::with_capacity(n_slices);
@@ -143,7 +146,9 @@ impl Skill for DspCrossCorrelation {
                 .collect();
             fft.process(&mut fa);
             fft.process(&mut fb);
-            let mut prod: Vec<Complex64> = fa.iter().zip(fb.iter())
+            let mut prod: Vec<Complex64> = fa
+                .iter()
+                .zip(fb.iter())
                 .map(|(x, y)| x * y.conj())
                 .collect();
             ifft.process(&mut prod);
@@ -153,14 +158,21 @@ impl Skill for DspCrossCorrelation {
             let mut lags: Vec<i64> = Vec::with_capacity(a.a.len() + a.b.len() - 1);
             let mut corr: Vec<f64> = Vec::with_capacity(a.a.len() + a.b.len() - 1);
             for lag in -(a.b.len() as i64 - 1)..=(a.a.len() as i64 - 1) {
-                let idx = ((lag as i64).rem_euclid(n as i64)) as usize;
+                let idx = (lag.rem_euclid(n as i64)) as usize;
                 lags.push(lag);
                 corr.push(prod[idx].re * scale);
             }
             let _ = half_a;
-            let (i_peak, peak) = corr.iter().enumerate().fold((0usize, f64::NEG_INFINITY), |acc, (i, v)| {
-                if v.abs() > acc.1.abs() { (i, *v) } else { acc }
-            });
+            let (i_peak, peak) =
+                corr.iter()
+                    .enumerate()
+                    .fold((0usize, f64::NEG_INFINITY), |acc, (i, v)| {
+                        if v.abs() > acc.1.abs() {
+                            (i, *v)
+                        } else {
+                            acc
+                        }
+                    });
             let peak_lag_s = lags[i_peak] as f64 / a.sample_rate_hz;
             Ok(text_result(
                 json!({
@@ -204,16 +216,17 @@ impl Skill for DspHilbert {
             let mut planner = FftPlanner::<f64>::new();
             let fft = planner.plan_fft_forward(n);
             let ifft = planner.plan_fft_inverse(n);
-            let mut buf: Vec<Complex64> = a.samples.iter().map(|x| Complex64::new(*x, 0.0)).collect();
+            let mut buf: Vec<Complex64> =
+                a.samples.iter().map(|x| Complex64::new(*x, 0.0)).collect();
             fft.process(&mut buf);
             // Zero negative frequencies, double positive.
-            for i in 0..n {
-                if i == 0 || (n % 2 == 0 && i == n / 2) {
+            for (i, b) in buf.iter_mut().enumerate() {
+                if i == 0 || (n.is_multiple_of(2) && i == n / 2) {
                     // keep
                 } else if i < n / 2 {
-                    buf[i] *= 2.0;
+                    *b *= 2.0;
                 } else {
-                    buf[i] = Complex64::new(0.0, 0.0);
+                    *b = Complex64::new(0.0, 0.0);
                 }
             }
             ifft.process(&mut buf);
@@ -227,8 +240,12 @@ impl Skill for DspHilbert {
             inst_freq.push(0.0);
             for i in 1..n {
                 let mut dphi = phase[i] - phase[i - 1];
-                while dphi > std::f64::consts::PI { dphi -= 2.0 * std::f64::consts::PI; }
-                while dphi < -std::f64::consts::PI { dphi += 2.0 * std::f64::consts::PI; }
+                while dphi > std::f64::consts::PI {
+                    dphi -= 2.0 * std::f64::consts::PI;
+                }
+                while dphi < -std::f64::consts::PI {
+                    dphi += 2.0 * std::f64::consts::PI;
+                }
                 inst_freq.push(dphi * a.sample_rate_hz / (2.0 * std::f64::consts::PI));
             }
             Ok(text_result(
@@ -284,7 +301,11 @@ impl Skill for DspCepstrum {
             }
             ifft.process(&mut buf);
             let scale = 1.0 / n as f64;
-            let ceps: Vec<f64> = buf.iter().take(a.samples.len()).map(|c| c.re * scale).collect();
+            let ceps: Vec<f64> = buf
+                .iter()
+                .take(a.samples.len())
+                .map(|c| c.re * scale)
+                .collect();
             Ok(text_result(json!({ "cepstrum": ceps }).to_string()))
         })
     }
@@ -362,14 +383,16 @@ impl Skill for DspBer {
 fn erfc(x: f64) -> f64 {
     // Abramowitz & Stegun 7.1.26.
     let t = 1.0 / (1.0 + 0.327_591_1 * x);
-    let y = t * (-x * x).exp() * (
-        0.254_829_592
+    let y = t
+        * (-x * x).exp()
+        * (0.254_829_592
             + t * (-0.284_496_736
-                + t * (1.421_413_741
-                    + t * (-1.453_152_027
-                        + t * 1.061_405_429)))
-    );
-    if x < 0.0 { 2.0 - y } else { y }
+                + t * (1.421_413_741 + t * (-1.453_152_027 + t * 1.061_405_429))));
+    if x < 0.0 {
+        2.0 - y
+    } else {
+        y
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -397,8 +420,16 @@ impl Skill for DspIqDemod {
             if a.i.len() != a.q.len() || a.i.is_empty() {
                 return Err(invalid("i and q must be same non-zero length"));
             }
-            let amp: Vec<f64> = a.i.iter().zip(a.q.iter()).map(|(x, y)| (x * x + y * y).sqrt()).collect();
-            let phase: Vec<f64> = a.i.iter().zip(a.q.iter()).map(|(x, y)| y.atan2(*x)).collect();
+            let amp: Vec<f64> =
+                a.i.iter()
+                    .zip(a.q.iter())
+                    .map(|(x, y)| (x * x + y * y).sqrt())
+                    .collect();
+            let phase: Vec<f64> =
+                a.i.iter()
+                    .zip(a.q.iter())
+                    .map(|(x, y)| y.atan2(*x))
+                    .collect();
             Ok(text_result(
                 json!({ "amplitude": amp, "phase": phase }).to_string(),
             ))

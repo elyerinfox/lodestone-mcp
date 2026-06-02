@@ -40,7 +40,9 @@ impl Skill for ConvertNmeaDecode {
                 return Err(invalid("NMEA sentence must start with '$'"));
             }
             // Verify checksum.
-            let star = s.rfind('*').ok_or_else(|| invalid("missing checksum delimiter '*'"))?;
+            let star = s
+                .rfind('*')
+                .ok_or_else(|| invalid("missing checksum delimiter '*'"))?;
             let body = &s[1..star];
             let expected = &s[star + 1..];
             let mut chk: u8 = 0;
@@ -78,7 +80,11 @@ fn nmea_coord(s: &str, hemi: &str) -> Option<f64> {
     let deg_end = dot.saturating_sub(2);
     let deg: f64 = s[..deg_end].parse().ok()?;
     let min: f64 = s[deg_end..].parse().ok()?;
-    let sign = if hemi == "S" || hemi == "W" { -1.0 } else { 1.0 };
+    let sign = if hemi == "S" || hemi == "W" {
+        -1.0
+    } else {
+        1.0
+    };
     Some(sign * (deg + min / 60.0))
 }
 
@@ -223,7 +229,10 @@ impl Skill for ConvertGeoJsonToWkt {
         Box::pin(async move {
             let (_s, a) = ctx.parse::<WktFromGeoJsonArgs>()?;
             let geom = if a.geojson.get("type").and_then(|t| t.as_str()) == Some("Feature") {
-                a.geojson.get("geometry").cloned().unwrap_or(serde_json::Value::Null)
+                a.geojson
+                    .get("geometry")
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null)
             } else {
                 a.geojson.clone()
             };
@@ -234,7 +243,9 @@ impl Skill for ConvertGeoJsonToWkt {
 }
 
 fn coord_to_wkt(c: &serde_json::Value) -> std::result::Result<String, McpError> {
-    let arr = c.as_array().ok_or_else(|| invalid("expected array coord"))?;
+    let arr = c
+        .as_array()
+        .ok_or_else(|| invalid("expected array coord"))?;
     let nums: Vec<String> = arr
         .iter()
         .map(|v| v.as_f64().map(|x| format!("{x}")).unwrap_or_default())
@@ -243,9 +254,10 @@ fn coord_to_wkt(c: &serde_json::Value) -> std::result::Result<String, McpError> 
 }
 
 fn ring_to_wkt(ring: &serde_json::Value) -> std::result::Result<String, McpError> {
-    let pts = ring.as_array().ok_or_else(|| invalid("ring expected array"))?;
-    let s: std::result::Result<Vec<String>, McpError> =
-        pts.iter().map(coord_to_wkt).collect();
+    let pts = ring
+        .as_array()
+        .ok_or_else(|| invalid("ring expected array"))?;
+    let s: std::result::Result<Vec<String>, McpError> = pts.iter().map(coord_to_wkt).collect();
     Ok(format!("({})", s?.join(", ")))
 }
 
@@ -260,25 +272,35 @@ fn geojson_to_wkt(g: &serde_json::Value) -> std::result::Result<String, McpError
     match kind {
         "Point" => Ok(format!("POINT ({})", coord_to_wkt(coords)?)),
         "LineString" => {
-            let pts = coords.as_array().ok_or_else(|| invalid("ls expects array"))?;
+            let pts = coords
+                .as_array()
+                .ok_or_else(|| invalid("ls expects array"))?;
             let strs: std::result::Result<Vec<String>, McpError> =
                 pts.iter().map(coord_to_wkt).collect();
             Ok(format!("LINESTRING ({})", strs?.join(", ")))
         }
         "Polygon" => {
-            let rings = coords.as_array().ok_or_else(|| invalid("poly expects array"))?;
+            let rings = coords
+                .as_array()
+                .ok_or_else(|| invalid("poly expects array"))?;
             let strs: std::result::Result<Vec<String>, McpError> =
                 rings.iter().map(ring_to_wkt).collect();
             Ok(format!("POLYGON ({})", strs?.join(", ")))
         }
         "MultiPoint" => {
-            let pts = coords.as_array().ok_or_else(|| invalid("mp expects array"))?;
-            let strs: std::result::Result<Vec<String>, McpError> =
-                pts.iter().map(|p| coord_to_wkt(p).map(|s| format!("({s})"))).collect();
+            let pts = coords
+                .as_array()
+                .ok_or_else(|| invalid("mp expects array"))?;
+            let strs: std::result::Result<Vec<String>, McpError> = pts
+                .iter()
+                .map(|p| coord_to_wkt(p).map(|s| format!("({s})")))
+                .collect();
             Ok(format!("MULTIPOINT ({})", strs?.join(", ")))
         }
         "MultiLineString" => {
-            let lines = coords.as_array().ok_or_else(|| invalid("mls expects array"))?;
+            let lines = coords
+                .as_array()
+                .ok_or_else(|| invalid("mls expects array"))?;
             let strs: std::result::Result<Vec<String>, McpError> = lines
                 .iter()
                 .map(|l| {
@@ -291,7 +313,9 @@ fn geojson_to_wkt(g: &serde_json::Value) -> std::result::Result<String, McpError
             Ok(format!("MULTILINESTRING ({})", strs?.join(", ")))
         }
         "MultiPolygon" => {
-            let polys = coords.as_array().ok_or_else(|| invalid("mpoly expects array"))?;
+            let polys = coords
+                .as_array()
+                .ok_or_else(|| invalid("mpoly expects array"))?;
             let strs: std::result::Result<Vec<String>, McpError> = polys
                 .iter()
                 .map(|p| {

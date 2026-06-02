@@ -53,8 +53,8 @@ impl Skill for OptTsp2opt {
                 let last = *tour.last().unwrap();
                 let mut best = usize::MAX;
                 let mut best_d = f64::INFINITY;
-                for j in 0..n {
-                    if !visited[j] && a.distances[last][j] < best_d {
+                for (j, &v) in visited.iter().enumerate() {
+                    if !v && a.distances[last][j] < best_d {
                         best_d = a.distances[last][j];
                         best = j;
                     }
@@ -81,7 +81,9 @@ impl Skill for OptTsp2opt {
                     }
                 }
             }
-            let total: f64 = (0..n).map(|i| a.distances[tour[i]][tour[(i + 1) % n]]).sum();
+            let total: f64 = (0..n)
+                .map(|i| a.distances[tour[i]][tour[(i + 1) % n]])
+                .sum();
             Ok(text_result(
                 json!({ "tour": tour, "total_distance": total }).to_string(),
             ))
@@ -118,7 +120,9 @@ impl Skill for OptShortestPath {
                 if *w < 0.0 {
                     return Err(invalid("dijkstra: negative weights not allowed"));
                 }
-                adj.entry(*from).or_default().push((*to, (w * 1_000_000.0).round() as i64));
+                adj.entry(*from)
+                    .or_default()
+                    .push((*to, (w * 1_000_000.0).round() as i64));
             }
             let result = pathfinding::directed::dijkstra::dijkstra(
                 &a.start,

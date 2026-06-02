@@ -345,6 +345,225 @@ to discover ids/equations/signatures.
 | `forecast_holt_winters` | `values`, `horizon`, `season_length`, `alpha?`, `beta?`, `gamma?` | Forecast a seasonal series with Holt-Winters additive (level + trend + season). |
 | `convert_units` | `value`, `from`, `to` | Convert between units (length/mass/volume/area/speed/time/data/temperature). |
 
+## Math & science — extended (0.1.2)
+
+Pure-Rust linear algebra, attitude / ODE, geodesy, info theory, crypto-math,
+RF / radar / DSP, navigation aiding, trajectory mechanics, optimization,
+and specialist chart types. All on by default.
+
+### Linear algebra (`nalgebra`)
+
+| Tool | Arguments | Purpose |
+| --- | --- | --- |
+| `linalg_solve` | `a`, `b` | Solve A·x = b via LU. |
+| `linalg_lstsq` | `a`, `b` | Least-squares solution to A·x ≈ b (returns residual norm). |
+| `linalg_svd` | `matrix` | Singular value decomposition (U, Σ, Vᵀ). |
+| `linalg_eigen` | `matrix` | Eigenvalues + eigenvectors. |
+| `linalg_qr` | `matrix` | QR decomposition. |
+| `linalg_inv` | `matrix` | Matrix inverse. |
+| `linalg_det` | `matrix` | Determinant. |
+| `linalg_rank` | `matrix` | Numerical rank via SVD. |
+| `linalg_norm` | `vector?`, `matrix?`, `kind?` | Vector / matrix norms (`l1`, `l2`, `inf`, `fro`). |
+| `linalg_matmul` | `a`, `b` | Matrix multiply A·B. |
+
+### Quaternion algebra & attitude (Hamilton convention)
+
+| Tool | Arguments | Purpose |
+| --- | --- | --- |
+| `quat_from_euler` | `roll`, `pitch`, `yaw` (rad) | Roll-pitch-yaw → quaternion. |
+| `quat_to_euler` | `q` | Quaternion → roll/pitch/yaw (rad). |
+| `quat_compose` | `a`, `b` | Hamilton product a·b. |
+| `quat_rotate` | `q`, `v` | Rotate a 3-vector by `q`. |
+| `quat_conjugate` | `q` | Conjugate. |
+| `quat_normalize` | `q` | Renormalize to unit length. |
+| `quat_slerp` | `a`, `b`, `t` | Spherical linear interpolation. |
+| `frame_dcm_from_euler` | `roll`, `pitch`, `yaw` | Direction-cosine matrix from Euler angles. |
+
+### ODE integration
+
+| Tool | Arguments | Purpose |
+| --- | --- | --- |
+| `ode_rk4` | `rhs`, `y0`, `t_start`, `t_end`, `steps?` | RK4 integrator; each RHS expression refers to `t` and `y0`, `y1`, … via `meval`. |
+
+### Geodesy & coordinate systems (WGS84)
+
+| Tool | Arguments | Purpose |
+| --- | --- | --- |
+| `geo_vincenty_inverse` | `lat1`, `lon1`, `lat2`, `lon2` | Vincenty inverse: distance + initial/final azimuths. |
+| `geo_vincenty_direct` | `lat`, `lon`, `azimuth_deg`, `distance_m` | Vincenty direct: destination + final azimuth. |
+| `geo_great_circle_polyline` | `lat1`, `lon1`, `lat2`, `lon2`, `n` | Densify a great-circle path into `n` equally spaced points. |
+| `geo_cross_track` | `lat`, `lon`, `lat1`, `lon1`, `lat2`, `lon2` | Cross-track distance from a point to a great-circle path. |
+| `geo_polygon_area_geodesic` | `vertices` | Ellipsoidal polygon area + perimeter (Karney). |
+| `geo_utm_from_latlon` | `lat`, `lon` | Lat/lon → UTM zone + easting/northing. |
+| `geo_latlon_from_utm` | `zone`, `hemisphere`, `easting`, `northing` | UTM → lat/lon. |
+| `geo_mgrs_from_latlon` | `lat`, `lon`, `precision?` | Lat/lon → MGRS grid (1 m to 10 km). |
+| `geo_latlon_from_mgrs` | `mgrs` | MGRS → lat/lon. |
+| `geo_ecef_from_latlon` | `lat`, `lon`, `alt_m?` | Geodetic → ECEF (m). |
+| `geo_latlon_from_ecef` | `x`, `y`, `z` | ECEF → geodetic (Bowring iteration). |
+| `geo_helmert` | `x`, `y`, `z`, `tx`, `ty`, `tz`, `rx_arcsec`, `ry_arcsec`, `rz_arcsec`, `scale_ppm` | 7-parameter Helmert datum transform. |
+
+### Atmospheric models
+
+| Tool | Arguments | Purpose |
+| --- | --- | --- |
+| `atm_isa` | `altitude_m` | US-Std-Atmosphere-1976 ISA: T, p, ρ at geopotential altitude. |
+| `atm_density_altitude` | `pressure_pa`, `temp_c`, `dewpoint_c?` | Density altitude (humidity-corrected if dewpoint supplied). |
+| `atm_dewpoint` | `temp_c`, `rh_pct` | Magnus-formula dewpoint. |
+| `atm_wbgt` | `temp_c`, `rh_pct` | Wet-bulb global temperature (Stull). |
+| `atm_space_weather_kp` | — | Live NOAA SWPC planetary K-index (last 24 h). |
+
+### Information theory & channel coding
+
+| Tool | Arguments | Purpose |
+| --- | --- | --- |
+| `it_shannon_capacity` | `bandwidth_hz`, `snr_linear?` or `snr_db?` | Shannon-Hartley capacity (bps). |
+| `it_entropy` | `p`, `order?` | Shannon / Rényi entropy of a distribution. |
+| `it_kl_divergence` | `p`, `q` | KL divergence D(p‖q). |
+| `it_js_divergence` | `p`, `q` | Jensen-Shannon divergence (symmetric, bounded). |
+| `it_mutual_information` | `joint` | I(X;Y) from a 2-D joint distribution. |
+| `code_hamming_distance` | `a`, `b` (hex) | Bitwise Hamming distance over hex bytes. |
+| `code_crc` | `data` (hex), `algorithm` | CRC-{8, 16-CCITT, 16-MODBUS, 16-X25, 32, 32C, 64-ECMA, 64-ISO}. |
+| `code_rs_encode` | `data_shards`, `parity_shards` | Reed-Solomon encode (`reed-solomon-erasure`). |
+| `code_convolutional_encode` | `data` (hex) | K=7 rate-½ convolutional encode (G1=0o171, G2=0o133). |
+
+### Crypto primitives — math / educational
+
+> Not a TLS / KMS surface. Exposed as numerical and reference tools.
+
+| Tool | Arguments | Purpose |
+| --- | --- | --- |
+| `crypto_miller_rabin` | `n`, `rounds?` | Probabilistic primality test on a big integer. |
+| `crypto_modexp` | `base`, `exponent`, `modulus` | Big-integer a^b mod m. |
+| `crypto_mod_inverse` | `a`, `modulus` | Modular inverse via extended GCD. |
+| `crypto_crt` | `residues`, `moduli` | Chinese Remainder Theorem. |
+| `crypto_hkdf` | `ikm`, `salt?`, `info?`, `length` | HKDF-SHA-256 → hex. |
+| `crypto_pbkdf2` | `password`, `salt_hex`, `iterations`, `length` | PBKDF2-HMAC-SHA-256 → hex. |
+| `crypto_argon2` | `password`, `salt_hex`, `time?`, `memory?`, `parallelism?`, `length?` | Argon2id (OWASP-tunable). |
+| `crypto_hmac` | `key_hex`, `message_hex`, `algorithm` | HMAC-{SHA1, SHA256, SHA384, SHA512}. |
+| `crypto_jwt_decode` | `token` | Decode (NOT verify) a JWT. |
+
+### RF link engineering
+
+| Tool | Arguments | Purpose |
+| --- | --- | --- |
+| `rf_two_ray_path_loss` | `frequency_hz`, `tx_height_m`, `rx_height_m`, `distance_m` | Plane-earth two-ray path loss. |
+| `rf_hata_path_loss` | `frequency_mhz`, `bs_height_m`, `mobile_height_m`, `distance_km`, `environment` | Okumura-Hata (150–1500 MHz). |
+| `rf_cost231_path_loss` | `frequency_mhz`, `bs_height_m`, `mobile_height_m`, `distance_km`, `environment` | COST-231-Hata (1500–2000 MHz). |
+| `rf_egli_path_loss` | `frequency_mhz`, `tx_height_m`, `rx_height_m`, `distance_km` | Egli irregular-terrain path loss. |
+| `rf_itu_p676_absorption` | `frequency_ghz`, `pressure_hpa?`, `temp_c?`, `water_vapor_g_m3?` | ITU-R P.676 atmospheric absorption (simplified). |
+| `rf_itu_p838_rain` | `frequency_ghz`, `rain_rate_mm_h`, `polarization` | ITU-R P.838 rain attenuation (k·R^α). |
+| `rf_doppler_shift` | `frequency_hz`, `velocity_m_s` | Δf = v·f/c. |
+| `rf_polarization_loss` | `tx`, `rx`, `tx_angle_deg?`, `rx_angle_deg?` | Polarization mismatch (linear / circular / cross). |
+| `rf_fresnel_zone_radius` | `frequency_hz`, `distance_m`, `distance_to_obstruction_m`, `n?` | Fresnel zone radius F_n. |
+| `rf_knife_edge_diffraction` | `frequency_hz`, `d1_m`, `d2_m`, `h_m` | Knife-edge diffraction loss (Lee J(v)). |
+| `rf_friis_with_noise` | `frequency_hz`, `distance_m`, `tx_power_dbm`, `tx_gain_dbi`, `rx_gain_dbi`, `bandwidth_hz`, … | Friis link with kTBF noise + SNR margin. |
+
+### Radar equation family
+
+| Tool | Arguments | Purpose |
+| --- | --- | --- |
+| `radar_monostatic` | `pt_w`, `gain`, `wavelength_m`, `rcs_m2`, `range_m`, `bandwidth_hz`, … | Pr / SNR for a monostatic radar. |
+| `radar_bistatic` | `pt_w`, `gt`, `gr`, `wavelength_m`, `sigma_b_m2`, `rt_m`, `rr_m`, `bandwidth_hz`, … | Pr / SNR for a bistatic radar. |
+| `radar_integration_gain` | `n`, `method` | Coherent / non-coherent integration gain. |
+| `radar_pulse_compression_gain` | `pulse_width_s`, `bandwidth_hz` | τ·B time-bandwidth gain. |
+| `radar_cfar_threshold` | `n_cells`, `pfa`, `method`, `k?` | CA / OS CFAR thresholds. |
+| `radar_clutter_threshold` | `distribution`, `pfa`, `shape?` | Rayleigh / Weibull / K-distribution clutter thresholds. |
+| `radar_doppler_shift` | `frequency_hz`, `radial_velocity_m_s` | 2·v·f/c radar Doppler. |
+
+### DSP extensions
+
+| Tool | Arguments | Purpose |
+| --- | --- | --- |
+| `signal_spectrogram` | `samples`, `sample_rate_hz`, `window_size`, `overlap?` | STFT spectrogram (Hann window). |
+| `signal_cross_correlation` | `a`, `b`, `sample_rate_hz` | FFT cross-correlation + peak-lag index. |
+| `signal_hilbert` | `samples`, `sample_rate_hz` | Hilbert transform → analytic signal, amplitude, phase, instantaneous freq. |
+| `signal_cepstrum` | `samples` | Real cepstrum. |
+| `signal_ber_curve` | `modulation`, `ebn0_db`, `m?`, `channel?` | BER for BPSK / QPSK / M-PSK / M-QAM / FSK over AWGN or Rayleigh. |
+| `signal_iq_demod` | `i`, `q` | Magnitude, phase, instantaneous frequency from IQ. |
+
+### Estimation & tracking
+
+| Tool | Arguments | Purpose |
+| --- | --- | --- |
+| `track_kalman_step` | `x`, `p`, `f`, `q`, `h`, `r`, `z` | Single Kalman predict + update; returns posterior + innovation + NIS. |
+| `track_hungarian` | `cost` | Kuhn-Munkres optimal assignment minimizing total cost. |
+| `track_ransac_line` | `points`, `threshold`, `iterations?` | 2-D RANSAC line fit (returns coeffs + inlier indices). |
+
+### Acoustic & underwater
+
+| Tool | Arguments | Purpose |
+| --- | --- | --- |
+| `acoustic_sound_speed_water` | `temp_c`, `salinity_psu`, `depth_m` | Mackenzie 9-term seawater sound speed. |
+| `acoustic_sound_speed_air` | `temp_c`, `rh_pct?` | Air sound speed (20.05·√T). |
+| `acoustic_snell` | `incident_deg`, `c1`, `c2` | Snell's-law refraction angle. |
+| `acoustic_transmission_loss` | `range_m`, `frequency_khz`, `geometry?` | Thorp absorption + spherical / cylindrical spreading. |
+| `acoustic_sonar_equation` | `sl_db`, `tl_db`, `ts_db`, `nl_db`, `dt_db`, `array_gain_db?` | Sonar-equation signal excess. |
+
+### Navigation aiding
+
+| Tool | Arguments | Purpose |
+| --- | --- | --- |
+| `nav_dop` | `los_enu` | GDOP / PDOP / HDOP / VDOP / TDOP from ENU LOS unit vectors. |
+| `nav_klobuchar` | `gps_tow_s`, `lat_deg`, `lon_deg`, `elevation_deg`, `azimuth_deg`, `alpha`, `beta` | Klobuchar ionospheric delay (single-frequency GPS receivers). |
+| `nav_saastamoinen` | `height_m`, `elevation_deg`, `pressure_hpa?`, `temp_k?`, `e_w_hpa?` | Saastamoinen tropospheric zenith-delay correction. |
+| `nav_ecef_to_enu` | `ref_lat`, `ref_lon`, `ref_alt_m`, `x`, `y`, `z` | ECEF → local east-north-up. |
+| `nav_imu_drift` | `gyro_random_walk_deg_sqrt_hr`, `bias_instability_deg_per_hr`, `scale_factor_ppm`, `time_s`, `rate_deg_s?` | IMU drift error budget (ARW + bias + scale). |
+
+### Trajectory mechanics
+
+| Tool | Arguments | Purpose |
+| --- | --- | --- |
+| `traj_projectile_drag` | `v0_m_s`, `angle_deg`, `mass_kg`, `cd`, `area_m2`, `rho_kg_m3?`, `dt_s?`, `t_max_s?`, `wind_m_s?` | Projectile RK4 with drag + wind. |
+| `traj_hohmann` | `mu`, `r1_m`, `r2_m` | Hohmann transfer Δv₁ / Δv₂ + transfer time. |
+| `traj_reentry_heating` | `velocity_m_s`, `density_kg_m3`, `nose_radius_m` | Sutton-Graves stagnation-point heating. |
+
+### Earth models
+
+| Tool | Arguments | Purpose |
+| --- | --- | --- |
+| `earth_sidereal_time` | `when?`, `longitude_deg?` | Greenwich / local mean sidereal time (Meeus 12.4). |
+| `earth_magnetic_declination` | `lat_deg`, `lon_deg`, `year?` | Centred-dipole magnetic declination, 2025 epoch. |
+
+### Optimization & operations research
+
+| Tool | Arguments | Purpose |
+| --- | --- | --- |
+| `opt_tsp_2opt` | `distances` | TSP via nearest-neighbour seed + 2-opt refinement. |
+| `opt_shortest_path` | `edges`, `start`, `goal` | Dijkstra shortest path on a directed weighted graph. |
+
+### Open data feeds (live, keyless)
+
+| Tool | Arguments | Purpose |
+| --- | --- | --- |
+| `open_data_opensky_states` | `bbox?` | OpenSky aircraft state vectors (optionally box-filtered). |
+| `open_data_usgs_earthquakes` | `minimum?`, `period?` | USGS earthquake GeoJSON (1.0/2.5/4.5/significant × hour/day/week/month). |
+| `open_data_swpc_solar_wind` | — | NOAA SWPC real-time solar-wind plasma. |
+
+### Geospatial format converters
+
+| Tool | Arguments | Purpose |
+| --- | --- | --- |
+| `convert_nmea_decode` | `sentence` | Decode a NMEA-0183 sentence (GPGGA/GPRMC/GPGSA/GPGSV/GPVTG) with XOR checksum. |
+| `convert_cot_encode` | `uid`, `cot_type`, `lat`, `lon`, `hae_m?`, `stale_seconds?`, `callsign?` | Encode a Cursor-on-Target XML event. |
+| `convert_geojson_to_wkt` | `geojson` | GeoJSON geometry → WKT (Point / LineString / Polygon / Multi*). |
+
+### Mesh & 3-D interchange
+
+| Tool | Arguments | Purpose |
+| --- | --- | --- |
+| `interchange_stl_info` | `data_base64?` or `data_ascii?` | Probe an STL mesh: triangle count, AABB, surface area, centroid. |
+
+### Specialist chart types (SVG)
+
+| Tool | Arguments | Purpose |
+| --- | --- | --- |
+| `chart_polar` | `magnitudes`, `angles_deg?`, `use_db?`, `db_min?`, `title?` | Polar magnitude-vs-angle (antenna pattern). |
+| `chart_smith` | `impedances`, `z0?`, `labels?`, `title?` | Smith chart — normalized impedances on the Γ-plane. |
+| `chart_waterfall` | `power`, `db_min?`, `db_max?`, `freq_label?`, `title?` | Spectrogram waterfall heatmap. |
+| `chart_compass_rose` | `magnitudes_by_bearing`, `title?` | Compass / wind rose. |
+| `chart_skyplot` | `az_el`, `labels?`, `title?` | Sky plot (zenith-centered az/el dome). |
+| `chart_density_map` | `points`, `nx?`, `ny?`, `title?` | 2-D density heatmap with colorbar. |
+
 ## Finance & markets
 
 Money math (local) plus keyless market data. Quotes are delayed/reference data, not

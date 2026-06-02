@@ -55,8 +55,13 @@ impl Skill for RadarMonostatic {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (_s, a) = ctx.parse::<MonoArgs>()?;
-            if a.pt_w <= 0.0 || a.gain <= 0.0 || a.wavelength_m <= 0.0
-                || a.rcs_m2 <= 0.0 || a.range_m <= 0.0 || a.bandwidth_hz <= 0.0 {
+            if a.pt_w <= 0.0
+                || a.gain <= 0.0
+                || a.wavelength_m <= 0.0
+                || a.rcs_m2 <= 0.0
+                || a.range_m <= 0.0
+                || a.bandwidth_hz <= 0.0
+            {
                 return Err(invalid("inputs must be > 0"));
             }
             let t0 = a.noise_temp_k.unwrap_or(290.0);
@@ -167,7 +172,11 @@ impl Skill for RadarIntegrationGain {
                     let nc_loss = 5.0 * nf.log10() / (nf + 1.0);
                     10.0 * nf.log10() - nc_loss
                 }
-                other => return Err(invalid(format!("method must be coherent or noncoherent (got {other})"))),
+                other => {
+                    return Err(invalid(format!(
+                        "method must be coherent or noncoherent (got {other})"
+                    )))
+                }
             };
             Ok(text_result(json!({ "gain_db": g }).to_string()))
         })
@@ -306,7 +315,9 @@ impl Skill for RadarClutterThreshold {
                 }
                 "k_distribution" => {
                     // Approximate via Rayleigh upper bound × shape correction.
-                    let nu = a.shape.ok_or_else(|| invalid("k_distribution requires shape (ν)"))?;
+                    let nu = a
+                        .shape
+                        .ok_or_else(|| invalid("k_distribution requires shape (ν)"))?;
                     if nu <= 0.0 {
                         return Err(invalid("k_distribution shape > 0"));
                     }
@@ -314,7 +325,9 @@ impl Skill for RadarClutterThreshold {
                 }
                 other => return Err(invalid(format!("unknown distribution '{other}'"))),
             };
-            Ok(text_result(json!({ "threshold_multiplier": t }).to_string()))
+            Ok(text_result(
+                json!({ "threshold_multiplier": t }).to_string(),
+            ))
         })
     }
 }

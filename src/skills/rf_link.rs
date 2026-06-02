@@ -59,11 +59,9 @@ impl Skill for RfTwoRayPathLoss {
             if a.distance_m <= 0.0 || a.tx_height_m <= 0.0 || a.rx_height_m <= 0.0 {
                 return Err(invalid("distance and antenna heights must be > 0"));
             }
-            let loss_db = 40.0 * a.distance_m.log10()
-                - 20.0 * (a.tx_height_m * a.rx_height_m).log10();
-            Ok(text_result(
-                json!({ "path_loss_db": loss_db }).to_string(),
-            ))
+            let loss_db =
+                40.0 * a.distance_m.log10() - 20.0 * (a.tx_height_m * a.rx_height_m).log10();
+            Ok(text_result(json!({ "path_loss_db": loss_db }).to_string()))
         })
     }
 }
@@ -130,8 +128,7 @@ impl Skill for RfHataPathLoss {
                 other => return Err(invalid(format!("unknown environment '{other}'"))),
             };
 
-            let l_urban = 69.55 + 26.16 * f.log10() - 13.82 * hb.log10()
-                - a_hm
+            let l_urban = 69.55 + 26.16 * f.log10() - 13.82 * hb.log10() - a_hm
                 + (44.9 - 6.55 * hb.log10()) * d.log10();
             let l = match a.environment.to_lowercase().as_str() {
                 "urban_large" | "urban_small" => l_urban,
@@ -223,8 +220,7 @@ impl Skill for RfEgliPathLoss {
             }
             let d_m = a.distance_km * 1000.0;
             let beta = (40.0 / a.frequency_mhz).powi(2);
-            let path_gain =
-                (a.tx_height_m * a.rx_height_m).powi(2) / d_m.powi(4) * beta;
+            let path_gain = (a.tx_height_m * a.rx_height_m).powi(2) / d_m.powi(4) * beta;
             let loss_db = -10.0 * path_gain.log10();
             Ok(text_result(json!({ "path_loss_db": loss_db }).to_string()))
         })
@@ -282,16 +278,19 @@ impl Skill for RfItuP676Absorption {
             let gamma_o = (7.27 * theta / (f.powi(2) + 0.351 * theta.powi(2))
                 + 7.5 / ((f - 60.0).powi(2) + 15.0))
                 * f.powi(2)
-                * p * 1e-3
+                * p
+                * 1e-3
                 * theta.powi(2);
 
             // Water-vapor attenuation simplified.
-            let gamma_w = (3.27e-2 * theta + 0.067 * theta.powi(3)
+            let gamma_w = (3.27e-2 * theta
+                + 0.067 * theta.powi(3)
                 + 7.3 / ((f - 22.235).powi(2) + 6.6)
                 + 11.4 / ((f - 183.31).powi(2) + 5.0)
                 + 0.07 / ((f - 325.153).powi(2) + 1.5))
                 * f.powi(2)
-                * rho * 1e-4
+                * rho
+                * 1e-4
                 * theta.powf(2.5);
 
             let gamma = gamma_o.abs() + gamma_w.abs();
@@ -340,19 +339,11 @@ impl Skill for RfItuP838Rain {
             let f = a.frequency_ghz;
             // Compact log-log fits (Olsen-Rogers-Hodge family); standard reference for P.838.
             let (kh, ah) = (
-                10_f64.powf(
-                    -5.339_05
-                        + 1.518_3 * (f.log10())
-                        - 0.190_19 * (f.log10()).powi(2),
-                ),
+                10_f64.powf(-5.339_05 + 1.518_3 * (f.log10()) - 0.190_19 * (f.log10()).powi(2)),
                 1.282_5 - 0.034_3 * (f.log10()),
             );
             let (kv, av) = (
-                10_f64.powf(
-                    -5.387_15
-                        + 1.581_84 * (f.log10())
-                        - 0.221_5 * (f.log10()).powi(2),
-                ),
+                10_f64.powf(-5.387_15 + 1.581_84 * (f.log10()) - 0.221_5 * (f.log10()).powi(2)),
                 1.273_1 - 0.038_38 * (f.log10()),
             );
             let (k, alpha) = match a.polarization.to_lowercase().as_str() {
@@ -470,16 +461,15 @@ impl Skill for RfPolarizationLoss {
     }
 }
 
-fn pol_to_axis(
-    name: &str,
-    angle: Option<f64>,
-) -> std::result::Result<Option<f64>, McpError> {
+fn pol_to_axis(name: &str, angle: Option<f64>) -> std::result::Result<Option<f64>, McpError> {
     match name.to_lowercase().as_str() {
         "linear_h" | "h" => Ok(Some(0.0)),
         "linear_v" | "v" => Ok(Some(90.0)),
-        "linear_at_deg" => Ok(Some(
-            angle.ok_or_else(|| invalid("linear_at_deg requires angle_deg"))?,
-        )),
+        "linear_at_deg" => {
+            Ok(Some(angle.ok_or_else(|| {
+                invalid("linear_at_deg requires angle_deg")
+            })?))
+        }
         "rhcp" | "lhcp" => Ok(None),
         other => Err(invalid(format!("unknown polarization '{other}'"))),
     }
@@ -578,9 +568,7 @@ impl Skill for RfKnifeEdgeDiffraction {
             } else {
                 20.0 * (0.225 / v).log10()
             };
-            Ok(text_result(
-                json!({ "loss_db": -loss, "v": v }).to_string(),
-            ))
+            Ok(text_result(json!({ "loss_db": -loss, "v": v }).to_string()))
         })
     }
 }
@@ -630,13 +618,11 @@ impl Skill for RfFriisWithNoise {
                 return Err(invalid("distance and bandwidth must be > 0"));
             }
             let lambda = C_M_PER_S / a.frequency_hz;
-            let fspl_db = 20.0
-                * (4.0 * std::f64::consts::PI * a.distance_m / lambda).log10();
+            let fspl_db = 20.0 * (4.0 * std::f64::consts::PI * a.distance_m / lambda).log10();
             let extra = a.extra_loss_db.unwrap_or(0.0);
             let nf = a.noise_figure_db.unwrap_or(3.0);
             let req = a.required_snr_db.unwrap_or(10.0);
-            let rx_dbm =
-                a.tx_power_dbm + a.tx_gain_dbi + a.rx_gain_dbi - fspl_db - extra;
+            let rx_dbm = a.tx_power_dbm + a.tx_gain_dbi + a.rx_gain_dbi - fspl_db - extra;
             // Thermal noise: -174 + 10log10(B) + NF (dBm).
             let noise_dbm = -174.0 + 10.0 * a.bandwidth_hz.log10() + nf;
             let snr_db = rx_dbm - noise_dbm;

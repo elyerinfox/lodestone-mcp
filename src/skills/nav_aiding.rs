@@ -49,7 +49,9 @@ impl Skill for NavDop {
                 h[(i, 3)] = 1.0;
             }
             let hth = h.transpose() * &h;
-            let q = hth.try_inverse().ok_or_else(|| invalid("geometry matrix singular"))?;
+            let q = hth
+                .try_inverse()
+                .ok_or_else(|| invalid("geometry matrix singular"))?;
             let gdop = (q[(0, 0)] + q[(1, 1)] + q[(2, 2)] + q[(3, 3)]).sqrt();
             let pdop = (q[(0, 0)] + q[(1, 1)] + q[(2, 2)]).sqrt();
             let hdop = (q[(0, 0)] + q[(1, 1)]).sqrt();
@@ -108,8 +110,14 @@ impl Skill for NavKlobuchar {
             let phi_m = phi_i + 0.064 * ((lambda_i - 1.617) * std::f64::consts::PI).cos();
             let t = 43_200.0 * lambda_i + a.gps_tow_s;
             let t = t.rem_euclid(86_400.0);
-            let amp: f64 = a.alpha[0] + a.alpha[1] * phi_m + a.alpha[2] * phi_m.powi(2) + a.alpha[3] * phi_m.powi(3);
-            let per: f64 = a.beta[0] + a.beta[1] * phi_m + a.beta[2] * phi_m.powi(2) + a.beta[3] * phi_m.powi(3);
+            let amp: f64 = a.alpha[0]
+                + a.alpha[1] * phi_m
+                + a.alpha[2] * phi_m.powi(2)
+                + a.alpha[3] * phi_m.powi(3);
+            let per: f64 = a.beta[0]
+                + a.beta[1] * phi_m
+                + a.beta[2] * phi_m.powi(2)
+                + a.beta[3] * phi_m.powi(3);
             let amp = amp.max(0.0);
             let per = per.max(72_000.0);
             let x = 2.0 * std::f64::consts::PI * (t - 50_400.0) / per;
@@ -210,7 +218,9 @@ impl Skill for NavEcefToEnu {
             let e = -lon.sin() * dx + lon.cos() * dy;
             let n = -lat.sin() * lon.cos() * dx - lat.sin() * lon.sin() * dy + lat.cos() * dz;
             let u = lat.cos() * lon.cos() * dx + lat.cos() * lon.sin() * dy + lat.sin() * dz;
-            Ok(text_result(json!({ "east_m": e, "north_m": n, "up_m": u }).to_string()))
+            Ok(text_result(
+                json!({ "east_m": e, "north_m": n, "up_m": u }).to_string(),
+            ))
         })
     }
 }

@@ -159,14 +159,13 @@ impl Skill for TrackHungarian {
             let dim = n.max(m);
             let mut sq = vec![vec![0_i64; dim]; dim];
             let big = 1e15 as i64;
-            for i in 0..dim {
-                for j in 0..dim {
-                    let v = if i < n && j < m {
+            for (i, row) in sq.iter_mut().enumerate().take(dim) {
+                for (j, cell) in row.iter_mut().enumerate().take(dim) {
+                    *cell = if i < n && j < m {
                         (a.cost[i][j] * scale).round() as i64
                     } else {
                         big
                     };
-                    sq[i][j] = v;
                 }
             }
             let mat = pathfinding::matrix::Matrix::from_rows(sq.iter().cloned())

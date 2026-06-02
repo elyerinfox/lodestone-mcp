@@ -42,7 +42,10 @@ struct Rk4Args {
 /// evaluation inside the integrator's inner loop.
 fn compile_rhs(rhs: &[String]) -> Result<Vec<Expr>> {
     rhs.iter()
-        .map(|s| s.parse::<Expr>().map_err(|e| anyhow!("rhs parse error: {e}")))
+        .map(|s| {
+            s.parse::<Expr>()
+                .map_err(|e| anyhow!("rhs parse error: {e}"))
+        })
         .collect()
 }
 
@@ -103,9 +106,17 @@ impl Skill for OdeRk4 {
 
             for _ in 0..n_steps {
                 let k1 = eval_rhs(&exprs, t, &y).map_err(invalid)?;
-                let y_mid: Vec<f64> = y.iter().zip(&k1).map(|(yi, ki)| yi + 0.5 * h * ki).collect();
+                let y_mid: Vec<f64> = y
+                    .iter()
+                    .zip(&k1)
+                    .map(|(yi, ki)| yi + 0.5 * h * ki)
+                    .collect();
                 let k2 = eval_rhs(&exprs, t + 0.5 * h, &y_mid).map_err(invalid)?;
-                let y_mid2: Vec<f64> = y.iter().zip(&k2).map(|(yi, ki)| yi + 0.5 * h * ki).collect();
+                let y_mid2: Vec<f64> = y
+                    .iter()
+                    .zip(&k2)
+                    .map(|(yi, ki)| yi + 0.5 * h * ki)
+                    .collect();
                 let k3 = eval_rhs(&exprs, t + 0.5 * h, &y_mid2).map_err(invalid)?;
                 let y_end: Vec<f64> = y.iter().zip(&k3).map(|(yi, ki)| yi + h * ki).collect();
                 let k4 = eval_rhs(&exprs, t + h, &y_end).map_err(invalid)?;
@@ -147,9 +158,17 @@ mod tests {
         let h = 0.01;
         for _ in 0..100 {
             let k1 = eval_rhs(&exprs, t, &y).unwrap();
-            let y_mid: Vec<f64> = y.iter().zip(&k1).map(|(yi, ki)| yi + 0.5 * h * ki).collect();
+            let y_mid: Vec<f64> = y
+                .iter()
+                .zip(&k1)
+                .map(|(yi, ki)| yi + 0.5 * h * ki)
+                .collect();
             let k2 = eval_rhs(&exprs, t + 0.5 * h, &y_mid).unwrap();
-            let y_mid2: Vec<f64> = y.iter().zip(&k2).map(|(yi, ki)| yi + 0.5 * h * ki).collect();
+            let y_mid2: Vec<f64> = y
+                .iter()
+                .zip(&k2)
+                .map(|(yi, ki)| yi + 0.5 * h * ki)
+                .collect();
             let k3 = eval_rhs(&exprs, t + 0.5 * h, &y_mid2).unwrap();
             let y_end: Vec<f64> = y.iter().zip(&k3).map(|(yi, ki)| yi + h * ki).collect();
             let k4 = eval_rhs(&exprs, t + h, &y_end).unwrap();

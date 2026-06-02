@@ -165,7 +165,11 @@ impl Skill for ItJsDivergence {
             }
             let p = normalize(&a.p)?;
             let q = normalize(&a.q)?;
-            let m: Vec<f64> = p.iter().zip(q.iter()).map(|(pi, qi)| 0.5 * (pi + qi)).collect();
+            let m: Vec<f64> = p
+                .iter()
+                .zip(q.iter())
+                .map(|(pi, qi)| 0.5 * (pi + qi))
+                .collect();
             let kl = |a: &[f64], b: &[f64]| -> f64 {
                 let mut d = 0_f64;
                 for (ai, bi) in a.iter().zip(b.iter()) {
@@ -222,15 +226,16 @@ impl Skill for ItMutualInformation {
             }
             let mut p_x = vec![0.0; nr];
             let mut p_y = vec![0.0; nc];
-            for i in 0..nr {
-                for j in 0..nc {
-                    let v = a.joint[i][j] / total;
+            for (i, row) in a.joint.iter().enumerate() {
+                for (j, val) in row.iter().enumerate() {
+                    let v = val / total;
                     p_x[i] += v;
                     p_y[j] += v;
                 }
             }
             let h_of = |dist: &[f64]| -> f64 {
-                -dist.iter()
+                -dist
+                    .iter()
                     .filter(|&&x| x > 0.0)
                     .map(|x| x * x.log2())
                     .sum::<f64>()
@@ -239,9 +244,9 @@ impl Skill for ItMutualInformation {
             let h_y = h_of(&p_y);
             let mut h_xy = 0_f64;
             let mut mi = 0_f64;
-            for i in 0..nr {
-                for j in 0..nc {
-                    let v = a.joint[i][j] / total;
+            for (i, row) in a.joint.iter().enumerate() {
+                for (j, val) in row.iter().enumerate() {
+                    let v = val / total;
                     if v > 0.0 {
                         h_xy -= v * v.log2();
                         mi += v * (v / (p_x[i] * p_y[j])).log2();
@@ -315,7 +320,7 @@ impl Skill for CodeHammingDistance {
 
 fn hex_decode(s: &str) -> std::result::Result<Vec<u8>, McpError> {
     let s: String = s.chars().filter(|c| !c.is_whitespace()).collect();
-    if s.len() % 2 != 0 {
+    if !s.len().is_multiple_of(2) {
         return Err(invalid("hex string must have even length"));
     }
     let mut out = Vec::with_capacity(s.len() / 2);
@@ -356,11 +361,15 @@ impl Skill for CodeCrc {
             let v = match a.algorithm.to_lowercase().as_str() {
                 "crc8" => format!("{:02x}", Crc::<u8>::new(&CRC_8_SMBUS).checksum(&data)),
                 "crc16-ccitt" => format!("{:04x}", Crc::<u16>::new(&CRC_16_KERMIT).checksum(&data)),
-                "crc16-modbus" => format!("{:04x}", Crc::<u16>::new(&CRC_16_MODBUS).checksum(&data)),
+                "crc16-modbus" => {
+                    format!("{:04x}", Crc::<u16>::new(&CRC_16_MODBUS).checksum(&data))
+                }
                 "crc16-x25" => format!("{:04x}", Crc::<u16>::new(&CRC_16_IBM_SDLC).checksum(&data)),
                 "crc32" => format!("{:08x}", Crc::<u32>::new(&CRC_32_ISO_HDLC).checksum(&data)),
                 "crc32c" => format!("{:08x}", Crc::<u32>::new(&CRC_32_ISCSI).checksum(&data)),
-                "crc64-ecma" => format!("{:016x}", Crc::<u64>::new(&CRC_64_ECMA_182).checksum(&data)),
+                "crc64-ecma" => {
+                    format!("{:016x}", Crc::<u64>::new(&CRC_64_ECMA_182).checksum(&data))
+                }
                 "crc64-iso" => format!("{:016x}", Crc::<u64>::new(&CRC_64_GO_ISO).checksum(&data)),
                 other => return Err(invalid(format!("unknown CRC '{other}'"))),
             };
@@ -405,9 +414,7 @@ impl Skill for CodeRsEncode {
                     return Err(invalid("all data shards must be the same length"));
                 }
             }
-            if a.parity_shards == 0
-                || a.data_shards.len() + a.parity_shards > 255
-            {
+            if a.parity_shards == 0 || a.data_shards.len() + a.parity_shards > 255 {
                 return Err(invalid("parity_shards must be ≥ 1 and total shards ≤ 255"));
             }
             let rs = ReedSolomon::new(a.data_shards.len(), a.parity_shards)
@@ -464,7 +471,7 @@ impl Skill for CodeConvolutionalEncode {
                 out_bits.push(g2 as u8);
             }
             // Pad to byte boundary.
-            while out_bits.len() % 8 != 0 {
+            while !out_bits.len().is_multiple_of(8) {
                 out_bits.push(0);
             }
             let mut out_bytes: Vec<u8> = Vec::with_capacity(out_bits.len() / 8);
@@ -502,7 +509,7 @@ mod tests {
     #[test]
     fn uniform_entropy_log_n() {
         // Uniform over 4 outcomes → 2 bits.
-        let p = vec![0.25_f64; 4];
+        let p = [0.25_f64; 4];
         let h: f64 = -p.iter().map(|x: &f64| x * x.log2()).sum::<f64>();
         assert!((h - 2.0).abs() < 1e-12);
     }

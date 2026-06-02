@@ -73,7 +73,11 @@ fn julian_date(t: DateTime<Utc>) -> f64 {
     let m = t.month() as f64;
     let d = t.day() as f64;
     let h = t.hour() as f64 + t.minute() as f64 / 60.0 + t.second() as f64 / 3600.0;
-    let (yy, mm) = if m <= 2.0 { (y - 1.0, m + 12.0) } else { (y, m) };
+    let (yy, mm) = if m <= 2.0 {
+        (y - 1.0, m + 12.0)
+    } else {
+        (y, m)
+    };
     let a = (yy / 100.0).floor();
     let b = 2.0 - a + (a / 4.0).floor();
     (365.25 * (yy + 4716.0)).floor() + (30.6001 * (mm + 1.0)).floor() + d + b - 1524.5 + h / 24.0
@@ -116,13 +120,15 @@ impl Skill for EarthMagDeclination {
             let phi_p = LAT_GMP * to_rad;
             let lam_p = LON_GMP * to_rad;
             // Geographic → geomagnetic latitude.
-            let sin_phi_m = phi_g.sin() * phi_p.sin() + phi_g.cos() * phi_p.cos() * (lam_g - lam_p).cos();
+            let sin_phi_m =
+                phi_g.sin() * phi_p.sin() + phi_g.cos() * phi_p.cos() * (lam_g - lam_p).cos();
             let _phi_m = sin_phi_m.asin();
             // Magnetic declination via standard dipole approximation.
             let cos_d = (phi_p.sin() - phi_g.sin() * sin_phi_m)
                 / (phi_g.cos() * sin_phi_m.acos().sin().abs().max(1e-9));
             let cos_d = cos_d.clamp(-1.0, 1.0);
-            let sin_d = phi_p.cos() * (lam_g - lam_p).sin() / sin_phi_m.acos().sin().abs().max(1e-9);
+            let sin_d =
+                phi_p.cos() * (lam_g - lam_p).sin() / sin_phi_m.acos().sin().abs().max(1e-9);
             let dec = sin_d.atan2(cos_d).to_degrees();
             // Mild secular variation: ~0.07°/year drift since 2025 epoch — small linear correction.
             let year = a.year.unwrap_or(2026.0);

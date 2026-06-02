@@ -12,8 +12,8 @@ use rmcp::model::{CallToolResult, Content, JsonObject};
 use rmcp::ErrorData as McpError;
 use serde::Deserialize;
 
-use crate::skills::{schema_for, Skill, SkillCtx};
 use crate::invalid;
+use crate::skills::{schema_for, Skill, SkillCtx};
 
 // ---------------------------------------------------------------------------
 // Tiny shared SVG helpers — independent of chart.rs internals so we don't
@@ -146,15 +146,20 @@ impl Skill for ChartPolar {
                 return Err(invalid("magnitudes empty"));
             }
             let n = a.magnitudes.len();
-            let angles: Vec<f64> = a.angles_deg.unwrap_or_else(|| {
-                (0..n).map(|i| 360.0 * i as f64 / n as f64).collect()
-            });
+            let angles: Vec<f64> = a
+                .angles_deg
+                .unwrap_or_else(|| (0..n).map(|i| 360.0 * i as f64 / n as f64).collect());
             if angles.len() != n {
                 return Err(invalid("angles_deg length must match magnitudes"));
             }
             let use_db = a.use_db.unwrap_or(true);
             let db_min = a.db_min.unwrap_or(-40.0);
-            let peak = a.magnitudes.iter().cloned().fold(0_f64, f64::max).max(1e-12);
+            let peak = a
+                .magnitudes
+                .iter()
+                .cloned()
+                .fold(0_f64, f64::max)
+                .max(1e-12);
             let radials: Vec<f64> = if use_db {
                 a.magnitudes
                     .iter()
@@ -174,7 +179,11 @@ impl Skill for ChartPolar {
             for i in 1..=ring_count {
                 let r = radius * (i as f64 / ring_count as f64);
                 let val = rmin + (rmax - rmin) * (i as f64 / ring_count as f64);
-                let lbl = if use_db { format!("{val:.0} dB") } else { format!("{val:.2}") };
+                let lbl = if use_db {
+                    format!("{val:.0} dB")
+                } else {
+                    format!("{val:.2}")
+                };
                 let _ = write!(
                     svg,
                     "<circle cx=\"{cx}\" cy=\"{cy}\" r=\"{r}\" fill=\"none\" \
@@ -436,7 +445,10 @@ impl Skill for ChartWaterfall {
                 "<rect x=\"{plot_x}\" y=\"{plot_y}\" width=\"{plot_w}\" \
                  height=\"{plot_h}\" fill=\"none\" stroke=\"#222\" stroke-width=\"1\"/>"
             );
-            let freq_label = a.freq_label.clone().unwrap_or_else(|| "frequency bin".into());
+            let freq_label = a
+                .freq_label
+                .clone()
+                .unwrap_or_else(|| "frequency bin".into());
             let _ = write!(
                 svg,
                 "<text x=\"{lx}\" y=\"{ly}\" text-anchor=\"middle\" \
@@ -518,7 +530,12 @@ impl Skill for ChartCompass {
             let cx = W / 2.0;
             let cy = H / 2.0 + 10.0;
             let radius = (W.min(H) / 2.0) - 70.0;
-            let peak = a.magnitudes_by_bearing.iter().cloned().fold(0_f64, f64::max).max(1e-12);
+            let peak = a
+                .magnitudes_by_bearing
+                .iter()
+                .cloned()
+                .fold(0_f64, f64::max)
+                .max(1e-12);
             // Background rings.
             for i in 1..=4 {
                 let r = radius * (i as f64 / 4.0);

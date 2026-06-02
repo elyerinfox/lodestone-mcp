@@ -19,7 +19,7 @@ use crate::{invalid, text_result};
 
 fn hex_decode(s: &str) -> std::result::Result<Vec<u8>, McpError> {
     let s: String = s.chars().filter(|c| !c.is_whitespace()).collect();
-    if s.len() % 2 != 0 {
+    if !s.len().is_multiple_of(2) {
         return Err(invalid("hex string must have even length"));
     }
     let mut out = Vec::with_capacity(s.len() / 2);
@@ -190,7 +190,9 @@ impl Skill for CryptoModInverse {
             }
             let inv = ((g.x % &mi) + &mi) % &mi;
             let inv = inv.to_biguint().unwrap();
-            Ok(text_result(json!({ "inverse_dec": inv.to_str_radix(10) }).to_string()))
+            Ok(text_result(
+                json!({ "inverse_dec": inv.to_str_radix(10) }).to_string(),
+            ))
         })
     }
 }
@@ -497,14 +499,16 @@ impl Skill for CryptoJwtDecode {
                 return Err(invalid("JWT must have three dot-separated parts"));
             }
             let b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD;
-            let header_bytes =
-                b64.decode(parts[0]).map_err(|e| invalid(format!("header b64: {e}")))?;
-            let payload_bytes =
-                b64.decode(parts[1]).map_err(|e| invalid(format!("payload b64: {e}")))?;
-            let header: serde_json::Value =
-                serde_json::from_slice(&header_bytes).map_err(|e| invalid(format!("header json: {e}")))?;
-            let payload: serde_json::Value =
-                serde_json::from_slice(&payload_bytes).map_err(|e| invalid(format!("payload json: {e}")))?;
+            let header_bytes = b64
+                .decode(parts[0])
+                .map_err(|e| invalid(format!("header b64: {e}")))?;
+            let payload_bytes = b64
+                .decode(parts[1])
+                .map_err(|e| invalid(format!("payload b64: {e}")))?;
+            let header: serde_json::Value = serde_json::from_slice(&header_bytes)
+                .map_err(|e| invalid(format!("header json: {e}")))?;
+            let payload: serde_json::Value = serde_json::from_slice(&payload_bytes)
+                .map_err(|e| invalid(format!("payload json: {e}")))?;
             Ok(text_result(
                 json!({
                     "header": header,

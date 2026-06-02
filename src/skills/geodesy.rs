@@ -166,8 +166,7 @@ impl Skill for GeoGreatCirclePolyline {
             let mut points: Vec<[f64; 2]> = Vec::with_capacity(a.n);
             for i in 0..a.n {
                 let frac = i as f64 / (a.n - 1) as f64;
-                let (lat, lon, _): (f64, f64, f64) =
-                    g.direct(a.lat1, a.lon1, azi1, frac * s12);
+                let (lat, lon, _): (f64, f64, f64) = g.direct(a.lat1, a.lon1, azi1, frac * s12);
                 points.push([lat, lon]);
             }
             Ok(text_result(json!({ "points": points }).to_string()))
@@ -236,8 +235,7 @@ fn haversine(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
     const R: f64 = 6_371_008.8;
     let dlat = lat2 - lat1;
     let dlon = lon2 - lon1;
-    let a =
-        (dlat / 2.0).sin().powi(2) + lat1.cos() * lat2.cos() * (dlon / 2.0).sin().powi(2);
+    let a = (dlat / 2.0).sin().powi(2) + lat1.cos() * lat2.cos() * (dlon / 2.0).sin().powi(2);
     2.0 * R * a.sqrt().asin()
 }
 
@@ -363,8 +361,7 @@ impl Skill for GeoLatLonFromUtm {
             if hemi != "N" && hemi != "S" {
                 return Err(invalid("hemisphere must be 'N' or 'S'"));
             }
-            let (lat, lon) =
-                utm_inverse(a.zone, hemi.as_str(), a.easting, a.northing);
+            let (lat, lon) = utm_inverse(a.zone, hemi.as_str(), a.easting, a.northing);
             Ok(text_result(json!({ "lat": lat, "lon": lon }).to_string()))
         })
     }
@@ -393,7 +390,8 @@ fn utm_forward(lat: f64, lon: f64) -> (u8, &'static str, f64, f64) {
         61.0 / 240.0 * n3,
     ];
 
-    let t = phi.sin().atanh() - (2.0 * n.sqrt() / (1.0 + n)) * (((2.0 * n.sqrt()) / (1.0 + n)) * phi.sin()).atanh();
+    let t = phi.sin().atanh()
+        - (2.0 * n.sqrt() / (1.0 + n)) * (((2.0 * n.sqrt()) / (1.0 + n)) * phi.sin()).atanh();
     let t_prime = t.sinh().atan2(lam.cos());
     let eta_prime = (lam.sin() / (t.sinh().powi(2) + lam.cos().powi(2)).sqrt()).atanh();
 
@@ -531,8 +529,7 @@ impl Skill for GeoLatLonFromMgrs {
     }
 }
 
-const MGRS_LAT_BANDS: &[u8] =
-    b"CDEFGHJKLMNPQRSTUVWX"; // 80°S → 84°N in 8° bands (skips I, O).
+const MGRS_LAT_BANDS: &[u8] = b"CDEFGHJKLMNPQRSTUVWX"; // 80°S → 84°N in 8° bands (skips I, O).
 
 fn mgrs_lat_band(lat: f64) -> u8 {
     let idx = ((lat + 80.0) / 8.0).floor().clamp(0.0, 19.0) as usize;
@@ -545,9 +542,7 @@ fn mgrs_forward(lat: f64, lon: f64, precision: u8) -> String {
 
     // 100 000 m grid square ID — 2 letters.
     let set = ((zone as i32 - 1) % 6) as usize;
-    let col_letters_sets: [&[u8]; 3] = [
-        b"ABCDEFGH", b"JKLMNPQR", b"STUVWXYZ",
-    ];
+    let col_letters_sets: [&[u8]; 3] = [b"ABCDEFGH", b"JKLMNPQR", b"STUVWXYZ"];
     let row_letters_sets: [&[u8]; 2] = [
         b"ABCDEFGHJKLMNPQRSTUV", // odd zones
         b"FGHJKLMNPQRSTUVABCDE", // even zones
@@ -597,7 +592,7 @@ fn mgrs_inverse(s: &str) -> anyhow::Result<(f64, f64)> {
     let col_letter = s.as_bytes()[zone_end + 1];
     let row_letter = s.as_bytes()[zone_end + 2];
     let rest = &s[zone_end + 3..];
-    if rest.is_empty() || rest.len() % 2 != 0 {
+    if rest.is_empty() || !rest.len().is_multiple_of(2) {
         anyhow::bail!("digits after grid letters must be even-length");
     }
     let half = rest.len() / 2;
@@ -611,18 +606,17 @@ fn mgrs_inverse(s: &str) -> anyhow::Result<(f64, f64)> {
     let n_part: f64 = n_str.parse::<i64>()? as f64 * scale;
 
     let set = ((zone as i32 - 1) % 6) as usize;
-    let col_letters_sets: [&[u8]; 3] = [
-        b"ABCDEFGH", b"JKLMNPQR", b"STUVWXYZ",
-    ];
-    let row_letters_sets: [&[u8]; 2] = [
-        b"ABCDEFGHJKLMNPQRSTUV",
-        b"FGHJKLMNPQRSTUVABCDE",
-    ];
+    let col_letters_sets: [&[u8]; 3] = [b"ABCDEFGH", b"JKLMNPQR", b"STUVWXYZ"];
+    let row_letters_sets: [&[u8]; 2] = [b"ABCDEFGHJKLMNPQRSTUV", b"FGHJKLMNPQRSTUVABCDE"];
     let col_set = col_letters_sets[set % 3];
     let row_set = row_letters_sets[(set / 3) % 2];
-    let col_idx = col_set.iter().position(|&c| c == col_letter)
+    let col_idx = col_set
+        .iter()
+        .position(|&c| c == col_letter)
         .ok_or_else(|| anyhow::anyhow!("invalid MGRS column letter"))? as f64;
-    let row_idx = row_set.iter().position(|&c| c == row_letter)
+    let row_idx = row_set
+        .iter()
+        .position(|&c| c == row_letter)
         .ok_or_else(|| anyhow::anyhow!("invalid MGRS row letter"))? as f64;
 
     // Approximate northing via the latitude band's center.
@@ -821,7 +815,6 @@ mod tests {
         assert!((alt - 100.0).abs() < 1e-3);
     }
 
-
     #[test]
     fn mgrs_forward_known() {
         // The Wikipedia example: (40.7510° N, 74.0033° W) → 18T WL 81000 06800-ish.
@@ -841,5 +834,4 @@ mod tests {
         let (_per, area, _n) = p.compute(false);
         assert!((area.abs() - 12_308_778_361.0).abs() < 1e8);
     }
-
 }

@@ -52,8 +52,12 @@ impl Skill for InterchangeStlInfo {
                 return Err(invalid("STL contains no triangles"));
             }
             let mut bbox = [
-                f64::INFINITY, f64::INFINITY, f64::INFINITY,
-                f64::NEG_INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY,
+                f64::INFINITY,
+                f64::INFINITY,
+                f64::INFINITY,
+                f64::NEG_INFINITY,
+                f64::NEG_INFINITY,
+                f64::NEG_INFINITY,
             ];
             let mut area = 0_f64;
             let mut centroid = [0_f64; 3];
@@ -126,9 +130,15 @@ fn parse_stl_ascii(s: &str) -> std::result::Result<Vec<StlTriangle>, McpError> {
                 return Err(invalid("ASCII STL: malformed vertex"));
             }
             let v = [
-                parts[0].parse::<f32>().map_err(|e| invalid(format!("{e}")))?,
-                parts[1].parse::<f32>().map_err(|e| invalid(format!("{e}")))?,
-                parts[2].parse::<f32>().map_err(|e| invalid(format!("{e}")))?,
+                parts[0]
+                    .parse::<f32>()
+                    .map_err(|e| invalid(format!("{e}")))?,
+                parts[1]
+                    .parse::<f32>()
+                    .map_err(|e| invalid(format!("{e}")))?,
+                parts[2]
+                    .parse::<f32>()
+                    .map_err(|e| invalid(format!("{e}")))?,
             ];
             current.push(v);
             if current.len() == 3 {

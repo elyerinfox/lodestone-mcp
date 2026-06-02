@@ -41,9 +41,7 @@ impl Skill for AcousticSoundSpeedWater {
             let t = a.temp_c;
             let s = a.salinity_psu;
             let d = a.depth_m;
-            let c = 1448.96
-                + 4.591 * t
-                - 5.304e-2 * t.powi(2)
+            let c = 1448.96 + 4.591 * t - 5.304e-2 * t.powi(2)
                 + 2.374e-4 * t.powi(3)
                 + 1.340 * (s - 35.0)
                 + 1.630e-2 * d
@@ -172,7 +170,10 @@ impl Skill for AcousticTransmissionLoss {
                 + 44.0 * f.powi(2) / (4100.0 + f.powi(2))
                 + 2.75e-4 * f.powi(2)
                 + 0.003;
-            let g = a.geometry.unwrap_or_else(|| "spherical".into()).to_lowercase();
+            let g = a
+                .geometry
+                .unwrap_or_else(|| "spherical".into())
+                .to_lowercase();
             let spreading = match g.as_str() {
                 "spherical" => 20.0 * a.range_m.log10(),
                 "cylindrical" => 10.0 * a.range_m.log10(),

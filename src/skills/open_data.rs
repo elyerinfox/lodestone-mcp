@@ -102,9 +102,7 @@ impl Skill for UsgsEarthquakes {
                 return Err(invalid("period must be hour/day/week/month"));
             }
             if !["all", "1.0", "2.5", "4.5", "significant"].contains(&minimum.as_str()) {
-                return Err(invalid(
-                    "minimum must be all/1.0/2.5/4.5/significant",
-                ));
+                return Err(invalid("minimum must be all/1.0/2.5/4.5/significant"));
             }
             let url = format!(
                 "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/{minimum}_{period}.geojson"

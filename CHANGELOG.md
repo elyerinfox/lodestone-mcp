@@ -6,6 +6,144 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-06-02
+
+This is a **capability** release: the catalog jumps from ~300 to **~400 tools**
+across 19 new modules covering the math / signal / RF / navigation /
+geospatial / chart surface. Everything is pure-Rust, keyless, on by default,
+and exposed through the normal `Skill` contract — no new gates, no new
+families to enable. CI fixes and a new end-to-end smoketest harness round it out.
+
+### Added
+
+- **Linear algebra** (`linalg_*`, 10 tools): `linalg_solve` (LU), `linalg_lstsq`
+  (least squares), `linalg_svd`, `linalg_eigen`, `linalg_qr`, `linalg_inv`,
+  `linalg_det`, `linalg_rank`, `linalg_norm`, `linalg_matmul`. Backed by
+  `nalgebra` — full dynamic `DMatrix<f64>` / `DVector<f64>`.
+
+- **Quaternion algebra** (`quat_*`, `frame_dcm_from_euler`, 8 tools): Euler ↔
+  quaternion, compose/rotate/conjugate/normalize/slerp, plus an Euler →
+  direction-cosine-matrix helper. Hamilton convention (`w, x, y, z`).
+
+- **ODE integration** (`ode_rk4`): classical fourth-order Runge-Kutta, with
+  per-state RHS expressions compiled once via `meval` and evaluated against a
+  `(t, y0, y1, …)` context — good enough for projectiles, oscillators, and
+  small ecology / pharmacokinetics models.
+
+- **Geodesy & coordinate systems** (`geo_*`, 12 tools): WGS84 Vincenty
+  inverse/direct geodesics, great-circle polyline densify, cross-track distance,
+  ellipsoidal polygon area via Karney's `geographiclib::PolygonArea`, UTM
+  forward/inverse (Karney series form), MGRS forward/inverse, ECEF ↔ geodetic
+  (Bowring's iteration), and a 7-parameter Helmert datum transform.
+
+- **Atmospheric models** (`atm_*`, 5 tools): US-Standard-Atmosphere-1976 layered
+  ISA (7 layers, 0–86 km), density altitude with optional humidity correction,
+  Magnus-formula dewpoint, Stull wet-bulb / WBGT, and live planetary K-index
+  via NOAA SWPC.
+
+- **Information theory + coding** (`it_*`, `code_*`, 9 tools): Shannon-Hartley
+  capacity, Rényi-generalized entropy, KL & JS divergence, mutual information
+  from a joint distribution, Hamming distance over hex bytes, CRC (8/16/32/64
+  variants), Reed-Solomon encode (`reed-solomon-erasure`), K=7 rate-1/2
+  convolutional encoder (G1=0o171, G2=0o133).
+
+- **Crypto-math primitives** (`crypto_*`, 9 tools): Miller-Rabin probabilistic
+  primality (via `num-bigint::RandBigInt`), big-integer modular exponentiation,
+  modular inverse, Chinese Remainder Theorem, HKDF-SHA-256, PBKDF2-HMAC-SHA-256,
+  Argon2id (`argon2`), HMAC-{SHA1/SHA256/SHA384/SHA512}, and `jwt`
+  decode-without-verification. Educational / math focus — not a TLS stack.
+
+- **RF link engineering** (`rf_*`, 11 tools): two-ray plane-earth path loss,
+  Okumura-Hata (150–1500 MHz), COST-231-Hata (1500–2000 MHz), Egli, ITU-R P.676
+  atmospheric absorption (simplified O₂ + H₂O lines), ITU-R P.838 rain
+  attenuation (k·R^α), Doppler shift, polarization mismatch (linear / circular /
+  cross), Fresnel-zone radius, knife-edge diffraction (Lee J(v) approximation),
+  and Friis link-budget with kTBF system-noise floor.
+
+- **Radar equation family** (`radar_*`, 7 tools): monostatic + bistatic range
+  equations, coherent / non-coherent integration gain with Marcum loss, pulse
+  compression gain (τ·B), CA / OS CFAR thresholds, clutter PDF thresholds
+  (Rayleigh / Weibull / K-distribution), radar Doppler.
+
+- **DSP extensions** (`signal_*`, 6 new tools): STFT spectrogram (Hann window,
+  configurable overlap), FFT-based cross-correlation with peak-lag, FFT-based
+  Hilbert transform (analytic signal + instantaneous frequency), real cepstrum,
+  BER curves for BPSK / QPSK / M-PSK / M-QAM / FSK over AWGN or Rayleigh
+  (erfc via Abramowitz-Stegun), and IQ demod (amplitude/phase/instantaneous
+  freq). Builds on the existing `rustfft` integration.
+
+- **Estimation & tracking** (`track_*`, 3 tools): single-step linear Kalman
+  filter (predict + update + NIS for chi-squared gating), Hungarian / Kuhn-
+  Munkres optimal assignment (`pathfinding::kuhn_munkres`), and 2-D RANSAC
+  line fit.
+
+- **Acoustic / underwater** (`acoustic_*`, 5 tools): Mackenzie 9-term sea-water
+  sound speed, air sound speed (with optional humidity), Snell's law
+  refraction, Thorp absorption + spherical/cylindrical transmission loss, and
+  the full sonar equation (SE = SL − 2·TL + TS − (NL − AG) − DT).
+
+- **Navigation aiding** (`nav_*`, 5 tools): GNSS DOP from line-of-sight unit
+  vectors (PDOP / HDOP / VDOP / TDOP / GDOP via (HᵀH)⁻¹), Klobuchar ionospheric
+  delay (GPS subframe 4), Saastamoinen tropospheric delay, ECEF → local ENU,
+  and an IMU drift model combining angle random walk + bias instability +
+  scale-factor RSS.
+
+- **Trajectory mechanics** (`traj_*`, 3 tools): projectile-with-drag RK4
+  integrator (variable wind, configurable air density), Hohmann transfer
+  delta-v + transfer time, and Sutton-Graves stagnation-point reentry heating.
+
+- **Earth models** (`earth_*`, 2 tools): Greenwich / local mean sidereal time
+  via Meeus formula 12.4, and a centred-dipole magnetic-declination estimate
+  (2025 epoch, linear secular drift). EGM2008 geoid and full WMM coefficient
+  evaluation are larger data files — deferred.
+
+- **Optimization & operations research** (`opt_*`, 2 tools): TSP via
+  nearest-neighbour seed + 2-opt refinement, and shortest-path via
+  `pathfinding::directed::dijkstra`.
+
+- **Open data feeds** (`open_data_*`, 3 tools): OpenSky network aircraft state
+  vectors (with optional bounding box), USGS earthquake GeoJSON feeds
+  (1.0/2.5/4.5/significant × hour/day/week/month), and NOAA SWPC real-time
+  solar wind plasma.
+
+- **Geospatial format converters** (`convert_*`, 3 tools): NMEA-0183 sentence
+  decode (GPGGA / GPRMC / GPGSA / GPGSV / GPVTG with XOR checksum
+  verification), Cursor-on-Target XML emit (TAK-ingestible event), and
+  GeoJSON → WKT for Point / LineString / Polygon / Multi*.
+
+- **Interchange formats** (`interchange_stl_info`): STL binary + ASCII mesh
+  probe — triangle count, AABB, surface area, and centroid.
+
+- **Specialist chart types** (`chart_polar`, `chart_smith`, `chart_waterfall`,
+  `chart_compass_rose`, `chart_skyplot`, `chart_density_map`, 6 tools): SVG
+  generators following the existing `chart_*` family pattern. Polar (antenna
+  pattern) and Smith (RF impedance Γ-plane) plots; waterfall and density-map
+  heatmaps (viridis colormap + colorbar); compass rose / wind rose; sky plot
+  for satellite az/el.
+
+- **Comprehensive end-to-end smoketest** (`src/smoketest.rs`). One
+  `#[tokio::test]` that constructs a real `Lodestone`, walks all 106 new tool
+  entries with realistic JSON args, and asserts each `Skill::call` returns
+  non-empty content. Doubles as a schema-drift canary: any field rename in an
+  `*Args` struct that doesn't propagate to callers surfaces as a named
+  failure. Runs in ~1 second on a clean build.
+
+### Fixed
+
+- **CI green again.** Restored `cargo fmt --check` + `cargo clippy --all-targets
+  -D warnings` across all the new modules — manual `% 2 != 0` → `is_multiple_of`,
+  `for i in 0..vec.len()` → `iter().enumerate()`, approximate `0.7071` /
+  `1.5708` literals replaced by `std::f64::consts::{FRAC_1_SQRT_2, FRAC_PI_2}`,
+  and a few `vec![…]` test slices flattened to `&[…]`.
+
+### Dependencies
+
+- Added: `nalgebra`, `geographiclib-rs`, `num-bigint`, `num-integer`,
+  `num-traits`, `p256`, `crc`, `hmac`, `sha2`, `hkdf`, `pbkdf2` (with the
+  `hmac` feature so `pbkdf2_hmac` is in scope), `argon2`, `jwt`,
+  `reed-solomon-erasure`, `minilp`, `pathfinding`, `meval`, `gpx`,
+  `wkt`, `base64` (already present, now used in more places).
+
 ## [0.1.1] - 2026-06-01
 
 ### Changed

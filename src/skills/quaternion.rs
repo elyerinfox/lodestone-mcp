@@ -153,9 +153,7 @@ impl Skill for QuatRotate {
             let q = quat_from_array(args.q);
             let v = Vector3::new(args.v[0], args.v[1], args.v[2]);
             let r = q * v;
-            Ok(text_result(
-                json!({ "v": [r.x, r.y, r.z] }).to_string(),
-            ))
+            Ok(text_result(json!({ "v": [r.x, r.y, r.z] }).to_string()))
         })
     }
 }

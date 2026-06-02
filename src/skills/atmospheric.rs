@@ -58,17 +58,17 @@ impl Skill for AtmIsa {
 /// US Standard Atmosphere 1976 layered model. h_base, T_base, L (lapse K/m), p_base.
 fn isa(h: f64) -> (f64, f64, f64) {
     let layers: [(f64, f64, f64, f64); 7] = [
-        (0.0,    288.15, -0.0065, 101_325.0),
-        (11_000.0, 216.65,  0.0,    22_632.06),
-        (20_000.0, 216.65,  0.001,   5_474.889),
-        (32_000.0, 228.65,  0.0028,    868.0187),
-        (47_000.0, 270.65,  0.0,       110.9063),
-        (51_000.0, 270.65, -0.0028,     66.93887),
-        (71_000.0, 214.65, -0.002,       3.95642),
+        (0.0, 288.15, -0.0065, 101_325.0),
+        (11_000.0, 216.65, 0.0, 22_632.06),
+        (20_000.0, 216.65, 0.001, 5_474.889),
+        (32_000.0, 228.65, 0.0028, 868.0187),
+        (47_000.0, 270.65, 0.0, 110.9063),
+        (51_000.0, 270.65, -0.0028, 66.93887),
+        (71_000.0, 214.65, -0.002, 3.95642),
     ];
     let mut idx = 0;
-    for i in 0..layers.len() {
-        if h >= layers[i].0 {
+    for (i, layer) in layers.iter().enumerate() {
+        if h >= layer.0 {
             idx = i;
         }
     }
@@ -165,8 +165,7 @@ impl Skill for AtmDewpoint {
             if !(0.0..=100.0).contains(&a.rh_pct) {
                 return Err(invalid("rh_pct must be 0..100"));
             }
-            let alpha = ((a.rh_pct / 100.0).ln())
-                + (17.62 * a.temp_c) / (243.12 + a.temp_c);
+            let alpha = ((a.rh_pct / 100.0).ln()) + (17.62 * a.temp_c) / (243.12 + a.temp_c);
             let td = 243.12 * alpha / (17.62 - alpha);
             Ok(text_result(json!({ "dewpoint_c": td }).to_string()))
         })
@@ -205,8 +204,7 @@ impl Skill for AtmWbgt {
             // Stull (2011) wet-bulb temperature from T and RH.
             let t = a.temp_c;
             let rh = a.rh_pct;
-            let tw = t * (0.151_977 * (rh + 8.313_659).sqrt()).atan()
-                + (t + rh).atan()
+            let tw = t * (0.151_977 * (rh + 8.313_659).sqrt()).atan() + (t + rh).atan()
                 - (rh - 1.676_331).atan()
                 + 0.003_918_38 * rh.powf(1.5) * (0.023_101 * rh).atan()
                 - 4.686_035;
@@ -247,10 +245,7 @@ impl Skill for AtmSpaceWeatherKp {
                     r.status()
                 )));
             }
-            let body = r
-                .text()
-                .await
-                .map_err(|e| internal(anyhow::anyhow!(e)))?;
+            let body = r.text().await.map_err(|e| internal(anyhow::anyhow!(e)))?;
             Ok(text_result(truncate_chars(&body, server.max_chars)))
         })
     }

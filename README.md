@@ -44,8 +44,9 @@ One stone, many bearings.
 
 ## What it is
 
-- **A keyless toolkit for a local model** — one MCP server exposing ~100 small,
-  composable [skills](docs/skills.md), each gateable.
+- **A keyless toolkit for a local model** — one MCP server exposing **~400
+  small, composable [tools](docs/tools.md)** organized into ~85
+  [skill families](docs/skills.md), each independently gateable.
 - **Search _and_ retrieve.** Finding a link is half the job; reading the page, file,
   PDF, or answer is the other half. Retrieval is first-class.
 - **Local-system aware.** Beyond the web, it can inspect and operate the host:
@@ -139,6 +140,121 @@ and plug into ~85 named formulas across fields (`physics_formula`, `geometry_for
   e.g. antenna sizing, Doppler); with hardware, scan the RF spectrum (`sdr_scan`).
 - **Geospatial** — great-circle **distance** and initial **bearing/azimuth** between
   coordinates (`geo_distance` / `geo_azimuth`) — ground stations, flight legs, siting.
+- **Trajectory mechanics** — projectile-with-drag RK4 (`traj_projectile_drag`,
+  variable wind + air density), **Hohmann** transfer Δv and transfer time
+  (`traj_hohmann`), and **Sutton-Graves** stagnation-point reentry heating
+  (`traj_reentry_heating`).
+- **Open data feeds** — live aircraft state vectors from **OpenSky**
+  (`open_data_opensky_states`), USGS earthquake feeds
+  (`open_data_usgs_earthquakes`), and NOAA SWPC real-time solar wind
+  (`open_data_swpc_solar_wind`).
+
+### Geodesy & navigation
+
+A pure-Rust ellipsoidal toolkit for siting, mapping, and aiding receivers.
+
+- **Coordinate systems** — full WGS84 suite via `geographiclib`: Vincenty
+  inverse/direct geodesics (`geo_vincenty_inverse` / `geo_vincenty_direct`),
+  great-circle polyline densify (`geo_great_circle_polyline`), cross-track
+  distance (`geo_cross_track`), ellipsoidal polygon area
+  (`geo_polygon_area_geodesic`), UTM forward/inverse (`geo_utm_from_latlon`,
+  `geo_latlon_from_utm`), MGRS forward/inverse (`geo_mgrs_from_latlon`,
+  `geo_latlon_from_mgrs`), ECEF ↔ geodetic
+  (`geo_ecef_from_latlon` / `geo_latlon_from_ecef`), and 7-parameter Helmert
+  datum transform (`geo_helmert`).
+- **GNSS aiding** — DOP from satellite line-of-sight unit vectors (`nav_dop`,
+  PDOP / HDOP / VDOP / TDOP / GDOP), Klobuchar ionospheric delay
+  (`nav_klobuchar`), Saastamoinen tropospheric delay (`nav_saastamoinen`),
+  ECEF → local ENU (`nav_ecef_to_enu`), and an IMU drift error model
+  (`nav_imu_drift`) combining angle random walk, bias instability, and
+  scale-factor RSS.
+- **Format converters** — NMEA-0183 sentence decode with XOR checksum
+  verification (`convert_nmea_decode`, GPGGA/GPRMC/GPGSA/GPGSV/GPVTG),
+  Cursor-on-Target XML emit for TAK pipelines (`convert_cot_encode`), and
+  GeoJSON → WKT (`convert_geojson_to_wkt`).
+- **Earth models** — Greenwich / local mean sidereal time
+  (`earth_sidereal_time`, Meeus 12.4) and a centred-dipole magnetic
+  declination (`earth_magnetic_declination`) for compass corrections.
+
+### RF, radar & signal processing
+
+- **Path-loss models** — two-ray plane-earth (`rf_two_ray_path_loss`),
+  Okumura-Hata (`rf_hata_path_loss`, 150–1500 MHz), COST-231-Hata
+  (`rf_cost231_path_loss`, 1500–2000 MHz), Egli (`rf_egli_path_loss`),
+  ITU-R P.676 atmospheric absorption (`rf_itu_p676_absorption`), and ITU-R
+  P.838 rain attenuation (`rf_itu_p838_rain`).
+- **Link physics** — Doppler shift (`rf_doppler_shift`), polarization
+  mismatch (`rf_polarization_loss`, linear ⊕ circular), Fresnel-zone radius
+  (`rf_fresnel_zone_radius`), knife-edge diffraction
+  (`rf_knife_edge_diffraction`, Lee J(v)), and a full Friis link budget with
+  kTBF system-noise floor (`rf_friis_with_noise`).
+- **Radar equation family** — mono- and bistatic ranges (`radar_monostatic`,
+  `radar_bistatic`), coherent / non-coherent integration gain
+  (`radar_integration_gain`), pulse compression (`radar_pulse_compression_gain`),
+  CA / OS CFAR thresholds (`radar_cfar_threshold`), Rayleigh / Weibull /
+  K-distribution clutter (`radar_clutter_threshold`), and radar Doppler
+  (`radar_doppler_shift`).
+- **DSP extensions** — beyond the basic `signal_fft` family, the new tools
+  cover STFT **spectrogram** (`signal_spectrogram`), FFT **cross-correlation**
+  with peak-lag (`signal_cross_correlation`), the **Hilbert transform**
+  (`signal_hilbert`, analytic signal + instantaneous frequency), real
+  **cepstrum** (`signal_cepstrum`), **BER curves** for BPSK / QPSK / M-PSK /
+  M-QAM / FSK over AWGN or Rayleigh (`signal_ber_curve`), and **IQ demod**
+  (`signal_iq_demod`).
+- **Estimation & tracking** — single-step linear Kalman filter
+  (`track_kalman_step`, returns NIS for chi-squared gating), Hungarian /
+  Kuhn-Munkres assignment (`track_hungarian`), and 2-D RANSAC line fit
+  (`track_ransac_line`).
+- **Acoustic & underwater** — Mackenzie 9-term sound speed in seawater
+  (`acoustic_sound_speed_water`), air sound speed (`acoustic_sound_speed_air`),
+  Snell's-law refraction (`acoustic_snell`), Thorp absorption + spherical /
+  cylindrical transmission loss (`acoustic_transmission_loss`), and the full
+  sonar equation (`acoustic_sonar_equation`).
+
+### Maths, control & cryptography
+
+- **Linear algebra** — `linalg_solve` (LU), `linalg_lstsq` (least squares),
+  `linalg_svd`, `linalg_eigen`, `linalg_qr`, `linalg_inv`, `linalg_det`,
+  `linalg_rank`, `linalg_norm`, `linalg_matmul`. Pure-Rust via `nalgebra`.
+- **Quaternions & attitude** — Euler ↔ quaternion (`quat_from_euler`,
+  `quat_to_euler`), compose / rotate / conjugate / normalize / slerp, plus
+  an Euler → DCM helper (`frame_dcm_from_euler`). Hamilton convention.
+- **ODE integration** — classical fourth-order Runge-Kutta (`ode_rk4`); the
+  per-state right-hand-side is supplied as a `meval` expression referring to
+  `t` and `y0`, `y1`, …
+- **Information theory & coding** — Shannon-Hartley capacity
+  (`it_shannon_capacity`), Rényi-generalized entropy (`it_entropy`), KL
+  (`it_kl_divergence`) and JS (`it_js_divergence`) divergence, mutual
+  information from a joint distribution (`it_mutual_information`), Hamming
+  distance (`code_hamming_distance`), CRC (`code_crc`, 8/16/32/64), Reed-Solomon
+  encode (`code_rs_encode`), and a K=7 rate-½ convolutional encoder
+  (`code_convolutional_encode`).
+- **Crypto primitives as math tools** — Miller-Rabin primality
+  (`crypto_miller_rabin`), big-integer `crypto_modexp` / `crypto_mod_inverse`,
+  Chinese Remainder Theorem (`crypto_crt`), HKDF (`crypto_hkdf`), PBKDF2
+  (`crypto_pbkdf2`), Argon2id (`crypto_argon2`), HMAC over
+  SHA-1/256/384/512 (`crypto_hmac`), and `crypto_jwt_decode`
+  (decode-without-verification, educational). **Not** a production TLS / KMS
+  surface — these are exposed as math/research tools, not as a secrets vault.
+- **Optimization & operations research** — TSP via nearest-neighbour + 2-opt
+  (`opt_tsp_2opt`) and shortest path on a directed weighted graph
+  (`opt_shortest_path`, Dijkstra).
+- **Atmospherics** — US-Standard-Atmosphere-1976 ISA (`atm_isa`), density
+  altitude (`atm_density_altitude`), Magnus dewpoint (`atm_dewpoint`), Stull
+  WBGT (`atm_wbgt`), and a live NOAA SWPC planetary K-index
+  (`atm_space_weather_kp`) for HF-prop / aurora context.
+- **Specialist visualizations** — polar antenna pattern (`chart_polar`),
+  Smith chart (`chart_smith`), spectrogram waterfall (`chart_waterfall`),
+  compass / wind rose (`chart_compass_rose`), sky plot for satellite az/el
+  (`chart_skyplot`), and a 2-D density heatmap (`chart_density_map`). All SVG,
+  no extra deps beyond the existing `chart_*` family.
+
+### Mesh & 3-D interchange
+
+- **STL meshes** — probe an STL file (binary or ASCII), get triangle count,
+  axis-aligned bounding box, surface area, and centroid
+  (`interchange_stl_info`). Foundation for richer MAVLink / NetCDF / DICOM
+  surfaces in a follow-up release.
 
 ### Software & infrastructure
 
