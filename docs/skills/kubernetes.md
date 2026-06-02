@@ -24,8 +24,8 @@ action is its own tool for per-action permission granularity.
 | `k8s_get` | `kind`, `name?`, `namespace?` | read | Get one named object (full JSON), or list a kind (one line each). |
 | `k8s_describe` | `kind`, `name`, `namespace?` | read | Full JSON of one named object. |
 | `k8s_logs` | `pod`, `namespace?`, `container?`, `tail?` | read | A pod's logs (last `tail` lines, default 200, capped 2000; optional container). |
-| `k8s_apply` | `manifest` | write | Server-side apply a kubefile — YAML, multi-document (`---`-separated) allowed; creates or updates objects. |
-| `k8s_scale` | `kind`, `name`, `replicas`, `namespace?` | write | Scale a deployment/statefulset/replicaset to `replicas`. |
+| `k8s_apply` | `manifest`, `confirm?`, `trust?` | destructive | Server-side apply a kubefile — YAML, multi-document (`---`-separated) allowed; creates or updates objects (confirm first — arbitrary cluster mutation: RBAC, workloads, secrets). |
+| `k8s_scale` | `kind`, `name`, `replicas`, `namespace?`, `confirm?`, `trust?` | destructive | Scale a deployment/statefulset/replicaset to `replicas` (confirm first — can take a production workload to 0). |
 | `k8s_delete` | `kind`, `name`, `namespace?`, `confirm?`, `trust?` | destructive | Delete a resource by kind + name (confirm first). |
 
 Namespace resolution for namespaced kinds: a per-call `namespace` override, else
@@ -39,8 +39,8 @@ The `[kubernetes]` section in
   whole family. When off, all `k8s_*` tools disappear (gating lives in
   `main.rs::effective_disabled`).
 - `allow_destructive` (default `false`, env
-  `LODESTONE_KUBERNETES_ALLOW_DESTRUCTIVE`) — **pre-authorizes** `k8s_delete`,
-  skipping the confirmation prompt below.
+  `LODESTONE_KUBERNETES_ALLOW_DESTRUCTIVE`) — **pre-authorizes** `k8s_apply`,
+  `k8s_scale`, and `k8s_delete`, skipping the confirmation prompt below.
 - `kubeconfig` (env `LODESTONE_KUBECONFIG`) — path to a kubeconfig; empty = the
   default location / `$KUBECONFIG` / in-cluster.
 - `context` (env `LODESTONE_KUBE_CONTEXT`) — kubeconfig context; empty = the
@@ -48,14 +48,17 @@ The `[kubernetes]` section in
 - `namespace` (env `LODESTONE_KUBE_NAMESPACE`) — default namespace for calls;
   empty = `"default"`.
 
-**Confirmation guard.** `k8s_delete` is always exposed but routes through the
-confirmation [`guard`](../../src/skills/guard.rs) (golden rule 8). The **first**
-call performs nothing — it returns a one-time `confirm` token describing exactly
-what will be deleted. Call again with `confirm=<token>` to actually delete, or
-`confirm=<token>` plus `trust=true` to also stop being asked for `k8s_delete` for
-the rest of the session. Tokens are single-use and expire after 5 minutes. This
-works on any MCP client (no elicitation support required). Setting
-`allow_destructive` pre-authorizes the action and skips the prompt entirely.
+**Confirmation guard.** `k8s_apply`, `k8s_scale`, and `k8s_delete` are always
+exposed but route through the confirmation [`guard`](../../src/skills/guard.rs)
+(golden rule 8). Bindings are **per-target** — `k8s_apply` keys on the manifest
+hash, `k8s_scale` on `kind:name:namespace`, `k8s_delete` on the tool name — so
+`trust=true` only whitelists that specific action. The **first** call performs
+nothing — it returns a one-time `confirm` token describing exactly what will
+happen. Call again with `confirm=<token>` to proceed, or `confirm=<token>` plus
+`trust=true` to also stop being asked for that specific binding for the rest of
+the session. Tokens are single-use and expire after 5 minutes. This works on any
+MCP client (no elicitation support required). Setting `allow_destructive`
+pre-authorizes the action and skips the prompt entirely.
 
 > Helm release *mutation* (install/upgrade/uninstall) is out of scope for the
 > direct-API approach; use `docs_helm` and `artifacthub_search` for Helm

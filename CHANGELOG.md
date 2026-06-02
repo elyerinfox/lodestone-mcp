@@ -6,6 +6,139 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-06-02
+
+Cross-codebase **golden-rules audit** of every skill, fanning out four
+parallel research agents over the search/retrieval, local-system,
+utility/data-feed, and science/math clusters. Findings led to a tight
+sweep of high-severity guard gaps and one per-user cache carve-out, plus
+a three-instance smoke harness that exercises every constellation
+surface and every confirmation-guard branch end-to-end. Tool count is
+now ~470 across ~100 skill families.
+
+### Fixed — destructive operations that ran without a confirmation guard
+
+Seven tools advertised as destructive but slipped past `guard::check`
+entirely; the audit flagged each as **high-severity**, since the cost of
+a single un-prompted invocation ranges from arbitrary container exec to
+silent file overwrite. All eight now route through `guard::check` with
+the family's `allow_destructive` flag as the pre-authorized override
+(same pattern as `docker_stop` / `k8s_delete` / `fs_delete`):
+
+- **`docker_pull`** — silent network egress to an arbitrary registry +
+  writes to the local image store.
+- **`docker_run`** — creates and starts a container; effectively
+  arbitrary code execution under the image's entrypoint.
+- **`docker_start`** — resumes a stopped container that may bind ports,
+  mount volumes, or execute its entrypoint.
+- **`docker_build`** — every Dockerfile `RUN` step is arbitrary code
+  execution under the daemon.
+- **`k8s_apply`** — server-side apply of arbitrary cluster state (RBAC,
+  workloads, secrets).
+- **`k8s_scale`** — replica patches can take a production workload to
+  zero silently.
+- **`fs_write` (overwrite only)** + **`fs_edit`** — silent overwrite /
+  mutation of an existing file. Creating a new file with `fs_write`
+  remains innocuous and does not challenge.
+
+### Changed — guard bindings are now per-target on every new call site
+
+Earlier guarded tools key their `trust` on the **tool name** (e.g.
+`docker_stop`), so one `trust=true` whitelists every container for the
+rest of the session. The eight new guard call sites use **per-target
+binding keys** instead, so trust is narrow and discoverable:
+
+| Tool          | Binding key                                           |
+| ------------- | ----------------------------------------------------- |
+| `fs_write`    | `fs_write:<canonical path>`                            |
+| `fs_edit`     | `fs_edit:<canonical path>`                             |
+| `docker_pull` | `docker_pull:<image>`                                  |
+| `docker_run`  | `docker_run:<image>|<name>|<command>`                  |
+| `docker_start`| `docker_start:<container>`                             |
+| `docker_build`| `docker_build:<context>|<dockerfile>|<tag>`            |
+| `k8s_apply`   | `k8s_apply:<sha-of-manifest>`                          |
+| `k8s_scale`   | `k8s_scale:<kind>:<name>:<namespace>`                  |
+
+Tightening the existing tool-keyed bindings (`mqtt_publish`,
+`meshtastic_send`, `package_install`, `ffmpeg_convert`, `sheet_write`,
+`serial_send`, `store_purge`) is tracked separately and not in this
+release.
+
+### Changed — `translate` / `detect_language` walked back from
+`RetrievalPolicy::Shared` to `None`
+
+Both tools previously cached translation bodies and advertised them on
+the constellation digest. The audit flagged this as a GR-13 carve-out
+violation: translation input is arbitrary per-user text that can carry
+PII or secret-shaped strings the caller pasted in, and broadcasting the
+translated body to constellation peers would leak it. Memo and
+conversation history still cover the local repeat-call case.
+
+### Added — `RetrievalPolicy` interface, declared on 48 retrieving skill impls
+
+A common contract for "should downloads through this skill enter the
+constellation cache?" lives on every `Skill` impl as the
+`retrieval_policy()` method:
+
+- `None` (default) — purely-local compute, never caches.
+- `LocalOnly` — caches in-process, never advertises to peers.
+- `Shared { source }` — caches in-process and advertises the keyed
+  entry on the next constellation digest. The `source` field picks the
+  per-source TTL and `min_agreement_floor` (Wayback / Arxiv / Github /
+  Overpass / SearchEngine / Other).
+
+48 retrieving skill impls across 24 modules now declare their policy
+explicitly. The interface itself is wired but not yet load-bearing —
+existing skills keep their hand-rolled `retrieval_get` / `retrieval_put`
+flow until a lifetime-clean migration path is in place. See the
+`RetrievalPolicy` doc-comment in [`src/skills/mod.rs`](src/skills/mod.rs)
+and [`CONTRIBUTING.md`](CONTRIBUTING.md#retrievalpolicy) for the per-skill
+guidance.
+
+### Added — golden rules 13 and 14
+
+- **GR-13: helping the greater good.** All remotely-retrieved academic
+  / scientific / standards content (arxiv, openalex, unpaywall, pubmed,
+  NIST, RFC, OSM/Overpass, NOAA, Open-Meteo, etc.) is shared over the
+  constellation by default, so a peer can serve the same record without
+  the upstream being touched again. Per-user content (translation,
+  memory, conversation history, keyed-source bodies) is explicitly
+  carved out.
+- **GR-14: diagrams are Mermaid.** Architectural and request-flow
+  diagrams in docs are authored as Mermaid (`sequenceDiagram`,
+  `stateDiagram-v2`, etc.) so they render in-place on GitHub and stay
+  searchable.
+
+### Added — request-flow articulation for the constellation
+
+The constellation now ships seven explicitly-documented request flow
+paths (A through G) in [`docs/constellation.md`](docs/constellation.md),
+each as a Mermaid `sequenceDiagram`: local hit, local miss + upstream,
+peer cache hit, peer cache hit with delegation, retrieval delegation
+under rate-limit, blob serving, browser-persona delegation. A separate
+end-to-end smoke harness at `smoke/smoke.py` (gitignored) spins up
+three lodestone instances and exercises all of them — `/constellation/
+digest` auth, `/query` roundtrip, `/blobinfo`, capability-gated
+`/retrieve` refusal, MCP `constellation_status` /
+`constellation_capabilities` / `constellation_peers`, two-node digest
+gossip, and every branch of the confirmation-guard flow (new file,
+overwrite challenge, confirm, trust within a path, no leakage across
+paths, single-use token, replay rejection). 25/25 pass.
+
+### Defaults — all skill families now enabled by default
+
+Six families that previously shipped `enabled = false` (Python, MQTT,
+Meshtastic, Shell, Serial, Store) are now on by default, matching the
+posture of the rest of the surface. Off-switches and per-family
+`allow_destructive` flags are unchanged.
+
+### Cleanup — `allow(dead_code)` markers carry rationale
+
+Eight `#[allow(dead_code)]` annotations in `src/skills/` that had no
+explicit reason comment now carry a one-line justification so the next
+clippy sweep doesn't silently delete code that is load-bearing for a
+specific future or for the `RetrievalPolicy` interface.
+
 ## [0.1.6] - 2026-06-02
 
 Cross-codebase **correctness audit** of every skill that makes factual or

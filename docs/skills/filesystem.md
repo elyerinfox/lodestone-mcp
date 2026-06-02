@@ -24,8 +24,8 @@ first call — they go through the confirmation guard.
 | `fs_list` | `path?` | read | List a directory's entries (name, type, size); omit `path` to list a root. |
 | `fs_stat` | `path` | read | A path's type, size, read-only flag, and modified time. |
 | `fs_find` | `pattern`, `path?` | read | Find files by name — `*` wildcard or substring; skips `.git`/`target`/`node_modules`, caps results. |
-| `fs_write` | `path`, `content` | write | Create or overwrite a file (parent dir must exist — `fs_mkdir` first). |
-| `fs_edit` | `path`, `old_string`, `new_string`, `replace_all?` | write | Replace text; `old_string` must occur once unless `replace_all=true`. |
+| `fs_write` | `path`, `content`, `confirm?`, `trust?` | **destructive** | Create a file (no confirm) or overwrite an existing one (confirm first). |
+| `fs_edit` | `path`, `old_string`, `new_string`, `replace_all?`, `confirm?`, `trust?` | **destructive** | Replace text; `old_string` must occur once unless `replace_all=true` (confirm first). |
 | `fs_mkdir` | `path` | write | Create a directory (with any missing parents). |
 | `fs_delete` | `path`, `recursive?`, `confirm?`, `trust?` | **destructive** | Delete a file/directory (confirm first; `recursive=true` for a non-empty dir). |
 | `fs_move` | `source`, `dest`, `confirm?`, `trust?` | **destructive** | Move/rename a path (confirm first; overwrites an existing dest). |
@@ -37,14 +37,18 @@ tools), `roots` (allowed base dirs; empty = the working directory only), and
 `allow_destructive` (pre-authorize the destructive tools). Env equivalents:
 `LODESTONE_FS_ENABLED`, `LODESTONE_FS_ROOTS`, `LODESTONE_FS_ALLOW_DESTRUCTIVE`.
 
-When enabled, `fs_delete` and `fs_move` are still **exposed and gated at call time**
-by the confirmation [`guard`](../../src/skills/guard.rs) (golden rule 8): the first
-call performs nothing and returns a one-time `confirm` token describing exactly what
-will happen; call again with `confirm=<token>` to execute, or `confirm=<token>,
-trust=true` to also stop being asked for that tool for the rest of the session.
-Tokens are single-use and expire after 5 minutes. Setting
-`[filesystem].allow_destructive = true` pre-authorizes both and skips the prompt
-entirely. Scope `roots` narrowly and run behind a host that approves tool calls.
+When enabled, `fs_write` (overwrite only — creating a new file is innocuous),
+`fs_edit`, `fs_delete`, and `fs_move` are still **exposed and gated at call time**
+by the confirmation [`guard`](../../src/skills/guard.rs) (golden rule 8). Bindings
+are **per-path** (e.g. `fs_write:/foo/bar.txt`), so `trust=true` only whitelists
+that one path — a later overwrite of a different file still challenges. The first
+call performs nothing and returns a one-time `confirm` token describing exactly
+what will happen; call again with `confirm=<token>` to execute, or
+`confirm=<token>, trust=true` to also stop being asked for that specific path
+for the rest of the session. Tokens are single-use and expire after 5 minutes.
+Setting `[filesystem].allow_destructive = true` pre-authorizes all four and
+skips the prompt entirely. Scope `roots` narrowly and run behind a host that
+approves tool calls.
 
 ## Example uses
 - **Read a config value** — `fs_find` (`pattern="*config*.toml"`) → `fs_read` the hit → report the value.

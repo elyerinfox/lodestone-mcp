@@ -3,9 +3,10 @@
 //! service-account credentials — no `kubectl` binary.
 //!
 //! A cluster-control capability, separate from the keyless web tools. Gated by
-//! `[kubernetes]` (on by default); destructive `k8s_delete` is hidden unless
-//! `allow_destructive` (gating lives in `main.rs::effective_disabled`). Each action
-//! is its own skill. kube types are encapsulated here.
+//! `[kubernetes]` (on by default). Destructive actions (`k8s_apply`, `k8s_scale`,
+//! `k8s_delete`) always route through the confirmation guard; setting
+//! `allow_destructive` skips the prompt. Each action is its own skill; kube
+//! types are encapsulated here.
 
 use std::sync::Arc;
 
@@ -562,7 +563,10 @@ impl Skill for K8sApply {
                 crate::constellation::hash_key(&args.manifest)
             );
             let manifest_preview: String = args.manifest.chars().take(80).collect();
-            let summary = format!("apply manifest ({} bytes): {manifest_preview}…", args.manifest.len());
+            let summary = format!(
+                "apply manifest ({} bytes): {manifest_preview}…",
+                args.manifest.len()
+            );
             if let Decision::Challenge(msg) = server.guard.check(
                 &bind,
                 "k8s_apply",

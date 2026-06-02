@@ -4,7 +4,7 @@ This page exists for one purpose: help you decide whether lodestone is
 the right thing for what you're building, or whether one of the
 neighbouring projects fits better. We don't try to win every column —
 the project has a specific shape (keyless-by-default, code-aware,
-MCP-native, self-hosted, single binary, ~465 tools across ~100 skill
+MCP-native, self-hosted, single binary, ~470 tools across ~100 skill
 families) and the trade-offs that come with that shape are real. They
 are laid out below, in detail, in the [Honest limitations](#honest-limitations)
 section.
@@ -115,7 +115,7 @@ Lodestone overlaps but is not the same product. We even support
 SearXNG as a *provider* — point lodestone at a self-hosted SearXNG and
 it shows up as one of the engines aggregated under `web_search` and
 `code_search`. The pitch for picking lodestone instead is: code-aware
-out of the box, a single binary, MCP-native, ~465 non-search tools
+out of the box, a single binary, MCP-native, ~470 non-search tools
 alongside the search tools, citation-backed science / engineering
 surface.
 
@@ -220,7 +220,7 @@ things:
    local LM Studio — and is off by default).
 5. **Not a stable data source.** Scraping is best-effort; sites
    change. We document the brittleness honestly below.
-6. **Not a finished product.** The ~100 skill families and ~465 tools
+6. **Not a finished product.** The ~100 skill families and ~470 tools
    represent ongoing work; new families land regularly (see the
    [CHANGELOG](../CHANGELOG.md)). Tools are added when they fit the
    golden rules — see [CONTRIBUTING.md](../CONTRIBUTING.md).
@@ -691,10 +691,10 @@ limitations that affect what you can do with lodestone:
 
 - **Tool-selection accuracy varies wildly by model.** A small local
   model often picks the wrong tool, hallucinates arguments, or
-  ignores tools entirely. Lodestone exposes ~465 tools; this is a
+  ignores tools entirely. Lodestone exposes ~470 tools; this is a
   lot of context. Use a model that's been trained on tool use, and
   set the host's tool-restriction config to limit what shows up.
-- **MCP `tools/list` payload is large.** ~465 tools × ~200 bytes
+- **MCP `tools/list` payload is large.** ~470 tools × ~200 bytes
   each ≈ 80 KB per session. Some hosts truncate. Disable families
   you don't need via `[tools].disabled` to shrink the surface.
 - **Stdio-only hosts need `mcp-remote`.** Documented in

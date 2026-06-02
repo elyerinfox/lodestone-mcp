@@ -25,10 +25,10 @@ per-action granularity.
 | `docker_inspect` | `container` | read | Full JSON for one container (config, state, mounts, networks). |
 | `docker_logs` | `container`, `tail?` | read | A container's stdout+stderr (last `tail` lines; default 200, capped 2000). |
 | `docker_info` | — | read | Daemon version, API version, os/arch, container/image counts. |
-| `docker_pull` | `image` | write | Pull an image, e.g. `nginx:1.27` or `ghcr.io/owner/image:tag`. |
-| `docker_run` | `image`, `name?`, `command?` | write | Create + start a container; `command` is split on whitespace. |
-| `docker_start` | `container` | write | Start an existing (stopped) container. |
-| `docker_build` | `context`, `tag`, `dockerfile?` | write | Build an image from a context dir (tarred + sent to the daemon); `dockerfile` defaults to `Dockerfile`. |
+| `docker_pull` | `image`, `confirm?`, `trust?` | destructive | Pull an image, e.g. `nginx:1.27` or `ghcr.io/owner/image:tag` (confirm first — network egress + writes to the local image store). |
+| `docker_run` | `image`, `name?`, `command?`, `confirm?`, `trust?` | destructive | Create + start a container; `command` is split on whitespace (confirm first — effectively arbitrary code execution under the image's entrypoint). |
+| `docker_start` | `container`, `confirm?`, `trust?` | destructive | Start an existing (stopped) container (confirm first — resumes a process that may bind ports, mount volumes, or execute its entrypoint). |
+| `docker_build` | `context`, `tag`, `dockerfile?`, `confirm?`, `trust?` | destructive | Build an image from a context dir (tarred + sent to the daemon); `dockerfile` defaults to `Dockerfile` (confirm first — every Dockerfile RUN step is arbitrary code execution under the daemon). |
 | `docker_stop` | `container`, `confirm?`, `trust?` | destructive | Stop a running container (confirm first). |
 | `docker_remove` | `container`, `force?`, `confirm?`, `trust?` | destructive | Remove a container; `force` kills a running one (confirm first). |
 | `docker_exec` | `container`, `command`, `confirm?`, `trust?` | destructive | Run a command inside a running container (parsed like a shell line, executed directly — no host shell); returns combined stdout/stderr (confirm first). |
@@ -45,9 +45,14 @@ The `[docker]` section in
   `LODESTONE_DOCKER_ALLOW_DESTRUCTIVE`) — **pre-authorizes** the destructive
   tools, skipping the confirmation prompt below.
 
-**Confirmation guard.** `docker_stop`, `docker_remove`, `docker_exec`, and
-`docker_rmi` are always exposed but route through the confirmation
-[`guard`](../../src/skills/guard.rs) (golden rule 8). The **first** call performs
+**Confirmation guard.** `docker_pull`, `docker_run`, `docker_start`, `docker_stop`,
+`docker_remove`, `docker_exec`, `docker_rmi`, and `docker_build` are always
+exposed but route through the confirmation
+[`guard`](../../src/skills/guard.rs) (golden rule 8). Bindings are
+**per-target** (e.g. `docker_pull:<image>`, `docker_run:<image>|<name>|<command>`,
+`docker_start:<container>`, `docker_build:<context>|<dockerfile>|<tag>`), so
+`trust=true` only whitelists that specific target — pulling `nginx:1.27` does not
+authorize a later `docker_pull alpine`. The **first** call performs
 nothing — it returns a one-time `confirm` token describing exactly what will
 happen. Call the tool again with `confirm=<token>` to actually run it, or
 `confirm=<token>` plus `trust=true` to also stop being asked for that tool for

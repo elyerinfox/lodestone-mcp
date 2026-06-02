@@ -1,8 +1,10 @@
 //! Local filesystem skills — read and edit files/directories on the machine.
 //!
 //! DANGEROUS and **off by default** (golden rule: everything is gateable; this one
-//! must be explicitly granted). Gated by `[filesystem].enabled`; destructive ops
-//! (`fs_delete`, `fs_move`) are additionally gated by `[filesystem].allow_destructive`.
+//! must be explicitly granted). Gated by `[filesystem].enabled`. Destructive ops
+//! (`fs_write` overwriting an existing file, `fs_edit`, `fs_delete`, `fs_move`)
+//! always route through the confirmation guard; `[filesystem].allow_destructive`
+//! skips the prompt.
 //!
 //! Every path is **confined** to the configured `[filesystem].roots` (default: the
 //! server's working directory). `..` components are rejected and symlinks are
@@ -447,7 +449,11 @@ impl Skill for FsWrite {
             };
             if file_exists {
                 let bind = format!("fs_write:{}", path.display());
-                let summary = format!("overwrite {} ({} bytes)", path.display(), args.content.len());
+                let summary = format!(
+                    "overwrite {} ({} bytes)",
+                    path.display(),
+                    args.content.len()
+                );
                 if let Decision::Challenge(msg) = server.guard.check(
                     &bind,
                     "fs_write",

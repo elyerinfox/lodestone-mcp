@@ -3,9 +3,12 @@
 //! bollard's local defaults; honors `DOCKER_HOST`). Direct API, no `docker` CLI.
 //!
 //! A local-system capability, separate from the keyless web tools. Gated by
-//! `[docker].enabled` (on by default) and `[docker].allow_destructive` (off by
-//! default — `docker_stop`/`docker_remove` are hidden unless enabled; the gating
-//! lives in `main.rs::effective_disabled`). Each action is its own skill.
+//! `[docker].enabled` (on by default). Destructive actions (`docker_pull`,
+//! `docker_run`, `docker_start`, `docker_stop`, `docker_remove`, `docker_exec`,
+//! `docker_rmi`, `docker_build`) always route through the confirmation guard
+//! with per-target binding keys, so `trust=true` is scoped to one image /
+//! container / build context, not the whole tool; `[docker].allow_destructive`
+//! skips the prompt entirely. Each action is its own skill.
 //!
 //! bollard types are encapsulated here. Results are serialized to
 //! `serde_json::Value` and read by the Docker API's PascalCase field names, which

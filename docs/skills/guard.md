@@ -3,7 +3,7 @@
 |  |  |
 | --- | --- |
 | **Module** | [`src/skills/guard.rs`](../../src/skills/guard.rs) |
-| **Tools** | none directly — guards `fs_delete`, `fs_move`, `fs_write`, `fs_edit`, `fs_mkdir`, `docker_stop`, `docker_remove`, `docker_exec`, `docker_rmi`, `k8s_delete`, write-mode `db_query` / `redis_command`, `shell_run`, `python_run`, `ffmpeg_convert`, `sheet_write`, `systemd_start` / `_stop` / `_restart`, `memory_forget`, `solution_forget`, `conversation_forget`, `conversation_prune`, every destructive `git_run` subcommand |
+| **Tools** | none directly — guards `fs_delete`, `fs_move`, `fs_write` (overwrite only), `fs_edit`, `fs_mkdir`, `docker_pull`, `docker_run`, `docker_start`, `docker_stop`, `docker_remove`, `docker_exec`, `docker_rmi`, `docker_build`, `k8s_apply`, `k8s_scale`, `k8s_delete`, write-mode `db_query` / `redis_command`, `shell_run`, `python_run`, `ffmpeg_convert`, `sheet_write`, `systemd_start` / `_stop` / `_restart`, `memory_forget`, `solution_forget`, `conversation_forget`, `conversation_prune`, every destructive `git_run` subcommand |
 | **Network** | none — process-local in-memory state |
 | **Default** | always armed; per-family `[<family>].allow_destructive` pre-authorizes |
 
