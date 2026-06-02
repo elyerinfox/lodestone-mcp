@@ -119,10 +119,22 @@ pub struct Config {
 }
 
 /// A skill family whose only knob is on/off (no extra parameters).
-#[derive(Debug, Clone, Default, Deserialize)]
+/// Defaults to **on** — every skill family in lodestone is enabled by
+/// default; flip to `false` in `lodestone.toml` to silence one. The
+/// dispatch wrapper still runs the per-family capability probe at
+/// startup, so families whose host requirement isn't met (no `python3`
+/// on PATH, no SDR plugged in, etc.) return a clean unavailable error
+/// at call time rather than crash.
+#[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct ToggleOnly {
     pub enabled: bool,
+}
+
+impl Default for ToggleOnly {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
 }
 
 /// Python runner settings.
@@ -141,7 +153,7 @@ pub struct Python {
 impl Default for Python {
     fn default() -> Self {
         Self {
-            enabled: false,
+            enabled: true,
             interpreter: String::new(),
             timeout_secs: 30,
             allow_destructive: false,
@@ -206,7 +218,7 @@ pub struct Mqtt {
 impl Default for Mqtt {
     fn default() -> Self {
         Self {
-            enabled: false,
+            enabled: true,
             broker: String::new(),
             client_id: String::new(),
             username: String::new(),
@@ -257,7 +269,7 @@ pub struct Meshtastic {
 impl Default for Meshtastic {
     fn default() -> Self {
         Self {
-            enabled: false,
+            enabled: true,
             transport: "mqtt".into(),
             mqtt_topic_root: "msh".into(),
             default_region: "US".into(),
@@ -291,10 +303,12 @@ pub struct Browser {
 /// `system_info` but ride the same gate. Destructive operations route
 /// through the [`crate::skills::guard`] regardless of this flag (the
 /// guard is a *call-time* gate, not a config switch — golden rule 8).
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct Packages {
-    /// Expose the `package_*` tools. Env: `LODESTONE_PACKAGES_ENABLED`.
+    /// Expose the `package_*` tools. Default: true. The capability probe
+    /// gates the family if no supported PM binary is on `$PATH`.
+    /// Env: `LODESTONE_PACKAGES_ENABLED`.
     pub enabled: bool,
     /// Pre-authorize `package_install` / `package_upgrade` / `package_remove`
     /// for the session (skips the guard's confirmation prompt). The guard
@@ -302,6 +316,15 @@ pub struct Packages {
     /// "challenge" to "proceed" rather than removing it. Env:
     /// `LODESTONE_PACKAGES_ALLOW_DESTRUCTIVE`.
     pub allow_destructive: bool,
+}
+
+impl Default for Packages {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            allow_destructive: false,
+        }
+    }
 }
 
 /// Persistent memory & solution-history skills. Local on-disk JSONL store under
@@ -448,14 +471,25 @@ impl Default for Memory {
 
 /// Global settings for the database skills. Connections are always ad-hoc (passed per
 /// call), so there are no stored instances/credentials.
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct Databases {
-    /// Expose `db_query` / `redis_command`. Off by default.
+    /// Expose `db_query` / `redis_command`. Default: true. Connection URLs are
+    /// passed in *per call*; lodestone does not store credentials. Writes/DDL go
+    /// through the confirmation guard.
     pub enabled: bool,
     /// Pre-authorize writes/DDL (SQL) and write/admin commands (Redis), skipping the
     /// per-call confirmation prompt. Off by default — writes confirm at call time.
     pub allow_destructive: bool,
+}
+
+impl Default for Databases {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            allow_destructive: false,
+        }
+    }
 }
 
 /// A user-configured self-hosted code forge (GitLab or Gitea/Codeberg layout).
@@ -859,15 +893,17 @@ impl Default for Kubernetes {
     }
 }
 
-/// Local filesystem read/edit (`src/skills/filesystem.rs`). A powerful, dangerous
-/// capability — **off by default**; the user must explicitly grant it. All paths
-/// are confined to `roots` (default: the working directory). Destructive ops
-/// (`fs_delete`, `fs_move`) require a per-call confirmation step (see
-/// `skills::guard`); `allow_destructive` pre-authorizes them (skips the prompt).
-#[derive(Debug, Clone, Default, Deserialize)]
+/// Local filesystem read/edit (`src/skills/filesystem.rs`). A powerful capability:
+/// destructive ops (`fs_delete`, `fs_move`) require a per-call confirmation step
+/// via the [`guard`] (golden rule 8), so `enabled` defaults to **on** alongside
+/// every other skill family. All paths are confined to `roots` (default: the
+/// working directory); `allow_destructive` pre-authorizes the destructive ops
+/// (skips the prompt) but remains opt-in.
+#[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct Filesystem {
-    /// Expose the filesystem tools at all. OFF by default — set to true to grant.
+    /// Expose the filesystem tools. Default: true. The destructive ops
+    /// (`fs_delete`, `fs_move`) still go through the confirmation guard.
     pub enabled: bool,
     /// Pre-authorize the destructive tools (`fs_delete`, `fs_move`), skipping the
     /// per-call confirmation prompt. Off by default.
@@ -875,6 +911,16 @@ pub struct Filesystem {
     /// Allowed base directories; every path must resolve inside one of these
     /// (symlinks resolved). Empty = the server's current working directory only.
     pub roots: Vec<String>,
+}
+
+impl Default for Filesystem {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            allow_destructive: false,
+            roots: Vec::new(),
+        }
+    }
 }
 
 /// Shell command execution (`src/skills/shell.rs`) — arbitrary code execution, the
@@ -907,7 +953,7 @@ pub struct Shell {
 impl Default for Shell {
     fn default() -> Self {
         Self {
-            enabled: false,
+            enabled: true,
             allow_unrestricted: false,
             allow: Vec::new(),
             allow_destructive: false,
@@ -965,16 +1011,26 @@ impl Default for Sysinfo {
 /// FFmpeg conversion skill (`src/skills/ffmpeg.rs`) — shells out to a local `ffmpeg`
 /// / `ffprobe`. **Off by default**; input/output paths are confined to
 /// `[filesystem].roots` and conversions go through the confirmation guard.
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct Ffmpeg {
-    /// Expose `ffmpeg_convert` / `ffmpeg_probe`.
+    /// Expose `ffmpeg_convert` / `ffmpeg_probe`. Default: true. The capability
+    /// probe gates the family off at startup if `ffmpeg` isn't on `$PATH`.
     pub enabled: bool,
     /// Pre-authorize `ffmpeg_convert` — skips the confirmation prompt for
     /// writes. Guard is still in the call path; this flag flips its
     /// decision from "challenge" to "proceed".
     /// Env: `LODESTONE_FFMPEG_ALLOW_DESTRUCTIVE`.
     pub allow_destructive: bool,
+}
+
+impl Default for Ffmpeg {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            allow_destructive: false,
+        }
+    }
 }
 
 /// FCC / amateur-radio reference skills (`src/skills/fcc.rs`). **On by
@@ -1054,10 +1110,11 @@ impl Default for Html {
 /// Spreadsheet skill (`src/skills/spreadsheet.rs`) — read/query/write CSV & XLSX.
 /// **Off by default**; paths are confined to `[filesystem].roots` and writes go
 /// through the confirmation guard.
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct Spreadsheet {
-    /// Expose the `sheet_*` tools.
+    /// Expose the `sheet_*` tools. Default: true. Paths are confined to
+    /// `[filesystem].roots`; writes go through the confirmation guard.
     pub enabled: bool,
     /// Pre-authorize `sheet_write` — skips the confirmation prompt for
     /// writes. Guard is still in the call path.
@@ -1065,23 +1122,48 @@ pub struct Spreadsheet {
     pub allow_destructive: bool,
 }
 
+impl Default for Spreadsheet {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            allow_destructive: false,
+        }
+    }
+}
+
 /// SDR skill (`src/skills/sdr.rs`) — list software-defined radios and sweep the
-/// spectrum by shelling out to `rtl_power`/`rtl_test`/`hackrf_info`. **Off by
-/// default** (hardware + native tools). Receive-only; no transmission.
-#[derive(Debug, Clone, Default, Deserialize)]
+/// spectrum by shelling out to `rtl_power`/`rtl_test`/`hackrf_info`. **On by
+/// default**; the capability probe gates the family off at startup if none of
+/// the SDR binaries are on `$PATH`, so the tool surface returns a clean
+/// unavailable error at call time when no radio hardware is present.
+/// Receive-only; no transmission.
+#[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct Sdr {
-    /// Expose the `sdr_*` tools.
+    /// Expose the `sdr_*` tools. Default: true.
     pub enabled: bool,
 }
 
+impl Default for Sdr {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
+}
+
 /// Background-tasks skill (`src/skills/tasks.rs`) — run long work (currently search)
-/// off the request path and poll for results. **Off by default.**
-#[derive(Debug, Clone, Default, Deserialize)]
+/// off the request path and poll for results. **On by default**, like every
+/// other skill family.
+#[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct Tasks {
-    /// Expose the `task_*` tools.
+    /// Expose the `task_*` tools. Default: true.
     pub enabled: bool,
+}
+
+impl Default for Tasks {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
 }
 
 /// Serial-port skill (`src/skills/serial.rs`) — read/write raw serial devices.
@@ -1104,7 +1186,7 @@ pub struct Serial {
 impl Default for Serial {
     fn default() -> Self {
         Self {
-            enabled: false,
+            enabled: true,
             baud: 9600,
             timeout_ms: 1000,
             allow_destructive: false,
@@ -1115,15 +1197,25 @@ impl Default for Serial {
 /// Printer skill (`src/skills/printer.rs`) — list printers and print text via the
 /// OS print system (CUPS `lp` / Windows spooler). **Off by default**; printing goes
 /// through the confirmation guard.
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct Printer {
-    /// Expose the `printer_*` tools. OFF by default — explicit grant.
+    /// Expose the `printer_*` tools. Default: true. `printer_print` goes
+    /// through the confirmation guard.
     pub enabled: bool,
     /// Pre-authorize `printer_print` — skips the confirmation prompt.
     /// Guard is still in the call path.
     /// Env: `LODESTONE_PRINTER_ALLOW_DESTRUCTIVE`.
     pub allow_destructive: bool,
+}
+
+impl Default for Printer {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            allow_destructive: false,
+        }
+    }
 }
 
 /// NASA open-data skills (`src/skills/nasa.rs`). Keyless-friendly: uses `DEMO_KEY`
@@ -1214,7 +1306,7 @@ pub struct Store {
 impl Default for Store {
     fn default() -> Self {
         Self {
-            enabled: false,
+            enabled: true,
             dir: String::new(),
             ttl_secs: 86_400,
             max_bytes: 512 * 1024 * 1024,
