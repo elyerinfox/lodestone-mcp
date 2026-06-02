@@ -55,6 +55,12 @@ impl Skill for OsmGeocode {
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<GeocodeArgs>()
     }
+    fn retrieval_policy(&self) -> crate::skills::RetrievalPolicy {
+        crate::skills::RetrievalPolicy::Shared {
+            source: crate::constellation::Source::Overpass,
+        }
+    }
+
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (server, args) = ctx.parse::<GeocodeArgs>()?;
@@ -119,6 +125,12 @@ impl Skill for OsmReverseGeocode {
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<ReverseArgs>()
     }
+    fn retrieval_policy(&self) -> crate::skills::RetrievalPolicy {
+        crate::skills::RetrievalPolicy::Shared {
+            source: crate::constellation::Source::Overpass,
+        }
+    }
+
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (server, args) = ctx.parse::<ReverseArgs>()?;
@@ -188,6 +200,12 @@ impl Skill for OsmOverpass {
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<OverpassArgs>()
     }
+    fn retrieval_policy(&self) -> crate::skills::RetrievalPolicy {
+        crate::skills::RetrievalPolicy::Shared {
+            source: crate::constellation::Source::Overpass,
+        }
+    }
+
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (server, args) = ctx.parse::<OverpassArgs>()?;

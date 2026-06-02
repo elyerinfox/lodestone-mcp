@@ -98,6 +98,12 @@ impl Skill for YahooQuote {
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<QuoteArgs>()
     }
+    fn retrieval_policy(&self) -> crate::skills::RetrievalPolicy {
+        crate::skills::RetrievalPolicy::Shared {
+            source: crate::constellation::Source::SearchEngine,
+        }
+    }
+
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (server, args) = ctx.parse::<QuoteArgs>()?;
@@ -193,6 +199,12 @@ impl Skill for YahooHistory {
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<HistoryArgs>()
     }
+    fn retrieval_policy(&self) -> crate::skills::RetrievalPolicy {
+        crate::skills::RetrievalPolicy::Shared {
+            source: crate::constellation::Source::SearchEngine,
+        }
+    }
+
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (server, args) = ctx.parse::<HistoryArgs>()?;
@@ -313,6 +325,12 @@ impl Skill for YahooSearch {
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<SearchArgs>()
     }
+    fn retrieval_policy(&self) -> crate::skills::RetrievalPolicy {
+        crate::skills::RetrievalPolicy::Shared {
+            source: crate::constellation::Source::SearchEngine,
+        }
+    }
+
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (server, args) = ctx.parse::<SearchArgs>()?;

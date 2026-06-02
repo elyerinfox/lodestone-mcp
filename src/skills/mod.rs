@@ -371,6 +371,9 @@ impl SkillCapability {
             hint: None,
         }
     }
+    /// Sister of `unavailable_no_hint` — symmetric predicate. Used by
+    /// dashboard / introspection paths via dyn-typed `SkillCapability`,
+    /// which clippy can't see across the trait-object boundary.
     #[allow(dead_code)]
     pub fn is_ready(&self) -> bool {
         matches!(self, Self::Ready)
@@ -531,6 +534,10 @@ pub(crate) fn live_http() -> reqwest::Client {
 /// "not found" rather than an error) should keep their own pipeline —
 /// this helper is for the plain "fetch JSON or fail" case. For uniform
 /// error prefixing across send/status/decode use [`send_json_ctx`].
+///
+/// Companion to `send_json_ctx`. Existing skills all use the prefixed
+/// `send_json_ctx`; this unprefixed variant stays available for skills
+/// that don't need the per-source label.
 #[allow(dead_code)]
 pub(crate) async fn send_json<T: serde::de::DeserializeOwned>(
     req: reqwest::RequestBuilder,

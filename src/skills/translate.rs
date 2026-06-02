@@ -107,6 +107,15 @@ impl Skill for Translate {
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<TranslateArgs>()
     }
+    fn retrieval_policy(&self) -> crate::skills::RetrievalPolicy {
+        // Per-user input (golden rule 13's "per-user / locally-computed
+        // work shouldn't [share]" carve-out). Translation input can carry
+        // PII or secret-shaped text the caller pasted in; broadcasting
+        // the translated body to constellation peers would leak it. Stay
+        // local; rely on memo/conversation history for repeat workflows.
+        crate::skills::RetrievalPolicy::None
+    }
+
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (server, args) = ctx.parse::<TranslateArgs>()?;
@@ -115,10 +124,6 @@ impl Skill for Translate {
                 return Err(invalid("`to` (target language code) is required"));
             }
             let from = args.from.as_deref().map(str::trim).unwrap_or("auto");
-            let key = format!("translate|{from}|{to}|{}", args.text);
-            if let Some(cached) = server.retrieval_get(&key).await {
-                return Ok(text_result(cached));
-            }
             let t = translate(&server.http, &args.text, to, from)
                 .await
                 .map_err(internal)?;
@@ -128,7 +133,6 @@ impl Skill for Translate {
                 t.source_lang
             };
             let out = format!("Translation ({detected} → {to}):\n{}", t.text);
-            server.retrieval_put(key, &out);
             Ok(text_result(out))
         })
     }
@@ -147,6 +151,12 @@ impl Skill for DetectLanguage {
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<DetectLanguageArgs>()
     }
+    fn retrieval_policy(&self) -> crate::skills::RetrievalPolicy {
+        crate::skills::RetrievalPolicy::Shared {
+            source: crate::constellation::Source::Other,
+        }
+    }
+
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (server, args) = ctx.parse::<DetectLanguageArgs>()?;

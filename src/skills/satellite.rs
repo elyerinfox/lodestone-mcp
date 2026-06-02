@@ -191,6 +191,12 @@ impl Skill for SatTle {
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<TleArgs>()
     }
+    fn retrieval_policy(&self) -> crate::skills::RetrievalPolicy {
+        crate::skills::RetrievalPolicy::Shared {
+            source: crate::constellation::Source::Other,
+        }
+    }
+
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (server, args) = ctx.parse::<TleArgs>()?;
@@ -618,6 +624,12 @@ impl Skill for SatGroup {
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<GroupArgs>()
     }
+    fn retrieval_policy(&self) -> crate::skills::RetrievalPolicy {
+        crate::skills::RetrievalPolicy::Shared {
+            source: crate::constellation::Source::Other,
+        }
+    }
+
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (server, args) = ctx.parse::<GroupArgs>()?;

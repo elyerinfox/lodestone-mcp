@@ -59,6 +59,12 @@ impl Skill for BioUniprotGet {
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<UniprotArgs>()
     }
+    fn retrieval_policy(&self) -> crate::skills::RetrievalPolicy {
+        crate::skills::RetrievalPolicy::Shared {
+            source: crate::constellation::Source::Other,
+        }
+    }
+
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (server, a) = ctx.parse::<UniprotArgs>()?;
@@ -98,6 +104,12 @@ impl Skill for BioPdbGet {
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<PdbArgs>()
     }
+    fn retrieval_policy(&self) -> crate::skills::RetrievalPolicy {
+        crate::skills::RetrievalPolicy::Shared {
+            source: crate::constellation::Source::Other,
+        }
+    }
+
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (server, a) = ctx.parse::<PdbArgs>()?;
@@ -144,6 +156,12 @@ impl Skill for BioEnsemblLookup {
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<EnsemblArgs>()
     }
+    fn retrieval_policy(&self) -> crate::skills::RetrievalPolicy {
+        crate::skills::RetrievalPolicy::Shared {
+            source: crate::constellation::Source::Other,
+        }
+    }
+
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (server, a) = ctx.parse::<EnsemblArgs>()?;

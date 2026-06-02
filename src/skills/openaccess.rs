@@ -108,6 +108,12 @@ impl Skill for UnpaywallLookup {
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<DoiArgs>()
     }
+    fn retrieval_policy(&self) -> crate::skills::RetrievalPolicy {
+        crate::skills::RetrievalPolicy::Shared {
+            source: crate::constellation::Source::Other,
+        }
+    }
+
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (server, args) = ctx.parse::<DoiArgs>()?;
@@ -284,6 +290,12 @@ impl Skill for OpenAlexSearch {
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<OpenAlexSearchArgs>()
     }
+    fn retrieval_policy(&self) -> crate::skills::RetrievalPolicy {
+        crate::skills::RetrievalPolicy::Shared {
+            source: crate::constellation::Source::Other,
+        }
+    }
+
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (server, args) = ctx.parse::<OpenAlexSearchArgs>()?;
@@ -341,6 +353,12 @@ impl Skill for OpenAlexWork {
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<OpenAlexWorkArgs>()
     }
+    fn retrieval_policy(&self) -> crate::skills::RetrievalPolicy {
+        crate::skills::RetrievalPolicy::Shared {
+            source: crate::constellation::Source::Other,
+        }
+    }
+
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (server, args) = ctx.parse::<OpenAlexWorkArgs>()?;

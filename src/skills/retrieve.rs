@@ -269,6 +269,12 @@ impl Skill for FetchPage {
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<FetchPageArgs>()
     }
+    fn retrieval_policy(&self) -> crate::skills::RetrievalPolicy {
+        crate::skills::RetrievalPolicy::Shared {
+            source: crate::constellation::Source::Other,
+        }
+    }
+
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (server, args) = ctx.parse::<FetchPageArgs>()?;
@@ -303,6 +309,12 @@ impl Skill for RenderPage {
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<RenderPageArgs>()
     }
+    fn retrieval_policy(&self) -> crate::skills::RetrievalPolicy {
+        crate::skills::RetrievalPolicy::Shared {
+            source: crate::constellation::Source::Other,
+        }
+    }
+
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             use crate::browser::PageRenderer;
@@ -408,6 +420,12 @@ impl Skill for ReadPdf {
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<ReadPdfArgs>()
     }
+    fn retrieval_policy(&self) -> crate::skills::RetrievalPolicy {
+        crate::skills::RetrievalPolicy::Shared {
+            source: crate::constellation::Source::Other,
+        }
+    }
+
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (server, args) = ctx.parse::<ReadPdfArgs>()?;
@@ -447,6 +465,12 @@ impl Skill for FetchRepoFile {
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<FetchFileArgs>()
     }
+    fn retrieval_policy(&self) -> crate::skills::RetrievalPolicy {
+        crate::skills::RetrievalPolicy::Shared {
+            source: crate::constellation::Source::Other,
+        }
+    }
+
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (server, args) = ctx.parse::<FetchFileArgs>()?;

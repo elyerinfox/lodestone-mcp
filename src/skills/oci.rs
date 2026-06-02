@@ -560,6 +560,12 @@ impl Skill for DockerSearch {
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<DockerSearchArgs>()
     }
+    fn retrieval_policy(&self) -> crate::skills::RetrievalPolicy {
+        crate::skills::RetrievalPolicy::Shared {
+            source: crate::constellation::Source::Other,
+        }
+    }
+
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (server, args) = ctx.parse::<DockerSearchArgs>()?;
@@ -590,6 +596,12 @@ impl Skill for DockerImage {
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<DockerImageArgs>()
     }
+    fn retrieval_policy(&self) -> crate::skills::RetrievalPolicy {
+        crate::skills::RetrievalPolicy::Shared {
+            source: crate::constellation::Source::Other,
+        }
+    }
+
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (server, args) = ctx.parse::<DockerImageArgs>()?;
@@ -625,6 +637,12 @@ impl Skill for DockerTags {
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<DockerTagsArgs>()
     }
+    fn retrieval_policy(&self) -> crate::skills::RetrievalPolicy {
+        crate::skills::RetrievalPolicy::Shared {
+            source: crate::constellation::Source::Other,
+        }
+    }
+
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (server, args) = ctx.parse::<DockerTagsArgs>()?;
@@ -663,6 +681,12 @@ impl Skill for OciTags {
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<OciTagsArgs>()
     }
+    fn retrieval_policy(&self) -> crate::skills::RetrievalPolicy {
+        crate::skills::RetrievalPolicy::Shared {
+            source: crate::constellation::Source::Other,
+        }
+    }
+
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (server, args) = ctx.parse::<OciTagsArgs>()?;
@@ -704,6 +728,12 @@ impl Skill for OciManifest {
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<OciManifestArgs>()
     }
+    fn retrieval_policy(&self) -> crate::skills::RetrievalPolicy {
+        crate::skills::RetrievalPolicy::Shared {
+            source: crate::constellation::Source::Other,
+        }
+    }
+
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (server, args) = ctx.parse::<OciManifestArgs>()?;

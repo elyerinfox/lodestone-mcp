@@ -987,6 +987,9 @@ pub(crate) struct GraphEdge {
 struct SolutionGraphRow {
     id: String,
     problem: String,
+    // Pulled from sqlx::FromRow so the SQL column is mapped; not read by
+    // current Rust paths but kept on the struct so a future tool that
+    // surfaces "what is this row's canonical key?" has the field in hand.
     #[allow(dead_code)]
     canon_key: String,
     updated_at: i64,

@@ -89,6 +89,12 @@ impl Skill for StandardsSearch {
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<StandardsSearchArgs>()
     }
+    fn retrieval_policy(&self) -> crate::skills::RetrievalPolicy {
+        crate::skills::RetrievalPolicy::Shared {
+            source: crate::constellation::Source::Other,
+        }
+    }
+
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (server, args) = ctx.parse::<StandardsSearchArgs>()?;

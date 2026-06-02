@@ -218,6 +218,12 @@ impl Skill for GithubReleases {
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<GithubReleasesArgs>()
     }
+    fn retrieval_policy(&self) -> crate::skills::RetrievalPolicy {
+        crate::skills::RetrievalPolicy::Shared {
+            source: crate::constellation::Source::Github,
+        }
+    }
+
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (server, args) = ctx.parse::<GithubReleasesArgs>()?;
@@ -328,6 +334,12 @@ impl Skill for GithubUser {
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<GithubUserArgs>()
     }
+    fn retrieval_policy(&self) -> crate::skills::RetrievalPolicy {
+        crate::skills::RetrievalPolicy::Shared {
+            source: crate::constellation::Source::Github,
+        }
+    }
+
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (server, args) = ctx.parse::<GithubUserArgs>()?;
@@ -365,6 +377,12 @@ impl Skill for GithubRepo {
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<GithubRepoArgs>()
     }
+    fn retrieval_policy(&self) -> crate::skills::RetrievalPolicy {
+        crate::skills::RetrievalPolicy::Shared {
+            source: crate::constellation::Source::Github,
+        }
+    }
+
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (server, args) = ctx.parse::<GithubRepoArgs>()?;

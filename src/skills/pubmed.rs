@@ -164,6 +164,12 @@ impl Skill for PubmedSearch {
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<SearchArgs>()
     }
+    fn retrieval_policy(&self) -> crate::skills::RetrievalPolicy {
+        crate::skills::RetrievalPolicy::Shared {
+            source: crate::constellation::Source::Other,
+        }
+    }
+
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (server, args) = ctx.parse::<SearchArgs>()?;
@@ -236,6 +242,12 @@ impl Skill for PubmedSummary {
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<SummaryArgs>()
     }
+    fn retrieval_policy(&self) -> crate::skills::RetrievalPolicy {
+        crate::skills::RetrievalPolicy::Shared {
+            source: crate::constellation::Source::Other,
+        }
+    }
+
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (server, args) = ctx.parse::<SummaryArgs>()?;
@@ -379,6 +391,12 @@ impl Skill for NcbiSearch {
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<NcbiSearchArgs>()
     }
+    fn retrieval_policy(&self) -> crate::skills::RetrievalPolicy {
+        crate::skills::RetrievalPolicy::Shared {
+            source: crate::constellation::Source::Other,
+        }
+    }
+
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (server, args) = ctx.parse::<NcbiSearchArgs>()?;
@@ -441,6 +459,12 @@ impl Skill for NcbiSummary {
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<NcbiSummaryArgs>()
     }
+    fn retrieval_policy(&self) -> crate::skills::RetrievalPolicy {
+        crate::skills::RetrievalPolicy::Shared {
+            source: crate::constellation::Source::Other,
+        }
+    }
+
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (server, args) = ctx.parse::<NcbiSummaryArgs>()?;

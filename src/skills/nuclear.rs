@@ -49,6 +49,12 @@ pub const LN_2: f64 = std::f64::consts::LN_2;
 /// 1 Ci = 3.7e10 Bq (exact, definitional).
 pub const CURIE_BQ: f64 = 3.7e10;
 /// 1 barn = 1e-28 m² (exact).
+///
+/// Kept alongside U_TO_MEV, LN_2, and CURIE_BQ for completeness — the
+/// `nuke_unit_convert` tool reads it via direct match arm, not via this
+/// constant binding, so clippy doesn't see the use across the
+/// match-arm literal. Worth keeping the named constant for callers who
+/// want to import it.
 #[allow(dead_code)]
 pub const BARN_M2: f64 = 1.0e-28;
 
