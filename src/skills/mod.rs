@@ -161,6 +161,108 @@ impl<'a> SkillCtx<'a> {
     }
 }
 
+/// How a skill participates in the local retrieval cache and the
+/// [constellation](../../docs/constellation.md). Returned by
+/// [`Skill::retrieval_policy`]; consumed by [`crate::Lodestone::cached_fetch`]
+/// so a skill's upstream call automatically routes through Path A → B → C
+/// of the request-flow tree.
+///
+/// **Golden rule 13** maps onto this enum: every academic / scientific
+/// retrieval tool declares `Shared { source: ... }`; keyed-source tools
+/// declare `LocalOnly`; pure-compute / non-retrieval tools leave the
+/// default `None`.
+///
+/// # Examples by tool family
+///
+/// ```ignore
+/// // Pure-compute math / chemistry / etc. — no caching, no sharing.
+/// impl Skill for ChemMolarMass {
+///     fn retrieval_policy(&self) -> RetrievalPolicy { RetrievalPolicy::None }
+/// }
+///
+/// // Keyed source — cached locally only (do NOT cross to peers — golden rule 11).
+/// impl Skill for BraveWebSearch {
+///     fn retrieval_policy(&self) -> RetrievalPolicy { RetrievalPolicy::LocalOnly }
+/// }
+///
+/// // Keyless academic retrieval — share over the constellation (golden rule 13).
+/// impl Skill for ArxivGet {
+///     fn retrieval_policy(&self) -> RetrievalPolicy {
+///         RetrievalPolicy::Shared { source: Source::Arxiv }
+///     }
+/// }
+/// ```
+#[derive(Debug, Clone, Copy, Default)]
+#[allow(dead_code)] // Foundation API — variants are constructed by skill
+                    // overrides; clippy can't see the cross-module use yet.
+pub enum RetrievalPolicy {
+    /// No retrieval, no caching. Default for pure-compute tools
+    /// (`chem_*`, `linalg_*`, `signal_*`, …) and tools whose output isn't
+    /// a stable artifact that benefits from cross-call reuse.
+    ///
+    /// Concrete examples: `chem_periodic_table`, `chem_balance_equation`,
+    /// `linalg_solve`, `signal_fft`, `arithmetic_eval`, `physical_constant`,
+    /// `convert_units`, `rad_isotope_lookup`, `mach_thread_spec`,
+    /// `nuke_q_value`, every `chart_*`, every `gcode_*` / `scad_*`.
+    #[default]
+    None,
+    /// Cache locally for this node's repeated queries; **do NOT advertise
+    /// to the constellation.** Use when the response body came from a
+    /// keyed / licensed source whose payload must not cross to peers
+    /// (golden rule 11) — a paid API, a token-gated endpoint, anything
+    /// where the credential paid for the bytes.
+    ///
+    /// Concrete examples: `web_brave` (the keyed Brave Search engine),
+    /// `web_google_cse` (Google Custom Search), `db_query` results (the
+    /// credential paid for the read), and any future tool wrapping a
+    /// paid API.
+    LocalOnly,
+    /// Cache locally **and** advertise to the constellation under the
+    /// canonical key (and any aliases). Use for keyless academic /
+    /// scientific retrieval (golden rule 13) — arXiv, PubMed, OpenAlex,
+    /// Wikipedia, RFC, standards, UniProt, RCSB PDB, Ensembl, USGS,
+    /// NOAA, SWPC, NASA, OpenSky, …
+    ///
+    /// The `Source` drives per-source TTL and the consensus floor for
+    /// trusting peer-served bytes ([`Source::min_agreement_floor`],
+    /// [`Source::ttl_secs_override`]).
+    ///
+    /// Concrete examples by `Source`:
+    /// - `Source::Arxiv` — `arxiv_get`, `arxiv_search`.
+    /// - `Source::Wayback` — `wayback_fetch` (single-peer corroboration
+    ///   safe because Wayback bytes are content-addressed by snapshot
+    ///   timestamp).
+    /// - `Source::Github` — `github_releases`, `github_repo`, `github_user`,
+    ///   `fetch_repo_file` (immutable per tag / commit).
+    /// - `Source::Overpass` — `osm_overpass` (world data, slow drift,
+    ///   2-peer corroboration floor).
+    /// - `Source::SearchEngine` — `web_search`, `code_search`, `qa_search`
+    ///   (volatile, 2-peer corroboration floor, 1-hour TTL).
+    /// - `Source::Other` (the fallback) — `rfc_get`, `standards_search`,
+    ///   `pubmed_*`, `ncbi_*`, `openalex_*`, `unpaywall_lookup`,
+    ///   `wikipedia_*`, `hf_*`, `bio_uniprot_get`, `bio_pdb_get`,
+    ///   `bio_ensembl_lookup`, `nasa_*`, `kernel_releases`, `news_feed`,
+    ///   `opensky_states`, `usgs_earthquakes`, `swpc_solar_wind`,
+    ///   `atm_space_weather_kp`.
+    Shared {
+        source: crate::constellation::Source,
+    },
+}
+
+#[allow(dead_code)]
+impl RetrievalPolicy {
+    /// `true` iff a successful fetch should be written to the local cache
+    /// and (for `Shared`) advertised to constellation peers.
+    pub fn caches(&self) -> bool {
+        !matches!(self, Self::None)
+    }
+    /// `true` iff a successful fetch should be advertised over the
+    /// constellation digest so peers can find it on their next request.
+    pub fn shares(&self) -> bool {
+        matches!(self, Self::Shared { .. })
+    }
+}
+
 /// The contract every tool implements. Object-safe, so skills are stored as
 /// `Box<dyn Skill>` and assembled uniformly.
 pub trait Skill: Send + Sync + 'static {
@@ -184,6 +286,24 @@ pub trait Skill: Send + Sync + 'static {
     /// run once at startup.
     fn check_capability(&self) -> SkillCapability {
         SkillCapability::Ready
+    }
+    /// How this tool participates in the local retrieval cache and the
+    /// constellation. Defaults to [`RetrievalPolicy::None`] — pure-compute
+    /// tools and anything that doesn't pull a stable remote artifact.
+    /// Override to `Shared { source: ... }` for keyless academic /
+    /// scientific retrieval (golden rule 13), or `LocalOnly` for
+    /// keyed-source tools (golden rule 11).
+    ///
+    /// Today this is metadata read by `audit-report.md` compliance
+    /// tooling and by the dashboard's per-skill panel; the dispatch
+    /// wrapper does not yet read it directly (skills still call
+    /// `retrieval_get` / `retrieval_put` in their call body). The plan
+    /// is to migrate skills incrementally to
+    /// [`crate::Lodestone::cached_fetch`] which *does* consume the
+    /// policy.
+    #[allow(dead_code)]
+    fn retrieval_policy(&self) -> RetrievalPolicy {
+        RetrievalPolicy::None
     }
 }
 

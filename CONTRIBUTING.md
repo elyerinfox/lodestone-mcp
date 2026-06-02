@@ -708,6 +708,104 @@ Three small edits, all mechanical:
   `biology`, `nuclear`, `radiology`, `machinist`, `cnc`) are the reference
   pattern; the running validation ledger is
   [`docs/audit-report.md`](docs/audit-report.md).
+- For skills that pull a stable remote artifact (papers, reference data,
+  scientific feeds): override
+  `Skill::retrieval_policy()` so the tool's cache & constellation
+  participation is *declared by type*, not just hand-rolled in the call
+  body. Three variants in
+  [`src/skills/mod.rs`](src/skills/mod.rs)::`RetrievalPolicy`:
+  - `RetrievalPolicy::None` (default) — pure-compute tools or tools whose
+    output isn't a stable artifact. No caching, no peer participation.
+  - `RetrievalPolicy::LocalOnly` — cache locally for this node's repeated
+    queries but **do not** advertise to the constellation. Use when the
+    response body came from a **keyed** or licensed source whose payload
+    must not cross to peers ([golden rule 11](docs/golden-rules.md)).
+  - `RetrievalPolicy::Shared { source }` — cache locally **and** advertise
+    over the constellation digest under the canonical key + aliases. Use
+    for **keyless** academic / scientific retrieval (papers, NCBI, RFC,
+    standards, UniProt, PDB, Ensembl, NASA, NOAA, USGS, SWPC,
+    OpenSky, …). The `Source` (`Arxiv`, `Github`, `Wayback`, `Overpass`,
+    `SearchEngine`, `Other`) drives per-source TTL and the consensus floor
+    for trusting peer-served bytes — see
+    [`src/constellation/identifiers.rs`](src/constellation/identifiers.rs).
+
+  Examples for each policy:
+
+  ```rust
+  // Pure-compute math / chemistry / engineering — no caching, no sharing.
+  // Default: do not override unless you mean to participate in caching.
+  impl Skill for ChemMolarMass {
+      // (no retrieval_policy override — defaults to None)
+  }
+
+  // Keyed search engine — cache locally only; the credential paid for the
+  // bytes so they must not cross to peers (golden rule 11).
+  impl Skill for BraveWebSearch {
+      fn retrieval_policy(&self) -> RetrievalPolicy {
+          RetrievalPolicy::LocalOnly
+      }
+  }
+
+  // Keyless arXiv lookup — full constellation participation per golden
+  // rule 13. Source::Arxiv carries arXiv-specific TTL (1 week, immutable
+  // per version) and consensus floor (1 peer, content-addressable).
+  impl Skill for ArxivGet {
+      fn retrieval_policy(&self) -> RetrievalPolicy {
+          RetrievalPolicy::Shared {
+              source: crate::constellation::Source::Arxiv,
+          }
+      }
+  }
+
+  // Keyless RFC text — share with the mesh but use the generic Source
+  // since RFCs aren't content-addressable in the same way arXiv versions
+  // are.
+  impl Skill for RfcGet {
+      fn retrieval_policy(&self) -> RetrievalPolicy {
+          RetrievalPolicy::Shared {
+              source: crate::constellation::Source::Other,
+          }
+      }
+  }
+
+  // OSM Overpass query — share but with the 2-peer corroboration floor
+  // because Overpass results aren't content-addressable.
+  impl Skill for OsmOverpass {
+      fn retrieval_policy(&self) -> RetrievalPolicy {
+          RetrievalPolicy::Shared {
+              source: crate::constellation::Source::Overpass,
+          }
+      }
+  }
+  ```
+
+  Pick `Source` by what guarantees the artifact gives you:
+  - `Wayback` / `Arxiv` / `Github` — **content-addressable** (snapshot
+    timestamp, version-pinned id, tag). Single-peer corroboration is
+    safe; 1-week TTL.
+  - `Overpass` / `SearchEngine` — **volatile**, needs 2-peer
+    corroboration; 1-day / 1-hour TTL respectively.
+  - `Other` — fallback, uses the global cache TTL and the existing
+    global `min_agreement`. Most tools land here until someone profiles
+    their upstream's drift / addressing.
+
+  Reference patterns:
+  - **Manual** (when the alias set grows mid-call): [`ArxivGet`](src/skills/arxiv.rs)
+    — declares `RetrievalPolicy::Shared { source: Source::Arxiv }`,
+    keeps the hand-rolled `retrieval_lookup` / `retrieval_put_indexed`
+    flow because abs + PDF URLs are only known after the upstream returns.
+  - **Helper** (when the canonical Identifiers are known up-front):
+    `Lodestone::cached_fetch(policy, ids, async closure)` in
+    [`src/main.rs`](src/main.rs) runs the local→peer→upstream→put dance
+    in one `await` so the call body stays compact. Skills with simpler
+    flows (single key, no alias expansion) should prefer this over hand-
+    rolling.
+
+  Why this is a typed contract and not just a convention: the
+  `retrieval_policy()` declaration is what the audit / dashboard / future
+  compliance checks can introspect. A skill that fetches a remote paper
+  without declaring `Shared` is a [golden rule 13](docs/golden-rules.md)
+  violation visible from outside the skill's call body.
 
 ### 4. (When the family needs a host resource) Implement `FamilyMeta`
 

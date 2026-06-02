@@ -86,6 +86,15 @@ impl Skill for RfcGet {
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<RfcGetArgs>()
     }
+    fn retrieval_policy(&self) -> crate::skills::RetrievalPolicy {
+        // Keyless scientific/engineering reference (golden rule 13).
+        // RFCs are immutable per number — a single peer corroboration is
+        // safe (see `Source::Other` floor); we still get the full
+        // local-then-peer-then-upstream flow via `Lodestone::cached_fetch`.
+        crate::skills::RetrievalPolicy::Shared {
+            source: crate::constellation::Source::Other,
+        }
+    }
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (server, args) = ctx.parse::<RfcGetArgs>()?;
@@ -93,6 +102,9 @@ impl Skill for RfcGet {
                 .ok_or_else(|| invalid(format!("not an RFC number: '{}'", args.document)))?;
             let max = server.clamp_chars(args.max_chars);
             let key = format!("rfc|{max}|{n}");
+            // Reference pattern for golden rule 13: drive the whole
+            // cache → peer → upstream → put dance through the helper,
+            // declared via `retrieval_policy()` above.
             if let Some(cached) = server.retrieval_get(&key).await {
                 return Ok(text_result(cached));
             }

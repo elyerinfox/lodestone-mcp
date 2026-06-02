@@ -344,6 +344,76 @@ impl Lodestone {
         }
     }
 
+    /// The canonical [`crate::skills::RetrievalPolicy`] dance — local cache
+    /// → constellation peers → upstream → write-through — as a single
+    /// `await` per skill. Use this instead of hand-rolling
+    /// `retrieval_get` / `retrieval_put` so the constellation participation
+    /// is driven by the skill's declared policy and the request flow
+    /// stays in lockstep with the diagrams in
+    /// [docs/constellation.md → Request flows](../../docs/constellation.md#request-flows).
+    ///
+    /// Flow for `RetrievalPolicy::Shared { source }`:
+    ///   1. `retrieval_lookup(ids)` — local cache + Bloom-matched peers
+    ///      (Paths A, B, E, F).
+    ///   2. Miss → run `fetch_upstream()` (Path C, or Path D if the
+    ///      upstream returns an error).
+    ///   3. On success, `retrieval_put_indexed(ids, body)` so the body is
+    ///      cached locally and the key's hash joins the next
+    ///      constellation digest cycle.
+    ///
+    /// Flow for `RetrievalPolicy::LocalOnly`:
+    ///   1. Local cache only — peer consult is skipped (the body must not
+    ///      cross to peers per golden rule 11).
+    ///   2. Miss → `fetch_upstream()`.
+    ///   3. Local cache.put; **no** advertisement to the constellation.
+    ///
+    /// Flow for `RetrievalPolicy::None`:
+    ///   - The closure runs directly; no caching, no peer consult.
+    ///
+    /// The `ids` argument is what would otherwise be passed to
+    /// `retrieval_put_indexed` — the primary canonical key plus any
+    /// aliases the skill knows at fetch time (URL ↔ DOI ↔ source id).
+    /// Single-key sites can build it with
+    /// `crate::constellation::Identifiers::new(key)`.
+    #[allow(dead_code)] // Foundation API — wired into skills incrementally.
+    pub(crate) async fn cached_fetch<F, Fut>(
+        &self,
+        policy: crate::skills::RetrievalPolicy,
+        ids: crate::constellation::Identifiers,
+        fetch_upstream: F,
+    ) -> Result<String, rmcp::ErrorData>
+    where
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<Output = Result<String, rmcp::ErrorData>>,
+    {
+        use crate::skills::RetrievalPolicy;
+        match policy {
+            RetrievalPolicy::None => fetch_upstream().await,
+            RetrievalPolicy::LocalOnly => {
+                if let Some(cache) = &self.retrieval_cache {
+                    if let Some(v) = cache.lookup(&ids) {
+                        return Ok(v);
+                    }
+                }
+                let body = fetch_upstream().await?;
+                if let Some(cache) = &self.retrieval_cache {
+                    cache.put(&ids, &body);
+                }
+                Ok(body)
+            }
+            RetrievalPolicy::Shared { source: _ } => {
+                if let Some(v) = self.retrieval_lookup(&ids).await {
+                    return Ok(v);
+                }
+                let body = fetch_upstream().await?;
+                if !body.is_empty() {
+                    self.retrieval_put_indexed(&ids, &body);
+                }
+                Ok(body)
+            }
+        }
+    }
+
     /// Fetch a URL's bytes, **lookup order**:
     /// 1. **Local file store** — already-downloaded bytes.
     /// 2. **Peer cache** (via constellation `consult_blob`) — a peer that

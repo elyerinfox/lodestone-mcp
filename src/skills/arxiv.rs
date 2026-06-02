@@ -203,6 +203,17 @@ impl Skill for ArxivGet {
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<ArxivGetArgs>()
     }
+    fn retrieval_policy(&self) -> crate::skills::RetrievalPolicy {
+        // Keyless academic retrieval (golden rule 13). The call body
+        // keeps its hand-rolled cache flow because arxiv aliases (abs URL,
+        // pdf URL) are only known *after* the upstream returns and must
+        // join the put-side `Identifiers`; `cached_fetch` is shaped for
+        // single-Identifiers flows. The audit / dashboard still see this
+        // declaration and can confirm the family complies with GR 13.
+        crate::skills::RetrievalPolicy::Shared {
+            source: crate::constellation::Source::Arxiv,
+        }
+    }
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (server, args) = ctx.parse::<ArxivGetArgs>()?;
