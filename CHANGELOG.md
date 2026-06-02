@@ -6,6 +6,76 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-06-02
+
+Chemistry and life-sciences capability release. Every algorithm carries a
+citation in its tool description; the implementation was validated against
+named primary sources (IUPAC CIAAW, NCBI, Unimod/Expasy, Wallace 1979,
+Marmur & Doty 1962, Needleman & Wunsch 1970, Smith & Waterman 1981,
+Michaelis & Menten 1913, Hardy 1908 / Weinberg 1908) before landing.
+
+### Added
+
+- **Chemistry family** (`chem_*`, 10 tools): `chem_periodic_table` (118
+  elements with IUPAC CIAAW 2021 abridged atomic weights, common
+  oxidation states, group/period, category — Lu and Lr placed in Group
+  3 per the IUPAC provisional report); `chem_molar_mass` (formula
+  parser supports parentheses `Ca(OH)2`, brackets, and hydrates
+  `CuSO4·5H2O` / `CuSO4.5H2O`); `chem_formula_hill` (Hill 1900
+  ordering); `chem_balance_equation` (**exact integer** stoichiometry
+  via fraction-free Gauss-Jordan + LCM/GCD rationalization — no SVD
+  round-off, detects infeasibility and under-determined systems);
+  `chem_ph` / `chem_buffer` (Henderson-Hasselbalch); `chem_ideal_gas`
+  (PV = nRT, R = 8.314 462 618 J/(mol·K), the exact value defined by
+  the 2019 SI redefinition); `chem_dilution`, `chem_gibbs`,
+  `chem_radioactive_decay`.
+
+- **Biology family** (`bio_*`, 12 tools): `bio_dna_complement` (Watson-
+  Crick, reverse by default), `bio_transcribe` (coding-strand default
+  with `template` option), `bio_translate` (NCBI standard table 1,
+  reading frames 1-3, ambiguous codons → `X`), `bio_gc_content`,
+  `bio_codon_lookup`, `bio_protein_mw` (monoisotopic peptide MW using
+  Unimod/Expasy reference residue masses + 18.01056 Da water),
+  `bio_orf_finder` (complete ORFs in all 6 frames), `bio_pcr_tm`
+  (Wallace ≤ 14 nt or basic Marmur 15-50 nt), `bio_align_global`
+  (Needleman-Wunsch), `bio_align_local` (Smith-Waterman),
+  `bio_michaelis_menten`, `bio_hardy_weinberg`.
+
+- **Bio-data feeds** (`bio_*_get` / `bio_*_lookup`, 3 tools):
+  `bio_uniprot_get` (rest.uniprot.org/uniprotkb/{id}.json),
+  `bio_pdb_get` (data.rcsb.org/rest/v1/core/entry/{id}),
+  `bio_ensembl_lookup` (rest.ensembl.org/lookup/id/{id}?expand=…). All
+  keyless live REST.
+
+- **Smoketest extended** to exercise all 22 new chemistry/biology
+  tools end-to-end (128/128 tools cover-tested now).
+
+### Validation
+
+Every formula and constant was checked against primary or canonical
+sources via parallel research before implementation:
+
+- IUPAC CIAAW *Standard Atomic Weights 2021* for the periodic table
+  (Prohaska et al., *Pure Appl. Chem.* 2022, 94(5):573-600).
+- 2019 SI redefinition for R = 8.314 462 618 J/(mol·K) (exact).
+- NCBI Translation Table 1 for the genetic code, verbatim.
+- Unimod / Expasy reference for monoisotopic amino-acid residue
+  masses + 18.01056 Da peptide water.
+- Wallace et al., *NAR* 1979 6:3543 and Marmur & Doty *JMB* 1962 5:109
+  for primer Tm.
+- Needleman & Wunsch (*JMB* 1970, 48:443), Smith & Waterman (*JMB*
+  1981, 147:195), Michaelis & Menten (*Biochem. Z.* 1913, 49:333),
+  Hardy (*Science* 1908, 28:49), Weinberg (1908) for the named
+  algorithms.
+
+The equation balancer was specifically rewritten to use **exact integer
+arithmetic** (fraction-free Gauss-Jordan over ℤ, then LCM/GCD to
+rationalize) after research flagged the original SVD-based approach as
+fragile for non-trivial reactions. The new implementation balances
+H₂ + O₂ = H₂O → 2 H₂ + O₂ = 2 H₂O, propane combustion C₃H₈ + 5 O₂ =
+3 CO₂ + 4 H₂O, blast-furnace iron Fe₂O₃ + 3 CO = 2 Fe + 3 CO₂, and
+correctly rejects "H₂ + Cl₂ = H₂O" as infeasible (O has no LHS source).
+
 ## [0.1.3] - 2026-06-02
 
 Security patch + cosmetic doc updates. No tool catalog changes.

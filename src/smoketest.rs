@@ -732,6 +732,66 @@ fn smoketests() -> Vec<(&'static str, Value)> {
                 }).collect::<Vec<_>>()
             }),
         ),
+        // ── 0.1.4: chemistry ─────────────────────────────────────────────
+        ("chem_periodic_table", json!({"element": "Fe"})),
+        ("chem_molar_mass", json!({"formula": "C6H12O6"})),
+        ("chem_formula_hill", json!({"formula": "OH12C6"})),
+        (
+            "chem_balance_equation",
+            json!({"equation": "C3H8 + O2 = CO2 + H2O"}),
+        ),
+        (
+            "chem_ph",
+            json!({"kind": "strong_acid", "concentration_m": 0.01}),
+        ),
+        (
+            "chem_buffer",
+            json!({"pka": 4.76, "base_m": 0.1, "acid_m": 0.1}),
+        ),
+        (
+            "chem_ideal_gas",
+            json!({"pressure_pa": 101325.0, "moles": 1.0, "temperature_k": 273.15}),
+        ),
+        (
+            "chem_dilution",
+            json!({"c1_m": 10.0, "v1_l": 0.1, "v2_l": 1.0}),
+        ),
+        (
+            "chem_gibbs",
+            json!({"delta_h_kj": -100.0, "delta_s_j_per_k": 50.0, "temperature_k": 298.15}),
+        ),
+        (
+            "chem_radioactive_decay",
+            json!({"n0": 1000.0, "half_life_s": 60.0, "time_s": 120.0}),
+        ),
+        // ── 0.1.4: biology ────────────────────────────────────────────────
+        ("bio_dna_complement", json!({"sequence": "ATGC"})),
+        ("bio_transcribe", json!({"sequence": "ATGGCCTAA"})),
+        ("bio_translate", json!({"sequence": "AUGGCCUAA"})),
+        ("bio_gc_content", json!({"sequence": "ATGCATGC"})),
+        ("bio_codon_lookup", json!({"codon": "AUG"})),
+        ("bio_protein_mw", json!({"sequence": "MGGVK"})),
+        (
+            "bio_orf_finder",
+            json!({"sequence": "ATGAAAGGGTCATGA", "min_aa": 3}),
+        ),
+        (
+            "bio_pcr_tm",
+            json!({"primer": "ACGTACGTACGTACGTACGT", "method": "basic"}),
+        ),
+        (
+            "bio_align_global",
+            json!({"seq_a": "AGTC", "seq_b": "AGTC"}),
+        ),
+        (
+            "bio_align_local",
+            json!({"seq_a": "XAGTCY", "seq_b": "AGTC"}),
+        ),
+        (
+            "bio_michaelis_menten",
+            json!({"vmax": 10.0, "km": 1.0, "substrate": 1.0}),
+        ),
+        ("bio_hardy_weinberg", json!({"p": 0.4})),
     ]
 }
 

@@ -209,6 +209,19 @@ args, runs the algorithm, returns a JSON result (or SVG for the chart tools).
 | [interchange](skills/interchange.md) | `interchange_stl_info` | STL mesh probe (binary + ASCII): triangle count, AABB, area, centroid. |
 | [new_charts](skills/new_charts.md) | `chart_polar`, `chart_smith`, `chart_waterfall`, `chart_compass_rose`, `chart_skyplot`, `chart_density_map` | Specialist SVG plots: antenna pattern, RF impedance, spectrogram heatmap, wind rose, sky plot, 2-D density heatmap. |
 
+## Chemistry & life sciences (0.1.4)
+
+Pure-Rust chemistry primitives and bioinformatics, plus three keyless
+life-sciences REST endpoints. All on by default; every algorithm is
+validated against named sources (NCBI, IUPAC CIAAW, Unimod / Expasy,
+Needleman-Wunsch, Smith-Waterman, Michaelis-Menten, Hardy-Weinberg).
+
+| Skill | Tools | What |
+| --- | --- | --- |
+| [chemistry](skills/chemistry.md) | `chem_periodic_table`, `chem_molar_mass`, `chem_formula_hill`, `chem_balance_equation`, `chem_ph`, `chem_buffer`, `chem_ideal_gas`, `chem_dilution`, `chem_gibbs`, `chem_radioactive_decay` | Periodic table (IUPAC CIAAW 2021), formula parser, exact-rational equation balancer (Bareiss + LCM/GCD), pH / Henderson-Hasselbalch buffer, ideal gas, dilution, ΔG = ΔH − TΔS, first-order decay. |
+| [biology](skills/biology.md) | `bio_dna_complement`, `bio_transcribe`, `bio_translate`, `bio_gc_content`, `bio_codon_lookup`, `bio_protein_mw`, `bio_orf_finder`, `bio_pcr_tm`, `bio_align_global`, `bio_align_local`, `bio_michaelis_menten`, `bio_hardy_weinberg` | DNA / RNA / protein ops via NCBI table 1, Unimod monoisotopic masses, Wallace + Marmur Tm, Needleman-Wunsch / Smith-Waterman, Michaelis-Menten, Hardy-Weinberg. |
+| [bio_data](skills/bio_data.md) | `bio_uniprot_get`, `bio_pdb_get`, `bio_ensembl_lookup` | Keyless live fetches from UniProt, RCSB PDB, Ensembl. |
+
 ## Finance & markets (keyless)
 
 | Skill | Tools | What |

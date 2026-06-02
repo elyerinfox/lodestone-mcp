@@ -564,6 +564,53 @@ and specialist chart types. All on by default.
 | `chart_skyplot` | `az_el`, `labels?`, `title?` | Sky plot (zenith-centered az/el dome). |
 | `chart_density_map` | `points`, `nx?`, `ny?`, `title?` | 2-D density heatmap with colorbar. |
 
+## Chemistry & life sciences (0.1.4)
+
+Each algorithm cites its source in the per-tool description; full
+references in [skills/chemistry.md](skills/chemistry.md),
+[skills/biology.md](skills/biology.md), and
+[skills/bio_data.md](skills/bio_data.md).
+
+### Chemistry
+
+| Tool | Arguments | Purpose |
+| --- | --- | --- |
+| `chem_periodic_table` | `element` (symbol / name / Z) | Element record from the vendored IUPAC table. |
+| `chem_molar_mass` | `formula` | Molar mass (g/mol) for a parsed formula with parentheses and hydrates. |
+| `chem_formula_hill` | `formula` | Normalize a formula to Hill order. |
+| `chem_balance_equation` | `equation` | Exact integer stoichiometric coefficients via fraction-free elimination. |
+| `chem_ph` | `kind`, `concentration_m`, `pka_or_pkb?` | pH / pOH / [H⁺] / [OH⁻] for strong / weak acid/base. |
+| `chem_buffer` | `pka`, `acid_m`, `base_m` | Henderson-Hasselbalch buffer pH. |
+| `chem_ideal_gas` | three of P/V/n/T | Solve PV = nRT for the missing variable. |
+| `chem_dilution` | three of c1/v1/c2/v2 | Solve M₁V₁ = M₂V₂. |
+| `chem_gibbs` | `delta_h_kj`, `delta_s_j_per_k`, `temperature_k` | ΔG = ΔH − T·ΔS with spontaneity sign. |
+| `chem_radioactive_decay` | `n0`, `half_life_s`, `time_s` | First-order N(t), λ, fraction remaining. |
+
+### Biology
+
+| Tool | Arguments | Purpose |
+| --- | --- | --- |
+| `bio_dna_complement` | `sequence`, `reverse?` | Complement / reverse-complement (Watson-Crick). |
+| `bio_transcribe` | `sequence`, `strand?` | DNA → mRNA (coding or template strand). |
+| `bio_translate` | `sequence`, `frame?`, `stop_at_stop?` | Translate via NCBI table 1. |
+| `bio_gc_content` | `sequence` | GC fraction / percentage / counts. |
+| `bio_codon_lookup` | `codon` | Codon → amino acid (NCBI table 1). |
+| `bio_protein_mw` | `sequence` | Monoisotopic peptide MW using Unimod masses. |
+| `bio_orf_finder` | `sequence`, `min_aa?` | Complete ORFs in all 6 frames. |
+| `bio_pcr_tm` | `primer`, `method?` | Wallace (≤14 nt) or basic Marmur (15-50 nt) Tm. |
+| `bio_align_global` | `seq_a`, `seq_b`, `match?`, `mismatch?`, `gap?` | Needleman-Wunsch global alignment. |
+| `bio_align_local` | same | Smith-Waterman local alignment. |
+| `bio_michaelis_menten` | `vmax`, `km`, `substrate` | v = Vmax·[S]/(Km + [S]). |
+| `bio_hardy_weinberg` | `p` | Genotype frequencies AA = p², Aa = 2pq, aa = q². |
+
+### Life-sciences data feeds
+
+| Tool | Arguments | Purpose |
+| --- | --- | --- |
+| `bio_uniprot_get` | `accession` | Fetch a UniProt entry (rest.uniprot.org). |
+| `bio_pdb_get` | `pdb_id` | Fetch RCSB PDB core metadata. |
+| `bio_ensembl_lookup` | `id`, `expand?` | Ensembl gene / transcript / protein lookup. |
+
 ## Finance & markets
 
 Money math (local) plus keyless market data. Quotes are delayed/reference data, not

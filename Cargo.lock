@@ -2346,7 +2346,7 @@ dependencies = [
 
 [[package]]
 name = "lodestone-mcp"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "anyhow",
  "argon2",

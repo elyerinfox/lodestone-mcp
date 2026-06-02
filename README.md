@@ -257,6 +257,37 @@ A pure-Rust ellipsoidal toolkit for siting, mapping, and aiding receivers.
   (`chart_skyplot`), and a 2-D density heatmap (`chart_density_map`). All SVG,
   no extra deps beyond the existing `chart_*` family.
 
+### Chemistry & life sciences
+
+Validated, citation-backed: every formula lists its source paper or
+standards body in the per-tool description (see
+**[skills/chemistry.md](docs/skills/chemistry.md)**,
+**[skills/biology.md](docs/skills/biology.md)**,
+**[skills/bio_data.md](docs/skills/bio_data.md)**).
+
+- **Chemistry primitives** — IUPAC CIAAW 2021 atomic weights
+  (`chem_periodic_table`), formula molar mass with parentheses + hydrate
+  parsing (`chem_molar_mass`), Hill-order normalization
+  (`chem_formula_hill`), **exact integer equation balancing** via
+  fraction-free Gauss-Jordan + LCM/GCD (`chem_balance_equation` — no
+  SVD round-off), pH for strong/weak acid-base (`chem_ph`),
+  Henderson-Hasselbalch buffer (`chem_buffer`), the ideal gas law
+  (`chem_ideal_gas`), M₁V₁ = M₂V₂ dilution (`chem_dilution`), ΔG = ΔH −
+  TΔS (`chem_gibbs`), and first-order radioactive decay
+  (`chem_radioactive_decay`).
+- **Bioinformatics primitives** — DNA/RNA/protein operations using the
+  NCBI standard genetic code (`bio_transcribe`, `bio_translate`,
+  `bio_dna_complement`, `bio_gc_content`, `bio_codon_lookup`,
+  `bio_orf_finder`), monoisotopic peptide MW via Unimod/Expasy
+  reference masses (`bio_protein_mw`), Wallace + basic Marmur primer
+  Tm (`bio_pcr_tm`), Needleman-Wunsch + Smith-Waterman alignment
+  (`bio_align_global`, `bio_align_local`), Michaelis-Menten enzyme
+  kinetics (`bio_michaelis_menten`), Hardy-Weinberg equilibrium
+  (`bio_hardy_weinberg`).
+- **Live data feeds** — keyless REST fetches from UniProt
+  (`bio_uniprot_get`), RCSB Protein Data Bank (`bio_pdb_get`), and
+  Ensembl (`bio_ensembl_lookup`).
+
 ### Mesh & 3-D interchange
 
 - **STL meshes** — probe an STL file (binary or ASCII), get triangle count,
