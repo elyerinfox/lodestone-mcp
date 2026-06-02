@@ -74,17 +74,33 @@ src/
   skills/         Every tool, one module per skill family, implementing the
                  `Skill` contract (name/description/schema/call); mod.rs assembles
                  them into routes and computes config gating (disabled_by_config).
-                 A skill owns its domain logic + arg structs + formatters:
-                 search, retrieve, archive, rfc, standards, arxiv, huggingface,
-                 wikipedia, kernel, github, oci (Docker Hub + OCI), artifacthub,
-                 docker (daemon), kubernetes, filesystem, shell, git, sysinfo
-                 (host/CPU/memory/disk/GPU), databases (postgres/mysql/redis),
-                 store (file store + cache_status), datetime, translate, data
-                 (JSON/YAML), regex, math (+ geo/wave), finance (interest/loan/
-                 currency), units, meta. Plus guard: the shared
-                 confirmation gate for destructive actions (confirm-token flow;
-                 client-agnostic, no elicitation needed). The on-disk file store
-                 itself lives in src/store.rs.
+                 A skill owns its domain logic + arg structs + formatters.
+                 ~85 family modules covering:
+                 - Search / retrieval / archive / RFC / standards / arxiv /
+                   pubmed / openaccess / huggingface / wikipedia / news / kernel
+                   / github.
+                 - Containers & cloud-native: oci, artifacthub, docker (daemon),
+                   kubernetes.
+                 - Local-system: filesystem, shell, git, sysinfo, databases,
+                   store, packages.
+                 - Devices: serial, printer, sdr, mqtt, meshtastic, systemd.
+                 - Runtimes: python, ffmpeg, spreadsheet.
+                 - Binary / signal / pcap / notebook / disasm / wave / image /
+                   html / chart / new_charts / browser_session.
+                 - Astronomy / earth: astro, satellite, earth_models, radio,
+                   atmospheric, nasa, weather, noaa, osm, grid, peeringdb, fcc.
+                 - **Math & science suite (0.1.2)**: linalg, quaternion, ode,
+                   geodesy, info_theory, crypto_math, rf_link, radar,
+                   dsp_advanced, tracking, acoustic, nav_aiding, trajectory,
+                   optimization, open_data, geo_convert, interchange.
+                 - Utilities: datetime, translate, data, regex, formula,
+                   arithmetic, algebra, geometry, trigonometry, physics, units,
+                   finance, stocks, yahoo, forecast.
+                 - Infrastructure / introspection: memory, tasks, mcp_tasks,
+                   meta, eia.
+                 Plus guard: the shared confirmation gate for destructive
+                 actions (confirm-token flow; client-agnostic, no elicitation
+                 needed). The on-disk file store itself lives in src/store.rs.
   provider.rs    The core interface: SearchProvider trait, ProviderKind,
                  Strategy, SearchQuery, SearchResult, and the Registry that
                  combines providers (fallback chain or aggregate meta-search).
