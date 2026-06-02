@@ -161,9 +161,12 @@ impl Skill for SystemdLogs {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct ActionArgs {
+    /// Systemd unit name (e.g. `nginx.service`).
     unit: String,
+    /// Guard confirmation token (returned by an earlier challenged call).
     #[serde(default)]
     confirm: Option<String>,
+    /// If true, bypass the guard's confirmation prompt for this call.
     #[serde(default)]
     trust: Option<bool>,
 }

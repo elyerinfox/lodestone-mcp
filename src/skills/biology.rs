@@ -345,6 +345,7 @@ impl Skill for BioTranslate {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct SeqArgs {
+    /// Nucleotide sequence (DNA/RNA, case-insensitive).
     sequence: String,
 }
 
@@ -659,7 +660,9 @@ impl Skill for BioPcrTm {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct AlignArgs {
+    /// First sequence to align.
     seq_a: String,
+    /// Second sequence to align.
     seq_b: String,
     /// Match reward (default +1).
     #[serde(default)]

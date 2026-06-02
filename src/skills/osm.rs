@@ -106,7 +106,9 @@ impl Skill for OsmGeocode {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct ReverseArgs {
+    /// Latitude in decimal degrees.
     lat: f64,
+    /// Longitude in decimal degrees.
     lon: f64,
     /// Detail zoom 0..18 (default 18 = building level).
     #[serde(default)]
@@ -269,6 +271,37 @@ impl Skill for OsmOverpass {
             Ok(text_result(out))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Pharmacies in a small bbox",
+                args: r#"{"query": "[out:json][timeout:25];node[\"amenity\"=\"pharmacy\"](47.6,-122.2,47.7,-122.1);out;"}"#,
+                note: Some(
+                    "Always include `[out:json]` and a tight bbox; default `max` is 50 elements.",
+                ),
+            },
+            SkillExample {
+                title: "Cafes in a Berlin bbox, more results",
+                args: r#"{"query": "[out:json][timeout:25];node[\"amenity\"=\"cafe\"](52.50,13.38,52.53,13.42);out;", "max": 200}"#,
+                note: Some("`max` is capped at 500."),
+            },
+            SkillExample {
+                title: "Hospital ways/relations with name",
+                args: r#"{"query": "[out:json][timeout:25];(way[\"amenity\"=\"hospital\"](51.50,-0.20,51.55,-0.10);relation[\"amenity\"=\"hospital\"](51.50,-0.20,51.55,-0.10););out center;"}"#,
+                note: Some(
+                    "Use `out center;` for non-node features to get a representative lat/lon.",
+                ),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Find all features of a given tag inside a bounding box.",
+            "Enumerate amenities / POIs in a small map region.",
+            "Pull OSM ids + names for downstream geocoding or rendering.",
+        ]
+    }
 }
 
 // ----- osm_elevation -----
@@ -334,9 +367,11 @@ impl Skill for OsmElevation {
 struct RouteArgs {
     /// Origin lat/lon.
     from_lat: f64,
+    /// Origin longitude.
     from_lon: f64,
     /// Destination lat/lon.
     to_lat: f64,
+    /// Destination longitude.
     to_lon: f64,
     /// Profile: "driving" (default), "walking", or "cycling".
     #[serde(default)]

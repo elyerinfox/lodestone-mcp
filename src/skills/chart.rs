@@ -956,12 +956,16 @@ struct ScatterArgs {
     /// Title above the plot.
     #[serde(default)]
     title: Option<String>,
+    /// X-axis label.
     #[serde(default)]
     xlabel: Option<String>,
+    /// Y-axis label.
     #[serde(default)]
     ylabel: Option<String>,
+    /// Plot width in user-space units. Default 760, capped at 4000.
     #[serde(default)]
     width: Option<f64>,
+    /// Plot height. Default 460, capped at 4000.
     #[serde(default)]
     height: Option<f64>,
     /// Marker radius in user-space units. Default 4.
@@ -1088,14 +1092,19 @@ struct HistogramArgs {
     /// √n heuristic, clamped to [5, 60].
     #[serde(default)]
     bins: Option<u32>,
+    /// Title above the plot.
     #[serde(default)]
     title: Option<String>,
+    /// X-axis label.
     #[serde(default)]
     xlabel: Option<String>,
+    /// Y-axis label.
     #[serde(default)]
     ylabel: Option<String>,
+    /// Plot width in user-space units. Default 760, capped at 4000.
     #[serde(default)]
     width: Option<f64>,
+    /// Plot height. Default 460, capped at 4000.
     #[serde(default)]
     height: Option<f64>,
 }
@@ -1224,10 +1233,13 @@ struct PieSlice {
 struct PieArgs {
     /// Labeled slices. Each slice's value must be ≥ 0.
     slices: Vec<PieSlice>,
+    /// Title above the chart.
     #[serde(default)]
     title: Option<String>,
+    /// Plot width in user-space units. Default 760, capped at 4000.
     #[serde(default)]
     width: Option<f64>,
+    /// Plot height. Default 460, capped at 4000.
     #[serde(default)]
     height: Option<f64>,
 }
@@ -1405,8 +1417,10 @@ struct HeatmapArgs {
     /// Title above the plot.
     #[serde(default)]
     title: Option<String>,
+    /// Plot width in user-space units. Default 760, capped at 4000.
     #[serde(default)]
     width: Option<f64>,
+    /// Plot height. Default 460, capped at 4000.
     #[serde(default)]
     height: Option<f64>,
 }
@@ -1919,8 +1933,10 @@ struct GrafanaArgs {
     /// Optional Y-axis unit label (e.g. "ms", "req/s", "%").
     #[serde(default)]
     unit: Option<String>,
+    /// Panel width in user-space units. Default 760, capped at 4000.
     #[serde(default)]
     width: Option<f64>,
+    /// Panel height. Default 460, capped at 4000.
     #[serde(default)]
     height: Option<f64>,
 }
@@ -2253,8 +2269,10 @@ struct StatArgs {
     /// `value`). `(x, y)` points; the renderer auto-fits the bounds.
     #[serde(default)]
     sparkline: Option<Vec<[f64; 2]>>,
+    /// Tile width in user-space units. Default 240.
     #[serde(default)]
     width: Option<f64>,
+    /// Tile height in user-space units. Default 120.
     #[serde(default)]
     height: Option<f64>,
 }
@@ -2389,19 +2407,28 @@ impl Skill for ChartStat {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct GaugeArgs {
+    /// Current value displayed by the gauge.
     value: f64,
+    /// Lower bound of the gauge range.
     min: f64,
+    /// Upper bound of the gauge range (must be greater than `min`).
     max: f64,
+    /// Optional title above the gauge.
     #[serde(default)]
     title: Option<String>,
+    /// Unit suffix appended to the value (e.g. "%", "ms").
     #[serde(default)]
     unit: Option<String>,
+    /// Threshold bands that tint the arc. Defaults to a sensible 3-band split.
     #[serde(default)]
     thresholds: Option<Vec<Threshold>>,
+    /// Decimal places in the readout. Default 2.
     #[serde(default)]
     decimals: Option<u32>,
+    /// Gauge width in user-space units. Default 320.
     #[serde(default)]
     width: Option<f64>,
+    /// Gauge height in user-space units. Default 260.
     #[serde(default)]
     height: Option<f64>,
 }
@@ -2538,17 +2565,25 @@ struct BarGaugeItem {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct BarGaugeArgs {
+    /// One row per item; each is `{label, value}`.
     items: Vec<BarGaugeItem>,
+    /// Lower bound applied to every bar.
     min: f64,
+    /// Upper bound applied to every bar (must be greater than `min`).
     max: f64,
+    /// Optional title above the panel.
     #[serde(default)]
     title: Option<String>,
+    /// Unit suffix appended to each value (e.g. "%", "ms").
     #[serde(default)]
     unit: Option<String>,
+    /// Threshold bands that tint each bar. Defaults to a sensible 3-band split.
     #[serde(default)]
     thresholds: Option<Vec<Threshold>>,
+    /// Panel width in user-space units.
     #[serde(default)]
     width: Option<f64>,
+    /// Panel height in user-space units.
     #[serde(default)]
     height: Option<f64>,
 }
@@ -2662,16 +2697,20 @@ struct StateRow {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct StateTimelineArgs {
+    /// One row per entity tracked.
     rows: Vec<StateRow>,
     /// Map of state name → color. Common defaults applied for known states
     /// (`up`/`ok` = green, `degraded`/`warning` = yellow,
     /// `down`/`error`/`critical` = red, `unknown` = gray).
     #[serde(default)]
     state_colors: Option<std::collections::HashMap<String, String>>,
+    /// Optional title above the timeline.
     #[serde(default)]
     title: Option<String>,
+    /// Panel width in user-space units.
     #[serde(default)]
     width: Option<f64>,
+    /// Panel height in user-space units.
     #[serde(default)]
     height: Option<f64>,
 }
@@ -2838,11 +2877,15 @@ struct Candle {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct CandlestickArgs {
+    /// OHLC candles in chronological order.
     candles: Vec<Candle>,
+    /// Title above the chart.
     #[serde(default)]
     title: Option<String>,
+    /// X-axis label.
     #[serde(default)]
     xlabel: Option<String>,
+    /// Y-axis label.
     #[serde(default)]
     ylabel: Option<String>,
     /// Color when close ≥ open. Default `#73bf69` (green).
@@ -2851,8 +2894,10 @@ struct CandlestickArgs {
     /// Color when close < open. Default `#e02f44` (red).
     #[serde(default)]
     down_color: Option<String>,
+    /// Plot width in user-space units. Default 760, capped at 4000.
     #[serde(default)]
     width: Option<f64>,
+    /// Plot height. Default 460, capped at 4000.
     #[serde(default)]
     height: Option<f64>,
 }
@@ -2978,6 +3023,7 @@ impl Skill for ChartCandlestick {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct SparklineArgs {
+    /// `[x, y]` points; the renderer auto-scales to fill the box.
     points: Vec<[f64; 2]>,
     /// Stroke color. Default `#5794f2`.
     #[serde(default)]

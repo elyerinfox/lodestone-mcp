@@ -190,10 +190,13 @@ struct FacArgs {
     /// Name substring (e.g. "equinix").
     #[serde(default)]
     name: Option<String>,
+    /// ISO country code (e.g. "US", "DE").
     #[serde(default)]
     country: Option<String>,
+    /// City name filter.
     #[serde(default)]
     city: Option<String>,
+    /// Max results (default 10, capped at 50).
     #[serde(default)]
     max: Option<u32>,
 }

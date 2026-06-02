@@ -85,7 +85,9 @@ fn julian_date(t: DateTime<Utc>) -> f64 {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct WmmArgs {
+    /// Latitude in decimal degrees.
     lat_deg: f64,
+    /// Longitude in decimal degrees.
     lon_deg: f64,
     /// Year as a decimal (e.g. 2026.42). Defaults to current year.
     #[serde(default)]

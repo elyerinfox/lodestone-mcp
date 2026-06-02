@@ -106,8 +106,11 @@ impl Skill for DspSpectrogram {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct XCorrArgs {
+    /// First signal samples.
     a: Vec<f64>,
+    /// Second signal samples.
     b: Vec<f64>,
+    /// Sample rate in Hz (used to convert peak lag to seconds).
     sample_rate_hz: f64,
 }
 
@@ -189,7 +192,9 @@ impl Skill for DspCrossCorrelation {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct HilbertArgs {
+    /// Real-valued input samples.
     samples: Vec<f64>,
+    /// Sample rate in Hz (used to scale instantaneous frequency).
     sample_rate_hz: f64,
 }
 
@@ -264,6 +269,7 @@ impl Skill for DspHilbert {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct CepstrumArgs {
+    /// Real-valued input samples.
     samples: Vec<f64>,
 }
 
@@ -404,8 +410,9 @@ fn erfc(x: f64) -> f64 {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct IqDemodArgs {
-    /// Parallel arrays: in-phase and quadrature samples.
+    /// In-phase samples (parallel to `q`).
     i: Vec<f64>,
+    /// Quadrature samples (parallel to `i`).
     q: Vec<f64>,
 }
 

@@ -148,7 +148,9 @@ struct CotArgs {
     uid: String,
     /// CoT type (e.g. `a-f-G-U-C` = friendly ground unit combat).
     cot_type: String,
+    /// Latitude in decimal degrees.
     lat: f64,
+    /// Longitude in decimal degrees.
     lon: f64,
     /// Height above ellipsoid (m).
     #[serde(default)]

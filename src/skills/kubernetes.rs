@@ -720,6 +720,14 @@ impl crate::skills::FamilyMeta for Family {
             "set KUBECONFIG or mount ~/.kube/config into the container",
         )
     }
+    fn example_flow(&self) -> Option<&'static str> {
+        Some(
+            "1. `k8s_contexts {}` to see the current context (or pick one).\n\
+             2. `k8s_get { kind: \"deployment\", namespace: \"web\" }` to find the deployment to scale.\n\
+             3. `k8s_scale { kind: \"deployment\", name: \"api\", namespace: \"web\", replicas: 5 }` (confirm on second call) to scale.\n\
+             4. `k8s_get { kind: \"pod\", namespace: \"web\" }` to watch the new replicas spin up.",
+        )
+    }
 }
 
 /// The skills this module contributes (gating happens in `disabled_by_config`).

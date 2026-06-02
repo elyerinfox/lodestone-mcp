@@ -30,11 +30,13 @@ fn freq_check(f_hz: f64) -> std::result::Result<(), McpError> {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct TwoRayArgs {
+    /// Carrier frequency in Hz.
     frequency_hz: f64,
     /// Transmitter height above ground (m).
     tx_height_m: f64,
     /// Receiver height above ground (m).
     rx_height_m: f64,
+    /// Link distance in meters.
     distance_m: f64,
 }
 
@@ -150,9 +152,13 @@ impl Skill for RfHataPathLoss {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct Cost231Args {
+    /// Carrier frequency in MHz (1500..2000 for COST-231).
     frequency_mhz: f64,
+    /// Base station antenna height in meters.
     bs_height_m: f64,
+    /// Mobile antenna height in meters.
     mobile_height_m: f64,
+    /// Link distance in km.
     distance_km: f64,
     /// `medium_small_cities` (default 0 dB add) or `metro_large` (3 dB add).
     environment: String,
@@ -196,9 +202,13 @@ impl Skill for RfCost231PathLoss {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct EgliArgs {
+    /// Carrier frequency in MHz.
     frequency_mhz: f64,
+    /// Transmitter height above ground (m).
     tx_height_m: f64,
+    /// Receiver height above ground (m).
     rx_height_m: f64,
+    /// Link distance in km.
     distance_km: f64,
 }
 
@@ -378,6 +388,7 @@ impl Skill for RfItuP838Rain {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct DopplerArgs {
+    /// Carrier frequency in Hz.
     frequency_hz: f64,
     /// Relative line-of-sight velocity (m/s, +ve = closing).
     velocity_m_s: f64,
@@ -416,10 +427,12 @@ impl Skill for RfDopplerShift {
 struct PolarizationArgs {
     /// Tx polarization: `linear_h`, `linear_v`, `linear_at_deg`, `rhcp`, `lhcp`.
     tx: String,
+    /// Rx polarization: same set of values as `tx`.
     rx: String,
     /// When using `linear_at_deg` for tx or rx, the orientation angle (degrees).
     #[serde(default)]
     tx_angle_deg: Option<f64>,
+    /// Rx orientation angle in degrees (used when `rx` = `linear_at_deg`).
     #[serde(default)]
     rx_angle_deg: Option<f64>,
 }
@@ -484,6 +497,7 @@ fn pol_to_axis(name: &str, angle: Option<f64>) -> std::result::Result<Option<f64
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct FresnelArgs {
+    /// Carrier frequency in Hz.
     frequency_hz: f64,
     /// Total path length (m).
     distance_m: f64,
@@ -530,6 +544,7 @@ impl Skill for RfFresnelZoneRadius {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct KnifeEdgeArgs {
+    /// Carrier frequency in Hz.
     frequency_hz: f64,
     /// Distance from Tx to the knife edge (m).
     d1_m: f64,
@@ -592,10 +607,15 @@ impl Skill for RfKnifeEdgeDiffraction {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct LinkArgs {
+    /// Carrier frequency in Hz.
     frequency_hz: f64,
+    /// Link distance in meters.
     distance_m: f64,
+    /// Transmit power in dBm.
     tx_power_dbm: f64,
+    /// Transmit antenna gain in dBi.
     tx_gain_dbi: f64,
+    /// Receive antenna gain in dBi.
     rx_gain_dbi: f64,
     /// Additional path losses (atmospheric, rain, polarization, etc.) in dB.
     #[serde(default)]

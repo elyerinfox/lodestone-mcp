@@ -89,6 +89,7 @@ impl Skill for BinaryInfo {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct StringsArgs {
+    /// Path to the binary file inside an allowed root.
     path: String,
     /// Minimum string length to report (default 4).
     #[serde(default)]
@@ -159,6 +160,7 @@ impl Skill for BinaryStrings {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct EntropyArgs {
+    /// Path to the binary file inside an allowed root.
     path: String,
     /// Block size in bytes (default 4096, capped at 1MB). Entropy is reported per block.
     #[serde(default)]
@@ -242,6 +244,7 @@ fn shannon_entropy(bytes: &[u8]) -> f64 {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct HexdumpArgs {
+    /// Path to the binary file inside an allowed root.
     path: String,
     /// Start offset (default 0).
     #[serde(default)]

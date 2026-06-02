@@ -47,8 +47,11 @@ fn wgs84() -> Geodesic {
 struct InverseArgs {
     /// Start latitude (degrees, −90..90).
     lat1: f64,
+    /// Start longitude (degrees, −180..180).
     lon1: f64,
+    /// End latitude (degrees, −90..90).
     lat2: f64,
+    /// End longitude (degrees, −180..180).
     lon2: f64,
 }
 
@@ -129,9 +132,13 @@ impl Skill for GeoVincentyDirect {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct PolylineArgs {
+    /// Start latitude (degrees).
     lat1: f64,
+    /// Start longitude (degrees).
     lon1: f64,
+    /// End latitude (degrees).
     lat2: f64,
+    /// End longitude (degrees).
     lon2: f64,
     /// Number of intermediate points to generate (≥ 2). The result includes
     /// the endpoints, so `n=10` returns 10 points.
@@ -178,12 +185,15 @@ impl Skill for GeoGreatCirclePolyline {
 struct CrossTrackArgs {
     /// Latitude / longitude of the point.
     lat: f64,
+    /// Longitude of the point (degrees).
     lon: f64,
-    /// Path start.
+    /// Path start latitude (degrees).
     lat1: f64,
+    /// Path start longitude (degrees).
     lon1: f64,
-    /// Path end.
+    /// Path end latitude (degrees).
     lat2: f64,
+    /// Path end longitude (degrees).
     lon2: f64,
 }
 
@@ -291,7 +301,9 @@ impl Skill for GeoPolygonAreaGeodesic {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct LatLonArgs {
+    /// Latitude in decimal degrees.
     lat: f64,
+    /// Longitude in decimal degrees.
     lon: f64,
 }
 
@@ -301,7 +313,9 @@ struct UtmArgs {
     zone: u8,
     /// `"N"` (northern) or `"S"` (southern).
     hemisphere: String,
+    /// Easting in meters (from the central meridian + 500 000 false easting).
     easting: f64,
+    /// Northing in meters (from the equator; 10 000 000 false northing in the southern hemisphere).
     northing: f64,
 }
 
@@ -467,7 +481,9 @@ fn utm_inverse(zone: u8, hemi: &str, easting: f64, northing: f64) -> (f64, f64) 
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct MgrsFromLatLonArgs {
+    /// Latitude in decimal degrees.
     lat: f64,
+    /// Longitude in decimal degrees.
     lon: f64,
     /// Resolution: digits per axis (1..5). `5` = 1 m; `4` = 10 m; `3` = 100 m;
     /// `2` = 1 km; `1` = 10 km. Default `5`.
@@ -646,7 +662,9 @@ fn mgrs_inverse(s: &str) -> anyhow::Result<(f64, f64)> {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct LatLonAltArgs {
+    /// Latitude in decimal degrees.
     lat: f64,
+    /// Longitude in decimal degrees.
     lon: f64,
     /// Ellipsoidal height in meters (above WGS84, NOT MSL).
     #[serde(default)]
@@ -655,8 +673,11 @@ struct LatLonAltArgs {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct EcefArgs {
+    /// ECEF X coordinate in meters.
     x: f64,
+    /// ECEF Y coordinate in meters.
     y: f64,
+    /// ECEF Z coordinate in meters.
     z: f64,
 }
 
@@ -743,18 +764,24 @@ fn geodetic_from_ecef(x: f64, y: f64, z: f64) -> (f64, f64, f64) {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct HelmertArgs {
-    /// Source ECEF coordinates (meters).
+    /// Source ECEF X (meters).
     x: f64,
+    /// Source ECEF Y (meters).
     y: f64,
+    /// Source ECEF Z (meters).
     z: f64,
-    /// Translations (meters).
+    /// X translation (meters).
     tx: f64,
+    /// Y translation (meters).
     ty: f64,
+    /// Z translation (meters).
     tz: f64,
     /// Rotations in arc-seconds. Sign convention: position-vector (Helmert)
     /// — positive rotation is counterclockwise looking down the +axis.
     rx_arcsec: f64,
+    /// Y rotation in arc-seconds (position-vector convention).
     ry_arcsec: f64,
+    /// Z rotation in arc-seconds (position-vector convention).
     rz_arcsec: f64,
     /// Scale in parts per million (positive scales up).
     scale_ppm: f64,

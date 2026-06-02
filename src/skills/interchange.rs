@@ -19,6 +19,7 @@ use crate::{invalid, text_result};
 struct StlArgs {
     /// Raw STL contents as base64 (binary STL) or as a UTF-8 string (ASCII STL).
     data_base64: Option<String>,
+    /// ASCII STL contents as a UTF-8 string (alternative to `data_base64`).
     data_ascii: Option<String>,
 }
 

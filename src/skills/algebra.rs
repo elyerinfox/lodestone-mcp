@@ -91,6 +91,43 @@ impl Skill for AlgebraSolve {
             Ok(text_result(out))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Simple linear",
+                args: r#"{"equation": "2x + 3 = 7"}"#,
+                note: Some("Returns `Linear equation. x = 2`."),
+            },
+            SkillExample {
+                title: "Quadratic, two real roots",
+                args: r#"{"equation": "x^2 - 5x + 6 = 0"}"#,
+                note: Some("Returns `Quadratic (...). Roots: x = 3 or x = 2`."),
+            },
+            SkillExample {
+                title: "Any variable name, not just x",
+                args: r#"{"equation": "800*t - 4.905*t^2 = 1000"}"#,
+                note: Some("Auto-detects `t` as the unknown."),
+            },
+            SkillExample {
+                title: "Named-parameter substitution + trailing prose",
+                args: r#"{"equation": "s = u*t + 0.5*a*t^2 where s=1000, u=800, a=-9.81 -> solve for t"}"#,
+                note: Some("Strips the `-> solve for t` trailer and substitutes the `where` values before solving."),
+            },
+            SkillExample {
+                title: "Python-style `**` power operator",
+                args: r#"{"equation": "x**2 = 49"}"#,
+                note: Some("`**` is rewritten to `^` before parsing."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Solve a single-variable linear or quadratic equation symbolically.",
+            "Invert a closed-form physics / projectile / finance formula with one unknown.",
+            "Verify an answer the LLM derived by hand against a parsed solver.",
+        ]
+    }
 }
 
 /// Parse a `var=value, var=value, ...` substitution clause.

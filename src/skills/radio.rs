@@ -118,11 +118,16 @@ impl Skill for RadioLinkBudget {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct MaxRangeArgs {
+    /// Transmit power in dBm.
     tx_power_dbm: f64,
+    /// Transmit antenna gain in dBi.
     tx_gain_dbi: f64,
+    /// Receive antenna gain in dBi.
     rx_gain_dbi: f64,
+    /// Other losses in dB (cabling, polarization mismatch, etc.; default 0).
     #[serde(default)]
     other_loss_db: Option<f64>,
+    /// Carrier frequency in Hz.
     frequency_hz: f64,
     /// Receiver sensitivity (minimum usable signal) in dBm.
     rx_sensitivity_dbm: f64,
@@ -168,11 +173,16 @@ impl Skill for RadioMaxRange {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct RangeForBwArgs {
+    /// Transmit power in dBm.
     tx_power_dbm: f64,
+    /// Transmit antenna gain in dBi.
     tx_gain_dbi: f64,
+    /// Receive antenna gain in dBi.
     rx_gain_dbi: f64,
+    /// Other losses in dB (cabling, polarization mismatch, etc.; default 0).
     #[serde(default)]
     other_loss_db: Option<f64>,
+    /// Carrier frequency in Hz.
     frequency_hz: f64,
     /// Receiver bandwidth in Hz. Wider bandwidth → higher noise floor → shorter range.
     bandwidth_hz: f64,

@@ -53,6 +53,35 @@ impl Skill for AtmIsa {
             ))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Sea-level conditions",
+                args: r#"{"altitude_m": 0}"#,
+                note: Some(
+                    "Returns the canonical ISA SL values (`temp_k: 288.15`, `pressure_pa: 101325`, `density_kg_m3: 1.225`).",
+                ),
+            },
+            SkillExample {
+                title: "Cruise altitude (FL360 ≈ 10 973 m)",
+                args: r#"{"altitude_m": 10973}"#,
+                note: Some("Tropospheric layer; expect ~218 K and ~24 kPa."),
+            },
+            SkillExample {
+                title: "Stratosphere (20 km)",
+                args: r#"{"altitude_m": 20000}"#,
+                note: Some("Crosses into the isothermal layer at 11 km then a rising-lapse layer."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Look up ISA temperature / pressure / density at a known altitude.",
+            "Feed a density value into a propulsion / aerodynamic calculation.",
+            "Sanity-check sensor readings against the standard atmosphere.",
+        ]
+    }
 }
 
 /// US Standard Atmosphere 1976 layered model. h_base, T_base, L (lapse K/m), p_base.

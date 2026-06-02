@@ -184,13 +184,17 @@ impl Skill for NavSaastamoinen {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct EnuArgs {
-    /// Reference (lat, lon, alt).
+    /// Reference latitude in decimal degrees.
     ref_lat: f64,
+    /// Reference longitude in decimal degrees.
     ref_lon: f64,
+    /// Reference ellipsoidal altitude in meters.
     ref_alt_m: f64,
-    /// Target ECEF.
+    /// Target ECEF X (meters).
     x: f64,
+    /// Target ECEF Y (meters).
     y: f64,
+    /// Target ECEF Z (meters).
     z: f64,
 }
 

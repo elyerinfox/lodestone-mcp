@@ -38,48 +38,66 @@ struct BboxArgs {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct PowerPlantArgs {
+    /// South latitude of the bounding box.
     south: f64,
+    /// West longitude of the bounding box.
     west: f64,
+    /// North latitude of the bounding box.
     north: f64,
+    /// East longitude of the bounding box.
     east: f64,
     /// Filter by `plant:source` (coal, gas, oil, nuclear, wind, solar, hydro,
     /// biomass, geothermal). Omit for any.
     #[serde(default)]
     source: Option<String>,
+    /// Max elements to summarize (default 100, capped at 1000).
     #[serde(default)]
     max: Option<u32>,
+    /// Optional name substring to filter results (case-insensitive).
     #[serde(default)]
     name_filter: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct PipelineArgs {
+    /// South latitude of the bounding box.
     south: f64,
+    /// West longitude of the bounding box.
     west: f64,
+    /// North latitude of the bounding box.
     north: f64,
+    /// East longitude of the bounding box.
     east: f64,
     /// Pipeline `substance` (gas, oil, water, hydrogen, …). Default "gas".
     #[serde(default)]
     substance: Option<String>,
+    /// Max elements to summarize (default 100, capped at 1000).
     #[serde(default)]
     max: Option<u32>,
+    /// Optional name substring to filter results (case-insensitive).
     #[serde(default)]
     name_filter: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct TransmissionArgs {
+    /// South latitude of the bounding box.
     south: f64,
+    /// West longitude of the bounding box.
     west: f64,
+    /// North latitude of the bounding box.
     north: f64,
+    /// East longitude of the bounding box.
     east: f64,
     /// Optional minimum operating voltage in volts (e.g. 110000 for ≥ 110 kV HV).
     /// OSM tags voltage as a string of volts; this filter is a soft hint applied
     /// to the result rows when present.
     #[serde(default)]
     min_voltage_v: Option<u64>,
+    /// Max elements to summarize (default 100, capped at 1000).
     #[serde(default)]
     max: Option<u32>,
+    /// Optional name substring to filter results (case-insensitive).
     #[serde(default)]
     name_filter: Option<String>,
 }

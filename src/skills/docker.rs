@@ -658,6 +658,37 @@ impl Skill for DockerPull {
             Ok(text_result(pull(&args.image).await.map_err(internal)?))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Pull a Docker Hub image by tag (first call, gets token)",
+                args: r#"{"image": "nginx:1.27"}"#,
+                note: Some(
+                    "First call returns a confirmation token; replay with `confirm` to actually pull.",
+                ),
+            },
+            SkillExample {
+                title: "Pull a GHCR image (second call, with confirmation)",
+                args: r#"{"image": "ghcr.io/owner/image:tag", "confirm": "<token-from-prior-call>"}"#,
+                note: Some(
+                    "Add `trust: true` to skip the prompt for the rest of the session.",
+                ),
+            },
+            SkillExample {
+                title: "Pull the implicit `:latest` tag",
+                args: r#"{"image": "alpine"}"#,
+                note: Some("No tag is shorthand for `alpine:latest`."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Pre-fetch an image before `docker_run` so the run isn't blocked on download.",
+            "Pin a version locally by pulling a specific tag.",
+            "Mirror an image from a registry to the local daemon for offline use.",
+        ]
+    }
 }
 
 pub struct DockerRun;
@@ -983,6 +1014,14 @@ impl crate::skills::FamilyMeta for Family {
         SkillCapability::unavailable(
             "Docker daemon socket not reachable",
             "mount /var/run/docker.sock (Unix) or set DOCKER_HOST",
+        )
+    }
+    fn example_flow(&self) -> Option<&'static str> {
+        Some(
+            "1. `docker_pull { image: \"nginx:1.27\" }` (confirm on second call) to fetch the image.\n\
+             2. `docker_run { image: \"nginx:1.27\", name: \"web\" }` (confirm) to start the container.\n\
+             3. `docker_ps {}` to confirm it's running.\n\
+             4. `docker_logs { container: \"web\" }` to inspect the output.",
         )
     }
 }

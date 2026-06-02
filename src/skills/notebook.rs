@@ -103,6 +103,7 @@ impl Skill for NotebookInfo {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct CellsArgs {
+    /// Path to a `.ipynb` file inside an allowed root.
     path: String,
     /// Filter by cell type (`code`, `markdown`, `raw`). Default: all.
     #[serde(default)]

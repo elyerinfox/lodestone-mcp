@@ -53,7 +53,9 @@ struct RotateArgs {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct SlerpArgs {
+    /// Start quaternion (w, x, y, z).
     a: [f64; 4],
+    /// End quaternion (w, x, y, z).
     b: [f64; 4],
     /// Interpolation parameter [0, 1].
     t: f64,

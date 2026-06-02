@@ -273,6 +273,7 @@ struct UnitArgs {
     /// `gy_to_rad`, `rad_to_gy`, `sv_to_rem`, `rem_to_sv`, `r_to_gy_air`,
     /// `gy_air_to_r`.
     direction: String,
+    /// Input value in the source unit.
     value: f64,
 }
 

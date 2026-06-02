@@ -26,6 +26,7 @@ struct CapacityArgs {
     /// SNR; `snr_db` is also accepted.
     #[serde(default)]
     snr_linear: Option<f64>,
+    /// SNR in decibels (alternative to `snr_linear`).
     #[serde(default)]
     snr_db: Option<f64>,
 }
@@ -106,7 +107,9 @@ impl Skill for ItEntropy {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct TwoDistArgs {
+    /// Discrete distribution P (normalized internally).
     p: Vec<f64>,
+    /// Discrete distribution Q, same length as `p` (normalized internally).
     q: Vec<f64>,
 }
 
@@ -285,6 +288,7 @@ fn normalize(p: &[f64]) -> std::result::Result<Vec<f64>, McpError> {
 struct HammingArgs {
     /// Hex-encoded byte strings of equal length.
     a: String,
+    /// Second hex-encoded byte string (same length as `a`).
     b: String,
 }
 

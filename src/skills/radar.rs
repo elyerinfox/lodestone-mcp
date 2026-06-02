@@ -85,9 +85,13 @@ impl Skill for RadarMonostatic {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct BiArgs {
+    /// Transmit power (W).
     pt_w: f64,
+    /// Transmit antenna gain (linear, NOT dBi).
     gt: f64,
+    /// Receive antenna gain (linear, NOT dBi).
     gr: f64,
+    /// Wavelength (m).
     wavelength_m: f64,
     /// Bistatic RCS (m²).
     sigma_b_m2: f64,
@@ -95,9 +99,12 @@ struct BiArgs {
     rt_m: f64,
     /// Target-to-Rx range (m).
     rr_m: f64,
+    /// Receiver bandwidth (Hz).
     bandwidth_hz: f64,
+    /// System noise temperature (K, default 290).
     #[serde(default)]
     noise_temp_k: Option<f64>,
+    /// Combined system losses (dB, default 0).
     #[serde(default)]
     losses_db: Option<f64>,
 }
@@ -334,6 +341,7 @@ impl Skill for RadarClutterThreshold {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct RadarDopplerArgs {
+    /// Radar carrier frequency (Hz).
     frequency_hz: f64,
     /// Target radial velocity (m/s, +ve = closing).
     radial_velocity_m_s: f64,

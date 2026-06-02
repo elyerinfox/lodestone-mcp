@@ -118,9 +118,11 @@ fn miller_rabin(n: &BigUint, k: usize) -> bool {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct ModExpArgs {
-    /// Base, exponent, and modulus as decimal or `0x...` hex strings.
+    /// Base as a decimal or `0x...` hex string.
     base: String,
+    /// Exponent as a decimal or `0x...` hex string.
     exponent: String,
+    /// Modulus as a decimal or `0x...` hex string.
     modulus: String,
 }
 
@@ -160,7 +162,9 @@ impl Skill for CryptoModExp {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct ModInverseArgs {
+    /// Value to invert, as a decimal or `0x...` hex string.
     a: String,
+    /// Modulus as a decimal or `0x...` hex string.
     modulus: String,
 }
 
@@ -201,6 +205,7 @@ impl Skill for CryptoModInverse {
 struct CrtArgs {
     /// Parallel arrays: residues `r_i` and moduli `m_i`. Solves x ≡ r_i (mod m_i).
     residues: Vec<String>,
+    /// Moduli `m_i` (parallel to `residues`), as decimal or `0x...` hex strings.
     moduli: Vec<String>,
 }
 
@@ -356,7 +361,9 @@ impl Skill for CryptoPbkdf2 {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct Argon2Args {
+    /// Password / passphrase to hash.
     password: String,
+    /// Salt as hex string.
     salt_hex: String,
     /// Time cost (iterations; default 3).
     #[serde(default)]

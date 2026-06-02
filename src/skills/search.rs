@@ -379,6 +379,35 @@ impl Skill for WebSearch {
             Ok(text_result(format_web(&args.query, &engine, &hits)))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Plain keyword query",
+                args: r#"{"query": "rust async runtime comparison"}"#,
+                note: Some(
+                    "Returns a ranked list of title / URL / snippet; feed a URL to `fetch_page`.",
+                ),
+            },
+            SkillExample {
+                title: "Site-scoped search with quoted phrase",
+                args: r#"{"query": "\"socket activation\" site:systemd.io", "max_results": 5}"#,
+                note: Some("Standard search-engine operators work; `max_results` is capped at 25."),
+            },
+            SkillExample {
+                title: "Render through a headless browser to bypass a bot wall",
+                args: r#"{"query": "cloudflare protected docs", "render": true}"#,
+                note: Some("Slower; needs a local Chrome/Chromium at runtime."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Find current web pages about a topic (news, docs, blog posts).",
+            "Scope a query to a single domain via `site:`.",
+            "Bootstrap research before drilling into specific URLs with `fetch_page`.",
+        ]
+    }
 }
 
 pub struct CodeSearch;

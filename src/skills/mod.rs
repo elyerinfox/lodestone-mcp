@@ -263,6 +263,25 @@ impl RetrievalPolicy {
     }
 }
 
+/// One concrete worked example for a [`Skill`]. Surfaced via `describe_skill`
+/// and folded into the dynamic server-side instructions handshake. Not part
+/// of the MCP `tools/list` payload — that one stays tight (just `description`
+/// and `inputSchema`) so the orientation is paid for once at session start
+/// and looked up on demand thereafter.
+pub struct SkillExample {
+    /// One-line summary of what this example demonstrates.
+    pub title: &'static str,
+    /// The tool arguments as a JSON literal, e.g.
+    /// `r#"{"image": "nginx:1.27"}"#`. Kept as a string so each example is
+    /// embeddable verbatim into the LLM context without round-tripping
+    /// through `serde_json` at startup.
+    pub args: &'static str,
+    /// Optional short note — what the output shape looks like, common
+    /// gotchas, the right next call. Omit when the example is
+    /// self-explanatory.
+    pub note: Option<&'static str>,
+}
+
 /// The contract every tool implements. Object-safe, so skills are stored as
 /// `Box<dyn Skill>` and assembled uniformly.
 pub trait Skill: Send + Sync + 'static {
@@ -274,6 +293,21 @@ pub trait Skill: Send + Sync + 'static {
     fn schema(&self) -> Arc<JsonObject>;
     /// Run the tool.
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>>;
+    /// Canonical invocation examples. Defaults to empty; opt in to surface
+    /// worked examples through `describe_skill` and the server-side
+    /// instructions handshake. See [`SkillExample`] for the shape.
+    #[allow(dead_code)]
+    fn examples(&self) -> &'static [SkillExample] {
+        &[]
+    }
+    /// Short phrases naming the situations this tool is the right answer
+    /// for. Defaults to empty. The LLM uses these to disambiguate between
+    /// similarly-named tools (e.g. `web_search` vs `code_search` vs
+    /// `docs_search`); the dispatch wrapper does not consult them.
+    #[allow(dead_code)]
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[]
+    }
     /// Per-tool capability probe — defaults to `Ready`. Override when a
     /// single tool has a requirement its family doesn't cover (a stricter
     /// binary, a compile-time feature, a configured endpoint, …). The
@@ -427,6 +461,16 @@ pub trait FamilyMeta: Send + Sync + 'static {
     /// write one yet, return `Ready` explicitly so the choice is visible
     /// in the source.
     fn check_capability(&self) -> SkillCapability;
+    /// Multi-tool worked example showing how this family's tools chain in
+    /// a representative task. Optional; defaults to `None`. When set, it's
+    /// surfaced through `describe_family` and folded into the dynamic
+    /// server-side instructions handshake. Markdown-friendly — a short
+    /// numbered list of `tool_name { arg: value }` calls is the canonical
+    /// shape.
+    #[allow(dead_code)]
+    fn example_flow(&self) -> Option<&'static str> {
+        None
+    }
 }
 
 /// Every family registered with the capability framework. Adding a
@@ -446,6 +490,7 @@ pub fn families() -> Vec<Box<dyn FamilyMeta>> {
         Box::new(python::Family),
         Box::new(systemd::Family),
         Box::new(ffmpeg::Family),
+        Box::new(filesystem::Family),
         Box::new(git::Family),
         Box::new(serial::Family),
         Box::new(printer::Family),

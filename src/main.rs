@@ -653,7 +653,7 @@ impl ServerHandler for Lodestone {
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(implementation)
             .with_protocol_version(ProtocolVersion::V_2024_11_05)
-            .with_instructions(include_str!("../docs/instructions.md").to_string())
+            .with_instructions(build_instructions(&self.cfg))
     }
 }
 
@@ -668,6 +668,158 @@ fn effective_disabled(cfg: &Config) -> Vec<String> {
     let mut disabled = cfg.tools.disabled.clone();
     disabled.extend(skills::disabled_by_config(cfg));
     disabled
+}
+
+/// Dynamic MCP-handshake instructions, reflective of the live registry.
+///
+/// Replaces the previous static `docs/instructions.md` include. Built from:
+///   1. A curated prologue (general approach, what to consult before invoking).
+///   2. The auto-generated **family inventory** — every registered family
+///      with its description, enabled state, tool count, and an example
+///      flow when one is registered. Skills whose family hasn't adopted
+///      `FamilyMeta` are grouped under "Other tool families" by name prefix.
+///   3. Pointers to the introspection tools (`features`, `describe_skill`,
+///      `describe_family`) so the LLM can fetch detail on demand without
+///      a full `tools/list` re-read.
+fn build_instructions(cfg: &Config) -> String {
+    use std::fmt::Write;
+
+    let disabled = effective_disabled(cfg);
+    let all_skills = skills::all_skills();
+    let total_tools = all_skills.len();
+    let active_tools = all_skills
+        .iter()
+        .filter(|s| !disabled.contains(&s.name().to_string()))
+        .count();
+    let families = skills::families();
+
+    let mut out = String::new();
+    let _ = writeln!(
+        out,
+        "Lodestone MCP server v{}. Keyless, self-hosted: scrapes the open web, talks to local \
+         daemons, and computes locally — no API keys required. {active_tools} of {total_tools} \
+         registered tools are currently active under this config; the rest are gated off (use \
+         `features` to see why).",
+        env!("CARGO_PKG_VERSION")
+    );
+    let _ = writeln!(out);
+    let _ = writeln!(out, "GENERAL APPROACH");
+    let _ = writeln!(
+        out,
+        "- Pick the most specific tool. Prefer typed lookups (e.g. `arxiv_get`, `wikipedia_summary`, \
+         `kernel_releases`) over a generic `web_search` when a structured source exists."
+    );
+    let _ = writeln!(
+        out,
+        "- Search first, then retrieve. `fetch_page` reads plain HTML; `render_page` drives a \
+         headless browser when JavaScript is required."
+    );
+    let _ = writeln!(
+        out,
+        "- CHECK BEFORE YOU LEAP. Call `features` to confirm a family is enabled; `describe_skill \
+         name=\"<tool>\"` for one tool's full schema + examples + use cases; `describe_family \
+         name=\"<family>\"` for a family's worked multi-tool flow."
+    );
+    let _ = writeln!(
+        out,
+        "- Destructive actions (`fs_write` overwriting, `fs_edit`, `fs_delete`, `docker_pull`, \
+         `docker_run`, `k8s_apply`, `k8s_scale`, etc.) route through a confirmation guard with \
+         per-target binding. The first call returns a one-time `confirm` token; call again with \
+         that token to proceed."
+    );
+
+    // ---- Family inventory (registered FamilyMeta) ----
+    let _ = writeln!(out);
+    let _ = writeln!(out, "TOOL FAMILIES");
+    let mut family_names_seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for fam in &families {
+        let key = fam.family();
+        family_names_seen.insert(key.to_string());
+        let tools = fam.tools();
+        let visible = tools
+            .iter()
+            .filter(|t| !disabled.contains(&t.to_string()))
+            .count();
+        let cap = fam.check_capability();
+        let cap_marker = match &cap {
+            skills::SkillCapability::Ready => String::new(),
+            skills::SkillCapability::Unavailable { reason, .. } => {
+                format!(" [host: unavailable — {reason}]")
+            }
+        };
+        let _ = writeln!(
+            out,
+            "\n  [{key}] {desc}{cap_marker}\n    Active tools: {visible}/{} ({}). {flow_note}",
+            tools.len(),
+            tools.join(", "),
+            desc = fam.description(),
+            flow_note = if fam.example_flow().is_some() {
+                format!("Worked flow: `describe_family name=\"{key}\"` for the canonical sequence.")
+            } else {
+                format!("`describe_family name=\"{key}\"` for tools list.")
+            }
+        );
+    }
+
+    // ---- Family inventory (inferred by name prefix; no FamilyMeta) ----
+    // Group remaining active tools by their leading `<prefix>_` segment so
+    // the LLM can still find them without re-reading tools/list.
+    let mut prefix_groups: std::collections::BTreeMap<&str, Vec<&str>> =
+        std::collections::BTreeMap::new();
+    for s in &all_skills {
+        let name = s.name();
+        if disabled.contains(&name.to_string()) {
+            continue;
+        }
+        let prefix = name.split('_').next().unwrap_or("");
+        if prefix.is_empty() || family_names_seen.contains(prefix) {
+            continue;
+        }
+        prefix_groups.entry(prefix).or_default().push(name);
+    }
+    // Only print groups with at least 2 tools — otherwise it's a one-off and
+    // describe_skill already covers it.
+    let inferred: Vec<_> = prefix_groups.iter().filter(|(_, v)| v.len() >= 2).collect();
+    if !inferred.is_empty() {
+        let _ = writeln!(out);
+        let _ = writeln!(
+            out,
+            "OTHER TOOL FAMILIES (no FamilyMeta registered; grouped by name prefix)"
+        );
+        for (prefix, tools) in inferred {
+            let _ = writeln!(
+                out,
+                "  [{prefix}] {n} tool(s): {sample}{ellipsis}",
+                n = tools.len(),
+                sample = tools.iter().take(5).copied().collect::<Vec<_>>().join(", "),
+                ellipsis = if tools.len() > 5 { ", …" } else { "" }
+            );
+        }
+    }
+
+    // ---- Footer: introspection pointers ----
+    let _ = writeln!(out);
+    let _ = writeln!(out, "WHERE TO LOOK UP DETAILS");
+    let _ = writeln!(
+        out,
+        "- `features` — per-family on/off + every knob value the operator set + live counts."
+    );
+    let _ = writeln!(
+        out,
+        "- `describe_skill name=\"<tool>\"` — one tool's full description, JSON Schema, use cases, \
+         and worked example arguments. Call this if a tool's exact arg shape is unclear."
+    );
+    let _ = writeln!(
+        out,
+        "- `describe_family name=\"<family>\"` — one family's description, capability state, tool \
+         list, and canonical multi-tool flow."
+    );
+    let _ = writeln!(
+        out,
+        "- `list_providers` — active search providers + their order."
+    );
+
+    out
 }
 
 /// Run every registered `FamilyMeta::check_capability` once. Logs a

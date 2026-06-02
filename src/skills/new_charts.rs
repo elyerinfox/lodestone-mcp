@@ -121,6 +121,7 @@ struct PolarArgs {
     /// Minimum dB on the radial axis (default -40 dB).
     #[serde(default)]
     db_min: Option<f64>,
+    /// Optional title above the plot.
     #[serde(default)]
     title: Option<String>,
 }
@@ -250,6 +251,7 @@ struct SmithArgs {
     /// Optional label per point.
     #[serde(default)]
     labels: Option<Vec<String>>,
+    /// Optional title above the chart.
     #[serde(default)]
     title: Option<String>,
 }
@@ -368,11 +370,13 @@ struct WaterfallArgs {
     /// Optional power-dB clip range. Defaults: auto from the data.
     #[serde(default)]
     db_min: Option<f64>,
+    /// Optional upper power-dB clip value (defaults to data max).
     #[serde(default)]
     db_max: Option<f64>,
     /// Frequency-axis label.
     #[serde(default)]
     freq_label: Option<String>,
+    /// Optional title above the chart.
     #[serde(default)]
     title: Option<String>,
 }
@@ -501,6 +505,7 @@ impl Skill for ChartWaterfall {
 struct CompassArgs {
     /// One sample per bearing slice. 16 slices (one every 22.5°) is conventional.
     magnitudes_by_bearing: Vec<f64>,
+    /// Optional title above the rose.
     #[serde(default)]
     title: Option<String>,
 }
@@ -596,6 +601,7 @@ struct SkyArgs {
     /// Optional label per point (e.g. satellite PRN).
     #[serde(default)]
     labels: Option<Vec<String>>,
+    /// Optional title above the chart.
     #[serde(default)]
     title: Option<String>,
 }
@@ -695,8 +701,10 @@ struct DensityArgs {
     /// Bin counts along X / Y. Default 32 × 32.
     #[serde(default)]
     nx: Option<usize>,
+    /// Bin count along Y (default 32).
     #[serde(default)]
     ny: Option<usize>,
+    /// Optional title above the chart.
     #[serde(default)]
     title: Option<String>,
 }

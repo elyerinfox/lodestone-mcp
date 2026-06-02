@@ -83,6 +83,7 @@ impl Skill for PcapInfo {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct PacketsArgs {
+    /// Path to a pcap file inside an allowed root.
     path: String,
     /// Skip this many packets at the start (default 0).
     #[serde(default)]

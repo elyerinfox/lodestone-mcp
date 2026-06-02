@@ -125,8 +125,11 @@ struct BoltPatternArgs {
     n: u32,
     /// Plunge depth per hole.
     depth: f64,
+    /// Safe retract height (above the work surface).
     safe_z: f64,
+    /// Plunge feed rate (mm/min or inch/min, matching units).
     plunge_feed: f64,
+    /// Spindle RPM.
     rpm: f64,
     /// X center of the pattern.
     #[serde(default)]
@@ -137,8 +140,10 @@ struct BoltPatternArgs {
     /// Angle (deg) of the first hole from +X. Default 0.
     #[serde(default)]
     start_angle_deg: Option<f64>,
+    /// `metric` (G21, default) or `imperial` (G20).
     #[serde(default)]
     units: Option<String>,
+    /// Tool number (sets T and M6 in the preamble; default 1).
     #[serde(default)]
     tool: Option<u32>,
 }
@@ -372,8 +377,11 @@ impl Skill for GcodeParseSummary {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct BoxArgs {
+    /// X dimension.
     x: f64,
+    /// Y dimension.
     y: f64,
+    /// Z dimension.
     z: f64,
     /// Center on origin (true) or anchor at the +XYZ corner (false, OpenSCAD
     /// default).
@@ -408,6 +416,7 @@ impl Skill for ScadBox {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct CylinderArgs {
+    /// Cylinder height along Z.
     height: f64,
     /// Radius (single-radius cylinder).
     #[serde(default)]
@@ -421,6 +430,7 @@ struct CylinderArgs {
     /// Facet count override.
     #[serde(default)]
     fn_: Option<u32>,
+    /// Center on origin (true) or anchor at the base (false, OpenSCAD default).
     #[serde(default)]
     center: Option<bool>,
 }
@@ -465,7 +475,9 @@ impl Skill for ScadCylinder {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct SphereArgs {
+    /// Sphere radius.
     r: f64,
+    /// Facet count override.
     #[serde(default)]
     fn_: Option<u32>,
 }

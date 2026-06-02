@@ -235,8 +235,11 @@ struct ObsTimeArgs {
 struct StarArgs {
     /// Star name (case-insensitive). See astro_star_list for the catalog.
     name: String,
+    /// Observer latitude (decimal degrees).
     lat: f64,
+    /// Observer longitude (decimal degrees).
     lon: f64,
+    /// Time as RFC3339; omit for now.
     #[serde(default)]
     at: Option<String>,
 }
@@ -465,7 +468,9 @@ impl Skill for AstroStarList {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct VisibleArgs {
+    /// Observer latitude (decimal degrees).
     lat: f64,
+    /// Observer longitude (decimal degrees).
     lon: f64,
     /// Minimum altitude above the horizon, degrees (default 10°).
     #[serde(default)]

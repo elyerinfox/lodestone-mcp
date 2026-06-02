@@ -6,6 +6,116 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.8] - 2026-06-02
+
+LLM-facing surface gets two new contracts (`Skill::examples`,
+`Skill::use_cases`, and `FamilyMeta::example_flow`), two new
+introspection tools (`describe_skill`, `describe_family`), and a
+dynamic instructions handshake that replaces the hand-curated
+`docs/instructions.md`. Plus a generous-parser pass on
+`algebra_solve` / `arithmetic_eval` to absorb the LLM-typical shapes
+those tools were rejecting.
+
+### Added — `Skill` trait gains `examples()` and `use_cases()`
+
+`Skill::examples()` returns `&'static [SkillExample]`; each entry is
+a `{title, args: JSON literal, note: Option<&str>}`. `use_cases()`
+returns `&'static [&'static str]` — short phrases naming the
+situations the tool is the right answer for. Both default to `&[]`,
+so all 470-ish skills compile without change. They are **not** part
+of `tools/list`; they surface only through `describe_skill` and the
+session-start instructions handshake, so the payload cost is paid
+only when an LLM asks for it.
+
+Curated exemplars landed on 10 representative skills as the
+reference pattern: `algebra_solve`, `fs_write`, `docker_pull`,
+`arxiv_get`, `web_search`, `recall`, `memory_save`, `atm_isa`,
+`nasa_neo`, `osm_overpass`. The contract is documented in
+[CONTRIBUTING.md](CONTRIBUTING.md#3-document-it); fills will land
+incrementally.
+
+### Added — `FamilyMeta::example_flow()`
+
+Multi-tool worked example per family — a numbered list of 2–5
+chained calls representing the canonical task. Defaults to `None`.
+Filled today on `docker::Family` (bring up a service),
+`kubernetes::Family` (scale a deployment), `filesystem::Family`
+(triage and edit a file — Family newly registered), and
+`packages::Family` (manager → search → info → install). Surfaced
+through `describe_family` and the dynamic handshake.
+
+### Added — `describe_skill` and `describe_family` meta tools
+
+- **`describe_skill { name }`** returns one tool's description, use
+  cases, examples, family context, family gating state, and the
+  full per-property JSON Schema as pretty JSON. Useful when the
+  host truncated the initial `tools/list` payload (~80 KB at this
+  tool count) or when the LLM wants to double-check a tool's
+  argument shape without re-reading the whole catalog.
+- **`describe_family { name }`** returns the family's description,
+  capability state, gating state, full tool list, and the
+  registered example flow. Falls back to grouping by tool-name
+  prefix when a family hasn't registered `FamilyMeta`.
+
+Both live in `src/skills/meta.rs` alongside `features`,
+`list_providers`, and the `constellation_*` introspection tools.
+
+### Changed — dynamic instructions handshake
+
+`get_info()`'s static `include_str!("../docs/instructions.md")` is
+gone, replaced by a `build_instructions(&Config)` function that
+reflects the live registry at session-start:
+
+1. A prologue covering the general approach + the new introspection
+   tools.
+2. A per-family inventory walking every `FamilyMeta` registration —
+   description, host-capability state, active-tool count, and a
+   pointer at `describe_family` (with a flag noting when an example
+   flow is registered).
+3. "Other tool families" — skills without `FamilyMeta`, grouped by
+   leading `<prefix>_` segment with a sample of tool names.
+4. A footer pointing at `features`, `describe_skill`,
+   `describe_family`, and `list_providers`.
+
+The hand-curated `docs/instructions.md` is no longer included by
+the build but is preserved in the tree as a long-form reference for
+new contributors.
+
+### Added — `arithmetic_eval` + `algebra_solve` accept LLM-typical input
+
+Observed inputs the tools were rejecting before:
+
+- `arithmetic_eval: 2**10`
+- `algebra_solve: x^2 / 9.81 = 5000 -> solve for x (velocity needed for 5,000 km range)`
+- `algebra_solve: x^2 / 9.81 = 5000000, find x`
+- `algebra_solve: s = u*t + 0.5*a*t^2 where s=1000, u=800, a=-9.81 -> solve for t`
+- `algebra_solve: 800*t - 4.905*t^2 = 1000`
+
+`arithmetic::normalize` now rewrites Python-style `**` to meval's
+`^` before parsing.
+
+`algebra_solve` now:
+- Strips trailing prose (`, find X`, `-> solve for X`, and any
+  parenthetical description following).
+- Parses a `where var=val, var=val, ...` substitution clause and
+  substitutes named parameters before solving.
+- Auto-detects the free variable (numbers stripped first so `2e3`
+  doesn't get mis-read as `e3`), so equations in `t`, `v`, `n`,
+  etc. work alongside `x`. Multiple free vars produce a clear error
+  pointing at `where`; zero free vars points at `arithmetic_eval`.
+- Inserts implicit `*` around the detected variable (`2t` → `2*t`),
+  not just `x`.
+
+### Added — `Args` struct field doc-comment audit
+
+Swept the 405 `Args` structs under `src/skills/` and filled in
+missing `///` doc-comments on individual fields — 227 fields across
+30 files. Combined with the `schemars::JsonSchema` derive, every
+per-property `description` in `tools/list` is now uniformly
+populated. Only `GlobalToolArgs.background` in `src/skills/mod.rs`
+remains documented out-of-band (its schema fragment is hand-built
+in `merge_global_args_into_schema()` with an explicit description).
+
 ## [0.1.7] - 2026-06-02
 
 Cross-codebase **golden-rules audit** of every skill, fanning out four

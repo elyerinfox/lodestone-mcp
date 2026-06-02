@@ -112,7 +112,9 @@ impl Skill for OptTsp2opt {
 struct ShortestPathArgs {
     /// Directed edges as [from, to, weight].
     edges: Vec<(usize, usize, f64)>,
+    /// Source node index.
     start: usize,
+    /// Destination node index.
     goal: usize,
 }
 

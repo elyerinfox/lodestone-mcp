@@ -152,7 +152,9 @@ fn render_daily(v: &Value, title: &str, max: usize) -> String {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct ForecastArgs {
+    /// Latitude in decimal degrees.
     lat: f64,
+    /// Longitude in decimal degrees.
     lon: f64,
     /// Comma-separated hourly variables. Common: `temperature_2m,relative_humidity_2m,
     /// dew_point_2m,apparent_temperature,precipitation,rain,snowfall,pressure_msl,
@@ -240,7 +242,9 @@ impl Skill for WeatherForecast {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct ArchiveArgs {
+    /// Latitude in decimal degrees.
     lat: f64,
+    /// Longitude in decimal degrees.
     lon: f64,
     /// `YYYY-MM-DD` start.
     start_date: String,
@@ -252,6 +256,7 @@ struct ArchiveArgs {
     /// Max hourly rows to print (default 72, capped at 1000).
     #[serde(default)]
     hours: Option<u32>,
+    /// Timezone (default `UTC`). Accepts IANA names or `auto` for local.
     #[serde(default)]
     timezone: Option<String>,
 }
@@ -299,13 +304,17 @@ impl Skill for WeatherArchive {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct MarineArgs {
+    /// Latitude in decimal degrees.
     lat: f64,
+    /// Longitude in decimal degrees.
     lon: f64,
     /// Default: `wave_height,wave_direction,wave_period,wind_wave_height,swell_wave_height`.
     #[serde(default)]
     hourly: Option<String>,
+    /// Max hourly rows to print (default 48, capped at 384).
     #[serde(default)]
     hours: Option<u32>,
+    /// Timezone (default `UTC`). Accepts IANA names or `auto` for local.
     #[serde(default)]
     timezone: Option<String>,
 }
@@ -352,14 +361,18 @@ impl Skill for WeatherMarine {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct AqArgs {
+    /// Latitude in decimal degrees.
     lat: f64,
+    /// Longitude in decimal degrees.
     lon: f64,
     /// Default: `pm10,pm2_5,carbon_monoxide,ozone,nitrogen_dioxide,sulphur_dioxide,european_aqi,
     /// us_aqi`. Pollen also available: `alder_pollen,birch_pollen,grass_pollen,olive_pollen,mugwort_pollen,ragweed_pollen`.
     #[serde(default)]
     hourly: Option<String>,
+    /// Max hourly rows to print (default 48, capped at 384).
     #[serde(default)]
     hours: Option<u32>,
+    /// Timezone (default `UTC`). Accepts IANA names or `auto` for local.
     #[serde(default)]
     timezone: Option<String>,
 }

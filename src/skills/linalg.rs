@@ -338,6 +338,7 @@ impl Skill for LinalgRank {
 struct VecArgs {
     /// Vector or matrix as a flat list (vector) or rows (matrix).
     vector: Option<Vec<f64>>,
+    /// Matrix as a list of rows (alternative to `vector`).
     matrix: Option<Vec<Vec<f64>>>,
     /// `"l2"` (default), `"l1"`, `"inf"`, or `"fro"` (matrix only).
     #[serde(default)]

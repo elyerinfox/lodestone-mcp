@@ -807,6 +807,71 @@ Three small edits, all mechanical:
   without declaring `Shared` is a [golden rule 13](docs/golden-rules.md)
   violation visible from outside the skill's call body.
 
+- **Worked examples and use cases.** Two more `Skill` trait methods both
+  default to empty and are strictly opt-in, but landing them is the most
+  cost-effective way to raise an LLM's hit rate on your tool:
+
+  - `fn examples(&self) -> &'static [SkillExample]` — canonical
+    invocations. Each entry carries a one-line `title`, an `args` JSON
+    literal (raw string — `r#"{"key": "value"}"#`), and an optional
+    `note` describing what the output looks like or a gotcha.
+  - `fn use_cases(&self) -> &'static [&'static str]` — short phrases
+    naming the situations this tool is the right answer for. The LLM
+    uses these to disambiguate between similarly-named tools
+    (`web_search` vs `code_search` vs `docs_search`).
+
+  Both surface through the `describe_skill` meta tool and fold into the
+  dynamic instructions handshake at session start. They are **not** part
+  of the MCP `tools/list` payload — the orientation is paid for once and
+  looked up on demand thereafter, so cost is zero unless the LLM asks.
+
+  Reference: [`AlgebraSolve`](src/skills/algebra.rs) carries five
+  examples covering the simple-linear, quadratic-two-roots,
+  non-`x`-variable, `where`-substitution, and `**`-power cases.
+
+  ```rust
+  impl Skill for MyTool {
+      // ...
+
+      fn examples(&self) -> &'static [crate::skills::SkillExample] {
+          use crate::skills::SkillExample;
+          &[
+              SkillExample {
+                  title: "Common case",
+                  args: r#"{"path": "/etc/hosts"}"#,
+                  note: Some("Returns the file body, capped at max_chars."),
+              },
+          ]
+      }
+
+      fn use_cases(&self) -> &'static [&'static str] {
+          &[
+              "Read a small text file from a configured root.",
+              "Inspect a config the LLM is about to edit.",
+          ]
+      }
+  }
+  ```
+
+- **Family example flows.** When the tool is part of a `FamilyMeta`,
+  override `FamilyMeta::example_flow()` once per family with a
+  markdown-friendly numbered list of 2–5 chained tool calls. This is the
+  "show me a typical task" surface the LLM sees through `describe_family`
+  and the family inventory in the handshake.
+
+  ```rust
+  impl FamilyMeta for Family {
+      // ...
+      fn example_flow(&self) -> Option<&'static str> {
+          Some(
+              "1. `docker_pull { image: \"nginx:1.27\" }`\n\
+               2. `docker_run { image: \"nginx:1.27\", name: \"web\" }`\n\
+               3. `docker_ps {}` to confirm it's running",
+          )
+      }
+  }
+  ```
+
 ### 4. (When the family needs a host resource) Implement `FamilyMeta`
 
 Configurability — `[<family>].enabled` — says the operator *wants* the tools

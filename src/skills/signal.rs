@@ -99,6 +99,7 @@ impl Skill for SignalFft {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct DominantArgs {
+    /// Time-domain signal samples.
     values: Vec<f64>,
     /// Sample rate in Hz (required to report frequencies).
     sample_rate: f64,
@@ -170,6 +171,7 @@ impl Skill for SignalDominant {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct RmsArgs {
+    /// Signal samples.
     values: Vec<f64>,
 }
 
@@ -204,6 +206,7 @@ impl Skill for SignalRms {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct WindowArgs {
+    /// Signal samples to window.
     values: Vec<f64>,
     /// One of: hann, hamming, blackman, rectangular.
     kind: String,

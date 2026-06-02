@@ -2035,6 +2035,35 @@ impl Skill for Recall {
             Ok(text_result(out))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Search both memos and prior solutions",
+                args: r#"{"query": "deploy lodestone behind nginx"}"#,
+                note: Some(
+                    "Returns merged hits labeled by `kind` (memo / solution), ranked by relevance.",
+                ),
+            },
+            SkillExample {
+                title: "Scope to solutions only",
+                args: r#"{"query": "TLS cert renewal", "kinds": "solution", "limit": 5}"#,
+                note: Some("`limit` is clamped to [1, 50]; default 10."),
+            },
+            SkillExample {
+                title: "Memo-only search",
+                args: r#"{"query": "ssh key fingerprint", "kinds": "memo"}"#,
+                note: Some("Falls back to a LIKE search across memo keys/values/tags."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Find prior work on a problem before re-solving it from scratch.",
+            "Surface saved facts (memos) alongside recorded solutions in one call.",
+            "Reproduce the auto-recall preamble manually for triage / debugging.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -2128,6 +2157,33 @@ impl Skill for MemorySave {
                 fmt_ts(now as u64)
             )))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Save a fact under the default scope",
+                args: r#"{"key": "preferred-editor", "value": "neovim with telescope"}"#,
+                note: Some("No scope = the empty-string scope; recall via `memory_get` with the same key."),
+            },
+            SkillExample {
+                title: "Save a namespaced preference with tags",
+                args: r#"{"key": "tls-renewal-host", "value": "renew via acme.sh on the edge node", "scope": "infra", "tags": ["tls", "acme", "renewal"]}"#,
+                note: Some("Tags are indexed by `memory_search` for free-text lookup later."),
+            },
+            SkillExample {
+                title: "Upsert (same key+scope) replaces the value",
+                args: r#"{"key": "preferred-editor", "value": "zed", "scope": ""}"#,
+                note: Some("Existing entries are updated in place; `created_at` is preserved, `updated_at` bumps."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Persist a user preference or configuration fact across sessions.",
+            "Stash a project-specific note under a scope so it doesn't collide with other work.",
+            "Record a tagged factoid that `memory_search` / `recall` can surface later.",
+        ]
     }
 }
 

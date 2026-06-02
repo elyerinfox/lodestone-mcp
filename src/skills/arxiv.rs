@@ -262,6 +262,35 @@ impl Skill for ArxivGet {
             Ok(text_result(out))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Bare arXiv id (any version)",
+                args: r#"{"id": "2103.00020"}"#,
+                note: Some("Returns title, authors, date, categories, abstract, abs + PDF URLs."),
+            },
+            SkillExample {
+                title: "Versioned id with the `arXiv:` prefix",
+                args: r#"{"id": "arXiv:2103.00020v2"}"#,
+                note: Some("Prefix is stripped; the explicit version is honored."),
+            },
+            SkillExample {
+                title: "An abs URL is also accepted",
+                args: r#"{"id": "https://arxiv.org/abs/2103.00020"}"#,
+                note: Some(
+                    "The id is parsed out of the URL; pass the returned PDF URL to `read_pdf` for the full text.",
+                ),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Resolve an arXiv identifier or URL into structured metadata + the PDF URL.",
+            "Pre-flight a paper before reading the full PDF (verify title/authors/date match).",
+            "Get a citable abstract for an arXiv preprint without scraping HTML.",
+        ]
+    }
 }
 
 /// The skills this module contributes.

@@ -151,6 +151,30 @@ impl Skill for NasaNeo {
             Ok(text_result(out))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Near-Earth objects for today",
+                args: r#"{}"#,
+                note: Some("Omit `date` to default to today (UTC)."),
+            },
+            SkillExample {
+                title: "NEO close approaches on a specific day",
+                args: r#"{"date": "2024-09-15"}"#,
+                note: Some(
+                    "Returns name, estimated diameter, hazardous flag, miss distance and relative velocity per object.",
+                ),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Check what asteroids passed close to Earth on a given date.",
+            "Surface potentially-hazardous objects flagged for a day.",
+            "Pull miss-distance / velocity stats for a writeup or briefing.",
+        ]
+    }
 }
 
 pub struct NasaMarsPhotos;

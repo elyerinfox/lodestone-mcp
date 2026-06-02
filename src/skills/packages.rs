@@ -826,6 +826,14 @@ impl crate::skills::FamilyMeta for Family {
             )
         }
     }
+    fn example_flow(&self) -> Option<&'static str> {
+        Some(
+            "1. `package_managers {}` to see which managers exist on this host.\n\
+             2. `package_search { kind: \"apt\", query: \"ripgrep\" }` to find the right package name.\n\
+             3. `package_info { kind: \"apt\", name: \"ripgrep\" }` to confirm version + description.\n\
+             4. `package_install { kind: \"apt\", name: \"ripgrep\" }` (confirm on second call) to install it.",
+        )
+    }
 }
 
 #[cfg(test)]

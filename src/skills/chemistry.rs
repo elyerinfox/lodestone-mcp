@@ -1885,10 +1885,13 @@ struct IdealGasArgs {
     /// Provide exactly three; the missing one is computed.
     #[serde(default)]
     pressure_pa: Option<f64>,
+    /// Volume in cubic meters.
     #[serde(default)]
     volume_m3: Option<f64>,
+    /// Amount of substance in moles.
     #[serde(default)]
     moles: Option<f64>,
+    /// Temperature in kelvin.
     #[serde(default)]
     temperature_k: Option<f64>,
 }
@@ -1957,10 +1960,13 @@ struct DilutionArgs {
     /// Provide exactly three of {c1, v1, c2, v2}; missing one is computed.
     #[serde(default)]
     c1_m: Option<f64>,
+    /// Initial volume in liters.
     #[serde(default)]
     v1_l: Option<f64>,
+    /// Final concentration in mol/L.
     #[serde(default)]
     c2_m: Option<f64>,
+    /// Final volume in liters.
     #[serde(default)]
     v2_l: Option<f64>,
 }

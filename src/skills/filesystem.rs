@@ -475,6 +475,39 @@ impl Skill for FsWrite {
             )))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Create a new file",
+                args: r#"{"path": "notes/todo.md", "content": "- buy milk\n- write docs\n"}"#,
+                note: Some(
+                    "First-time create needs no confirmation; returns `Wrote N bytes to ...`.",
+                ),
+            },
+            SkillExample {
+                title: "Overwrite an existing file (first call, gets a token)",
+                args: r#"{"path": "notes/todo.md", "content": "- updated\n"}"#,
+                note: Some(
+                    "Returns a confirmation prompt with a token because the file exists.",
+                ),
+            },
+            SkillExample {
+                title: "Overwrite — second call with the token",
+                args: r#"{"path": "notes/todo.md", "content": "- updated\n", "confirm": "<token-from-prior-call>"}"#,
+                note: Some(
+                    "Add `trust: true` alongside `confirm` to skip the prompt for the rest of the session.",
+                ),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Create a brand-new file inside an allowed root with explicit contents.",
+            "Replace a file wholesale when an in-place edit isn't the right shape.",
+            "Materialize generated output (a report, a script, a config) to disk.",
+        ]
+    }
 }
 
 pub struct FsEdit;
@@ -674,6 +707,39 @@ pub fn skills() -> Vec<Box<dyn Skill>> {
         Box::new(FsDelete),
         Box::new(FsMove),
     ]
+}
+
+/// Family metadata for the filesystem skills. No host probe is needed —
+/// the read/write surface is pure Rust on `tokio::fs`, gated only by the
+/// configured roots — so the capability check is a constant `Ready`. We
+/// still register the family so the dashboard's Tools page can render a
+/// description and the canonical multi-step flow.
+pub struct Family;
+impl crate::skills::FamilyMeta for Family {
+    fn family(&self) -> &'static str {
+        "filesystem"
+    }
+    fn tools(&self) -> Vec<&'static str> {
+        skills().iter().map(|s| s.name()).collect()
+    }
+    fn description(&self) -> &'static str {
+        "Read and (with confirmation) edit files and directories on the local machine, \
+         confined to the configured `[filesystem].roots`. Destructive ops route through \
+         the confirmation guard unless `allow_destructive` is set."
+    }
+    fn check_capability(&self) -> crate::skills::SkillCapability {
+        // Pure-Rust file I/O — no host binary required. Operator gating
+        // happens via [filesystem].enabled in config.
+        crate::skills::SkillCapability::Ready
+    }
+    fn example_flow(&self) -> Option<&'static str> {
+        Some(
+            "1. `fs_find { path: \"src\", pattern: \"*.rs\" }` to locate candidate files.\n\
+             2. `fs_read { path: \"src/main.rs\" }` to inspect the suspect file.\n\
+             3. `fs_edit { path: \"src/main.rs\", old_string: \"...\", new_string: \"...\" }` (confirm on second call) to apply the fix.\n\
+             4. `fs_stat { path: \"src/main.rs\" }` to confirm the edit landed.",
+        )
+    }
 }
 
 #[cfg(test)]
