@@ -229,7 +229,6 @@ fn gather_nvidia_gpu() -> String {
 #[cfg(target_os = "linux")]
 fn gather_drm_sysfs_gpu(label: &str, vendor_id: u32) -> String {
     use std::fs;
-    use std::path::Path;
 
     let Ok(entries) = fs::read_dir("/sys/class/drm") else {
         return format!("{label}: /sys/class/drm not readable.");

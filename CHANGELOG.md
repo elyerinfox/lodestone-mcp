@@ -6,6 +6,43 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-06-01
+
+### Changed
+
+- **Dashboard removed from the MCP binary.** Earlier builds embedded the
+  Nuxt SPA via `include_dir!` and served it at `/dashboard/*` (plus a
+  `/` → `/dashboard/` redirect). The dashboard is now strictly a
+  **separate service** (`frontend/Dockerfile` → `lodestone-dashboard`
+  image, wired into `docker-compose.yml`). The binary serves only
+  `/mcp`, `/ws/status`, `/api/settings/*`, `/api/memory/graph`,
+  `/constellation/*`, `/health`. Drop the `include_dir` dependency,
+  delete `build.rs` (whose only job was making `include_dir!` happy),
+  delete the `build-with-dashboard` / `build-with-dashboard-docker`
+  Makefile targets, and rewrite `docs/building.md` around the four
+  remaining paths (backend-only / compose / standalone dashboard / dev
+  HMR). **Breaking** for anyone hitting `http://lodestone-mcp/dashboard/`
+  on the binary — it now returns 404. Switch to the dashboard service
+  on its own port (`:8001` in the compose stack).
+
+- **Constellation off by default in the shipped TOML.** The Rust struct
+  default and `docs/constellation.md` already said off-by-default; only
+  `config/06-network.toml` was shipping `[network].enabled = true`.
+  Flipped to `false` and rewrote the header to match. Operators who
+  joined a mesh on the prior implicit default need to flip
+  `[network].enabled = true` explicitly.
+
+### Fixed
+
+- **CI build.** The `cargo clippy --all-targets -- -D warnings` step was
+  failing on Linux because of an unused `use std::path::Path;` inside a
+  `#[cfg(target_os = "linux")]` helper in `src/skills/sysinfo.rs`
+  (introduced in 0.1.0's GPU split). Windows builds didn't see it
+  because the whole function was cfg-gated out. Removed the import.
+
+- **Workflows updated to `actions/checkout@v5`** — `v4` was emitting a
+  Node 20 deprecation warning ahead of the 2026-09-16 runner removal.
+
 ### Changed
 
 - **Destructive-action audit, gap fixes.** Cross-skill audit against golden
