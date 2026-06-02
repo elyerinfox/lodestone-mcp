@@ -6,6 +6,20 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.10] - 2026-06-02
+
+### Changed — handshake footer collapses redundant lookup-tools list
+
+The bottom `WHERE TO LOOK UP DETAILS` section was repeating the top
+`LOOKUP TOOLS` section almost verbatim — same four tools
+(`describe_skill`, `describe_family`, `features`, `list_providers`),
+slightly different phrasings, ~340 chars of pure redundancy. The
+per-family inventory between them already constantly references
+`describe_family name="..."`, so the lookup pattern stays fresh
+through the body of the handshake; a second exhaustive copy at the
+bottom paid for nothing. Replaced with one line that points back at
+the top section. Handshake size 14,178 → 13,837 chars.
+
 ## [0.1.9] - 2026-06-02
 
 Full-catalog fill of `examples()` and `use_cases()` on every Skill impl,
