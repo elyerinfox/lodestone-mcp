@@ -70,6 +70,28 @@ impl Skill for ConvertNmeaDecode {
             ))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "GGA fix sentence",
+                args: r#"{"sentence": "$GPGGA,123519,4807.038,N,01131.000,E,1,08,0.9,545.4,M,46.9,M,,*47"}"#,
+                note: Some("Returns decoded lat/lon, fix quality, satellites, HDOP, altitude."),
+            },
+            SkillExample {
+                title: "RMC recommended minimum",
+                args: r#"{"sentence": "$GPRMC,123519,A,4807.038,N,01131.000,E,022.4,084.4,230394,003.1,W*6A"}"#,
+                note: Some("Returns position, speed, course, and UTC date."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Decode a single GPS sentence captured from a serial log.",
+            "Verify a sentence's checksum before trusting its fields.",
+            "Convert NMEA ddmm.mmmm coordinates into signed decimal degrees.",
+        ]
+    }
 }
 
 fn nmea_coord(s: &str, hemi: &str) -> Option<f64> {
@@ -206,6 +228,28 @@ impl Skill for ConvertCotEncode {
             Ok(text_result(json!({ "xml": xml }).to_string()))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Friendly ground unit",
+                args: r#"{"uid": "ALPHA-1", "cot_type": "a-f-G-U-C", "lat": 38.8895, "lon": -77.0353, "callsign": "ALPHA"}"#,
+                note: Some("Emits a TAK-compatible XML event with default 60 s stale window."),
+            },
+            SkillExample {
+                title: "Hostile track with altitude",
+                args: r#"{"uid": "BANDIT-7", "cot_type": "a-h-A-M-F", "lat": 35.0, "lon": 139.0, "hae_m": 2500.0, "stale_seconds": 300}"#,
+                note: Some("Override stale_seconds for longer-lived contacts."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Generate ad-hoc CoT events for testing a TAK feed.",
+            "Inject simulated tracks into a TAK server during exercises.",
+            "Wrap a known position into the canonical TAK XML envelope.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -241,6 +285,33 @@ impl Skill for ConvertGeoJsonToWkt {
             let wkt = geojson_to_wkt(&geom)?;
             Ok(text_result(json!({ "wkt": wkt }).to_string()))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Point geometry",
+                args: r#"{"geojson": {"type": "Point", "coordinates": [-77.0353, 38.8895]}}"#,
+                note: Some("Returns `POINT (-77.0353 38.8895)`."),
+            },
+            SkillExample {
+                title: "Polygon with one ring",
+                args: r#"{"geojson": {"type": "Polygon", "coordinates": [[[0,0],[1,0],[1,1],[0,1],[0,0]]]}}"#,
+                note: Some("Returns the WKT POLYGON form."),
+            },
+            SkillExample {
+                title: "Feature wrapper",
+                args: r#"{"geojson": {"type": "Feature", "properties": {}, "geometry": {"type": "LineString", "coordinates": [[0,0],[1,1]]}}}"#,
+                note: Some("Feature.geometry is auto-extracted before conversion."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Convert a GeoJSON polygon into WKT for a PostGIS query.",
+            "Hand off a geometry to a tool that only accepts WKT.",
+            "Normalize a Feature down to its geometry for downstream conversion.",
+        ]
     }
 }
 

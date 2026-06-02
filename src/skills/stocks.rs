@@ -128,6 +128,33 @@ impl Skill for StockQuote {
             Ok(text_result(out))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "US equity by bare ticker",
+                args: r#"{"symbol": "AAPL"}"#,
+                note: Some("Auto-suffixed to `aapl.us` for Stooq."),
+            },
+            SkillExample {
+                title: "S&P 500 index",
+                args: r#"{"symbol": "^spx"}"#,
+                note: Some("Indices use the `^` prefix as Stooq labels them."),
+            },
+            SkillExample {
+                title: "EUR/USD FX pair",
+                args: r#"{"symbol": "eurusd"}"#,
+                note: None,
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Get a delayed OHLC + volume quote for a US ticker without an API key.",
+            "Look up a major index or FX pair via Stooq's symbol scheme.",
+            "Reach for this when `yahoo_quote` is rate-limited or unavailable.",
+        ]
+    }
 }
 
 /// The skills this module contributes.

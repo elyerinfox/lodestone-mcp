@@ -86,6 +86,32 @@ impl Skill for SystemdList {
             )))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "List active services",
+                args: r#"{}"#,
+                note: Some("Defaults to `kind = service`, all states."),
+            },
+            SkillExample {
+                title: "Only the failed units",
+                args: r#"{"state": "failed"}"#,
+                note: None,
+            },
+            SkillExample {
+                title: "List timers",
+                args: r#"{"kind": "timer"}"#,
+                note: None,
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Get an overview of which services / timers / sockets are running on the host.",
+            "Find failed units before diving into their journals with `systemd_logs`.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -117,6 +143,27 @@ impl Skill for SystemdStatus {
                 server.max_chars,
             )))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Service status",
+                args: r#"{"unit": "nginx.service"}"#,
+                note: Some("Returns active/inactive, sub-state, and a few recent log lines."),
+            },
+            SkillExample {
+                title: "Timer status",
+                args: r#"{"unit": "logrotate.timer"}"#,
+                note: None,
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Check whether a unit is up and what state it last transitioned to.",
+            "Get the short summary + tail-of-log for one unit before pulling its journal.",
+        ]
     }
 }
 
@@ -156,6 +203,27 @@ impl Skill for SystemdLogs {
                 server.max_chars,
             )))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Last 100 lines of a service journal",
+                args: r#"{"unit": "nginx.service"}"#,
+                note: Some("Defaults to 100 lines; capped at 5000."),
+            },
+            SkillExample {
+                title: "Bigger window",
+                args: r#"{"unit": "nginx.service", "lines": 1000}"#,
+                note: None,
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Tail a unit's journal to debug a recent failure.",
+            "Pull a larger window of journal lines for an incident timeline.",
+        ]
     }
 }
 
@@ -227,6 +295,27 @@ impl Skill for SystemdStart {
             act(server, "start", args).await
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Start a unit (first call gets a token)",
+                args: r#"{"unit": "nginx.service"}"#,
+                note: Some("Destructive; first call returns a confirmation token."),
+            },
+            SkillExample {
+                title: "Start with the token",
+                args: r#"{"unit": "nginx.service", "confirm": "<token-from-prior-call>"}"#,
+                note: Some("Add `trust: true` to skip the prompt for this start for the session."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Bring a stopped systemd unit up after fixing its config.",
+            "Activate a one-shot unit on demand from an LLM workflow.",
+        ]
+    }
 }
 
 pub struct SystemdStop;
@@ -246,6 +335,27 @@ impl Skill for SystemdStop {
             act(server, "stop", args).await
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Stop a unit (first call gets a token)",
+                args: r#"{"unit": "nginx.service"}"#,
+                note: Some("Destructive; first call returns a confirmation token."),
+            },
+            SkillExample {
+                title: "Stop with the token",
+                args: r#"{"unit": "nginx.service", "confirm": "<token-from-prior-call>"}"#,
+                note: None,
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Take a misbehaving service offline before investigating it.",
+            "Quiesce a unit during maintenance / a planned host change.",
+        ]
+    }
 }
 
 pub struct SystemdRestart;
@@ -264,6 +374,27 @@ impl Skill for SystemdRestart {
             let (server, args) = ctx.parse::<ActionArgs>()?;
             act(server, "restart", args).await
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Restart a unit (first call gets a token)",
+                args: r#"{"unit": "nginx.service"}"#,
+                note: Some("Destructive; first call returns a confirmation token."),
+            },
+            SkillExample {
+                title: "Restart with the token",
+                args: r#"{"unit": "nginx.service", "confirm": "<token-from-prior-call>"}"#,
+                note: None,
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Pick up a new config / binary by bouncing a long-running service.",
+            "Recover a wedged unit without separate stop / start calls.",
+        ]
     }
 }
 

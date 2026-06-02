@@ -28,6 +28,20 @@ impl Skill for ListProviders {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move { Ok(text_result(ctx.server.registry.describe())) })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[SkillExample {
+            title: "List configured providers and their strategy",
+            args: r#"{}"#,
+            note: Some("Shows web / code / docs / qa source ordering and ranking strategy."),
+        }]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Check which search sources are active before dispatching a query.",
+            "Confirm the provider ordering used by the strategy / ranking pipeline.",
+        ]
+    }
 }
 
 pub struct HiveStatus;
@@ -45,6 +59,20 @@ impl Skill for HiveStatus {
     }
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move { Ok(text_result(ctx.server.registry.constellation_report())) })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[SkillExample {
+            title: "Show this node's id, peers, and mesh edges",
+            args: r#"{}"#,
+            note: Some("Returns a disabled-notice when [network].enabled is false."),
+        }]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Inspect the live constellation graph and per-peer reputation / reachability.",
+            "Confirm peer-to-peer networking is on before delegating a request.",
+        ]
     }
 }
 
@@ -68,6 +96,20 @@ impl Skill for HivePeers {
             ))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[SkillExample {
+            title: "List reachable nodes and hop counts",
+            args: r#"{}"#,
+            note: Some("Direct peers are 1 hop; transitive nodes are 2+."),
+        }]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "See which peers are direct vs. only reachable via another peer's advertised list.",
+            "Pick a low-hop peer before scheduling a delegated retrieval.",
+        ]
+    }
 }
 
 pub struct HiveSeeds;
@@ -89,6 +131,20 @@ impl Skill for HiveSeeds {
                 ctx.server.registry.constellation_seeds_report(),
             ))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[SkillExample {
+            title: "Show per-blob served / fetched accounting",
+            args: r#"{}"#,
+            note: Some("BitTorrent-style ratio per shared file or page hash."),
+        }]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Audit how much this node is leeching vs. seeding to the constellation.",
+            "Spot blobs with a poor served/fetched ratio that should be re-cached.",
+        ]
     }
 }
 
@@ -126,6 +182,27 @@ impl Skill for HiveCapabilities {
                 .constellation_capabilities_report(args.cap.as_deref());
             Ok(text_result(report))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Full capability matrix across the mesh",
+                args: r#"{}"#,
+                note: Some("Each row: `node_id : query=ON retrieval=off blob=ON browser=off`."),
+            },
+            SkillExample {
+                title: "Filter to nodes that have browser ON",
+                args: r#"{"cap": "browser"}"#,
+                note: Some("Use before delegation — peers reject requests for capabilities they haven't opted in to."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Pick a delegate peer that has the specific capability turned on.",
+            "Audit the constellation-wide opt-in set before relying on delegated work.",
+        ]
     }
 }
 
@@ -722,6 +799,33 @@ impl Skill for Features {
             }
             Ok(text_result(out))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Full inventory of every family",
+                args: r#"{}"#,
+                note: Some("No filter = lists every gateable family plus live memory counts."),
+            },
+            SkillExample {
+                title: "Drill into one family's knobs",
+                args: r#"{"name": "filesystem"}"#,
+                note: Some("Shows enabled state, allow_destructive, and how many `fs_*` tools are visible."),
+            },
+            SkillExample {
+                title: "Inspect the memory family",
+                args: r#"{"name": "memory"}"#,
+                note: Some("Surfaces recall_threshold, embedding endpoint, and the live memos/solutions counts."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Verify a tool family is enabled before assuming its tools will dispatch.",
+            "Read the current knob values that govern a family's behavior.",
+            "See live memory-store counts (memos, solutions, embeddings, conversations).",
+        ]
     }
 }
 

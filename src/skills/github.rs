@@ -320,6 +320,35 @@ impl Skill for GithubReleases {
             Ok(text_result(out))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Latest stable releases",
+                args: r#"{"repo": "rust-lang/rust"}"#,
+                note: Some(
+                    "Returns up to 5 stable releases newest-first with tag, name, date, body.",
+                ),
+            },
+            SkillExample {
+                title: "Include prereleases / drafts",
+                args: r#"{"repo": "denoland/deno", "include_prereleases": true, "max_results": 10}"#,
+                note: Some("`max_results` defaults to 5, capped at 30."),
+            },
+            SkillExample {
+                title: "Accept a github.com URL",
+                args: r#"{"repo": "https://github.com/tokio-rs/tokio"}"#,
+                note: Some("URL is parsed into `owner/repo` automatically."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Pull a project's changelog / 'what changed in vX' notes.",
+            "Find the latest stable release tag and date for a dependency.",
+            "Audit prereleases or drafts when planning an upgrade.",
+        ]
+    }
 }
 
 pub struct GithubUser;
@@ -361,6 +390,33 @@ impl Skill for GithubUser {
             server.retrieval_put(key, &out);
             Ok(text_result(out))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Look up an org",
+                args: r#"{"user": "rust-lang"}"#,
+                note: Some("Returns name, bio, company, location, public repos, followers."),
+            },
+            SkillExample {
+                title: "`@login` shorthand",
+                args: r#"{"user": "@octocat"}"#,
+                note: Some("Leading `@` is stripped."),
+            },
+            SkillExample {
+                title: "Profile URL",
+                args: r#"{"user": "https://github.com/torvalds"}"#,
+                note: Some("URL parsed down to the login."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Look up a GitHub user's or org's public profile.",
+            "Resolve a contact link / blog / email for an open-source maintainer.",
+            "Inspect an org's public-repo count before scoping further searches.",
+        ]
     }
 }
 
@@ -404,6 +460,28 @@ impl Skill for GithubRepo {
             server.retrieval_put(key, &out);
             Ok(text_result(out))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "`owner/repo` shorthand",
+                args: r#"{"repo": "rust-lang/rust"}"#,
+                note: Some("Returns description, stars, forks, language, topics, license, branch, timestamps."),
+            },
+            SkillExample {
+                title: "github.com URL",
+                args: r#"{"repo": "https://github.com/tokio-rs/tokio"}"#,
+                note: Some("URL is parsed into `owner/repo` automatically."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Inspect a repo's metadata (stars, license, language, default branch).",
+            "Verify a project is still maintained via last-push timestamp / archived flag.",
+            "Resolve license info for compliance review.",
+        ]
     }
 }
 

@@ -89,6 +89,22 @@ impl Skill for SdrDevices {
             Ok(text_result(sections.join("\n\n")))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Probe attached SDRs",
+                args: r#"{}"#,
+                note: Some("Runs `rtl_test -t` and `hackrf_info`; reports per-tool errors when the binary is missing."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Confirm an RTL-SDR or HackRF is plugged in and its userspace tools are installed.",
+            "Get device serials / board info before running a sweep.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -156,6 +172,33 @@ impl Skill for SdrScan {
             }
             Ok(text_result(format_peaks(&bins, top, bin_hz)))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "FM broadcast band",
+                args: r#"{"start_mhz": 88, "end_mhz": 108}"#,
+                note: Some("Default 100 kHz bins; reports the loudest 15 by dB."),
+            },
+            SkillExample {
+                title: "ISM 433 with finer bins",
+                args: r#"{"start_mhz": 433, "end_mhz": 434, "bin_khz": 10, "top": 30}"#,
+                note: None,
+            },
+            SkillExample {
+                title: "2 m amateur band, top 5",
+                args: r#"{"start_mhz": 144, "end_mhz": 148, "bin_khz": 25, "top": 5}"#,
+                note: Some("Wider sweeps take longer; `rtl_power` has a 90 s timeout."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Find the strongest signals in a target band before tuning further.",
+            "Sanity-check that an antenna is actually picking up known broadcasters.",
+            "Survey ISM bands for active transmitters (433 MHz, 915 MHz, etc.).",
+        ]
     }
 }
 

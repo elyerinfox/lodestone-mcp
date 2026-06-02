@@ -439,6 +439,20 @@ impl Skill for K8sContexts {
             Ok(text_result(contexts(&server.k8s_opts()).map_err(internal)?))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[SkillExample {
+            title: "List configured contexts",
+            args: r#"{}"#,
+            note: Some("Marks the current context with ` * (current)`. No cluster contact."),
+        }]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Confirm which cluster the other k8s_* tools will hit by default.",
+            "Discover available contexts before targeting a specific one.",
+        ]
+    }
 }
 
 pub struct K8sGet;
@@ -471,6 +485,38 @@ impl Skill for K8sGet {
             )))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "List pods in the default namespace",
+                args: r#"{"kind": "pods"}"#,
+                note: Some("One line per pod with its phase."),
+            },
+            SkillExample {
+                title: "List deployments in a namespace",
+                args: r#"{"kind": "deploy", "namespace": "web"}"#,
+                note: Some("Short names (`deploy`, `svc`, `po`) are accepted."),
+            },
+            SkillExample {
+                title: "Get one named resource (full JSON)",
+                args: r#"{"kind": "service", "name": "api", "namespace": "web"}"#,
+                note: Some("Same shape as k8s_describe."),
+            },
+            SkillExample {
+                title: "List cluster-scoped nodes",
+                args: r#"{"kind": "nodes"}"#,
+                note: Some("Cluster kinds ignore `namespace`."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Inventory a kind across a namespace before acting.",
+            "Look up a specific object's full spec/status.",
+            "Find the name of a target resource for k8s_scale / k8s_delete / k8s_logs.",
+        ]
+    }
 }
 
 pub struct K8sDescribe;
@@ -501,6 +547,27 @@ impl Skill for K8sDescribe {
                 server.max_chars,
             )))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Describe a pod",
+                args: r#"{"kind": "pod", "name": "api-7c4f5d-2x9", "namespace": "web"}"#,
+                note: Some("Returns the full object JSON (spec + status + metadata)."),
+            },
+            SkillExample {
+                title: "Describe a cluster-scoped node",
+                args: r#"{"kind": "node", "name": "ip-10-0-1-23.ec2.internal"}"#,
+                note: Some("No `namespace` needed for cluster-scoped kinds."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Inspect one resource's full spec, conditions, and events-driven status.",
+            "Pull labels/annotations off a known object for a follow-up patch.",
+        ]
     }
 }
 
@@ -534,6 +601,33 @@ impl Skill for K8sLogs {
                 server.max_chars,
             )))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Tail a single-container pod",
+                args: r#"{"pod": "api-7c4f5d-2x9", "namespace": "web"}"#,
+                note: Some("Default tail = 200 lines, capped 2000."),
+            },
+            SkillExample {
+                title: "Specific container in a multi-container pod",
+                args: r#"{"pod": "api-7c4f5d-2x9", "namespace": "web", "container": "sidecar"}"#,
+                note: None,
+            },
+            SkillExample {
+                title: "Larger tail for noisy logs",
+                args: r#"{"pod": "api-7c4f5d-2x9", "namespace": "web", "tail": 1000}"#,
+                note: None,
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Diagnose a CrashLoopBackOff pod by reading its recent stdout/stderr.",
+            "Inspect a sidecar's logs separately from its main container.",
+            "Verify expected startup output after a rollout.",
+        ]
     }
 }
 
@@ -582,6 +676,28 @@ impl Skill for K8sApply {
                 .map_err(internal)?;
             Ok(text_result(out))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Apply a ConfigMap (first call)",
+                args: r#"{"manifest": "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: app-cfg\n  namespace: web\ndata:\n  KEY: value\n"}"#,
+                note: Some("Returns a confirmation token; replay with `confirm`."),
+            },
+            SkillExample {
+                title: "Apply multi-document manifest, second call",
+                args: r#"{"manifest": "apiVersion: v1\nkind: Service\n...\n---\napiVersion: apps/v1\nkind: Deployment\n...", "confirm": "<token>"}"#,
+                note: Some("Server-side apply; `---`-separated documents are processed in order."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Create or update Kubernetes objects from a manifest the LLM authored.",
+            "Roll out a configuration change without leaving the chat.",
+            "Replay a multi-doc kubefile produced by another tool.",
+        ]
     }
 }
 
@@ -637,6 +753,28 @@ impl Skill for K8sScale {
             Ok(text_result(out))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Scale a deployment up (first call)",
+                args: r#"{"kind": "deployment", "name": "api", "namespace": "web", "replicas": 5}"#,
+                note: Some("Returns a confirmation token; replay with `confirm`."),
+            },
+            SkillExample {
+                title: "Scale a statefulset down to 0",
+                args: r#"{"kind": "statefulset", "name": "db", "namespace": "data", "replicas": 0, "confirm": "<token>"}"#,
+                note: Some("Be careful — 0 replicas stops the workload."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Add capacity to a deployment under load.",
+            "Pause a workload by scaling to 0 instead of deleting it.",
+            "Adjust replica count without editing the full manifest.",
+        ]
+    }
 }
 
 pub struct K8sDelete;
@@ -676,6 +814,28 @@ impl Skill for K8sDelete {
             .map_err(internal)?;
             Ok(text_result(out))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Delete a pod (first call)",
+                args: r#"{"kind": "pod", "name": "api-7c4f5d-2x9", "namespace": "web"}"#,
+                note: Some("Returns a confirmation token; replay with `confirm`."),
+            },
+            SkillExample {
+                title: "Delete a deployment, second call",
+                args: r#"{"kind": "deployment", "name": "old-api", "namespace": "web", "confirm": "<token>"}"#,
+                note: None,
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Remove an obsolete resource from the cluster.",
+            "Force-recreate a pod by deleting it (controller will respawn).",
+            "Tear down a misconfigured object before re-applying.",
+        ]
     }
 }
 

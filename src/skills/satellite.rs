@@ -236,6 +236,33 @@ impl Skill for SatTle {
             Ok(text_result(out))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "ISS by NORAD id",
+                args: r#"{"query": "25544"}"#,
+                note: Some("Numeric query is treated as CATNR."),
+            },
+            SkillExample {
+                title: "By name",
+                args: r#"{"query": "ISS"}"#,
+                note: Some("Non-numeric query is sent as NAME=."),
+            },
+            SkillExample {
+                title: "Hubble",
+                args: r#"{"query": "HST"}"#,
+                note: Some("Pass the returned `tle_line1` / `tle_line2` to `sat_position` or `sat_observe`."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Fetch a fresh TLE for a single satellite before propagating it.",
+            "Look up a satellite by NORAD catalog number when you know the id.",
+            "Resolve a name like \"ISS\" or \"HST\" to its current elements.",
+        ]
+    }
 }
 
 pub struct SatPosition;
@@ -261,6 +288,32 @@ impl Skill for SatPosition {
                 "At {when} UTC:\n  sub-point: {lat:.4}°, {lon:.4}°\n  altitude: {alt:.1} km\n  speed: {speed:.3} km/s",
             )))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "ISS sub-point now",
+                args: r#"{"tle_line1": "1 25544U 98067A   08264.51782528 -.00002182  00000-0 -11606-4 0  2927", "tle_line2": "2 25544  51.6416 247.4627 0006703 130.5360 325.0288 15.72125391563537"}"#,
+                note: Some("Omitting `at` uses the current UTC time."),
+            },
+            SkillExample {
+                title: "At a specific time near the TLE epoch",
+                args: r#"{"tle_line1": "1 25544U 98067A   08264.51782528 -.00002182  00000-0 -11606-4 0  2927", "tle_line2": "2 25544  51.6416 247.4627 0006703 130.5360 325.0288 15.72125391563537", "at": "2008-09-21T12:00:00Z"}"#,
+                note: Some(
+                    "RFC3339 or `YYYY-MM-DD HH:MM:SS`. TLE shown is the SGP4 verification suite; \
+                     SGP4 is accurate within ~1–2 weeks of the epoch, so for live use fetch a \
+                     fresh TLE from Celestrak / Space-Track and pass an `at` near its epoch.",
+                ),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Get a satellite's lat/lon/altitude at a point in time.",
+            "Plot a ground track by sampling positions across a time grid.",
+            "Tell where overhead a satellite is right now.",
+        ]
     }
 }
 
@@ -297,6 +350,32 @@ impl Skill for SatObserve {
                 args.observer_lat, args.observer_lon,
             )))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "ISS look-angles from Seattle now",
+                args: r#"{"tle_line1": "1 25544U 98067A   08264.51782528 -.00002182  00000-0 -11606-4 0  2927", "tle_line2": "2 25544  51.6416 247.4627 0006703 130.5360 325.0288 15.72125391563537", "observer_lat": 47.6062, "observer_lon": -122.3321}"#,
+                note: Some("Negative elevation means the satellite is below the horizon."),
+            },
+            SkillExample {
+                title: "Mountain observer at a specific time near epoch",
+                args: r#"{"tle_line1": "1 25544U 98067A   08264.51782528 -.00002182  00000-0 -11606-4 0  2927", "tle_line2": "2 25544  51.6416 247.4627 0006703 130.5360 325.0288 15.72125391563537", "observer_lat": 39.7392, "observer_lon": -104.9903, "observer_alt_km": 1.6, "at": "2008-09-21T03:30:00Z"}"#,
+                note: Some(
+                    "TLE shown is the SGP4 verification suite (2008 epoch); for live look-angles \
+                     fetch a fresh TLE near the time you care about. Use `sat_passes` to discover \
+                     when it WILL be visible.",
+                ),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Get azimuth/elevation/range of a satellite from a ground station at one instant.",
+            "Aim an antenna or telescope at a known time.",
+            "Confirm visibility (elevation > 0) from a site at a target time.",
+        ]
     }
 }
 
@@ -587,6 +666,37 @@ impl Skill for SatPasses {
             Ok(text_result(out))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "ISS passes over London for 24 h",
+                args: r#"{"tle_line1": "1 25544U 98067A   08264.51782528 -.00002182  00000-0 -11606-4 0  2927", "tle_line2": "2 25544  51.6416 247.4627 0006703 130.5360 325.0288 15.72125391563537", "observer_lat": 51.5074, "observer_lon": -0.1278, "from": "2008-09-21T00:00:00Z"}"#,
+                note: Some(
+                    "Defaults: `hours=24`, `min_elevation_deg=10`, `max_passes=10`. TLE shown \
+                     is the SGP4 verification suite (2008 epoch); set `from` near the TLE's \
+                     epoch, or fetch a fresh TLE from Celestrak / Space-Track for live passes.",
+                ),
+            },
+            SkillExample {
+                title: "Low LEO passes over a week",
+                args: r#"{"tle_line1": "1 25544U 98067A   08264.51782528 -.00002182  00000-0 -11606-4 0  2927", "tle_line2": "2 25544  51.6416 247.4627 0006703 130.5360 325.0288 15.72125391563537", "observer_lat": 47.6062, "observer_lon": -122.3321, "from": "2008-09-21T00:00:00Z", "hours": 168, "min_elevation_deg": 5, "max_passes": 50}"#,
+                note: Some("`hours` is capped at 168 (one week), `max_passes` at 50."),
+            },
+            SkillExample {
+                title: "Only zenith-grazing passes",
+                args: r#"{"tle_line1": "1 25544U 98067A   08264.51782528 -.00002182  00000-0 -11606-4 0  2927", "tle_line2": "2 25544  51.6416 247.4627 0006703 130.5360 325.0288 15.72125391563537", "observer_lat": 35.6762, "observer_lon": 139.6503, "from": "2008-09-21T00:00:00Z", "min_elevation_deg": 60}"#,
+                note: Some("Raise `min_elevation_deg` to filter to bright/photogenic passes."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Find when a satellite will rise, peak, and set over an observer.",
+            "Pick the best upcoming pass for photography or aiming.",
+            "Plan a contact window for a ground-station schedule.",
+        ]
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -713,6 +823,35 @@ impl Skill for SatGroup {
             }
             Ok(text_result(out))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Manned stations group",
+                args: r#"{"group": "stations"}"#,
+                note: Some("Small, stable group containing the ISS and a handful of others."),
+            },
+            SkillExample {
+                title: "GPS constellation",
+                args: r#"{"group": "gps-ops", "max": 35}"#,
+                note: None,
+            },
+            SkillExample {
+                title: "Starlink slice via name filter",
+                args: r#"{"group": "starlink", "name_filter": "STARLINK-30", "max": 50}"#,
+                note: Some(
+                    "Starlink alone is thousands — always pair with `name_filter` and `max`.",
+                ),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Pull a whole CelesTrak constellation in one call.",
+            "Grab a named shell of Starlinks or one block of GPS sats via `name_filter`.",
+            "Seed `sat_passes` or `sat_observe` with TLEs for every member of a group.",
+        ]
     }
 }
 

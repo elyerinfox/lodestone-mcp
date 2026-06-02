@@ -84,6 +84,30 @@ impl Skill for GeoVincentyInverse {
             ))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "London to Paris",
+                args: r#"{"lat1": 51.5074, "lon1": -0.1278, "lat2": 48.8566, "lon2": 2.3522}"#,
+                note: Some(
+                    "Returns ellipsoidal distance in meters plus initial/final azimuth in degrees.",
+                ),
+            },
+            SkillExample {
+                title: "Near-antipodal pair (Vincenty would fail)",
+                args: r#"{"lat1": 0.0, "lon1": 0.0, "lat2": 0.5, "lon2": 179.5}"#,
+                note: Some("Karney's algorithm converges where classic Vincenty diverges."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Get accurate WGS84 distance + initial bearing between two points.",
+            "Compute final azimuth at the destination (different from initial on a great circle).",
+            "Handle antipodal / near-antipodal cases reliably.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -127,6 +151,28 @@ impl Skill for GeoVincentyDirect {
                 .to_string(),
             ))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "100 km due east from London",
+                args: r#"{"lat": 51.5074, "lon": -0.1278, "azimuth_deg": 90, "distance_m": 100000}"#,
+                note: Some("Returns the destination (lat, lon) and the final azimuth at arrival."),
+            },
+            SkillExample {
+                title: "Heading north from the equator",
+                args: r#"{"lat": 0, "lon": 0, "azimuth_deg": 0, "distance_m": 1112000}"#,
+                note: Some("Going north along a meridian; ~10° latitude per 1112 km."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Project a destination point from a start + bearing + distance.",
+            "Step along a geodesic when you know the direction, not the endpoint.",
+            "Generate flight-plan waypoints by repeatedly applying a direct solution.",
+        ]
     }
 }
 
@@ -178,6 +224,28 @@ impl Skill for GeoGreatCirclePolyline {
             }
             Ok(text_result(json!({ "points": points }).to_string()))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "10 points along London → Paris",
+                args: r#"{"lat1": 51.5074, "lon1": -0.1278, "lat2": 48.8566, "lon2": 2.3522, "n": 10}"#,
+                note: Some("Includes both endpoints; `n` must be ≥ 2 and ≤ 10000."),
+            },
+            SkillExample {
+                title: "Coarse 3-point sample",
+                args: r#"{"lat1": 0, "lon1": 0, "lat2": 0, "lon2": 90, "n": 3}"#,
+                note: Some("First, midpoint, and last point along the geodesic."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Render a great-circle flight path as a polyline on a map.",
+            "Densify a geodesic for downstream interpolation or visualization.",
+            "Generate intermediate waypoints between two endpoints.",
+        ]
     }
 }
 
@@ -239,6 +307,28 @@ impl Skill for GeoCrossTrack {
             ))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "How far off-course",
+                args: r#"{"lat": 51.0, "lon": 1.0, "lat1": 51.5074, "lon1": -0.1278, "lat2": 48.8566, "lon2": 2.3522}"#,
+                note: Some("`cross_track_m` is signed: +right of the path, −left."),
+            },
+            SkillExample {
+                title: "On-track at the start",
+                args: r#"{"lat": 51.5074, "lon": -0.1278, "lat1": 51.5074, "lon1": -0.1278, "lat2": 48.8566, "lon2": 2.3522}"#,
+                note: Some("Returns near-zero cross-track and zero along-track."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Compute deviation of a position from a planned great-circle route.",
+            "Get along-track progress for a moving aircraft / vessel.",
+            "Sanity-check whether a waypoint lies on a leg of a route.",
+        ]
+    }
 }
 
 fn haversine(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
@@ -292,6 +382,28 @@ impl Skill for GeoPolygonAreaGeodesic {
                 json!({ "area_m2": area, "perimeter_m": perimeter }).to_string(),
             ))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "1° × 1° square near the equator",
+                args: r#"{"vertices": [[0,0],[0,1],[1,1],[1,0]]}"#,
+                note: Some("Returns area in m² (~1.23e10) and perimeter; counterclockwise winding is positive."),
+            },
+            SkillExample {
+                title: "Triangle of three city points",
+                args: r#"{"vertices": [[51.5074,-0.1278],[48.8566,2.3522],[52.5200,13.4050]]}"#,
+                note: Some("Don't repeat the first vertex at the end; the polygon closes automatically."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Measure the area of a country / state / parcel on the WGS84 ellipsoid.",
+            "Get exact ellipsoidal area where planar projections would distort results.",
+            "Pair area and perimeter for a polygon in a single call.",
+        ]
     }
 }
 
@@ -351,6 +463,28 @@ impl Skill for GeoUtmFromLatLon {
             ))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Seattle to UTM",
+                args: r#"{"lat": 47.6062, "lon": -122.3321}"#,
+                note: Some("Returns zone, hemisphere, easting, northing in meters."),
+            },
+            SkillExample {
+                title: "Southern hemisphere point",
+                args: r#"{"lat": -33.8688, "lon": 151.2093}"#,
+                note: Some("Sydney; expect hemisphere `S` and northing > 6 000 000."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Project lat/lon into UTM for a planar grid calculation.",
+            "Get an easting / northing pair for cadastral or survey work.",
+            "Identify the UTM zone covering a given point.",
+        ]
+    }
 }
 
 pub struct GeoLatLonFromUtm;
@@ -378,6 +512,28 @@ impl Skill for GeoLatLonFromUtm {
             let (lat, lon) = utm_inverse(a.zone, hemi.as_str(), a.easting, a.northing);
             Ok(text_result(json!({ "lat": lat, "lon": lon }).to_string()))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "UTM zone 10 N → lat/lon",
+                args: r#"{"zone": 10, "hemisphere": "N", "easting": 550000, "northing": 5275000}"#,
+                note: Some("Returns decimal-degree latitude / longitude on WGS84."),
+            },
+            SkillExample {
+                title: "Southern hemisphere round-trip input",
+                args: r#"{"zone": 56, "hemisphere": "S", "easting": 334897, "northing": 6251896}"#,
+                note: Some("Pair with `geo_utm_from_latlon` for round-trip verification."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Convert a UTM grid reference back to WGS84 latitude / longitude.",
+            "Decode survey-data easting / northing into geographic coordinates.",
+            "Round-trip a coordinate through UTM for testing.",
+        ]
     }
 }
 
@@ -521,6 +677,28 @@ impl Skill for GeoMgrsFromLatLon {
             Ok(text_result(json!({ "mgrs": mgrs }).to_string()))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "1 m precision (default)",
+                args: r#"{"lat": 40.7510, "lon": -74.0033}"#,
+                note: Some("Returns a 10-digit MGRS like `18TWL...`."),
+            },
+            SkillExample {
+                title: "Coarser 1 km resolution",
+                args: r#"{"lat": 40.7510, "lon": -74.0033, "precision": 2}"#,
+                note: Some("`precision` = digits per axis: 5 = 1 m, 4 = 10 m, …, 1 = 10 km."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Encode a position as an MGRS / USNG grid reference for a field report.",
+            "Generate a coarse MGRS cell for area-level filtering.",
+            "Produce a shareable string instead of raw decimal coords.",
+        ]
+    }
 }
 
 pub struct GeoLatLonFromMgrs;
@@ -542,6 +720,28 @@ impl Skill for GeoLatLonFromMgrs {
             let (lat, lon) = mgrs_inverse(&a.mgrs).map_err(invalid)?;
             Ok(text_result(json!({ "lat": lat, "lon": lon }).to_string()))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Full-precision MGRS",
+                args: r#"{"mgrs": "18TWL8100068000"}"#,
+                note: Some("Returns the SW corner of the cell as (lat, lon)."),
+            },
+            SkillExample {
+                title: "Spaces allowed",
+                args: r#"{"mgrs": "18T WL 810 680"}"#,
+                note: Some("Whitespace is stripped before parsing; precision auto-detected."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Decode an MGRS / USNG string back to WGS84 latitude / longitude.",
+            "Drop a grid reference into a system that wants decimal degrees.",
+            "Cross-check an MGRS encoded by another tool.",
+        ]
     }
 }
 
@@ -701,6 +901,28 @@ impl Skill for GeoEcefFromLatLon {
             Ok(text_result(json!({ "x": x, "y": y, "z": z }).to_string()))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Surface point",
+                args: r#"{"lat": 47.6062, "lon": -122.3321}"#,
+                note: Some("Omitting `alt_m` defaults to 0 (on the ellipsoid surface)."),
+            },
+            SkillExample {
+                title: "With ellipsoidal height",
+                args: r#"{"lat": 47.6062, "lon": -122.3321, "alt_m": 100}"#,
+                note: Some("`alt_m` is ellipsoidal height above WGS84, NOT MSL."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Convert geographic coords to ECEF for satellite / GNSS computation.",
+            "Get a Cartesian state vector seed for an orbital propagator.",
+            "Feed a Helmert datum transform with ECEF inputs.",
+        ]
+    }
 }
 
 pub struct GeoLatLonFromEcef;
@@ -727,6 +949,30 @@ impl Skill for GeoLatLonFromEcef {
                 json!({ "lat": lat, "lon": lon, "alt_m": alt }).to_string(),
             ))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "ECEF round-trip target",
+                args: r#"{"x": -2295678.5, "y": -3638263.0, "z": 4691651.0}"#,
+                note: Some("Returns lat / lon (degrees) and ellipsoidal altitude in meters."),
+            },
+            SkillExample {
+                title: "Point on the equator",
+                args: r#"{"x": 6378137.0, "y": 0.0, "z": 0.0}"#,
+                note: Some(
+                    "Returns (0°, 0°, ~0 m) — the WGS84 prime-meridian / equator intersection.",
+                ),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Convert an ECEF state vector back to geographic lat / lon / alt.",
+            "Decode GNSS / orbital propagator output into mappable coordinates.",
+            "Round-trip a coordinate through ECEF as a sanity check.",
+        ]
     }
 }
 
@@ -816,6 +1062,28 @@ impl Skill for GeoHelmert {
                 json!({ "x": x2, "y": y2, "z": z2 }).to_string(),
             ))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Identity transform (sanity check)",
+                args: r#"{"x": 1000000, "y": 2000000, "z": 3000000, "tx": 0, "ty": 0, "tz": 0, "rx_arcsec": 0, "ry_arcsec": 0, "rz_arcsec": 0, "scale_ppm": 0}"#,
+                note: Some("Output equals input when all parameters are zero."),
+            },
+            SkillExample {
+                title: "OSGB36 → WGS84 (approximate)",
+                args: r#"{"x": 3874938, "y": -116218, "z": 5047168, "tx": 446.448, "ty": -125.157, "tz": 542.060, "rx_arcsec": 0.150, "ry_arcsec": 0.247, "rz_arcsec": 0.842, "scale_ppm": -20.489}"#,
+                note: Some("Classic UK datum-shift parameters; position-vector convention."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Convert ECEF between datums (WGS84 ↔ NAD83 / OSGB36 / ITRF) given 7 params.",
+            "Apply a published Helmert transform without writing the matrix math by hand.",
+            "Chain with `geo_ecef_from_latlon` / `geo_latlon_from_ecef` for end-to-end datum shifts.",
+        ]
     }
 }
 

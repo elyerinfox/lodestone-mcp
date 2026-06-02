@@ -139,6 +139,33 @@ impl Skill for OdeRk4 {
             ))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Exponential decay dy/dt = -y",
+                args: r#"{"rhs": ["-y0"], "y0": [1.0], "t_start": 0.0, "t_end": 1.0, "steps": 100}"#,
+                note: Some("Trajectory should end near y(1) = e⁻¹ ≈ 0.3679."),
+            },
+            SkillExample {
+                title: "Projectile under gravity (x, vx, y, vy)",
+                args: r#"{"rhs": ["y1", "0", "y3", "-9.81"], "y0": [0, 50, 0, 50], "t_start": 0, "t_end": 10, "steps": 200}"#,
+                note: Some("y3 carries vy; gravity acts on vy alone. Output `y` is parallel arrays per state."),
+            },
+            SkillExample {
+                title: "Simple harmonic oscillator",
+                args: r#"{"rhs": ["y1", "-y0"], "y0": [1.0, 0.0], "t_start": 0, "t_end": 6.2832, "steps": 500}"#,
+                note: Some("dx/dt = v, dv/dt = -x; expect a full sinusoidal cycle."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Integrate a first-order ODE system written symbolically as expressions.",
+            "Solve a small initial-value problem without writing custom integrator code.",
+            "Produce a trajectory for downstream plotting or analysis.",
+        ]
+    }
 }
 
 pub fn skills() -> Vec<Box<dyn Skill>> {

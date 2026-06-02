@@ -229,6 +229,33 @@ impl Skill for NewsFeed {
             Ok(text_result(report))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Built-in shorthand",
+                args: r#"{"source": "hackernews"}"#,
+                note: Some("Built-ins: hackernews, bbc, theverge, arstechnica, lobsters, lwn."),
+            },
+            SkillExample {
+                title: "Arbitrary RSS/Atom URL",
+                args: r#"{"source": "https://lobste.rs/rss", "max_results": 5}"#,
+                note: Some("`max_results` defaults to 15, capped at 50."),
+            },
+            SkillExample {
+                title: "Atom feed",
+                args: r#"{"source": "https://www.theverge.com/rss/index.xml"}"#,
+                note: Some("Both RSS 2.0 and Atom are parsed the same way."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Pull headlines from a known news/tech source.",
+            "Read a project's blog or release feed via its RSS URL.",
+            "Get recent items without scraping HTML — feed parser handles RSS + Atom.",
+        ]
+    }
 }
 
 /// Always-on (read-only); still gateable via `[tools]`.

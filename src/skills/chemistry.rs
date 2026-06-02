@@ -1292,6 +1292,32 @@ impl Skill for ChemPeriodicTable {
             Ok(text_result(element_to_json(e).to_string()))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "By symbol",
+                args: r#"{"element": "Fe"}"#,
+                note: Some("Symbol match is case-sensitive."),
+            },
+            SkillExample {
+                title: "By name",
+                args: r#"{"element": "iron"}"#,
+                note: Some("Name match is case-insensitive."),
+            },
+            SkillExample {
+                title: "By atomic number",
+                args: r#"{"element": "26"}"#,
+                note: Some("Numeric query is treated as Z."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Look up an element's atomic mass, group, period, or oxidation states.",
+            "Verify symbol↔name↔Z mapping without a network call.",
+        ]
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1462,6 +1488,32 @@ impl Skill for ChemMolarMass {
             ))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Water",
+                args: r#"{"formula": "H2O"}"#,
+                note: Some("Returns ~18.015 g/mol."),
+            },
+            SkillExample {
+                title: "Parentheses",
+                args: r#"{"formula": "Ca(OH)2"}"#,
+                note: Some("Nested groups multiplied correctly."),
+            },
+            SkillExample {
+                title: "Hydrate",
+                args: r#"{"formula": "CuSO4.5H2O"}"#,
+                note: Some("`.` or `·` separates a hydrate coefficient."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Compute formula weight for stoichiometry / yield / dilution math.",
+            "Get per-element counts for a parsed formula.",
+        ]
+    }
 }
 
 pub struct ChemFormulaHill;
@@ -1502,6 +1554,27 @@ impl Skill for ChemFormulaHill {
             ))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Reorder glucose",
+                args: r#"{"formula": "OH12C6"}"#,
+                note: Some("Returns `C6H12O6` — C first, H second, rest alphabetical."),
+            },
+            SkillExample {
+                title: "No carbon, alphabetize",
+                args: r#"{"formula": "FeO2H"}"#,
+                note: Some("Without C, everything is sorted alphabetically."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Canonicalize a formula string for indexing or de-duplication.",
+            "Convert a user-typed formula into the standard Hill-system display form.",
+        ]
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1539,6 +1612,32 @@ impl Skill for ChemBalanceEquation {
             let coeffs = balance_equation(&a.equation)?;
             Ok(text_result(coeffs.to_string()))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Water formation",
+                args: r#"{"equation": "H2 + O2 = H2O"}"#,
+                note: Some("Returns coefficients [2, 1, 2]."),
+            },
+            SkillExample {
+                title: "Propane combustion",
+                args: r#"{"equation": "C3H8 + O2 -> CO2 + H2O"}"#,
+                note: Some("Either `=` or `->` is accepted; result [1, 5, 3, 4]."),
+            },
+            SkillExample {
+                title: "Iron-oxide reduction",
+                args: r#"{"equation": "Fe2O3 + CO = Fe + CO2"}"#,
+                note: Some("Returns [1, 3, 2, 3] (blast-furnace stoichiometry)."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Get exact integer coefficients for a multi-species mass-balance equation.",
+            "Detect an infeasible or under-determined reaction before chasing stoichiometry by hand.",
+        ]
     }
 }
 
@@ -1839,6 +1938,32 @@ impl Skill for ChemPh {
             ))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "0.01 M HCl",
+                args: r#"{"kind": "strong_acid", "concentration_m": 0.01}"#,
+                note: Some("Returns pH ≈ 2."),
+            },
+            SkillExample {
+                title: "0.1 M acetic acid (pKa 4.76)",
+                args: r#"{"kind": "weak_acid", "concentration_m": 0.1, "pka_or_pkb": 4.76}"#,
+                note: Some("Uses [H+] ≈ √(Ka·C₀); returns pH ≈ 2.87."),
+            },
+            SkillExample {
+                title: "0.05 M NH3 (pKb 4.75)",
+                args: r#"{"kind": "weak_base", "concentration_m": 0.05, "pka_or_pkb": 4.75}"#,
+                note: Some("Pass pKb for weak bases."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Quick pH estimate for a single strong or weak acid/base solution.",
+            "Convert between [H+], [OH-], pH, and pOH given a concentration.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -1873,6 +1998,27 @@ impl Skill for ChemBuffer {
             let ph = a.pka + ratio.log10();
             Ok(text_result(json!({ "ph": ph, "ratio": ratio }).to_string()))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Equimolar buffer",
+                args: r#"{"pka": 4.76, "base_m": 0.1, "acid_m": 0.1}"#,
+                note: Some("Returns pH = pKa = 4.76."),
+            },
+            SkillExample {
+                title: "10× more base than acid",
+                args: r#"{"pka": 7.4, "base_m": 0.1, "acid_m": 0.01}"#,
+                note: Some("pH = pKa + log10(10) = 8.4."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Compute pH of a known buffer composition via Henderson-Hasselbalch.",
+            "Pick a [A⁻]/[HA] ratio to hit a target pH near a chosen pKa.",
+        ]
     }
 }
 
@@ -1953,6 +2099,27 @@ impl Skill for ChemIdealGas {
             ))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Solve for volume at STP",
+                args: r#"{"pressure_pa": 101325, "moles": 1.0, "temperature_k": 273.15}"#,
+                note: Some("Returns molar volume ≈ 0.02241 m³ (22.41 L)."),
+            },
+            SkillExample {
+                title: "Solve for pressure",
+                args: r#"{"volume_m3": 0.001, "moles": 0.04, "temperature_k": 298.15}"#,
+                note: Some("Omit the variable you want computed (here, pressure_pa)."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Solve any one of P, V, n, T from the other three under ideal-gas assumption.",
+            "Convert between moles and volume for a gas at known T and P.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -2012,6 +2179,27 @@ impl Skill for ChemDilution {
             ))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "How much stock for 100 mL of 0.1 M?",
+                args: r#"{"c1_m": 1.0, "c2_m": 0.1, "v2_l": 0.1}"#,
+                note: Some("Returns v1_l = 0.01 (10 mL of stock, fill to 100 mL)."),
+            },
+            SkillExample {
+                title: "What final concentration?",
+                args: r#"{"c1_m": 2.0, "v1_l": 0.005, "v2_l": 0.05}"#,
+                note: Some("Returns c2_m = 0.2."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Solve M₁V₁ = M₂V₂ for any one of the four variables.",
+            "Plan a serial dilution or back-calculate a starting volume.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -2050,6 +2238,27 @@ impl Skill for ChemGibbs {
                 .to_string(),
             ))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Spontaneous at room T",
+                args: r#"{"delta_h_kj": -100.0, "delta_s_j_per_k": 50.0, "temperature_k": 298.15}"#,
+                note: Some("ΔG < 0 → `spontaneous: true`."),
+            },
+            SkillExample {
+                title: "Endothermic, entropy-driven",
+                args: r#"{"delta_h_kj": 30.0, "delta_s_j_per_k": 120.0, "temperature_k": 500.0}"#,
+                note: Some("High T can flip an endothermic reaction to spontaneous."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Predict spontaneity of a reaction at a given temperature.",
+            "Find the crossover temperature where ΔG changes sign.",
+        ]
     }
 }
 
@@ -2094,6 +2303,27 @@ impl Skill for ChemRadioactiveDecay {
                 .to_string(),
             ))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "One half-life elapsed",
+                args: r#"{"n0": 1000.0, "half_life_s": 100.0, "time_s": 100.0}"#,
+                note: Some("Returns half remaining (fraction 0.5)."),
+            },
+            SkillExample {
+                title: "Three half-lives",
+                args: r#"{"n0": 1.0, "half_life_s": 60.0, "time_s": 180.0}"#,
+                note: Some("Fraction ≈ 0.125 (one-eighth)."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Compute remaining activity / mass after a given decay interval.",
+            "Get λ = ln(2)/t½ from a half-life for use in downstream calcs.",
+        ]
     }
 }
 

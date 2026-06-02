@@ -193,6 +193,35 @@ impl Skill for DbQuery {
             Ok(text_result(truncate_chars(&out, server.max_chars)))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "PostgreSQL SELECT",
+                args: r#"{"connection": "postgres://user:pass@host:5432/db", "sql": "SELECT id, name FROM users LIMIT 10"}"#,
+                note: Some("Read queries run immediately; up to 200 rows are rendered."),
+            },
+            SkillExample {
+                title: "MySQL inspection",
+                args: r#"{"connection": "mysql://user:pass@host/db", "sql": "SHOW TABLES"}"#,
+                note: None,
+            },
+            SkillExample {
+                title: "Destructive write (confirm flow)",
+                args: r#"{"connection": "postgres://user:pass@host/db", "sql": "DELETE FROM sessions WHERE expired"}"#,
+                note: Some(
+                    "First call returns a confirmation token; call again with `confirm=<token>`.",
+                ),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Run an ad-hoc SELECT against a Postgres or MySQL database.",
+            "Inspect schema with SHOW / DESCRIBE / EXPLAIN.",
+            "Apply a write or DDL change behind the confirmation guard.",
+        ]
+    }
 }
 
 pub struct RedisCommand;
@@ -239,6 +268,35 @@ impl Skill for RedisCommand {
             let out = run_redis(conn, &parts).await.map_err(internal)?;
             Ok(text_result(truncate_chars(&out, server.max_chars)))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Read a key",
+                args: r#"{"connection": "redis://localhost:6379", "command": "GET session:abc123"}"#,
+                note: None,
+            },
+            SkillExample {
+                title: "List keys by pattern",
+                args: r#"{"connection": "redis://cache:6379", "command": "KEYS user:*"}"#,
+                note: Some("KEYS is a read; prefer SCAN on large keyspaces."),
+            },
+            SkillExample {
+                title: "Destructive write (confirm flow)",
+                args: r#"{"connection": "redis://localhost:6379", "command": "DEL stale-key"}"#,
+                note: Some(
+                    "First call returns a confirmation token; call again with `confirm=<token>`.",
+                ),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Read a Redis key, hash, list, set, or sorted-set entry.",
+            "Inspect server state (DBSIZE, INFO, PING).",
+            "Apply a write command (SET/DEL/EXPIRE) behind the confirmation guard.",
+        ]
     }
 }
 

@@ -63,6 +63,33 @@ impl Skill for TrigFormula {
             Ok(text_result(out))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Sine of 30°",
+                args: r#"{"name": "sine", "args": {"theta": 30}}"#,
+                note: Some("Returns 0.5. Angles are degrees, not radians."),
+            },
+            SkillExample {
+                title: "Law of cosines (find angle)",
+                args: r#"{"name": "law_of_cosines_angle", "args": {"a": 3, "b": 4, "c": 5}}"#,
+                note: Some("Returns 90° (the right angle in a 3-4-5 triangle)."),
+            },
+            SkillExample {
+                title: "Degrees to radians",
+                args: r#"{"name": "deg_to_rad", "args": {"deg": 180}}"#,
+                note: Some("Returns π."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Compute trig values in degrees without remembering the radian conversion.",
+            "Apply law of sines / cosines or right-triangle relations to specific values.",
+            "Convert between degrees and radians as a named operation.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -91,6 +118,27 @@ impl Skill for TrigFormulaList {
                 args.filter.as_deref(),
             )))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "List everything",
+                args: r#"{}"#,
+                note: Some("Returns id, equation, and signature for every trig formula."),
+            },
+            SkillExample {
+                title: "Filter for inverses",
+                args: r#"{"filter": "arc"}"#,
+                note: Some("Substring match against id and summary."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Discover which formula id `trig_formula` accepts.",
+            "Browse the available trig identities and triangle relations.",
+        ]
     }
 }
 

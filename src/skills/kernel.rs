@@ -85,6 +85,23 @@ impl Skill for KernelReleases {
             Ok(text_result(out))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[SkillExample {
+            title: "List the current kernel releases",
+            args: r#"{}"#,
+            note: Some(
+                "No arguments; returns mainline / stable / longterm with dates and EOL flags.",
+            ),
+        }]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Answer 'what's the latest mainline / stable / longterm Linux kernel?'.",
+            "Check whether a given LTS line is still supported (EOL flag).",
+            "Get a source-tarball link to download a specific kernel version.",
+        ]
+    }
 }
 
 /// The skills this module contributes.

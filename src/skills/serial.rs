@@ -72,6 +72,20 @@ impl Skill for SerialPorts {
             Ok(text_result(out))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[SkillExample {
+            title: "Enumerate attached serial ports",
+            args: r#"{}"#,
+            note: Some("Prints port names + USB VID/PID where available."),
+        }]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Discover the COM/tty device path before opening it with `serial_read` or `serial_send`.",
+            "Confirm a USB-serial adapter is enumerated by the OS.",
+        ]
+    }
 }
 
 pub struct SerialSend;
@@ -111,6 +125,34 @@ impl Skill for SerialSend {
                 .map_err(internal)?;
             Ok(text_result(format!("Wrote {n} byte(s) to {}", args.port)))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "First call returns a confirmation token",
+                args: r#"{"port": "COM3", "data": "AT\r\n"}"#,
+                note: Some("Returns a token; resend with `confirm=<token>` to actually write."),
+            },
+            SkillExample {
+                title: "Confirmed write at a custom baud",
+                args: r#"{"port": "/dev/ttyUSB0", "data": "reset\n", "baud": 9600, "confirm": "abc123"}"#,
+                note: None,
+            },
+            SkillExample {
+                title: "Trust the tool for the session",
+                args: r#"{"port": "COM3", "data": "ping\n", "confirm": "abc123", "trust": true}"#,
+                note: Some(
+                    "Subsequent `serial_send` calls skip the challenge until the session ends.",
+                ),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Push an AT command or simple line protocol to a modem / microcontroller.",
+            "Trigger an action on a USB-serial device (reset, mode switch) by writing a known command.",
+        ]
     }
 }
 
@@ -155,6 +197,29 @@ impl Skill for SerialRead {
             );
             Ok(text_result(out))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Read with defaults",
+                args: r#"{"port": "COM3"}"#,
+                note: Some(
+                    "Uses `[serial].baud` and `[serial].timeout_ms`; returns text + hex dump.",
+                ),
+            },
+            SkillExample {
+                title: "Short read with override",
+                args: r#"{"port": "/dev/ttyUSB0", "baud": 115200, "timeout_ms": 500, "max_bytes": 256}"#,
+                note: None,
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Capture the response banner / output of a device right after opening the port.",
+            "Read the reply to a `serial_send` command and inspect it as both text and hex.",
+        ]
     }
 }
 

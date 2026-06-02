@@ -79,6 +79,28 @@ impl Skill for PcapInfo {
             )))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Summarize a capture",
+                args: r#"{"path": "captures/dns.pcap"}"#,
+                note: Some("Reports link layer, packet count, on-wire bytes, and timestamp span."),
+            },
+            SkillExample {
+                title: "Large rolling capture",
+                args: r#"{"path": "captures/2026-06-01.pcap"}"#,
+                note: Some("Stops counting at the first parse error and reports it."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Sanity-check a capture's size and time window before deeper analysis.",
+            "Confirm the link-layer type so the consumer parser is right.",
+            "First triage step before paging through with pcap_packets.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -154,6 +176,28 @@ impl Skill for PcapPackets {
             out.push_str(&format!("\nshown {shown}, scanned {idx}"));
             Ok(text_result(out))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "First 50 packets",
+                args: r#"{"path": "captures/dns.pcap"}"#,
+                note: Some("Defaults: 50 packets, no skip. Each line has timestamp, length, and 32-byte hex preview."),
+            },
+            SkillExample {
+                title: "Page deeper into the capture",
+                args: r#"{"path": "captures/dns.pcap", "offset": 200, "max": 100}"#,
+                note: Some("Skips the first 200 and shows the next 100."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Walk packet headers to spot a suspicious request without external tooling.",
+            "Page through a capture looking for a specific protocol prefix in the preview.",
+            "Confirm a capture contains expected traffic before opening Wireshark.",
+        ]
     }
 }
 

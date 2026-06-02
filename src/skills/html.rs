@@ -81,6 +81,28 @@ impl Skill for HtmlRender {
             Ok(text_result(out))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Verify a generated HTML snippet",
+                args: r#"{"html": "<!doctype html><html><body><script>console.log('hi')</script></body></html>"}"#,
+                note: Some("Captures console / exceptions / network failures / 4xx-5xx; default wait is 1500 ms."),
+            },
+            SkillExample {
+                title: "Load a URL and see what its console looks like",
+                args: r#"{"url": "https://example.com", "wait_ms": 3000}"#,
+                note: Some("Use `wait_ms` to let JS settle on heavier pages (capped at 30000)."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Sanity-check `chart_interactive` / generated UI HTML before sending it on.",
+            "Diagnose why a page is broken (JS errors, blocked requests, 4xx/5xx).",
+            "Confirm a URL actually loads cleanly from this host's network.",
+        ]
+    }
 }
 
 fn format_diagnostics(d: &crate::browser::PageDiagnostics) -> String {

@@ -6,6 +6,113 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.9] - 2026-06-02
+
+Full-catalog fill of `examples()` and `use_cases()` on every Skill impl,
+the dynamic instructions handshake gains an introductory preamble and a
+prominent lookup-tools section, and a clutch of accuracy bugs the
+fill-time verifier caught are now fixed.
+
+### Added — `examples()` and `use_cases()` on 432 of 466 Skill impls
+
+A multi-agent workflow (11 fill agents in parallel, each followed by a
+quality-gate verifier auditing against `algebra.rs` as the reference)
+walked the entire skill catalog and added 2–4 worked-example
+invocations plus 2–4 use-case phrases to every `impl Skill for X`
+block. Coverage is now **432 / 466** (93 %); the residual 34 are
+ambiguous edges where field semantics weren't legible enough to write
+a plausible example. Each example carries valid JSON args matching
+the Args struct's actual field names; each use-case phrase says when
+to reach for *this* tool over a sibling.
+
+The fill is consumed by the existing `describe_skill` tool (one
+tool's full schema + examples on demand) and folded into the
+dynamic instructions handshake. The MCP `tools/list` payload is
+unchanged — coverage costs nothing until an LLM asks.
+
+### Changed — handshake leads with a preamble and a LOOKUP TOOLS section
+
+`get_info()`'s dynamic handshake now opens with a proper welcoming
+paragraph ("Welcome to Lodestone MCP server vX.Y.Z. This is a
+keyless, self-hosted toolkit…") followed by a live `{active}/{total}`
+count and the ~100-families organization concept. A new **LOOKUP
+TOOLS** section sits right after the preamble, before any other
+guidance — it explicitly calls out `describe_skill`,
+`describe_family`, `features`, and `list_providers` by name with a
+one-line summary of when to use each. The previous `GENERAL
+APPROACH` and per-family inventory sections follow.
+
+### Fixed — accuracy bugs caught by the verifier
+
+The quality-gate verifier flagged 25 issues across the fill output
+(4 high, 12 medium, 9 low). All highs and the load-bearing mediums
+are addressed here:
+
+- **`chart_canvas`** — `CanvasCommand` is `#[serde(tag = "kind")]`
+  but had no `rename_all`, so serde expected PascalCase variant
+  names (`Rect`, `Line`, …) while every example used lowercase
+  (`rect`, `line`, …). Added `#[serde(rename_all = "lowercase")]` so
+  the lowercase tokens the LLM naturally writes round-trip cleanly.
+- **`sat_position` / `sat_observe` / `sat_passes`** — examples used
+  a 2024-epoch TLE with the 2008 checksum digit, so
+  `sgp4::Elements::from_tle` rejected them with `Bad line checksum`.
+  Switched to the canonical SGP4 verification-suite TLE (2008
+  epoch, correct checksum) and moved every `at` / `from` time to be
+  near that epoch so SGP4's ~1–2 week validity window holds; notes
+  now point at Celestrak / Space-Track for live use.
+- **`tasks_get` / `tasks_result` / `tasks_cancel`** — placeholder
+  task IDs `tsk_01HXYZ...` would never match the runtime's actual
+  `task-{n}` format. Updated to `task-3`.
+- **`docker_run`** — example had `"command": "sh -c 'echo hi'"`
+  with a misleading "no host shell" note; the implementation
+  splits on whitespace, so the embedded quotes would arrive
+  literally. Switched to a plain command and rewrote the note to
+  spell out the whitespace-split + no-shell behavior.
+- **`disasm_x86_hex`** — the field doc-comment promised it strips
+  `0x` prefixes but `parse_hex` only filtered non-hex-digit
+  characters (so a literal `0x90` became `090`, an odd length, and
+  errored). Fixed `parse_hex` to split on whitespace/comma and
+  strip `0x`/`0X` per token. Description now matches behavior.
+- **`astro_sun`** — solstice-noon example was at lat=0 with a note
+  claiming altitude ≈ 90°, but the Sun's declination is +23.44° at
+  June solstice, so equator noon altitude is ~66.6°. Moved the
+  example to the Tropic of Cancer (lat=23.43°) where the note is
+  actually true.
+- **`astro_visible_stars`** — note said "brightest first" but the
+  implementation sorts by altitude (highest first). Corrected.
+- **`physical_constant`** — example `{"name": "c"}` was advertised
+  as returning the speed of light entry, but `name` is a
+  case-insensitive substring filter against both symbol and name,
+  so the letter `c` matches every constant containing `c`. Switched
+  to a discriminating filter (`speed of light`) and rewrote the
+  note to explain substring matching.
+- **`acoustic_snell`** — air-to-water example note said "beyond the
+  critical angle" without naming it; rewritten to spell out the
+  ~13.2° critical angle so 30° is recognizably past it.
+- **`eia_series`** — example labelled "Henry Hub natural gas spot
+  price" actually used the NYMEX futures path (`pri/fut`).
+  Re-titled to match the actual dataset and pointed at the spot
+  path (`pri/sum`) in the note.
+- **`interchange_stl_info`** — placeholder `data_base64` (`AAAAAA...==`)
+  was neither valid base64 nor long enough for the 84-byte STL
+  header, so the example would never run. Replaced with a real
+  single-triangle ASCII STL and called out the base64 path in the
+  note instead.
+
+Filesystem field doc-comment for `bytes_hex` now matches the
+parser's promise (the change to `parse_hex` makes the description
+literally true rather than aspirational).
+
+### Resolved verifier-skipped clusters
+
+Three clusters (`search-retrieval`, `rf-signal-radar`,
+`bio-chem-trajectory`) had their fill-stage verifier skipped because
+of a transient parallel-edit conflict in a different cluster's
+chart.rs intermediate state. A follow-up read-only audit of all
+three (88 skills total) found 0 high-severity, 1 medium, 6 low
+issues. The medium (the acoustic_snell critical-angle note) is
+fixed above; the lows are stylistic nits left for the next pass.
+
 ## [0.1.8] - 2026-06-02
 
 LLM-facing surface gets two new contracts (`Skill::examples`,

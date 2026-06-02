@@ -167,6 +167,38 @@ impl Skill for YahooQuote {
             Ok(text_result(report))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Apple equity",
+                args: r#"{"symbol": "AAPL"}"#,
+                note: Some("Returns price, day range, 52-week range, volume."),
+            },
+            SkillExample {
+                title: "S&P 500 index",
+                args: r#"{"symbol": "^GSPC"}"#,
+                note: None,
+            },
+            SkillExample {
+                title: "Bitcoin in USD",
+                args: r#"{"symbol": "BTC-USD"}"#,
+                note: Some("Crypto symbols use the `BTC-USD` / `ETH-USD` form."),
+            },
+            SkillExample {
+                title: "EUR/USD FX",
+                args: r#"{"symbol": "EURUSD=X"}"#,
+                note: None,
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Get a richer delayed quote (52-week range, exchange, currency) than `stock_quote`.",
+            "Look up a Yahoo-style symbol for an index, ETF, FX pair, or crypto.",
+            "Resolve a ticker via `yahoo_search` first, then quote it here.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -304,6 +336,33 @@ impl Skill for YahooHistory {
             Ok(text_result(report))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Default daily bars, 1 month",
+                args: r#"{"symbol": "MSFT"}"#,
+                note: Some("Defaults: range=1mo, interval=1d."),
+            },
+            SkillExample {
+                title: "1-year daily history",
+                args: r#"{"symbol": "AAPL", "range": "1y", "interval": "1d"}"#,
+                note: None,
+            },
+            SkillExample {
+                title: "Intraday 5-minute bars",
+                args: r#"{"symbol": "TSLA", "range": "5d", "interval": "5m"}"#,
+                note: Some("Intraday intervals only cover recent ranges per Yahoo's limits."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Pull recent OHLC bars for backtesting or charting.",
+            "Get an intraday 5m/15m/60m series for the last few days.",
+            "Fetch a long daily history (1y/5y/max) for an equity or index.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -399,6 +458,33 @@ impl Skill for YahooSearch {
             server.retrieval_put(key, &report);
             Ok(text_result(report))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Company name",
+                args: r#"{"query": "apple"}"#,
+                note: Some("Returns matching symbols with name, type, and exchange."),
+            },
+            SkillExample {
+                title: "Fund family",
+                args: r#"{"query": "vanguard s&p"}"#,
+                note: None,
+            },
+            SkillExample {
+                title: "Partial ticker",
+                args: r#"{"query": "BTC"}"#,
+                note: Some("Matches BTC-USD plus related crypto symbols."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Resolve a company name to its Yahoo Finance ticker symbol.",
+            "Disambiguate similar tickers (equity vs ETF vs FX).",
+            "Feed a symbol into `yahoo_quote` or `yahoo_history`.",
+        ]
     }
 }
 

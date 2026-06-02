@@ -90,6 +90,28 @@ impl Skill for QuatFromEuler {
             Ok(text_result(json!({ "q": quat_to_array(&q) }).to_string()))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Identity rotation",
+                args: r#"{"roll": 0, "pitch": 0, "yaw": 0}"#,
+                note: Some("Returns the identity quaternion `[1, 0, 0, 0]`."),
+            },
+            SkillExample {
+                title: "Quarter turn about Z",
+                args: r#"{"roll": 0, "pitch": 0, "yaw": 1.5707963267948966}"#,
+                note: Some("π/2 yaw → `[√½, 0, 0, √½]`."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Build a quaternion from roll / pitch / yaw for downstream rotation math.",
+            "Convert IMU Euler-angle output into Hamilton quaternion form.",
+            "Seed a rotation for `quat_rotate` or `quat_compose`.",
+        ]
+    }
 }
 
 pub struct QuatToEuler;
@@ -114,6 +136,28 @@ impl Skill for QuatToEuler {
             ))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Identity quaternion",
+                args: r#"{"q": [1, 0, 0, 0]}"#,
+                note: Some("All three Euler angles are 0."),
+            },
+            SkillExample {
+                title: "Decompose an arbitrary quaternion",
+                args: r#"{"q": [0.7071068, 0, 0, 0.7071068]}"#,
+                note: Some("Returns yaw ≈ π/2 rad, roll = pitch = 0."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Recover roll / pitch / yaw from a quaternion-form orientation.",
+            "Convert an attitude estimate into IMU-friendly Euler angles.",
+            "Inspect a composed rotation in human-readable angles.",
+        ]
+    }
 }
 
 pub struct QuatCompose;
@@ -135,6 +179,28 @@ impl Skill for QuatCompose {
             let q = qa * qb;
             Ok(text_result(json!({ "q": quat_to_array(&q) }).to_string()))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Identity ∘ identity",
+                args: r#"{"a": [1, 0, 0, 0], "b": [1, 0, 0, 0]}"#,
+                note: Some("Returns the identity quaternion."),
+            },
+            SkillExample {
+                title: "Two successive 90° rotations about Z",
+                args: r#"{"a": [0.7071068, 0, 0, 0.7071068], "b": [0.7071068, 0, 0, 0.7071068]}"#,
+                note: Some("Result is a 180° rotation about Z: `[0, 0, 0, 1]`."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Combine two rotations into a single quaternion.",
+            "Stack a body-frame rotation onto a world-frame rotation.",
+            "Sequence quaternion updates for attitude propagation.",
+        ]
     }
 }
 
@@ -158,6 +224,28 @@ impl Skill for QuatRotate {
             Ok(text_result(json!({ "v": [r.x, r.y, r.z] }).to_string()))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Rotate X axis 90° about Z",
+                args: r#"{"q": [0.7071068, 0, 0, 0.7071068], "v": [1, 0, 0]}"#,
+                note: Some("Returns `[0, 1, 0]` — X maps onto Y."),
+            },
+            SkillExample {
+                title: "Identity rotation",
+                args: r#"{"q": [1, 0, 0, 0], "v": [1, 2, 3]}"#,
+                note: Some("Vector is returned unchanged."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Apply a quaternion rotation to a 3-vector (point or direction).",
+            "Transform a body-frame vector into the world frame given an attitude.",
+            "Rotate a known direction by an interpolated orientation from `quat_slerp`.",
+        ]
+    }
 }
 
 pub struct QuatConjugate;
@@ -179,6 +267,28 @@ impl Skill for QuatConjugate {
             let c = q.conjugate();
             Ok(text_result(json!({ "q": quat_to_array(&c) }).to_string()))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Conjugate a yaw quaternion",
+                args: r#"{"q": [0.7071068, 0, 0, 0.7071068]}"#,
+                note: Some("Returns `[0.7071068, 0, 0, -0.7071068]` — the inverse rotation."),
+            },
+            SkillExample {
+                title: "Identity is its own conjugate",
+                args: r#"{"q": [1, 0, 0, 0]}"#,
+                note: None,
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Invert a unit quaternion to undo a rotation.",
+            "Build the world→body transform from a body→world quaternion.",
+            "Get the conjugate for a quaternion-vector-conjugate sandwich product.",
+        ]
     }
 }
 
@@ -207,6 +317,28 @@ impl Skill for QuatNormalize {
             ))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Scaled identity quaternion",
+                args: r#"{"q": [2, 0, 0, 0]}"#,
+                note: Some("Normalizes to `[1, 0, 0, 0]`."),
+            },
+            SkillExample {
+                title: "Drift-corrected attitude",
+                args: r#"{"q": [0.71, 0.01, 0.0, 0.71]}"#,
+                note: Some("Renormalize after integrating angular rates."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Renormalize a quaternion drifting away from unit length.",
+            "Project a raw 4-vector onto the unit-quaternion manifold.",
+            "Clean up numerical noise after long quaternion integration.",
+        ]
+    }
 }
 
 pub struct QuatSlerp;
@@ -233,6 +365,28 @@ impl Skill for QuatSlerp {
             Ok(text_result(json!({ "q": quat_to_array(&q) }).to_string()))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Midpoint between identity and 90° yaw",
+                args: r#"{"a": [1, 0, 0, 0], "b": [0.7071068, 0, 0, 0.7071068], "t": 0.5}"#,
+                note: Some("Returns the 45° yaw quaternion."),
+            },
+            SkillExample {
+                title: "Endpoints",
+                args: r#"{"a": [1, 0, 0, 0], "b": [0.7071068, 0, 0, 0.7071068], "t": 1.0}"#,
+                note: Some("`t = 0` returns `a`; `t = 1` returns `b`."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Smoothly interpolate between two attitudes for animation or motion control.",
+            "Generate intermediate orientations along a great-circle in quaternion space.",
+            "Blend two IMU pose estimates by a fractional weight.",
+        ]
+    }
 }
 
 pub struct FrameDcmFromEuler;
@@ -257,6 +411,28 @@ impl Skill for FrameDcmFromEuler {
                 .collect();
             Ok(text_result(json!({ "dcm": rows }).to_string()))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Identity DCM",
+                args: r#"{"roll": 0, "pitch": 0, "yaw": 0}"#,
+                note: Some("Returns the 3×3 identity matrix."),
+            },
+            SkillExample {
+                title: "Yaw by 90°",
+                args: r#"{"roll": 0, "pitch": 0, "yaw": 1.5707963267948966}"#,
+                note: Some("Rotation matrix swaps X and Y axes."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Get the 3×3 rotation matrix form of an attitude for matrix-vector code.",
+            "Feed a DCM into algorithms that don't natively take quaternions.",
+            "Inspect a rotation as a matrix for debugging.",
+        ]
     }
 }
 

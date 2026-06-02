@@ -82,6 +82,28 @@ impl Skill for BioUniprotGet {
             Ok(text_result(body))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Fetch by accession",
+                args: r#"{"accession": "P12345"}"#,
+                note: Some("Returns the full UniProtKB JSON record."),
+            },
+            SkillExample {
+                title: "Fetch by entry name",
+                args: r#"{"accession": "INS_HUMAN"}"#,
+                note: Some("Entry-name form also works; resolves human insulin."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Pull protein names, organism, sequence, and cross-references for a UniProt entry.",
+            "Use when you have an accession or entry name and need structured protein metadata.",
+            "Prefer over Ensembl when working at the protein (not gene/transcript) level.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -127,6 +149,27 @@ impl Skill for BioPdbGet {
             server.retrieval_put(key, &body);
             Ok(text_result(body))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Hemoglobin entry",
+                args: r#"{"pdb_id": "1HHO"}"#,
+                note: Some("Returns method, resolution, title, authors, deposition date."),
+            },
+            SkillExample {
+                title: "Lowercase id accepted",
+                args: r#"{"pdb_id": "4hhb"}"#,
+                note: Some("Case-insensitive; upper-cased internally."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Pull experimental method / resolution / authors for a known PDB ID.",
+            "Look up a 3-D structure entry; use UniProt instead when you only have a sequence.",
+        ]
     }
 }
 
@@ -186,6 +229,27 @@ impl Skill for BioEnsemblLookup {
             server.retrieval_put(key, &body);
             Ok(text_result(body))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Gene with expanded children",
+                args: r#"{"id": "ENSG00000139618"}"#,
+                note: Some("BRCA2; default expand=true also returns transcripts."),
+            },
+            SkillExample {
+                title: "Transcript, no expansion",
+                args: r#"{"id": "ENST00000380152", "expand": false}"#,
+                note: Some("Skip child lookup when you only need coordinates / biotype."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Resolve an Ensembl stable id to coordinates, biotype, and species.",
+            "Walk gene → transcripts → exons by chaining lookups with `expand=true`.",
+        ]
     }
 }
 

@@ -102,6 +102,28 @@ impl Skill for DspSpectrogram {
             ))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Short tone at 1 kHz",
+                args: r#"{"samples": [0.0, 0.71, 1.0, 0.71, 0.0, -0.71, -1.0, -0.71, 0.0, 0.71, 1.0, 0.71, 0.0, -0.71, -1.0, -0.71], "sample_rate_hz": 8000.0, "window_size": 8}"#,
+                note: Some("Returns `freqs_hz`, `times_s`, and a 2-D `magnitude` matrix."),
+            },
+            SkillExample {
+                title: "Custom overlap",
+                args: r#"{"samples": [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1, 0.0], "sample_rate_hz": 1000.0, "window_size": 8, "overlap": 0.75}"#,
+                note: Some("Higher overlap → more time slices, smoother spectrogram."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Plot a time-frequency surface — feed `magnitude` to `chart_heatmap`.",
+            "Detect chirps or transients that a single FFT would smear.",
+            "Prepare a feature matrix for downstream classification.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -188,6 +210,28 @@ impl Skill for DspCrossCorrelation {
             ))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Delayed copy",
+                args: r#"{"a": [1.0, 0.0, 0.0, 0.0, 0.0], "b": [0.0, 0.0, 1.0, 0.0, 0.0], "sample_rate_hz": 1000.0}"#,
+                note: Some("`peak_lag_s` ≈ +0.002 — b lags a by 2 samples."),
+            },
+            SkillExample {
+                title: "Two noisy mic captures",
+                args: r#"{"a": [0.0, 1.0, 0.5, -0.3, 0.1], "b": [0.2, 0.0, 1.0, 0.5, -0.3], "sample_rate_hz": 48000.0}"#,
+                note: Some("Use `peak_lag_s` for TDOA bearing estimates."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Estimate time delay between two microphones or radio receivers.",
+            "Detect a known reference template buried in a longer recording.",
+            "Align two time series before subtracting or coherently averaging.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -265,6 +309,28 @@ impl Skill for DspHilbert {
             ))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "AM-modulated tone",
+                args: r#"{"samples": [0.0, 0.5, 1.0, 0.5, 0.0, -0.5, -1.0, -0.5, 0.0, 0.5, 1.0, 0.5, 0.0, -0.5, -1.0, -0.5], "sample_rate_hz": 8000.0}"#,
+                note: Some("Use `instantaneous_amplitude` to read the envelope."),
+            },
+            SkillExample {
+                title: "Linear chirp",
+                args: r#"{"samples": [0.0, 0.1, 0.3, 0.5, 0.7, 0.9, 1.0, 0.8, 0.4, -0.1, -0.6, -0.9, -1.0, -0.7, -0.2, 0.4], "sample_rate_hz": 1000.0}"#,
+                note: Some("`instantaneous_frequency_hz` should ramp upward."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Extract the analytic-signal envelope for AM demodulation.",
+            "Track instantaneous frequency of a chirp or FM signal.",
+            "Build SSB modulators / single-sideband filters in post-processing.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -314,6 +380,28 @@ impl Skill for DspCepstrum {
                 .collect();
             Ok(text_result(json!({ "cepstrum": ceps }).to_string()))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Voiced speech frame",
+                args: r#"{"samples": [0.0, 0.5, 1.0, 0.5, 0.0, -0.5, -1.0, -0.5, 0.0, 0.5, 1.0, 0.5, 0.0, -0.5, -1.0, -0.5]}"#,
+                note: Some("Peak quefrency reveals the pitch period."),
+            },
+            SkillExample {
+                title: "Echo detection",
+                args: r#"{"samples": [1.0, 0.0, 0.0, 0.5, 0.0, 0.0, 0.25, 0.0, 0.0, 0.125, 0.0, 0.0, 0.06, 0.0, 0.0, 0.03]}"#,
+                note: Some("Look for peaks at the echo delay quefrency."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Detect pitch period of voiced speech or musical notes.",
+            "Find echoes and multipath delays in acoustic / radar returns.",
+            "Decouple source from filter for homomorphic processing.",
+        ]
     }
 }
 
@@ -391,6 +479,33 @@ impl Skill for DspBer {
             Ok(text_result(json!({ "ber": ber }).to_string()))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "BPSK in AWGN",
+                args: r#"{"modulation": "bpsk", "ebn0_db": 7.0}"#,
+                note: Some("Returns `ber` near 7.7e-4."),
+            },
+            SkillExample {
+                title: "16-QAM",
+                args: r#"{"modulation": "qam_m", "m": 16, "ebn0_db": 10.0}"#,
+                note: Some("`m` is required for QAM/PSK."),
+            },
+            SkillExample {
+                title: "BPSK in Rayleigh fading",
+                args: r#"{"modulation": "bpsk", "ebn0_db": 15.0, "channel": "rayleigh"}"#,
+                note: Some("Fading BER falls off as 1/SNR — much worse than AWGN."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Pick a modulation scheme for a given link Eb/N0 budget.",
+            "Compare AWGN vs Rayleigh sensitivity for a wireless design.",
+            "Plot a BER-vs-Eb/N0 curve by sweeping `ebn0_db`.",
+        ]
+    }
 }
 
 fn erfc(x: f64) -> f64 {
@@ -448,6 +563,28 @@ impl Skill for DspIqDemod {
                 json!({ "amplitude": amp, "phase": phase }).to_string(),
             ))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Quarter-circle trajectory",
+                args: r#"{"i": [1.0, 0.71, 0.0, -0.71], "q": [0.0, 0.71, 1.0, 0.71]}"#,
+                note: Some("`amplitude` is 1; `phase` ramps from 0 to 3π/4."),
+            },
+            SkillExample {
+                title: "Constant-envelope FM-style burst",
+                args: r#"{"i": [1.0, 0.5, -0.5, -1.0, -0.5, 0.5], "q": [0.0, 0.87, 0.87, 0.0, -0.87, -0.87]}"#,
+                note: Some("Amplitude stays at 1; phase wraps around the unit circle."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Convert SDR I/Q samples to magnitude / phase for envelope detection.",
+            "Drive constellation plotting tools from raw quadrature data.",
+            "Extract phase to feed a PLL or frequency-tracking loop.",
+        ]
     }
 }
 

@@ -158,6 +158,33 @@ impl Skill for SearchAsync {
             )))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Fan-out web search in the background",
+                args: r#"{"kind": "web", "query": "rust async runtime comparison"}"#,
+                note: Some("Returns a `task_id` immediately; poll via `tasks_result`."),
+            },
+            SkillExample {
+                title: "Code-oriented search with a result cap",
+                args: r#"{"kind": "code", "query": "tokio::select! examples", "max_results": 5}"#,
+                note: None,
+            },
+            SkillExample {
+                title: "Docs / Q&A kinds",
+                args: r#"{"kind": "docs", "query": "MCP tasks spec progressToken"}"#,
+                note: Some("`kind` is one of `web` / `code` / `docs` / `qa`."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Kick off several searches in parallel without waiting on each one.",
+            "Run a long search alongside other work; collect results later.",
+            "Use with `tasks_list` / `tasks_result` / `tasks_cancel` to manage background work.",
+        ]
+    }
 }
 
 pub fn skills() -> Vec<Box<dyn Skill>> {

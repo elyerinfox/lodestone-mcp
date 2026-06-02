@@ -1523,6 +1523,33 @@ impl Skill for Remember {
             }
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Note a stray fact without picking a key",
+                args: r#"{"text": "the prod cluster lives in us-east-2"}"#,
+                note: Some("Auto-classifies as a memo; auto-derives key and tags from the text."),
+            },
+            SkillExample {
+                title: "Recipe-shaped text becomes a solution",
+                args: r#"{"text": "to clear the build cache: rm -rf target/ && cargo clean"}"#,
+                note: Some("Leading `to ` triggers solution classification; surfaces in future recall preambles."),
+            },
+            SkillExample {
+                title: "Force-classify and scope it",
+                args: r#"{"text": "Ely prefers tabs over spaces", "as": "fact", "scope": "user-prefs"}"#,
+                note: Some("Pass `as` to skip the heuristic; `scope` namespaces the memo."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Capture a passing observation without choosing keys, tags, or shape.",
+            "Let the server decide whether free-form text is a fact or a recipe.",
+            "Stash a one-line note in a scope without hand-crafting a `memory_save` call.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -1559,6 +1586,27 @@ impl Skill for RememberFact {
             }
             write_memo(server, text, args.scope.unwrap_or_default(), args.tags).await
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Remember a standalone fact",
+                args: r#"{"text": "the on-call rotation flips every Tuesday at 09:00 PT"}"#,
+                note: Some("Auto-derived key + auto-extracted tags; lands as a memo regardless of phrasing."),
+            },
+            SkillExample {
+                title: "Scope a project-specific note with explicit tags",
+                args: r#"{"text": "use --features serde when building the SDK", "scope": "myproj", "tags": ["build", "serde"]}"#,
+                note: Some("Skips the classifier so recipe-shaped text doesn't end up in the solution store."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Bypass the auto-classifier when you know the text is a fact, not a recipe.",
+            "Store a quick note without committing to a key naming convention.",
+        ]
     }
 }
 
@@ -1609,6 +1657,27 @@ impl Skill for RememberSolution {
                 .unwrap_or_else(|| truncate_remember(&text, 120));
             write_solution_full(server, problem, summary, text, args.tags).await
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Record a recipe with no ceremony",
+                args: r#"{"text": "Postgres won't start after upgrade. Run `pg_upgrade --check` first then `systemctl restart postgresql`."}"#,
+                note: Some("First sentence becomes the problem; remainder becomes the content; tags auto-extract."),
+            },
+            SkillExample {
+                title: "Override the auto-derived problem and summary",
+                args: r#"{"text": "Use `cargo nextest` for parallel test runs", "problem": "Speeding up local test runs", "summary": "Switch to nextest"}"#,
+                note: Some("Explicit `problem` / `summary` override; recall scoring uses the explicit problem text."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Capture a problem-resolution recipe so future similar queries surface it.",
+            "Skip the auto-classifier when you know the text describes a solution.",
+        ]
     }
 }
 
@@ -2255,6 +2324,29 @@ impl Skill for MemoryGet {
             Ok(text_result(out))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Fetch a memo by key (default scope)",
+                args: r#"{"key": "preferred-editor"}"#,
+                note: Some(
+                    "Returns the value plus tags and timestamps, or a `no such key` message.",
+                ),
+            },
+            SkillExample {
+                title: "Fetch from a named scope",
+                args: r#"{"key": "tls-renewal-host", "scope": "infra"}"#,
+                note: Some("Same key in different scopes are distinct entries."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Read back a previously saved memo by exact key.",
+            "Disambiguate two scopes that share the same key.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -2355,6 +2447,27 @@ impl Skill for MemoryList {
             Ok(text_result(out))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Browse the 25 most recent memos",
+                args: r#"{}"#,
+                note: Some("Ordered by `updated_at` DESC; `max` defaults to 25, capped at 200."),
+            },
+            SkillExample {
+                title: "List a scope with a key prefix filter",
+                args: r#"{"scope": "infra", "prefix": "tls-", "max": 50}"#,
+                note: Some("Filter combines scope + key prefix (LIKE `<prefix>%`)."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Browse memos most-recent-first to find what was noted lately.",
+            "Enumerate keys under one scope before deciding what to fetch.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -2444,6 +2557,27 @@ impl Skill for MemorySearch {
             Ok(text_result(out))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Free-text substring across memos",
+                args: r#"{"query": "nginx"}"#,
+                note: Some("Case-insensitive match against key, value, and tags."),
+            },
+            SkillExample {
+                title: "Constrain to a scope and tag",
+                args: r#"{"query": "renewal", "scope": "infra", "tag": "tls"}"#,
+                note: Some("`tag` requires an exact (case-insensitive) tag membership."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Find a memo when you remember a word from it but not the key.",
+            "Use `recall` instead when you also want prior solutions in the same call.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -2531,6 +2665,27 @@ impl Skill for MemoryForget {
                 }
             )))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "First call returns a confirm token",
+                args: r#"{"key": "stale-note"}"#,
+                note: Some("Destructive — the second call must include `confirm=<token>` from this response."),
+            },
+            SkillExample {
+                title: "Confirm + whitelist for the session",
+                args: r#"{"key": "stale-note", "confirm": "<token-from-first-call>", "trust": true}"#,
+                note: Some("`trust=true` skips the confirm prompt for the rest of the session."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Delete one memo by exact key + scope after verifying it's stale.",
+            "Whitelist `memory_forget` for a cleanup session using `trust=true`.",
+        ]
     }
 }
 
@@ -2740,6 +2895,32 @@ impl Skill for SolutionRecord {
                 fmt_ts(now as u64)
             )))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Full structured solution",
+                args: r#"{"problem": "Cargo build fails with linker error on Ubuntu 24.04", "summary": "Install gcc-multilib", "content": "Run `sudo apt install gcc-multilib build-essential`. The default Ubuntu 24.04 image ships without the 32-bit linker shim.", "tags": ["rust", "ubuntu", "linker"]}"#,
+                note: Some(
+                    "Returns the assigned `sol-N` id. Recall surfaces this on similar questions.",
+                ),
+            },
+            SkillExample {
+                title: "Minimal — problem + summary + content",
+                args: r#"{"problem": "How do I rotate the prod TLS cert?", "summary": "acme.sh on the edge node", "content": "ssh to edge-01, run `acme.sh --renew -d *.example.com`, then `systemctl reload nginx`."}"#,
+                note: Some(
+                    "Tags are optional but boost recall; notes capture caveats / what didn't work.",
+                ),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Persist a worked-out solution so future recall preambles surface it.",
+            "Capture problem + summary + content as a structured entry, not a free-form memo.",
+            "Reach for `remember_solution` instead when you just have one text blob.",
+        ]
     }
 }
 
@@ -2991,6 +3172,33 @@ impl Skill for SolutionFind {
             Ok(text_result(out))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Find prior solutions to a similar problem",
+                args: r#"{"query": "TLS cert renewal on the edge"}"#,
+                note: Some("Ranks exact canonical > exact concept > fuzzy overlap > substring, plus tag boost."),
+            },
+            SkillExample {
+                title: "Tag-only browse (no query)",
+                args: r#"{"tags": ["postgres", "upgrade"], "max": 10}"#,
+                note: Some("Pure tag lookups work; any tag overlap qualifies (case-insensitive)."),
+            },
+            SkillExample {
+                title: "Combine query and tag filter",
+                args: r#"{"query": "linker error", "tags": ["rust"]}"#,
+                note: Some("Tag overlap boosts the score; results are advisory, not prescriptive."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Surface prior recorded solutions before reinventing the fix.",
+            "Browse solutions by tag when you don't have a query phrasing in mind.",
+            "Use `recall` instead to merge memo + solution hits in one call.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -3078,6 +3286,20 @@ impl Skill for SolutionShow {
             Ok(text_result(out))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[SkillExample {
+            title: "Show one solution by id",
+            args: r#"{"id": "sol-3"}"#,
+            note: Some("Returns problem, tags, links, and every revision oldest-to-newest."),
+        }]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Read the full revision history of a solution `solution_find` surfaced.",
+            "Inspect outbound typed links (supersedes / depends-on / related-to) on a solution.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -3148,6 +3370,27 @@ impl Skill for SolutionList {
             }
             Ok(text_result(out))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Browse 25 most recently updated solutions",
+                args: r#"{}"#,
+                note: Some("Default `max` is 25, capped at 200."),
+            },
+            SkillExample {
+                title: "Page through 100 at a time",
+                args: r#"{"max": 100}"#,
+                note: Some("Order is `updated_at` DESC; pair with `solution_show` for details."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Browse the solution store most-recent-first to find what was added lately.",
+            "Triage the catalog before linking related entries via `solution_link`.",
+        ]
     }
 }
 
@@ -3283,6 +3526,27 @@ impl Skill for SolutionUpdate {
             )))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Append a new revision (tags untouched)",
+                args: r#"{"id": "sol-3", "summary": "Use acme.sh in daemon mode", "content": "Edit `/etc/acme.sh.conf` then run `acme.sh --install-cronjob`. The previous manual rotation no longer applies."}"#,
+                note: Some("Omitting `tags` leaves the existing tag list unchanged."),
+            },
+            SkillExample {
+                title: "Replace the tag list as part of the revision",
+                args: r#"{"id": "sol-3", "summary": "Switched to cert-manager", "content": "Deploy cert-manager via helm and let it own rotation.", "tags": ["tls", "kubernetes", "cert-manager"], "notes": "Replaces the acme.sh approach."}"#,
+                note: Some("Pass `tags: []` to clear all tags; semantic embedding is refreshed against the new summary."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Capture an improved or corrected approach without losing the prior revision.",
+            "Refresh the semantic embedding when the canonical wording of the fix changes.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -3372,6 +3636,27 @@ impl Skill for SolutionForget {
                 args.id, cleaned
             )))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "First call returns the confirm token",
+                args: r#"{"id": "sol-7"}"#,
+                note: Some("Drops the solution, all its revisions, tags, and incoming/outgoing links."),
+            },
+            SkillExample {
+                title: "Confirm + whitelist for the session",
+                args: r#"{"id": "sol-7", "confirm": "<token>", "trust": true}"#,
+                note: Some("`trust=true` skips the prompt for subsequent solution_forget calls this session."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Retire a solution that's been replaced by a superior approach.",
+            "Clean up duplicate entries before they pollute the recall preamble.",
+        ]
     }
 }
 
@@ -3470,6 +3755,33 @@ impl Skill for SolutionLink {
             )))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Mark a newer solution as superseding an older one",
+                args: r#"{"from": "sol-12", "kind": "supersedes", "to": "sol-3", "note": "cert-manager replaces the acme.sh script"}"#,
+                note: Some("Adds the reciprocal `superseded-by` on sol-3 automatically; recall walks the chain."),
+            },
+            SkillExample {
+                title: "Declare a dependency",
+                args: r#"{"from": "sol-9", "kind": "depends-on", "to": "sol-5"}"#,
+                note: Some("Reciprocal `dependency-of` is added on sol-5."),
+            },
+            SkillExample {
+                title: "Free-form symmetric relation",
+                args: r#"{"from": "sol-1", "kind": "see-also", "to": "sol-4"}"#,
+                note: Some("Unknown kinds are treated as symmetric (same kind on both endpoints)."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Mark one solution as superseding another so recall surfaces the head.",
+            "Record a depends-on chain that `solution_graph` can walk later.",
+            "Cross-link related entries so `solution_related` ranks them higher.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -3530,6 +3842,20 @@ impl Skill for SolutionUnlink {
                 args.from, args.kind, args.to, args.to, recip, args.from
             )))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[SkillExample {
+            title: "Remove a supersedes link (and its reciprocal)",
+            args: r#"{"from": "sol-12", "kind": "supersedes", "to": "sol-3"}"#,
+            note: Some("Both directions are removed; the solutions themselves stay."),
+        }]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Undo a typed relation that was recorded by mistake.",
+            "Clean up stale `supersedes` edges when a retirement was reversed.",
+        ]
     }
 }
 
@@ -3633,6 +3959,27 @@ impl Skill for SolutionGraph {
             out.push_str(&format!("\n{} solution(s) reachable.\n", reachable));
             Ok(text_result(out))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Two-hop graph around a solution",
+                args: r#"{"id": "sol-3"}"#,
+                note: Some("Default `depth` is 2; max is 5."),
+            },
+            SkillExample {
+                title: "Walk one hop only",
+                args: r#"{"id": "sol-3", "depth": 1}"#,
+                note: Some("Returns direct typed neighbors and the edge kinds."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Walk explicit typed edges (supersedes, depends-on, related-to) around a solution.",
+            "Use `solution_related` instead when you want implicit similarity (tags + concepts).",
+        ]
     }
 }
 
@@ -3784,6 +4131,27 @@ impl Skill for SolutionRelated {
             Ok(text_result(out))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Top 5 related neighbors",
+                args: r#"{"id": "sol-3"}"#,
+                note: Some("Combines explicit links (30), shared tags (2 each), and concept Jaccard (×20)."),
+            },
+            SkillExample {
+                title: "Wider neighborhood",
+                args: r#"{"id": "sol-3", "max": 20}"#,
+                note: Some("`max` is clamped to [1, 20]; signals are shown so you can see what scored."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Discover solutions that share tags or concept tokens even when no explicit link exists.",
+            "Use `solution_graph` instead when you only want declared typed edges.",
+        ]
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -3875,6 +4243,22 @@ impl Skill for SolutionAliasAdd {
             )))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Attach an alternate phrasing",
+                args: r#"{"id": "sol-3", "phrasing": "How far is Microsoft HQ from downtown Seattle?"}"#,
+                note: Some("Token + semantic recall now considers this wording too; idempotent (FNV-1a dedup)."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Close a recall gap when the original problem wording wouldn't match a likely future query.",
+            "Teach a solution to surface on rephrasings without recording a duplicate solution.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -3919,6 +4303,20 @@ impl Skill for SolutionAliasRemove {
                 Ok(text_result(format!("Detached phrasing from {}.", args.id)))
             }
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[SkillExample {
+            title: "Detach a previously-added phrasing",
+            args: r#"{"id": "sol-3", "phrasing": "How far is Microsoft HQ from downtown Seattle?"}"#,
+            note: Some("Match is by canonical form; minor wording differences still match."),
+        }]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Remove a phrasing that was attached by mistake and is causing false-positive recall.",
+            "Prune phrasings auto-attached by semantic recall when they don't generalize well.",
+        ]
     }
 }
 
@@ -4005,6 +4403,29 @@ impl Skill for SynonymAdd {
             )))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Teach a domain abbreviation",
+                args: r#"{"token": "k8s", "canonical": "kubernetes", "note": "learned from the k8s docs"}"#,
+                note: Some(
+                    "Both the search cache and recall fold `k8s` to `kubernetes` afterward.",
+                ),
+            },
+            SkillExample {
+                title: "Single-token alias only",
+                args: r#"{"token": "pg", "canonical": "postgres"}"#,
+                note: Some("Whitespace in either field is rejected; synonyms are token-level."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Absorb a domain-specific abbreviation as you encounter it.",
+            "Improve recall hit rate by collapsing alias tokens to their canonical form.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -4046,6 +4467,20 @@ impl Skill for SynonymRemove {
                 "Removed synonym for token=\"{token}\"."
             )))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[SkillExample {
+            title: "Remove an alias",
+            args: r#"{"token": "k8s"}"#,
+            note: Some("Stops the fold from `k8s` → its canonical form immediately."),
+        }]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Undo a synonym that turned out to be context-dependent or wrong.",
+            "Reset a learned alias before re-teaching it with a different canonical form.",
+        ]
     }
 }
 
@@ -4106,6 +4541,27 @@ impl Skill for SynonymList {
             }
             Ok(text_result(out))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "List the 50 most recent synonyms",
+                args: r#"{}"#,
+                note: Some("Default `max` is 50, capped at 500. Newest first."),
+            },
+            SkillExample {
+                title: "Page deeper",
+                args: r#"{"max": 200}"#,
+                note: Some("Useful for auditing learned aliases on a long-running server."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Audit what aliases the server has learned across sessions.",
+            "Spot a misleading synonym before pruning it with `synonym_remove`.",
+        ]
     }
 }
 
@@ -4187,6 +4643,27 @@ impl Skill for ConversationList {
             }
             Ok(text_result(out))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "List the 20 most recently active conversations",
+                args: r#"{}"#,
+                note: Some("Each row shows id, turn count, start/last-seen, and the first query."),
+            },
+            SkillExample {
+                title: "Page deeper",
+                args: r#"{"max": 100}"#,
+                note: Some("`max` is clamped to [1, 200]."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Browse recent conversations before walking one with `conversation_show`.",
+            "Find the conversation a recent solution was recorded in.",
+        ]
     }
 }
 
@@ -4302,6 +4779,27 @@ impl Skill for ConversationShow {
             Ok(text_result(out))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Walk a conversation oldest-first",
+                args: r#"{"id": "conv-1717245601-0001"}"#,
+                note: Some("Returns every tool call with its query and a short response excerpt."),
+            },
+            SkillExample {
+                title: "Cap the turn list",
+                args: r#"{"id": "conv-1717245601-0001", "max": 50}"#,
+                note: Some("Default 100, capped at 1000."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "See the adjacent tool calls that surrounded a recorded solution.",
+            "Audit what queries fired during a session before a solution was logged.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -4387,6 +4885,20 @@ impl Skill for SolutionConversations {
             Ok(text_result(out))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[SkillExample {
+            title: "List conversations that touched a solution",
+            args: r#"{"id": "sol-3"}"#,
+            note: Some("Solutions revised across sessions list multiple conversations."),
+        }]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Answer \"what conversation was this solution a part of?\" before walking it.",
+            "Trace how a solution evolved across separate sessions.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -4447,6 +4959,27 @@ impl Skill for ConversationForget {
                 .map_err(|e| internal(e.into()))?;
             Ok(text_result(format!("Forgot conversation {}.", args.id)))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "First call returns the confirm token",
+                args: r#"{"id": "conv-1717245601-0001"}"#,
+                note: Some("Destructive — drops all turns; revision back-pointers are nulled, not deleted."),
+            },
+            SkillExample {
+                title: "Confirm + whitelist for the session",
+                args: r#"{"id": "conv-1717245601-0001", "confirm": "<token>", "trust": true}"#,
+                note: Some("`trust=true` skips the prompt for subsequent conversation_forget calls."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Delete one noisy conversation without disturbing the solutions it produced.",
+            "Clean up a test / scratch conversation while preserving its revision references.",
+        ]
     }
 }
 
@@ -4547,6 +5080,33 @@ impl Skill for ConversationPrune {
                 if deleted == 1 { "" } else { "s" }
             )))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Preview the impact of a 30-day cutoff",
+                args: r#"{"older_than_days": 30, "dry_run": true}"#,
+                note: Some("Dry run bypasses the confirm guard and reports the would-be delete count."),
+            },
+            SkillExample {
+                title: "Keep only the 100 most recent (live)",
+                args: r#"{"keep_newest": 100}"#,
+                note: Some("First live call returns a confirm token; pass it back to commit."),
+            },
+            SkillExample {
+                title: "Confirm + whitelist a configured policy run",
+                args: r#"{"confirm": "<token>", "trust": true}"#,
+                note: Some("Omitting both knobs falls back to [memory].conversation_retention_days / max_conversations."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Apply a retention policy to keep the conversation log bounded.",
+            "Preview a cutoff with `dry_run` before committing to the deletion.",
+            "Run the configured retention policy on demand without restarting.",
+        ]
     }
 }
 

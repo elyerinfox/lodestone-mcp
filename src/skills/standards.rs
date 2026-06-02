@@ -176,6 +176,35 @@ impl Skill for StandardsSearch {
             Ok(text_result(out))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Standard number search",
+                args: r#"{"query": "IEEE 802.11"}"#,
+                note: Some("Returns title, publisher, type, year, DOI."),
+            },
+            SkillExample {
+                title: "Publisher-filtered topic search",
+                args: r#"{"query": "cybersecurity framework", "publisher": "nist"}"#,
+                note: Some(
+                    "Publishers: ieee, sae, nist, iso, ansi, iec (or any publisher substring).",
+                ),
+            },
+            SkillExample {
+                title: "ISO standard lookup",
+                args: r#"{"query": "ISO 26262 functional safety", "publisher": "iso", "max_results": 5}"#,
+                note: Some("`max_results` defaults to 8, capped at 25."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Look up a published standard's DOI and bibliographic metadata.",
+            "Find NIST documents (free) before reading the PDF with `read_pdf`.",
+            "Disambiguate competing standard numbers across publishers.",
+        ]
+    }
 }
 
 /// The skills this module contributes.

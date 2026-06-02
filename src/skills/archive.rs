@@ -168,6 +168,35 @@ impl Skill for WaybackFetch {
             Ok(text_result(out))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Closest snapshot of a live URL",
+                args: r#"{"url": "https://example.com/"}"#,
+                note: Some("Returns the resolved snapshot URL plus its readable text."),
+            },
+            SkillExample {
+                title: "Historical snapshot near a date",
+                args: r#"{"url": "https://www.nytimes.com/", "timestamp": "20010911"}"#,
+                note: Some(
+                    "Timestamp is `YYYYMMDD` or `YYYYMMDDhhmmss`; the closest capture is returned.",
+                ),
+            },
+            SkillExample {
+                title: "Pull more text from a long archived page",
+                args: r#"{"url": "https://en.wikipedia.org/wiki/Linux", "max_chars": 40000}"#,
+                note: Some("Capped by the server's `[retrieval].max_chars`."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Read a page that's down, paywalled, changed, or blocking automated access.",
+            "Read a historical version of a page at (or near) a specific date.",
+            "Fallback after `fetch_page` / `render_page` return empty or blocked.",
+        ]
+    }
 }
 
 /// The skills this module contributes.

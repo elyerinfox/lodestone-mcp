@@ -359,6 +359,21 @@ impl Skill for SystemInfo {
     fn call<'a>(&self, _ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move { Ok(text_result(blocking(gather_info).await?)) })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[SkillExample {
+            title: "Snapshot the host",
+            args: r#"{}"#,
+            note: Some("Returns host name, OS/kernel, uptime, CPU brand + usage, memory + swap."),
+        }]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Identify the host and OS the server is running on.",
+            "Spot-check CPU and memory pressure before launching expensive work.",
+            "Report the running machine in a status / sitrep response.",
+        ]
+    }
 }
 
 pub struct SystemDisks;
@@ -375,6 +390,21 @@ impl Skill for SystemDisks {
     }
     fn call<'a>(&self, _ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move { Ok(text_result(blocking(gather_disks).await?)) })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[SkillExample {
+            title: "List mounted volumes",
+            args: r#"{}"#,
+            note: Some("Each entry shows mount point, filesystem, total/used/free space."),
+        }]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Check free space before downloading or generating a large artifact.",
+            "Find the device/mount backing a path the user mentioned.",
+            "Report disk-pressure as part of a host health check.",
+        ]
     }
 }
 
@@ -398,6 +428,20 @@ impl Skill for SystemGpuNvidia {
     }
     fn call<'a>(&self, _ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move { Ok(text_result(blocking(gather_nvidia_gpu).await?)) })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[SkillExample {
+            title: "Read NVIDIA GPU stats",
+            args: r#"{}"#,
+            note: Some("Requires the NVIDIA driver / NVML; errors clearly when missing."),
+        }]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Check NVIDIA GPU memory / utilization / temperature on this host.",
+            "Confirm an NVIDIA GPU is visible to userspace before launching CUDA work.",
+        ]
     }
     fn check_capability(&self) -> crate::skills::SkillCapability {
         use crate::skills::SkillCapability;
@@ -427,6 +471,20 @@ impl Skill for SystemGpuAmd {
     }
     fn call<'a>(&self, _ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move { Ok(text_result(blocking(gather_amd_gpu).await?)) })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[SkillExample {
+            title: "Read AMD GPU stats (Linux)",
+            args: r#"{}"#,
+            note: Some("Reads `/sys/class/drm/card*/device/` from the amdgpu driver; Linux-only."),
+        }]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Check AMD GPU VRAM / busy % / hwmon temperature on a Linux host.",
+            "Pick this over `system_gpu_nvidia` when the host has an AMD card and the `amdgpu` driver.",
+        ]
     }
     fn check_capability(&self) -> crate::skills::SkillCapability {
         use crate::skills::SkillCapability;
@@ -465,6 +523,22 @@ impl Skill for SystemGpuIntel {
     }
     fn call<'a>(&self, _ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move { Ok(text_result(blocking(gather_intel_gpu).await?)) })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[SkillExample {
+            title: "Read Intel GPU stats (Linux)",
+            args: r#"{}"#,
+            note: Some(
+                "Reads `/sys/class/drm/card*/device/` from the i915 / xe driver; Linux-only.",
+            ),
+        }]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Check Intel GPU frequency and hwmon temperature on a Linux host.",
+            "Pick this over `system_gpu_nvidia` when the host's only GPU is an Intel iGPU/Arc.",
+        ]
     }
     fn check_capability(&self) -> crate::skills::SkillCapability {
         use crate::skills::SkillCapability;
@@ -553,6 +627,22 @@ impl Skill for SystemOsRelease {
             }
             Ok(text_result(out))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Read /etc/os-release",
+                args: r#"{}"#,
+                note: Some("Parses KEY=VALUE pairs (NAME, VERSION, ID, PRETTY_NAME, …). Says so on non-Linux hosts."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Identify the Linux distribution and version of the host.",
+            "Branch behavior (package manager, paths) on `ID` / `ID_LIKE`.",
+        ]
     }
 }
 

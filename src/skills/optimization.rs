@@ -106,6 +106,27 @@ impl Skill for OptTsp2opt {
             ))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Tiny 4-city tour",
+                args: r#"{"distances": [[0,2,9,10],[2,0,6,4],[9,6,0,8],[10,4,8,0]]}"#,
+                note: Some("Returns visit order plus total tour length."),
+            },
+            SkillExample {
+                title: "5-node symmetric matrix",
+                args: r#"{"distances": [[0,3,4,2,7],[3,0,4,6,3],[4,4,0,5,8],[2,6,5,0,6],[7,3,8,6,0]]}"#,
+                note: None,
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Get a near-optimal route through N points with a symmetric distance matrix.",
+            "Sequence delivery / inspection stops to minimize total travel.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -155,6 +176,32 @@ impl Skill for OptShortestPath {
                 None => Err(invalid("no path from start to goal")),
             }
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Triangle",
+                args: r#"{"edges": [[0,1,1.0],[1,2,2.0],[0,2,4.0]], "start": 0, "goal": 2}"#,
+                note: Some("Direct edge (cost 4) is beaten by 0->1->2 (cost 3)."),
+            },
+            SkillExample {
+                title: "Disconnected goal",
+                args: r#"{"edges": [[0,1,1.0],[2,3,1.0]], "start": 0, "goal": 3}"#,
+                note: Some("Returns an error when no path exists."),
+            },
+            SkillExample {
+                title: "Larger weighted graph",
+                args: r#"{"edges": [[0,1,2.5],[0,2,1.5],[1,3,3.0],[2,3,2.0],[2,4,4.0],[3,4,1.0]], "start": 0, "goal": 4}"#,
+                note: None,
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Find the cheapest path through a directed weighted graph.",
+            "Solve routing or precedence problems with non-negative edge weights.",
+        ]
     }
 }
 

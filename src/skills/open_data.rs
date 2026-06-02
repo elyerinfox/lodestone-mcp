@@ -91,6 +91,27 @@ impl Skill for OpenSkyStates {
             Ok(text_result(body))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Aircraft over Switzerland",
+                args: r#"{"bbox": [45.8, 5.9, 47.8, 10.5]}"#,
+                note: Some("Bbox order: [lat_min, lon_min, lat_max, lon_max]."),
+            },
+            SkillExample {
+                title: "Global state vectors",
+                args: r#"{}"#,
+                note: Some("Omit `bbox` for the world feed; payload is large."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Snapshot live ADS-B traffic in a geographic window.",
+            "Pull the worldwide aircraft state for downstream filtering.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -147,6 +168,33 @@ impl Skill for UsgsEarthquakes {
             Ok(text_result(body))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Significant quakes this week",
+                args: r#"{"period": "week", "minimum": "significant"}"#,
+                note: Some("Returns USGS GeoJSON FeatureCollection."),
+            },
+            SkillExample {
+                title: "M4.5+ in the last day",
+                args: r#"{"period": "day", "minimum": "4.5"}"#,
+                note: None,
+            },
+            SkillExample {
+                title: "Everything in the last hour",
+                args: r#"{"period": "hour", "minimum": "all"}"#,
+                note: Some("`all` includes tiny background quakes; can be noisy."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Pull the real-time USGS quake feed for a magnitude/timeframe.",
+            "Drive a dashboard or alert pipeline off significant seismic events.",
+            "Get raw GeoJSON for downstream mapping.",
+        ]
+    }
 }
 
 pub struct SwpcSolarWind;
@@ -182,6 +230,20 @@ impl Skill for SwpcSolarWind {
             server.retrieval_put(key, &body);
             Ok(text_result(body))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[SkillExample {
+            title: "Pull the last 24 hours of plasma data",
+            args: r#"{}"#,
+            note: Some("Takes no arguments; returns SWPC plasma JSON arrays."),
+        }]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Check current solar-wind density, speed, and temperature near L1.",
+            "Feed a geomagnetic-storm watcher with raw DSCOVR/ACE plasma data.",
+        ]
     }
 }
 

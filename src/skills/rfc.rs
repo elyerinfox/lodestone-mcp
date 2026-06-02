@@ -118,6 +118,33 @@ impl Skill for RfcGet {
             Ok(text_result(out))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Bare number",
+                args: r#"{"document": "9110"}"#,
+                note: Some("RFC 9110 = HTTP Semantics; fetches the full text from the RFC Editor."),
+            },
+            SkillExample {
+                title: "`rfc`-prefixed id",
+                args: r#"{"document": "rfc9110"}"#,
+                note: Some("Prefix is stripped; same lookup."),
+            },
+            SkillExample {
+                title: "Larger character budget for a long RFC",
+                args: r#"{"document": "RFC 791", "max_chars": 80000}"#,
+                note: Some("RFC 791 = IP; the budget is capped by `[retrieval].max_chars`."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Read the canonical IETF RFC text directly (HTTP, TCP, IP, TLS, …).",
+            "Quote a specific protocol section without scraping HTML.",
+            "Follow `rfc_search` results to read the chosen RFC's body.",
+        ]
+    }
 }
 
 pub struct RfcSearch;
@@ -169,6 +196,28 @@ impl Skill for RfcSearch {
             }
             Ok(text_result(out))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Title keyword search",
+                args: r#"{"query": "http semantics"}"#,
+                note: Some("Returns matching RFCs with number, title, abstract."),
+            },
+            SkillExample {
+                title: "Narrower result count",
+                args: r#"{"query": "tls", "max_results": 5}"#,
+                note: Some("`max_results` defaults to 10, capped at 25."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Find RFC numbers when you only know the topic.",
+            "Discover related RFCs by title keyword (e.g. all TLS RFCs).",
+            "Bridge to `rfc_get` once the right number is known.",
+        ]
     }
 }
 

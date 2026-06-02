@@ -801,6 +801,28 @@ impl Skill for ChartLine {
             Ok(svg_result(svg, desc))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Single numeric series",
+                args: r#"{"series": [{"label": "load", "points": [[0, 0.2], [1, 0.5], [2, 0.7], [3, 0.4]]}], "title": "CPU load"}"#,
+                note: Some("Numeric x; one series, no legend."),
+            },
+            SkillExample {
+                title: "Two series with date-string x",
+                args: r#"{"series": [{"label": "A", "points": [["2026-01-01", 10], ["2026-02-01", 18], ["2026-03-01", 22]]}, {"label": "B", "points": [["2026-01-01", 5], ["2026-02-01", 9], ["2026-03-01", 14]]}], "title": "Q1 sales"}"#,
+                note: Some("ISO-8601 strings trigger date-formatted x ticks."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Multi-series time-series plot with auto-formatted date axis.",
+            "Compare numeric curves on a single shared axis with a legend.",
+            "Render any (x, y) trace where interpolation between samples is appropriate.",
+        ]
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -942,6 +964,28 @@ impl Skill for ChartBar {
             Ok(svg_result(svg, desc))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Categorical counts",
+                args: r#"{"labels": ["A", "B", "C", "D"], "values": [12, 19, 7, 4], "title": "Issues by team"}"#,
+                note: Some("Bars rendered left-to-right in input order."),
+            },
+            SkillExample {
+                title: "Mixed positive / negative",
+                args: r#"{"labels": ["jan", "feb", "mar"], "values": [-2.5, 1.0, 3.2], "ylabel": "delta"}"#,
+                note: Some("Bars on either side of a zero baseline."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Compare a small set of categorical values at a glance.",
+            "Show period-over-period deltas with signed bars.",
+            "Render any single-series bar plot from labels + values.",
+        ]
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1077,6 +1121,28 @@ impl Skill for ChartScatter {
             );
             Ok(svg_result(svg, desc))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Numeric scatter",
+                args: r#"{"points": [[1, 2.1], [1.5, 2.4], [2, 3.0], [2.5, 2.8], [3, 4.1]], "xlabel": "x", "ylabel": "y"}"#,
+                note: Some("Each point rendered as a translucent dot."),
+            },
+            SkillExample {
+                title: "Date-axis scatter, bigger markers",
+                args: r#"{"points": [["2026-01-01", 100], ["2026-01-15", 140], ["2026-02-01", 90]], "point_size": 8}"#,
+                note: Some("Date strings make the axis format human-readable dates."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Show correlation / distribution of unconnected samples.",
+            "Plot individual measurements without implying interpolation.",
+            "Visualize a date-indexed sparse series.",
+        ]
     }
 }
 
@@ -1217,6 +1283,28 @@ impl Skill for ChartHistogram {
             Ok(svg_result(svg, desc))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Auto bins",
+                args: r#"{"values": [1.0, 1.5, 1.7, 2.0, 2.2, 2.4, 2.5, 2.8, 3.0, 3.2, 3.5, 4.0], "title": "Latencies"}"#,
+                note: Some("`bins` defaults to sqrt(n), clamped to [5, 60]."),
+            },
+            SkillExample {
+                title: "Explicit 20 bins",
+                args: r#"{"values": [0.1, 0.2, 0.5, 0.8, 1.2, 1.5, 1.8, 2.1, 2.4, 2.7], "bins": 20, "xlabel": "ms"}"#,
+                note: Some("Pass `bins` when you know the resolution you want."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Show the distribution shape of a numeric sample.",
+            "Spot multi-modal data before fitting a model.",
+            "Visualize a latency / response-time distribution.",
+        ]
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1331,6 +1419,28 @@ impl Skill for ChartPie {
             Ok(svg_result(svg, desc))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Market share",
+                args: r#"{"slices": [{"label": "Chrome", "value": 65}, {"label": "Safari", "value": 19}, {"label": "Firefox", "value": 8}, {"label": "Other", "value": 8}], "title": "Browser share"}"#,
+                note: Some("Legend shows label and percentage."),
+            },
+            SkillExample {
+                title: "Two-slice split",
+                args: r#"{"slices": [{"label": "pass", "value": 87}, {"label": "fail", "value": 13}]}"#,
+                note: Some("Title is optional."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Show proportional composition of a small categorical set.",
+            "Visualize percentage breakdowns that sum to 100.",
+            "Quick share-of-total view for a presentation.",
+        ]
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1390,6 +1500,28 @@ impl Skill for ChartMermaid {
             out.push_str("```\n");
             Ok(text_result(out))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Flowchart",
+                args: r#"{"source": "flowchart LR\n A[Start] --> B{Ok?}\n B -- yes --> C[Done]\n B -- no  --> D[Retry]"}"#,
+                note: Some("Returns a markdown ```mermaid code fence."),
+            },
+            SkillExample {
+                title: "Sequence diagram with caption",
+                args: r#"{"source": "sequenceDiagram\n Alice->>Bob: ping\n Bob-->>Alice: pong", "title": "Health check"}"#,
+                note: Some("Title is rendered as a bold caption above the block."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Author flowcharts, sequence, class, ER, gantt, mindmap diagrams as code.",
+            "Embed a diagram that the client can re-theme natively, not a server-rasterized image.",
+            "Diagram types beyond the built-in chart_* set (state machines, ER schemas, etc).",
+        ]
     }
 }
 
@@ -1637,6 +1769,28 @@ impl Skill for ChartHeatmap {
             Ok(svg_result(svg, desc))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Confusion matrix",
+                args: r#"{"matrix": [[50, 2, 1], [3, 45, 2], [0, 4, 48]], "row_labels": ["A", "B", "C"], "col_labels": ["A", "B", "C"], "title": "Confusion"}"#,
+                note: Some("Defaults to the viridis colormap with a colorbar."),
+            },
+            SkillExample {
+                title: "Signed values with diverging colormap",
+                args: r#"{"matrix": [[-1.0, 0.0, 1.0], [0.5, -0.5, 0.2]], "colormap": "coolwarm"}"#,
+                note: Some("coolwarm centers neutral on the middle of the range."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Confusion / correlation / covariance matrix visualization.",
+            "Attention map or any dense 2-D matrix overview.",
+            "Image-intensity-like heatmaps for science / ML reports.",
+        ]
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1644,7 +1798,7 @@ impl Skill for ChartHeatmap {
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
-#[serde(tag = "kind")]
+#[serde(tag = "kind", rename_all = "lowercase")]
 enum CanvasCommand {
     /// Straight line between two points.
     Line {
@@ -1906,6 +2060,28 @@ impl Skill for ChartCanvas {
             Ok(svg_result(svg, desc))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Box and a label",
+                args: r##"{"commands": [{"kind": "rect", "x": 100, "y": 100, "width": 200, "height": 100, "fill": "#fde68a", "stroke": "#92400e"}, {"kind": "text", "x": 200, "y": 155, "text": "Hello", "anchor": "middle", "size": 24}]}"##,
+                note: Some("Coords in user-space; 0,0 = top-left."),
+            },
+            SkillExample {
+                title: "Line / circle / polygon mix",
+                args: r##"{"commands": [{"kind": "line", "x1": 0, "y1": 300, "x2": 800, "y2": 300, "stroke": "#888"}, {"kind": "circle", "cx": 400, "cy": 300, "r": 40, "fill": "#3b82f6"}, {"kind": "polygon", "points": [[200, 100], [600, 100], [400, 250]], "fill": "#a7f3d0", "stroke": "#065f46"}]}"##,
+                note: Some("Mix and match primitives; commands execute in order."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Custom diagrams that don't fit a standard chart type.",
+            "Board layouts, illustrations, sketches over a viewBox.",
+            "Programmatic SVG output without writing the markup by hand.",
+        ]
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -2133,6 +2309,28 @@ impl Skill for ChartGrafana {
             );
             Ok(svg_result(svg, desc))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Single-series latency panel",
+                args: r#"{"title": "p99 latency", "series": [{"label": "api", "points": [["2026-06-01T00:00:00Z", 120], ["2026-06-01T00:05:00Z", 135], ["2026-06-01T00:10:00Z", 128], ["2026-06-01T00:15:00Z", 142]]}], "unit": "ms"}"#,
+                note: Some("Date strings format the x ticks; `unit` is appended to y labels."),
+            },
+            SkillExample {
+                title: "Two services on one panel",
+                args: r#"{"title": "RPS", "series": [{"label": "web", "points": [[0, 220], [1, 240], [2, 235]]}, {"label": "worker", "points": [[0, 80], [1, 90], [2, 92]]}], "unit": "req/s"}"#,
+                note: Some("Multiple series get translucent area fills and a top-right legend."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Operational telemetry panel with the recognizable Grafana look.",
+            "Metric / observability dashboards rendered server-side.",
+            "Time-series with translucent area fills and last-value labels.",
+        ]
     }
 }
 
@@ -2399,6 +2597,28 @@ impl Skill for ChartStat {
             Ok(svg_result(svg, desc))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Plain stat tile",
+                args: r#"{"value": 87.4, "label": "CPU", "unit": "%", "decimals": 1}"#,
+                note: Some("Defaults to value-tinted color and dark tile background."),
+            },
+            SkillExample {
+                title: "Background color mode with sparkline",
+                args: r##"{"value": 250, "label": "p99", "unit": "ms", "color_mode": "background", "sparkline": [[0, 200], [1, 220], [2, 240], [3, 250]], "thresholds": [{"at": 0, "color": "#73bf69"}, {"at": 200, "color": "#f2cc0c"}, {"at": 300, "color": "#e02f44"}]}"##,
+                note: Some("background mode flood-fills the tile in the threshold color."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Single-number SLO / KPI tile on a dashboard.",
+            "Health summary with green/yellow/red status background.",
+            "Tile showing 'current value' with a trail sparkline behind it.",
+        ]
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -2551,6 +2771,28 @@ impl Skill for ChartGauge {
             Ok(svg_result(svg, desc))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Percent utilization",
+                args: r#"{"value": 72, "min": 0, "max": 100, "unit": "%", "title": "Disk"}"#,
+                note: Some("Uses default green/yellow/red thresholds at 0 / 60% / 80% of max."),
+            },
+            SkillExample {
+                title: "Custom threshold bands",
+                args: r##"{"value": 8.5, "min": 0, "max": 10, "unit": "", "thresholds": [{"at": 0, "color": "#73bf69"}, {"at": 7, "color": "#f2cc0c"}, {"at": 9, "color": "#e02f44"}]}"##,
+                note: Some("Threshold colors override the defaults for the arc band."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "SLO / utilization gauge with min/max bounds.",
+            "Latency / saturation single-number dial.",
+            "Bounded percentage indicator for a dashboard tile.",
+        ]
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -2668,6 +2910,28 @@ impl Skill for ChartBarGauge {
             );
             Ok(svg_result(svg, desc))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Host utilization rollup",
+                args: r#"{"items": [{"label": "web-01", "value": 42}, {"label": "web-02", "value": 78}, {"label": "web-03", "value": 91}], "min": 0, "max": 100, "unit": "%", "title": "CPU"}"#,
+                note: Some("Bars sit on a dark track, filled to (value-min)/(max-min)."),
+            },
+            SkillExample {
+                title: "Latencies with custom thresholds",
+                args: r##"{"items": [{"label": "api", "value": 120}, {"label": "search", "value": 240}], "min": 0, "max": 500, "unit": "ms", "thresholds": [{"at": 0, "color": "#73bf69"}, {"at": 150, "color": "#f2cc0c"}, {"at": 300, "color": "#e02f44"}]}"##,
+                note: Some("Each row colors itself by the highest reached threshold."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Top-N hosts / pods by some metric in a compact panel.",
+            "Side-by-side comparison of bounded values across labels.",
+            "Quick health snapshot of several services on a single tile.",
+        ]
     }
 }
 
@@ -2859,6 +3123,28 @@ impl Skill for ChartStateTimeline {
             Ok(svg_result(svg, desc))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Two services, uptime grid",
+                args: r#"{"rows": [{"label": "web", "segments": [{"from": 0, "to": 50, "state": "up"}, {"from": 50, "to": 60, "state": "degraded"}, {"from": 60, "to": 100, "state": "up"}]}, {"label": "db", "segments": [{"from": 0, "to": 80, "state": "up"}, {"from": 80, "to": 100, "state": "down"}]}], "title": "Status"}"#,
+                note: Some("Known states (up/degraded/down/scheduled/unknown) are auto-colored."),
+            },
+            SkillExample {
+                title: "Custom state colors",
+                args: r##"{"rows": [{"label": "deploy", "segments": [{"from": 0, "to": 30, "state": "queued"}, {"from": 30, "to": 80, "state": "running"}, {"from": 80, "to": 100, "state": "ok"}]}], "state_colors": {"queued": "#a0a0ff", "running": "#5794f2", "ok": "#73bf69"}}"##,
+                note: Some("`state_colors` overrides the default palette for custom labels."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "SLO / uptime grid across hosts or services.",
+            "Categorical state over time when value-vs-time would lose meaning.",
+            "Deployment / job lifecycle panel with named stages.",
+        ]
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -3015,6 +3301,28 @@ impl Skill for ChartCandlestick {
             Ok(svg_result(svg, desc))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Daily OHLC",
+                args: r#"{"candles": [{"x": 1, "open": 100, "high": 105, "low": 99, "close": 103}, {"x": 2, "open": 103, "high": 108, "low": 102, "close": 107}, {"x": 3, "open": 107, "high": 109, "low": 100, "close": 101}], "title": "ACME"}"#,
+                note: Some("Up candles green, down candles red, wicks span low-high."),
+            },
+            SkillExample {
+                title: "Custom up/down colors",
+                args: r##"{"candles": [{"x": 1, "open": 50, "high": 55, "low": 48, "close": 52}, {"x": 2, "open": 52, "high": 53, "low": 49, "close": 50}], "up_color": "#10b981", "down_color": "#ef4444"}"##,
+                note: Some("Override the default green/red palette."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Financial / market price-action chart over a time window.",
+            "Any per-interval open/high/low/close summary view.",
+            "Show volatility along with direction at a glance.",
+        ]
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -3076,6 +3384,28 @@ impl Skill for ChartSparkline {
             );
             Ok(svg_result(svg, desc))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Tiny trend",
+                args: r#"{"points": [[0, 10], [1, 12], [2, 11], [3, 15], [4, 18], [5, 16]]}"#,
+                note: Some("Returns a 240x60 SVG with default blue stroke and 0.18 fill opacity."),
+            },
+            SkillExample {
+                title: "Inline-table cell sparkline",
+                args: r##"{"points": [[0, 5], [1, 6], [2, 8], [3, 7]], "width": 80, "height": 24, "color": "#10b981", "fill_opacity": 0}"##,
+                note: Some("Drop fill_opacity to 0 for pure line. Tight size for table cells."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Inline trend mark next to a numeric value (Stat panel style).",
+            "Compact table-cell trendlines.",
+            "Render a Tufte-style minimalist data shape.",
+        ]
     }
 }
 
@@ -3186,6 +3516,28 @@ impl Skill for ChartInteractive {
             let txt = Content::text(markdown);
             Ok(CallToolResult::success(vec![img, txt]))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Chart.js bar chart",
+                args: r#"{"library": "chartjs", "config": {"type": "bar", "data": {"labels": ["A", "B", "C"], "datasets": [{"label": "n", "data": [10, 20, 15]}]}}, "title": "Counts"}"#,
+                note: Some("Returns HTML that loads chart.js from CDN and renders the config."),
+            },
+            SkillExample {
+                title: "Plotly scatter with layout",
+                args: r#"{"library": "plotly", "config": {"data": [{"x": [1, 2, 3], "y": [2, 5, 1], "type": "scatter"}], "layout": {"title": "Demo"}}, "height": "320px"}"#,
+                note: Some("Plotly config uses {data, layout} directly."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Need pan / zoom / hover tooltips in a client that renders HTML.",
+            "Embed a chart inside a Jupyter or browser-based MCP client.",
+            "Plotly-only chart types (3D, surface, sankey, treemap) not in the static SVG set.",
+        ]
     }
 }
 

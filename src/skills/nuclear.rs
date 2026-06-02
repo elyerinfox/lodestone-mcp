@@ -388,6 +388,33 @@ impl Skill for NukeNuclideLookup {
             ))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Uranium-235",
+                args: r#"{"nuclide": "U-235"}"#,
+                note: Some("Returns Z, N, A, atomic mass (u), half-life (s), decay modes."),
+            },
+            SkillExample {
+                title: "Loose formatting",
+                args: r#"{"nuclide": "u235"}"#,
+                note: Some("Accepts `U-235`, `u235`, `235U` interchangeably."),
+            },
+            SkillExample {
+                title: "Metastable isomer",
+                args: r#"{"nuclide": "Tc-99m"}"#,
+                note: Some("Metastable nuclides are tagged with the `m` suffix."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Look up the atomic mass of a nuclide for a Q-value calculation.",
+            "Get a half-life seed value for `nuke_decay_law` or `nuke_decay_chain`.",
+            "Check the decay mode and (Z, N) of a known nuclide.",
+        ]
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -466,6 +493,28 @@ impl Skill for NukeBindingEnergy {
             ))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Iron-56 (BE/A peak region)",
+                args: r#"{"a": 56, "z": 26}"#,
+                note: Some("BE/A should land near 8.79 MeV/nucleon."),
+            },
+            SkillExample {
+                title: "Uranium-235",
+                args: r#"{"a": 235, "z": 92}"#,
+                note: Some("Returns total BE, BE/A, and each SEMF term contribution."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Estimate binding energy for a nuclide without an AME mass-table lookup.",
+            "Inspect individual SEMF term contributions (volume / surface / Coulomb / asymmetry / pairing).",
+            "Compare BE/A across a nuclide range to sketch the binding curve.",
+        ]
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -512,6 +561,28 @@ impl Skill for NukeQValue {
                 .to_string(),
             ))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "D + T → He-4 + n",
+                args: r#"{"reactants_u": [2.014101778, 3.016049281], "products_u": [4.002603254, 1.008664916]}"#,
+                note: Some("Returns Q ≈ +17.6 MeV; canonical fusion energy."),
+            },
+            SkillExample {
+                title: "Endothermic check",
+                args: r#"{"reactants_u": [4.002603254], "products_u": [2.014101778, 2.014101778]}"#,
+                note: Some("Negative Q → `exothermic: false`."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Compute the energy release of a nuclear reaction from atomic masses.",
+            "Decide whether a postulated reaction is exothermic or endothermic.",
+            "Convert AME-tabulated mass differences into MeV.",
+        ]
     }
 }
 
@@ -560,6 +631,28 @@ impl Skill for NukeDecayLaw {
                 .to_string(),
             ))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "One half-life elapsed",
+                args: r#"{"n0": 1.0e12, "half_life_s": 3600, "time_s": 3600}"#,
+                note: Some("`fraction_remaining` should be 0.5."),
+            },
+            SkillExample {
+                title: "I-131 medical dose, 8-day decay",
+                args: r#"{"n0": 1.0e9, "half_life_s": 693577.728, "time_s": 691200}"#,
+                note: Some("I-131 half-life ≈ 8.02 d; check residual activity after a week."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Compute remaining quantity / activity of a radionuclide after a time interval.",
+            "Get the decay constant λ from a known half-life in one call.",
+            "Estimate medical / industrial isotope inventory at a future time.",
+        ]
     }
 }
 
@@ -618,6 +711,30 @@ impl Skill for NukeDecayChain {
             ))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Secular equilibrium regime",
+                args: r#"{"n_a0": 1.0e12, "half_life_a_s": 1.0e10, "half_life_b_s": 1.0e3, "time_s": 1.0e5}"#,
+                note: Some(
+                    "Long-lived parent + short daughter — daughter activity → parent activity.",
+                ),
+            },
+            SkillExample {
+                title: "Equal half-lives (L'Hôpital path)",
+                args: r#"{"n_a0": 1.0e6, "half_life_a_s": 3600, "half_life_b_s": 3600, "time_s": 1800}"#,
+                note: Some("Falls back to N_B = λ·N_A0·t·e^{-λt} when λ_A ≈ λ_B."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Track parent + daughter inventory in a two-step decay chain.",
+            "Check secular- or transient-equilibrium behavior for a known pair.",
+            "Sanity-check a Bateman calculation against the closed-form solution.",
+        ]
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -660,6 +777,33 @@ impl Skill for NukeUnitConvert {
             };
             Ok(text_result(json!({ "result": out }).to_string()))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Atomic mass units to MeV/c²",
+                args: r#"{"direction": "u_to_mev", "value": 1.0}"#,
+                note: Some("Returns 931.49410372 (CODATA 2022)."),
+            },
+            SkillExample {
+                title: "Becquerel to Curie",
+                args: r#"{"direction": "bq_to_ci", "value": 3.7e10}"#,
+                note: Some("Exact: 1 Ci = 3.7e10 Bq → result = 1."),
+            },
+            SkillExample {
+                title: "Cross-section: barn to cm²",
+                args: r#"{"direction": "barn_to_cm2", "value": 1.0}"#,
+                note: Some("1 barn = 1e-24 cm² (exact)."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Convert between u and MeV/c² for mass-defect calculations.",
+            "Switch radioactivity units between Bq and Ci.",
+            "Convert nuclear cross sections between barn and cm².",
+        ]
     }
 }
 

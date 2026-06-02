@@ -136,6 +136,33 @@ impl Skill for Translate {
             Ok(text_result(out))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "English to Spanish, auto-detect",
+                args: r#"{"text": "Hello, world", "to": "es"}"#,
+                note: Some("`from` defaults to auto-detect."),
+            },
+            SkillExample {
+                title: "Specific source language",
+                args: r#"{"text": "Bonjour le monde", "to": "ja", "from": "fr"}"#,
+                note: None,
+            },
+            SkillExample {
+                title: "Region-specific Chinese",
+                args: r#"{"text": "Good morning", "to": "zh-CN"}"#,
+                note: Some("Use full Translate codes like `zh-CN` or `zh-TW` for variants."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Translate text between any pair of supported languages.",
+            "Localize a short message without configuring an API key.",
+            "Convert user input to a target language for downstream processing.",
+        ]
+    }
 }
 
 pub struct DetectLanguage;
@@ -169,6 +196,27 @@ impl Skill for DetectLanguage {
             let out = format!("Detected language: {}", t.source_lang);
             Ok(text_result(out))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Detect Japanese",
+                args: r#"{"text": "おはようございます"}"#,
+                note: Some("Returns the ISO-639 code (e.g. `ja`)."),
+            },
+            SkillExample {
+                title: "Detect Portuguese",
+                args: r#"{"text": "Bom dia, como vai você?"}"#,
+                note: None,
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Identify what language a piece of text is written in.",
+            "Branch downstream logic on the detected source language.",
+        ]
     }
 }
 

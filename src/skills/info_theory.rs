@@ -59,6 +59,28 @@ impl Skill for ItShannonCapacity {
             Ok(text_result(json!({ "capacity_bps": c }).to_string()))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "SNR as a ratio",
+                args: r#"{"bandwidth_hz": 1000.0, "snr_linear": 1.0}"#,
+                note: Some("Returns `capacity_bps` = 1000."),
+            },
+            SkillExample {
+                title: "SNR in dB",
+                args: r#"{"bandwidth_hz": 20000000.0, "snr_db": 25.0}"#,
+                note: Some("Typical Wi-Fi-class channel: ~166 Mbit/s upper bound."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Compute the theoretical upper bound on bit-rate for a noisy channel.",
+            "Compare two link designs by capacity instead of raw bit-rate.",
+            "Feed into spectrum-efficiency studies via capacity / bandwidth.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -103,6 +125,33 @@ impl Skill for ItEntropy {
             Ok(text_result(json!({ "entropy_bits": h }).to_string()))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Uniform Shannon entropy",
+                args: r#"{"p": [0.25, 0.25, 0.25, 0.25]}"#,
+                note: Some("Returns `entropy_bits` = 2."),
+            },
+            SkillExample {
+                title: "Biased coin",
+                args: r#"{"p": [0.9, 0.1]}"#,
+                note: Some("Low Shannon entropy (~0.469 bits)."),
+            },
+            SkillExample {
+                title: "Min-entropy via huge order",
+                args: r#"{"p": [0.5, 0.3, 0.2], "order": 1000000.0}"#,
+                note: Some("Approaches -log2(max p_i)."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Quantify uncertainty / surprise of a discrete distribution.",
+            "Compute Rényi or collision entropy for cryptographic randomness analysis.",
+            "Get H(X) for downstream mutual-information or KL bounds.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -146,6 +195,28 @@ impl Skill for ItKlDivergence {
             Ok(text_result(json!({ "kl_bits": d }).to_string()))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Close distributions",
+                args: r#"{"p": [0.4, 0.6], "q": [0.5, 0.5]}"#,
+                note: Some("Small KL — q is a decent approximation of p."),
+            },
+            SkillExample {
+                title: "Mismatched supports",
+                args: r#"{"p": [0.5, 0.5], "q": [1.0, 0.0]}"#,
+                note: Some("Returns infinity because q assigns zero mass where p > 0."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Score how badly q approximates p for variational inference loss.",
+            "Detect distribution shift in production ML monitoring.",
+            "Use as a directional cost when JS / total-variation isn't required.",
+        ]
+    }
 }
 
 pub struct ItJsDivergence;
@@ -185,6 +256,28 @@ impl Skill for ItJsDivergence {
             let js = 0.5 * kl(&p, &m) + 0.5 * kl(&q, &m);
             Ok(text_result(json!({ "js_bits": js }).to_string()))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Identical distributions",
+                args: r#"{"p": [0.3, 0.7], "q": [0.3, 0.7]}"#,
+                note: Some("JS = 0."),
+            },
+            SkillExample {
+                title: "Disjoint supports",
+                args: r#"{"p": [1.0, 0.0], "q": [0.0, 1.0]}"#,
+                note: Some("JS = 1 bit (the upper bound)."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Symmetric, bounded alternative to KL when you need a true distance-like metric.",
+            "Compare two text or document distributions in retrieval scoring.",
+            "Drive a finite GAN-style discriminator loss in toy experiments.",
+        ]
     }
 }
 
@@ -267,6 +360,28 @@ impl Skill for ItMutualInformation {
             ))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Independent X and Y",
+                args: r#"{"joint": [[0.25, 0.25], [0.25, 0.25]]}"#,
+                note: Some("MI = 0; H(X) = H(Y) = 1."),
+            },
+            SkillExample {
+                title: "Perfectly correlated",
+                args: r#"{"joint": [[0.5, 0.0], [0.0, 0.5]]}"#,
+                note: Some("MI = 1 bit; knowing X tells you Y exactly."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Quantify how much two discrete variables share — feature selection.",
+            "Sanity-check that a channel passes information end-to-end.",
+            "Compute MI for a contingency table without manually splitting marginals.",
+        ]
+    }
 }
 
 fn normalize(p: &[f64]) -> std::result::Result<Vec<f64>, McpError> {
@@ -319,6 +434,28 @@ impl Skill for CodeHammingDistance {
                 .sum();
             Ok(text_result(json!({ "distance_bits": d }).to_string()))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "All bits flipped",
+                args: r#"{"a": "ff", "b": "00"}"#,
+                note: Some("Returns `distance_bits` = 8."),
+            },
+            SkillExample {
+                title: "Single byte single flip",
+                args: r#"{"a": "deadbeef", "b": "deadbeed"}"#,
+                note: Some("Returns 2 (low nibble differs by `f` vs `d`)."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Measure bit-error count between transmitted and received frames.",
+            "Compare hashes / fingerprints for similarity (locality-sensitive hashing).",
+            "Sanity-check forward-error-correction decoder output.",
+        ]
     }
 }
 
@@ -386,6 +523,33 @@ impl Skill for CodeCrc {
             Ok(text_result(json!({ "digest_hex": v }).to_string()))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Ethernet CRC32 over ASCII '123456789'",
+                args: r#"{"data": "313233343536373839", "algorithm": "crc32"}"#,
+                note: Some("Returns digest_hex `cbf43926` (the standard check value)."),
+            },
+            SkillExample {
+                title: "CRC-16 Modbus",
+                args: r#"{"data": "0103006b00030001", "algorithm": "crc16-modbus"}"#,
+                note: Some("Modbus-RTU frame check."),
+            },
+            SkillExample {
+                title: "CRC-32C / Castagnoli",
+                args: r#"{"data": "313233343536373839", "algorithm": "crc32c"}"#,
+                note: Some("Used by iSCSI, SCTP, btrfs."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Verify or generate a frame CRC for a serial / Ethernet / storage protocol.",
+            "Pick the correct CRC variant when a spec says \"CRC-16-CCITT\" (it's ambiguous!).",
+            "Spot-check captured packets without writing protocol-specific code.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -437,6 +601,28 @@ impl Skill for CodeRsEncode {
                 .map_err(|e| invalid(format!("RS encode: {e}")))?;
             Ok(text_result(json!({ "shards": shards }).to_string()))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Two data, two parity",
+                args: r#"{"data_shards": [[1, 2, 3, 4], [5, 6, 7, 8]], "parity_shards": 2}"#,
+                note: Some("Returns 4 shards total; any 2 of 4 reconstruct the data."),
+            },
+            SkillExample {
+                title: "One parity",
+                args: r#"{"data_shards": [[10, 20, 30], [40, 50, 60], [70, 80, 90]], "parity_shards": 1}"#,
+                note: Some("3+1: tolerates exactly one missing shard."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Generate parity blocks for an erasure-coded storage system.",
+            "Build redundancy into multi-packet transmissions over a lossy link.",
+            "Prototype an MDS code without pulling in heavy storage frameworks.",
+        ]
     }
 }
 
@@ -495,6 +681,28 @@ impl Skill for CodeConvolutionalEncode {
             let hex: String = out_bytes.iter().map(|b| format!("{b:02x}")).collect();
             Ok(text_result(json!({ "encoded_hex": hex }).to_string()))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "One byte input",
+                args: r#"{"data": "ab"}"#,
+                note: Some("Output is roughly twice the bit count due to rate-1/2 code."),
+            },
+            SkillExample {
+                title: "Short message",
+                args: r#"{"data": "deadbeef"}"#,
+                note: Some("Produces an 8-byte encoded hex string."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Generate CCSDS / NASA-standard convolutional-coded test vectors.",
+            "Pair with an external Viterbi decoder to verify a soft-decision chain.",
+            "Build a noise-resilient packet without a heavier turbo / LDPC stack.",
+        ]
     }
 }
 

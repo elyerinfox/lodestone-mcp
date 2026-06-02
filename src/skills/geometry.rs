@@ -111,6 +111,28 @@ impl Skill for GeoDistance {
             )))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "London to Paris",
+                args: r#"{"lat1": 51.5074, "lon1": -0.1278, "lat2": 48.8566, "lon2": 2.3522}"#,
+                note: Some("Returns ~343 km / ~213 mi. Spherical-earth approximation; use `geo_vincenty_inverse` for WGS84."),
+            },
+            SkillExample {
+                title: "Across the Pacific",
+                args: r#"{"lat1": 35.6762, "lon1": 139.6503, "lat2": 37.7749, "lon2": -122.4194}"#,
+                note: Some("Tokyo to San Francisco."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Quick spherical-earth distance between two cities, in km and miles.",
+            "Order-of-magnitude check before pulling the ellipsoidal tool.",
+            "Compute a back-of-envelope route length.",
+        ]
+    }
 }
 
 pub struct GeoAzimuth;
@@ -148,6 +170,28 @@ impl Skill for GeoAzimuth {
             )))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "London to Paris",
+                args: r#"{"lat1": 51.5074, "lon1": -0.1278, "lat2": 48.8566, "lon2": 2.3522}"#,
+                note: Some("Initial bearing ~148° (SSE) and the back azimuth from Paris."),
+            },
+            SkillExample {
+                title: "Due east from the equator",
+                args: r#"{"lat1": 0, "lon1": 0, "lat2": 0, "lon2": 10}"#,
+                note: Some("Azimuth is 90° (E); back azimuth is 270° (W)."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Get the initial compass bearing from one point to another.",
+            "Compute the back-azimuth for the return leg in one call.",
+            "Label a direction of travel with a 16-point compass name.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -179,6 +223,33 @@ impl Skill for GeometryFormula {
             Ok(text_result(out))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Circle area",
+                args: r#"{"name": "circle_area", "args": {"r": 5}}"#,
+                note: Some("Returns A = π·r² ≈ 78.54."),
+            },
+            SkillExample {
+                title: "Heron's formula",
+                args: r#"{"name": "heron_area", "args": {"a": 3, "b": 4, "c": 5}}"#,
+                note: Some("3-4-5 triangle area = 6."),
+            },
+            SkillExample {
+                title: "Law of cosines (find side)",
+                args: r#"{"name": "law_of_cosines_side", "args": {"a": 5, "b": 7, "angle_c": 60}}"#,
+                note: Some("Angle in degrees; returns the opposite side `c`."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Compute a named area / volume / length without writing the formula by hand.",
+            "Apply Heron / Pythagoras / law-of-cosines with explicit named inputs.",
+            "Plug specific values into a shape formula you've already chosen by id.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -207,6 +278,27 @@ impl Skill for GeometryFormulaList {
                 args.filter.as_deref(),
             )))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "List everything",
+                args: r#"{}"#,
+                note: Some("Returns id, equation, and input signature for every geometry formula."),
+            },
+            SkillExample {
+                title: "Filter for spheres",
+                args: r#"{"filter": "sphere"}"#,
+                note: Some("Substring match against id and equation summary."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Discover which formula id `geometry_formula` accepts.",
+            "Browse the geometry library by category or keyword.",
+        ]
     }
 }
 

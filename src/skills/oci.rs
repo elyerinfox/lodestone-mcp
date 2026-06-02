@@ -582,6 +582,28 @@ impl Skill for DockerSearch {
             Ok(text_result(out))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Search Docker Hub for nginx images",
+                args: r#"{"query": "nginx"}"#,
+                note: Some("Returns up to 10 hits with stars, pulls, official flag."),
+            },
+            SkillExample {
+                title: "Wider search",
+                args: r#"{"query": "postgres", "max_results": 25}"#,
+                note: Some("Capped at 25."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Find candidate images for a service before pinning a specific repo.",
+            "Compare official vs community images by stars/pull count.",
+            "Discover the canonical `org/image` to feed docker_image / docker_tags.",
+        ]
+    }
 }
 
 pub struct DockerImage;
@@ -621,6 +643,28 @@ impl Skill for DockerImage {
             server.retrieval_put(key, &out);
             Ok(text_result(out))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Official image (short name)",
+                args: r#"{"image": "nginx"}"#,
+                note: Some("`nginx` resolves to `library/nginx`."),
+            },
+            SkillExample {
+                title: "Namespaced community image",
+                args: r#"{"image": "bitnami/redis"}"#,
+                note: None,
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Read a Docker Hub repo's full description and stats after docker_search.",
+            "Check last-updated date and pull count when vetting an image.",
+            "Pull the canonical project URL/long description for a known image.",
+        ]
     }
 }
 
@@ -665,6 +709,28 @@ impl Skill for DockerTags {
             server.retrieval_put(key, &out);
             Ok(text_result(out))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Tags for an official image",
+                args: r#"{"image": "nginx"}"#,
+                note: Some("Default 15 newest tags, includes size and architectures."),
+            },
+            SkillExample {
+                title: "More tags, namespaced image",
+                args: r#"{"image": "grafana/grafana", "max_results": 50}"#,
+                note: Some("Capped at 50; for non-Docker-Hub registries use `oci_tags`."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Pick the latest tag for a Docker Hub image to pull or run.",
+            "See which architectures a tag supports before deploying.",
+            "Compare tag sizes when choosing between `alpine` / `slim` / full variants.",
+        ]
     }
 }
 
@@ -712,6 +778,33 @@ impl Skill for OciTags {
             server.retrieval_put(key, &out);
             Ok(text_result(out))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "GHCR image tags",
+                args: r#"{"reference": "ghcr.io/owner/image"}"#,
+                note: Some("Anonymous bearer-token pull; bare tag list, no metadata."),
+            },
+            SkillExample {
+                title: "Quay image tags",
+                args: r#"{"reference": "quay.io/prometheus/prometheus", "max_results": 100}"#,
+                note: Some("Capped at 200."),
+            },
+            SkillExample {
+                title: "Self-hosted registry",
+                args: r#"{"reference": "localhost:5000/team/app"}"#,
+                note: None,
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "List tags for an image on GHCR, Quay, or any OCI registry.",
+            "Pick a tag to feed `oci_manifest` for platform inspection.",
+            "Audit which versions of an in-house image still live in a private registry.",
+        ]
     }
 }
 
@@ -770,6 +863,33 @@ impl Skill for OciManifest {
             server.retrieval_put(key, &out);
             Ok(text_result(out))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Inspect a tagged image (multi-arch index)",
+                args: r#"{"reference": "nginx:1.27"}"#,
+                note: Some("Returns the platforms (os/arch) the index covers."),
+            },
+            SkillExample {
+                title: "Inspect a digest-pinned single image",
+                args: r#"{"reference": "ghcr.io/owner/image@sha256:abc123"}"#,
+                note: Some("Single manifest — returns layer count, total size, config digest."),
+            },
+            SkillExample {
+                title: "Quay image, default tag",
+                args: r#"{"reference": "quay.io/prometheus/prometheus"}"#,
+                note: Some("Bare image name defaults to `:latest`."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Confirm an image supports a target os/arch before deploying.",
+            "Get the compressed download size and layer count for capacity planning.",
+            "Pin to an immutable digest after resolving a tag.",
+        ]
     }
 }
 

@@ -118,6 +118,28 @@ impl Skill for HfModelSearch {
             ))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Search by model name keyword",
+                args: r#"{"query": "bert"}"#,
+                note: Some("Sorted by downloads; each row carries id, downloads, likes, task."),
+            },
+            SkillExample {
+                title: "Narrower result count",
+                args: r#"{"query": "llama", "max_results": 5}"#,
+                note: Some("`max_results` defaults to 10, capped at 25."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Find the top-downloaded models for a keyword/task.",
+            "Look up a model id before fetching its details with `hf_model`.",
+            "Sibling: use `hf_dataset_search` for datasets, not models.",
+        ]
+    }
 }
 
 pub struct HfDatasetSearch;
@@ -139,6 +161,28 @@ impl Skill for HfDatasetSearch {
                 hf_search(server, &args.query, args.max_results, true).await?,
             ))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Search by dataset name keyword",
+                args: r#"{"query": "squad"}"#,
+                note: Some("Sorted by downloads; each row carries id, downloads, likes."),
+            },
+            SkillExample {
+                title: "Narrower result count",
+                args: r#"{"query": "common voice", "max_results": 5}"#,
+                note: Some("`max_results` defaults to 10, capped at 25."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Find popular HF datasets matching a keyword.",
+            "Locate a dataset id to cite or load in a training pipeline.",
+            "Sibling: use `hf_model_search` for models, not datasets.",
+        ]
     }
 }
 
@@ -213,6 +257,30 @@ impl Skill for HfModel {
             server.retrieval_put(cache_key, &out);
             Ok(text_result(out))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Org-namespaced model id",
+                args: r#"{"model": "google-bert/bert-base-uncased"}"#,
+                note: Some("Returns downloads, likes, task, library, license, tags."),
+            },
+            SkillExample {
+                title: "Legacy bare-name id",
+                args: r#"{"model": "gpt2"}"#,
+                note: Some(
+                    "Old-style ids still resolve (gpt2 redirects to openai-community/gpt2).",
+                ),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Inspect a specific model's task, library, license, and tags.",
+            "Verify downloads/likes for a model before depending on it.",
+            "Resolve license metadata for compliance review.",
+        ]
     }
 }
 

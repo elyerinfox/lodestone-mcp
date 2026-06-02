@@ -512,6 +512,20 @@ impl Skill for PackageManagers {
             )))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[SkillExample {
+            title: "Detect installed package managers",
+            args: r#"{}"#,
+            note: Some("Marks each `kind` with `✓` (on $PATH) or `·` (absent)."),
+        }]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Pick the right `kind` value for the other package_* tools.",
+            "Confirm what's actually available on this host before installing software.",
+        ]
+    }
 }
 
 pub struct PackageSearch;
@@ -541,6 +555,33 @@ impl Skill for PackageSearch {
             Ok(text_result(truncate_chars(&out, server.max_chars)))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "apt search",
+                args: r#"{"kind": "apt", "query": "ripgrep"}"#,
+                note: Some("Output is `apt-cache search`'s raw format."),
+            },
+            SkillExample {
+                title: "winget search",
+                args: r#"{"kind": "winget", "query": "vscode"}"#,
+                note: None,
+            },
+            SkillExample {
+                title: "brew search",
+                args: r#"{"kind": "brew", "query": "jq"}"#,
+                note: None,
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Discover the exact package name a PM uses for a tool.",
+            "Compare available variants (e.g. `python3`, `python3.11`) before installing.",
+            "Confirm a package exists in the PM's repos at all.",
+        ]
+    }
 }
 
 pub struct PackageInfo;
@@ -568,6 +609,33 @@ impl Skill for PackageInfo {
             Ok(text_result(truncate_chars(&out, server.max_chars)))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "apt info",
+                args: r#"{"kind": "apt", "name": "ripgrep"}"#,
+                note: Some("Calls `apt-cache show ripgrep`."),
+            },
+            SkillExample {
+                title: "brew info",
+                args: r#"{"kind": "brew", "name": "jq"}"#,
+                note: None,
+            },
+            SkillExample {
+                title: "winget show",
+                args: r#"{"kind": "winget", "name": "Microsoft.VisualStudioCode"}"#,
+                note: None,
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Read a package's version, description, and dependencies before installing.",
+            "Find the upstream homepage / source URL for a package.",
+            "Confirm a specific version is available in the configured repos.",
+        ]
+    }
 }
 
 pub struct PackageList;
@@ -591,6 +659,27 @@ impl Skill for PackageList {
             let out = run_cmd(cmd).await.map_err(internal)?;
             Ok(text_result(truncate_chars(&out, server.max_chars)))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "List apt-installed packages",
+                args: r#"{"kind": "apt"}"#,
+                note: Some("Calls `apt list --installed`; output may be truncated."),
+            },
+            SkillExample {
+                title: "List brew installs with versions",
+                args: r#"{"kind": "brew"}"#,
+                note: None,
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Check whether a tool is already installed via a specific PM.",
+            "Audit the package set on a host before reproducing it elsewhere.",
+        ]
     }
 }
 
@@ -624,6 +713,27 @@ impl Skill for PackageUpdates {
                 }
             }
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Available apt upgrades",
+                args: r#"{"kind": "apt"}"#,
+                note: Some("Calls `apt list --upgradable`."),
+            },
+            SkillExample {
+                title: "brew outdated",
+                args: r#"{"kind": "brew"}"#,
+                note: None,
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "See what updates a PM has pending before deciding to run package_upgrade.",
+            "Audit drift between installed versions and the repos' latest.",
+        ]
     }
 }
 
@@ -697,6 +807,32 @@ impl Skill for PackageInstall {
             Ok(text_result(truncate_chars(&out, server.max_chars)))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Install via apt (first call)",
+                args: r#"{"kind": "apt", "name": "ripgrep"}"#,
+                note: Some("Returns a confirmation token; replay with `confirm`."),
+            },
+            SkillExample {
+                title: "Install via winget, second call",
+                args: r#"{"kind": "winget", "name": "Microsoft.VisualStudioCode", "confirm": "<token>"}"#,
+                note: Some("Add `trust: true` to skip prompts for this op this session."),
+            },
+            SkillExample {
+                title: "Install via brew",
+                args: r#"{"kind": "brew", "name": "jq", "confirm": "<token>"}"#,
+                note: None,
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Install a tool the model just discovered via package_search.",
+            "Add a missing dependency before running another command.",
+        ]
+    }
 }
 
 pub struct PackageUpgrade;
@@ -741,6 +877,27 @@ impl Skill for PackageUpgrade {
             Ok(text_result(truncate_chars(&out, server.max_chars)))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Upgrade one package (first call)",
+                args: r#"{"kind": "apt", "name": "ripgrep"}"#,
+                note: Some("Returns a confirmation token; replay with `confirm`."),
+            },
+            SkillExample {
+                title: "Upgrade everything via brew, second call",
+                args: r#"{"kind": "brew", "confirm": "<token>"}"#,
+                note: Some("Omit `name` to upgrade all installed packages."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Pull in a new release of a specific tool.",
+            "Apply all pending updates after reviewing package_updates.",
+        ]
+    }
 }
 
 pub struct PackageRemove;
@@ -781,6 +938,27 @@ impl Skill for PackageRemove {
             let out = run_cmd(cmd).await.map_err(internal)?;
             Ok(text_result(truncate_chars(&out, server.max_chars)))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Remove via apt (first call)",
+                args: r#"{"kind": "apt", "name": "ripgrep"}"#,
+                note: Some("Returns a confirmation token; replay with `confirm`."),
+            },
+            SkillExample {
+                title: "Uninstall via winget, second call",
+                args: r#"{"kind": "winget", "name": "Microsoft.VisualStudioCode", "confirm": "<token>"}"#,
+                note: None,
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Uninstall a tool that's no longer needed.",
+            "Roll back a `package_install` that turned out to be the wrong package.",
+        ]
     }
 }
 

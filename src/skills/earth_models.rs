@@ -66,6 +66,30 @@ impl Skill for EarthSiderealTime {
             ))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Greenwich Mean Sidereal Time now",
+                args: r#"{}"#,
+                note: Some(
+                    "Defaults to current UTC and longitude 0; reports both GMST and LST in hours.",
+                ),
+            },
+            SkillExample {
+                title: "Local sidereal time at a meridian",
+                args: r#"{"when": "2026-06-21T00:00:00Z", "longitude_deg": -122.3321}"#,
+                note: Some("Pass observer longitude (east-positive) to get LST as well as GMST."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Compute LST for telescope / antenna pointing at a known meridian.",
+            "Convert UT to sidereal time for an equatorial coordinate transform.",
+            "Get GMST as the seed for a custom astrometry calculation.",
+        ]
+    }
 }
 
 fn julian_date(t: DateTime<Utc>) -> f64 {
@@ -137,6 +161,28 @@ impl Skill for EarthMagDeclination {
             let dec = dec + 0.07 * (year - 2025.0);
             Ok(text_result(json!({ "declination_deg": dec }).to_string()))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Declination at Seattle",
+                args: r#"{"lat_deg": 47.6062, "lon_deg": -122.3321}"#,
+                note: Some("Defaults to the current year; returns degrees east-positive."),
+            },
+            SkillExample {
+                title: "Specific epoch",
+                args: r#"{"lat_deg": 40.7128, "lon_deg": -74.0060, "year": 2027.5}"#,
+                note: Some("Pass a decimal year to apply the linear secular drift correction."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Get a rough compass correction (~1° accuracy) for a survey site.",
+            "Convert magnetic bearings to true bearings without a full WMM table.",
+            "Sanity-check a GPS heading against magnetic compass output.",
+        ]
     }
 }
 

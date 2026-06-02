@@ -694,15 +694,59 @@ fn build_instructions(cfg: &Config) -> String {
     let families = skills::families();
 
     let mut out = String::new();
+
+    // ---- Introductory preamble: what this server is. ----
     let _ = writeln!(
         out,
-        "Lodestone MCP server v{}. Keyless, self-hosted: scrapes the open web, talks to local \
-         daemons, and computes locally — no API keys required. {active_tools} of {total_tools} \
-         registered tools are currently active under this config; the rest are gated off (use \
-         `features` to see why).",
+        "Welcome to Lodestone MCP server v{}. This is a keyless, self-hosted toolkit for a local \
+         model: it scrapes the open web, talks to local daemons and devices directly, and \
+         computes over real data — all without API keys, accounts, or paid services. One \
+         monolithic binary, written in Rust on the official `rmcp` SDK, broad enough to cover \
+         search, retrieval, local-system control (Docker / Kubernetes / files / git / databases / \
+         devices), and a deep math / science / engineering computation surface.",
         env!("CARGO_PKG_VERSION")
     );
     let _ = writeln!(out);
+    let _ = writeln!(
+        out,
+        "Right now {active_tools} of {total_tools} registered tools are active under this \
+         operator's config; the remainder are gated off (call `features` to see what's gated and \
+         why). The catalog is organized into ~100 skill families — each groups related tools and \
+         shares one config section."
+    );
+    let _ = writeln!(out);
+
+    // ---- Lookup tools — call this out front and center. ----
+    let _ = writeln!(
+        out,
+        "LOOKUP TOOLS (use these before invoking anything unfamiliar)"
+    );
+    let _ = writeln!(
+        out,
+        "- `describe_skill {{ name: \"<tool>\" }}` — fetch ONE tool's full description, use cases, \
+         worked-example arguments, family gating, and the per-property JSON Schema. This is the \
+         canonical way to recover after a truncated `tools/list` and the right call when a \
+         tool's exact arg shape is unclear."
+    );
+    let _ = writeln!(
+        out,
+        "- `describe_family {{ name: \"<family>\" }}` — fetch ONE family's description, capability \
+         state, tool list, and the canonical multi-tool worked flow. Use this when you're \
+         picking up an unfamiliar family and want to see the typical sequence."
+    );
+    let _ = writeln!(
+        out,
+        "- `features` — per-family on/off state, every knob the operator set, and live counts \
+         (memory entries, conversations, …). Cheaper than calling a tool just to discover it's \
+         gated."
+    );
+    let _ = writeln!(
+        out,
+        "- `list_providers` — active search providers and the order they are tried."
+    );
+    let _ = writeln!(out);
+
+    // ---- General approach. ----
     let _ = writeln!(out, "GENERAL APPROACH");
     let _ = writeln!(
         out,
@@ -716,9 +760,9 @@ fn build_instructions(cfg: &Config) -> String {
     );
     let _ = writeln!(
         out,
-        "- CHECK BEFORE YOU LEAP. Call `features` to confirm a family is enabled; `describe_skill \
-         name=\"<tool>\"` for one tool's full schema + examples + use cases; `describe_family \
-         name=\"<family>\"` for a family's worked multi-tool flow."
+        "- CHECK BEFORE YOU LEAP. When in doubt about a tool's arg shape or a family's gating, \
+         reach for the lookup tools above (`describe_skill`, `describe_family`, `features`) — \
+         they're cheaper than discovering the gate or the field name by a failed call."
     );
     let _ = writeln!(
         out,

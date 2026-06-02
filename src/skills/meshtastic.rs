@@ -140,6 +140,35 @@ impl Skill for MeshtasticMessages {
             )))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "All channels, default 20",
+                args: r#"{}"#,
+                note: Some("Returns recent decoded text messages, newest first."),
+            },
+            SkillExample {
+                title: "One channel only",
+                args: r#"{"channel": "LongFast", "limit": 50}"#,
+                note: None,
+            },
+            SkillExample {
+                title: "From a specific node",
+                args: r#"{"from": "!11223344"}"#,
+                note: Some(
+                    "Matches the JSON `sender` field or the `from` numeric (normalized to `!hex`).",
+                ),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Pull the recent text-message log from the mesh after the operator asks 'what's on the radio?'.",
+            "Filter chat on one Meshtastic channel for context before drafting a reply.",
+            "Look up the last few messages from a known node by id.",
+        ]
+    }
 }
 
 /// Decode one MQTT publish into a one-line text-message summary, or `None`
@@ -287,6 +316,22 @@ impl Skill for MeshtasticNodes {
             Ok(text_result(out))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[SkillExample {
+            title: "Heard-nodes roster",
+            args: r#"{}"#,
+            note: Some(
+                "Newest-seen first; coverage = whatever has crossed the buffer since startup.",
+            ),
+        }]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Answer 'who's on the mesh right now?' with id / longname / shortname / RSSI / SNR.",
+            "Find the `!hex` node id to address with `meshtastic_send`.",
+        ]
+    }
 }
 
 struct NodeRow {
@@ -403,6 +448,33 @@ impl Skill for MeshtasticSend {
             )))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Broadcast on the default channel",
+                args: r#"{"text": "Hello mesh"}"#,
+                note: Some("Returns a confirmation token; resend with `confirm=<token>` to actually transmit."),
+            },
+            SkillExample {
+                title: "Directed message, confirmed",
+                args: r#"{"text": "ack received", "to": "!11223344", "confirm": "abc123"}"#,
+                note: Some("`to` is a node id from `meshtastic_nodes`."),
+            },
+            SkillExample {
+                title: "Override channel + region",
+                args: r#"{"text": "test", "channel": "Admin", "region": "US", "confirm": "abc123"}"#,
+                note: None,
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Broadcast a short status message to everyone on the mesh.",
+            "Send a directed text to a specific node id observed via `meshtastic_nodes`.",
+            "Inject a probe message to test that the bridging node is forwarding to LoRa.",
+        ]
+    }
 }
 
 pub struct MeshtasticStatus;
@@ -448,6 +520,22 @@ impl Skill for MeshtasticStatus {
             }
             Ok(text_result(out))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Show wiring + buffered mesh count",
+                args: r#"{}"#,
+                note: Some("Reports transport, topic root, defaults, and whether the underlying MQTT client is up."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Verify the Meshtastic family is actually wired to a broker before reading messages.",
+            "Read the configured channel / region defaults that `meshtastic_send` will use.",
+        ]
     }
 }
 
@@ -521,6 +609,28 @@ impl Skill for MeshtasticListen {
                  buffered messages via `tasks_result {{\"task_id\":\"{task_id}\"}}`."
             )))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Watch any channel, default bounds",
+                args: r#"{}"#,
+                note: Some("Default: stop at 25 messages or 120s."),
+            },
+            SkillExample {
+                title: "One channel, tight bounds",
+                args: r#"{"channel": "LongFast", "max_messages": 5, "timeout_secs": 30}"#,
+                note: Some("Returns a task_id; fetch the collected messages with `tasks_result`."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Stream incoming mesh chat to the model as it arrives, without polling.",
+            "Wait for the next handful of text messages on a specific channel.",
+            "Capture a short window of mesh activity around a known event.",
+        ]
     }
 }
 

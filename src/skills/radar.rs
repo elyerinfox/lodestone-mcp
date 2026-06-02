@@ -81,6 +81,28 @@ impl Skill for RadarMonostatic {
             ))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "S-band air-surveillance",
+                args: r#"{"pt_w": 1000000.0, "gain": 1000.0, "wavelength_m": 0.1, "rcs_m2": 1.0, "range_m": 100000.0, "bandwidth_hz": 1000000.0}"#,
+                note: Some("Returns single-pulse SNR; combine with `radar_integration_gain` for the full picture."),
+            },
+            SkillExample {
+                title: "Low SNR with losses",
+                args: r#"{"pt_w": 5000.0, "gain": 100.0, "wavelength_m": 0.03, "rcs_m2": 0.1, "range_m": 20000.0, "bandwidth_hz": 5000000.0, "losses_db": 6.0}"#,
+                note: Some("`losses_db` aggregates feed / atmospheric / signal-processing losses."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Estimate single-pulse SNR for a monostatic radar geometry.",
+            "Sweep `range_m` to find the detection limit for a target RCS.",
+            "Trade transmit power vs antenna gain for a fixed SNR target.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -141,6 +163,30 @@ impl Skill for RadarBistatic {
             ))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Symmetric bistatic geometry",
+                args: r#"{"pt_w": 100000.0, "gt": 1000.0, "gr": 1000.0, "wavelength_m": 0.1, "sigma_b_m2": 1.0, "rt_m": 50000.0, "rr_m": 50000.0, "bandwidth_hz": 1000000.0}"#,
+                note: Some("With Rt = Rr the equation collapses toward a monostatic equivalent."),
+            },
+            SkillExample {
+                title: "Asymmetric forward-scatter",
+                args: r#"{"pt_w": 50000.0, "gt": 500.0, "gr": 500.0, "wavelength_m": 0.03, "sigma_b_m2": 10.0, "rt_m": 100000.0, "rr_m": 5000.0, "bandwidth_hz": 2000000.0, "noise_temp_k": 500.0}"#,
+                note: Some(
+                    "Short rr_m → strong returns; useful for passive / multistatic studies.",
+                ),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Model SNR for passive coherent location or multistatic radar.",
+            "Compare bistatic vs monostatic SNR with the same target RCS.",
+            "Study forward-scatter geometries where bistatic RCS is enhanced.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -188,6 +234,28 @@ impl Skill for RadarIntegrationGain {
             Ok(text_result(json!({ "gain_db": g }).to_string()))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Coherent burst of 16 pulses",
+                args: r#"{"n": 16, "method": "coherent"}"#,
+                note: Some("Returns `gain_db` = 12.04."),
+            },
+            SkillExample {
+                title: "Non-coherent same burst",
+                args: r#"{"n": 16, "method": "noncoherent"}"#,
+                note: Some("Slightly lower than coherent due to NC integration loss."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Account for pulse integration when budgeting SNR.",
+            "Compare coherent vs envelope-detection schemes.",
+            "Decide on pulse-train length for a required detection probability.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -222,6 +290,28 @@ impl Skill for RadarPulseCompression {
                 json!({ "gain_linear": bt, "gain_db": 10.0 * bt.log10() }).to_string(),
             ))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Long LFM pulse",
+                args: r#"{"pulse_width_s": 0.0001, "bandwidth_hz": 1000000.0}"#,
+                note: Some("BT = 100 → 20 dB gain."),
+            },
+            SkillExample {
+                title: "High-resolution chirp",
+                args: r#"{"pulse_width_s": 0.00005, "bandwidth_hz": 50000000.0}"#,
+                note: Some("BT = 2500 → ~34 dB gain."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Pick a pulse-bandwidth product to hit a desired range resolution.",
+            "Convert compressed-pulse SNR back to peak-power-equivalent.",
+            "Sanity-check that LFM chirp parameters give enough gain.",
+        ]
     }
 }
 
@@ -278,6 +368,28 @@ impl Skill for RadarCfar {
             };
             Ok(text_result(json!({ "alpha_linear": alpha }).to_string()))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "CA-CFAR over 32 cells",
+                args: r#"{"n_cells": 32, "pfa": 0.000001, "method": "ca"}"#,
+                note: Some("Returns the multiplier α applied to local clutter mean."),
+            },
+            SkillExample {
+                title: "OS-CFAR rank 24 of 32",
+                args: r#"{"n_cells": 32, "pfa": 0.000001, "method": "os", "k": 24}"#,
+                note: Some("Robust to interfering targets in the reference window."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Choose a CFAR threshold for a target probability of false alarm.",
+            "Compare CA-CFAR vs OS-CFAR robustness given a clutter scenario.",
+            "Calibrate detector logic in a radar signal-processing pipeline.",
+        ]
     }
 }
 
@@ -337,6 +449,33 @@ impl Skill for RadarClutterThreshold {
             ))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Rayleigh clutter",
+                args: r#"{"distribution": "rayleigh", "pfa": 0.0001}"#,
+                note: Some("Classical thermal-noise / Rayleigh model."),
+            },
+            SkillExample {
+                title: "Heavy-tailed Weibull",
+                args: r#"{"distribution": "weibull", "pfa": 0.0001, "shape": 1.4}"#,
+                note: Some("`shape` < 2 means heavier tail than Rayleigh."),
+            },
+            SkillExample {
+                title: "Sea clutter (K-distribution)",
+                args: r#"{"distribution": "k_distribution", "pfa": 0.0001, "shape": 0.5}"#,
+                note: Some("Common for high-resolution maritime radar."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Choose detection thresholds appropriate for non-Rayleigh sea or ground clutter.",
+            "Compare how Pfa changes with clutter heavy-tailedness.",
+            "Couple with CFAR α multipliers for end-to-end threshold tuning.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -367,6 +506,28 @@ impl Skill for RadarDoppler {
             let df = 2.0 * a.radial_velocity_m_s * a.frequency_hz / C;
             Ok(text_result(json!({ "doppler_hz": df }).to_string()))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "X-band closing target",
+                args: r#"{"frequency_hz": 10000000000.0, "radial_velocity_m_s": 250.0}"#,
+                note: Some("Returns Doppler ≈ 16.7 kHz."),
+            },
+            SkillExample {
+                title: "Receding low-speed",
+                args: r#"{"frequency_hz": 24000000000.0, "radial_velocity_m_s": -5.0}"#,
+                note: Some("Negative velocity → negative Doppler shift."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Convert radial velocity to bin index for a PRF-based Doppler filter bank.",
+            "Estimate unambiguous-velocity ceiling for a given PRF.",
+            "Contrast radar (factor 2) vs one-way radio Doppler.",
+        ]
     }
 }
 

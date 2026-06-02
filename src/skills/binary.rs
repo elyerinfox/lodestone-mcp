@@ -83,6 +83,30 @@ impl Skill for BinaryInfo {
             Ok(text_result(out))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Identify a Linux binary",
+                args: r#"{"path": "samples/hello.elf"}"#,
+                note: Some("Reports format (ELF), arch, entry point, and section list."),
+            },
+            SkillExample {
+                title: "Unknown / non-executable file",
+                args: r#"{"path": "samples/payload.bin"}"#,
+                note: Some(
+                    "Falls back to a 'not a recognized executable' line; try binary_hexdump.",
+                ),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Find the .text section's runtime address before calling disasm_x86_file.",
+            "Confirm a file's container (ELF / PE / Mach-O / WASM) before deeper analysis.",
+            "First triage step on an unknown binary dropped in a forensic root.",
+        ]
+    }
 }
 
 // ----- binary_strings -----
@@ -154,6 +178,28 @@ impl Skill for BinaryStrings {
             Ok(text_result(out))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Default strings dump",
+                args: r#"{"path": "samples/hello.elf"}"#,
+                note: Some("Returns up to 200 printable strings of length >= 4 with file offsets."),
+            },
+            SkillExample {
+                title: "Longer strings only, larger cap",
+                args: r#"{"path": "samples/hello.elf", "min_length": 8, "max": 1000}"#,
+                note: Some("Useful for filtering noise out of large binaries."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Recover URLs, paths, error messages, or commands embedded in an executable.",
+            "Malware triage: surface suspicious literals before disassembly.",
+            "Quick `strings(1)` equivalent confined to a configured root.",
+        ]
+    }
 }
 
 // ----- binary_entropy -----
@@ -217,6 +263,28 @@ impl Skill for BinaryEntropy {
             }
             Ok(text_result(out))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Default 4 KiB blocks",
+                args: r#"{"path": "samples/maybe_packed.bin"}"#,
+                note: Some("Reports entropy per 4 KiB block with an inline bar."),
+            },
+            SkillExample {
+                title: "Coarser scan over a large file",
+                args: r#"{"path": "samples/firmware.img", "block_size": 65536, "max_blocks": 256}"#,
+                note: Some("Higher block_size smooths noise; useful for locating packed regions."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Spot packed / encrypted / compressed regions in a binary (entropy near 8).",
+            "Confirm uniform / zero-filled padding regions (entropy near 0).",
+            "Forensic profile pass before deeper disassembly or extraction.",
+        ]
     }
 }
 
@@ -310,6 +378,30 @@ impl Skill for BinaryHexdump {
             }
             Ok(text_result(out))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "First 256 bytes",
+                args: r#"{"path": "samples/hello.elf"}"#,
+                note: Some("Defaults dump 256 bytes starting at offset 0."),
+            },
+            SkillExample {
+                title: "Window deeper in the file",
+                args: r#"{"path": "samples/hello.elf", "offset": 4096, "length": 512}"#,
+                note: Some(
+                    "Use offsets from binary_info's section listing to dump a specific region.",
+                ),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Inspect a header, magic, or signature region of an opaque file.",
+            "Visually compare bytes around a suspicious offset spotted by binary_entropy.",
+            "Read raw byte / ASCII gutter of a file slice when no dedicated parser exists.",
+        ]
     }
 }
 

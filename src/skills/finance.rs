@@ -86,6 +86,33 @@ impl Skill for CompoundInterest {
             )))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Annual compounding",
+                args: r#"{"principal": 10000, "annual_rate_percent": 5, "years": 10}"#,
+                note: Some("Defaults to compounds_per_year=1."),
+            },
+            SkillExample {
+                title: "Monthly compounding savings",
+                args: r#"{"principal": 5000, "annual_rate_percent": 4.5, "years": 5, "compounds_per_year": 12}"#,
+                note: None,
+            },
+            SkillExample {
+                title: "Daily-compounded short term",
+                args: r#"{"principal": 1000, "annual_rate_percent": 6, "years": 0.5, "compounds_per_year": 365}"#,
+                note: None,
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Project future value of a savings/investment principal.",
+            "Compare scenarios at different compounding frequencies.",
+            "Compute interest earned over a time horizon.",
+        ]
+    }
 }
 
 pub struct LoanPayment;
@@ -126,6 +153,33 @@ impl Skill for LoanPayment {
                 money(interest),
             )))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "30-year fixed mortgage",
+                args: r#"{"principal": 400000, "annual_rate_percent": 6.5, "months": 360}"#,
+                note: Some("Returns monthly payment, total paid, total interest."),
+            },
+            SkillExample {
+                title: "5-year auto loan",
+                args: r#"{"principal": 28000, "annual_rate_percent": 7.25, "months": 60}"#,
+                note: None,
+            },
+            SkillExample {
+                title: "Zero-interest financing",
+                args: r#"{"principal": 1200, "annual_rate_percent": 0, "months": 12}"#,
+                note: Some("Handles APR=0 cleanly (payment = principal / months)."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Compute the amortized monthly payment of a loan or mortgage.",
+            "See total interest paid over the life of a loan.",
+            "Compare loan terms (rate, principal, months).",
+        ]
     }
 }
 
@@ -219,6 +273,33 @@ impl Skill for CurrencyConvert {
                 },
             )))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "USD to EUR",
+                args: r#"{"amount": 100, "from": "USD", "to": "EUR"}"#,
+                note: Some("Uses ECB reference rates (not live trading prices)."),
+            },
+            SkillExample {
+                title: "Yen to pounds",
+                args: r#"{"amount": 50000, "from": "JPY", "to": "GBP"}"#,
+                note: None,
+            },
+            SkillExample {
+                title: "Same currency short-circuit",
+                args: r#"{"amount": 42, "from": "USD", "to": "USD"}"#,
+                note: Some("No network call; rate is 1.0."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Convert an amount between two ISO 4217 currencies at the ECB reference rate.",
+            "Get the current FX reference rate for a pair.",
+            "Estimate the value of a foreign-currency price in a familiar one.",
+        ]
     }
 }
 

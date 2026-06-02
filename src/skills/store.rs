@@ -83,6 +83,27 @@ impl Skill for StoreFetch {
             )))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Cache a PDF in the file store",
+                args: r#"{"url": "https://arxiv.org/pdf/2401.01234.pdf"}"#,
+                note: Some("Returns local path + size. Reads from a peer or local cache first when possible."),
+            },
+            SkillExample {
+                title: "Cache an HTML page",
+                args: r#"{"url": "https://example.com/spec.html"}"#,
+                note: Some("Use `store_get` afterwards to read it back as text."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Pull a rate-limited resource (arXiv / IETF PDF) into a constellation-shared cache.",
+            "Pre-fetch an artifact you'll want to re-read several times in this session.",
+        ]
+    }
 }
 
 pub struct StoreGet;
@@ -113,6 +134,27 @@ impl Skill for StoreGet {
                 ))),
             }
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Read a cached entry by URL",
+                args: r#"{"key": "https://example.com/spec.html"}"#,
+                note: Some("Output is truncated to the server's default character budget."),
+            },
+            SkillExample {
+                title: "Read more of a long cached file",
+                args: r#"{"key": "https://example.com/long.html", "max_chars": 50000}"#,
+                note: Some("UTF-8 lossy — binary entries may show garbled text."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Re-read a previously fetched page / spec from the local file store.",
+            "Pull text into context without re-hitting the network (after `store_fetch`).",
+        ]
     }
 }
 
@@ -167,6 +209,20 @@ impl Skill for StoreList {
             }
             Ok(text_result(out))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[SkillExample {
+            title: "List everything in the file store",
+            args: r#"{}"#,
+            note: Some("Newest first; each row has key, size, age, and seed ratio if tracked."),
+        }]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Inventory what's already cached before deciding to re-fetch.",
+            "Spot oversize / stale entries that are candidates for `store_purge`.",
+        ]
     }
 }
 
@@ -223,6 +279,34 @@ impl Skill for StorePurge {
             }
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Drop one entry (first call gets a token)",
+                args: r#"{"key": "https://example.com/spec.html"}"#,
+                note: Some("Destructive; first call returns a confirmation token."),
+            },
+            SkillExample {
+                title: "Drop one entry with the token",
+                args: r#"{"key": "https://example.com/spec.html", "confirm": "<token-from-prior-call>"}"#,
+                note: None,
+            },
+            SkillExample {
+                title: "Purge the whole store (after confirmation)",
+                args: r#"{"confirm": "<token-from-prior-call>"}"#,
+                note: Some(
+                    "Omit `key` to wipe everything; the first call returns a clearly-scary prompt.",
+                ),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Evict a single cached entry that's gone stale or wrong.",
+            "Free disk space by purging the whole file store.",
+        ]
+    }
 }
 
 pub struct CacheStatus;
@@ -267,6 +351,22 @@ impl Skill for CacheStatus {
             }
             Ok(text_result(out))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[SkillExample {
+            title: "Show cache health",
+            args: r#"{}"#,
+            note: Some(
+                "Reports search cache, retrieval cache, and file-store entry counts + total size.",
+            ),
+        }]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Quick sanity check that caches are active and have entries.",
+            "Decide whether to purge the store after seeing the total size.",
+        ]
     }
 }
 

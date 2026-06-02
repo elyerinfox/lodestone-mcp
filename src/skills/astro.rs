@@ -288,6 +288,31 @@ impl Skill for AstroSun {
             )))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Right now from Seattle",
+                args: r#"{"lat": 47.6062, "lon": -122.3321}"#,
+                note: Some("Returns current alt/az plus today's rise / transit / set in UTC."),
+            },
+            SkillExample {
+                title: "Specific UTC instant at the Tropic of Cancer",
+                args: r#"{"lat": 23.43, "lon": 0.0, "at": "2026-06-21T12:00:00Z"}"#,
+                note: Some(
+                    "June solstice noon (Sun declination ≈ +23.44°); altitude ≈ 90° here, \
+                     ≈ 66.6° at the equator.",
+                ),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Check the Sun's current altitude / azimuth from a known observer.",
+            "Get today's sunrise / solar noon / sunset times in UTC.",
+            "Plan an outdoor activity around when the Sun will be above the horizon.",
+        ]
+    }
 }
 
 pub struct AstroMoon;
@@ -332,6 +357,28 @@ impl Skill for AstroMoon {
                 fmt_local_or_utc(set),
             )))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Tonight's moon from London",
+                args: r#"{"lat": 51.5074, "lon": -0.1278}"#,
+                note: Some("Reports illumination %, phase name, and today's rise / transit / set."),
+            },
+            SkillExample {
+                title: "Specific UTC instant",
+                args: r#"{"lat": -33.8688, "lon": 151.2093, "at": "2026-06-15T10:00:00Z"}"#,
+                note: Some("Sydney; check whether the Moon is up at this UTC time."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Get the Moon's current alt/az and phase from a known observer.",
+            "Check tonight's moonrise / moonset and illumination percentage.",
+            "Plan astrophotography around when the Moon won't wash out the sky.",
+        ]
     }
 }
 
@@ -426,6 +473,28 @@ impl Skill for AstroStar {
             )))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Polaris from New York",
+                args: r#"{"name": "Polaris", "lat": 40.7128, "lon": -74.0060}"#,
+                note: Some("Altitude should be close to the observer's latitude."),
+            },
+            SkillExample {
+                title: "Sirius at a specific time",
+                args: r#"{"name": "Sirius", "lat": 34.0522, "lon": -118.2437, "at": "2026-12-15T08:00:00Z"}"#,
+                note: Some("Use `astro_star_list` if the name isn't in the catalog."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Point a telescope at a named bright star from a known observer.",
+            "Check whether a specific cataloged star is currently above the horizon.",
+            "Label a sky direction with the nearest bright star.",
+        ]
+    }
 }
 
 pub struct AstroStarList;
@@ -463,6 +532,27 @@ impl Skill for AstroStarList {
             }
             Ok(text_result(out))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Whole catalog",
+                args: r#"{}"#,
+                note: Some("Lists every catalogued star with Bayer designation and J2000 coords."),
+            },
+            SkillExample {
+                title: "Filter by Orion designation",
+                args: r#"{"filter": "Ori"}"#,
+                note: Some("Substring match against name and Bayer designation."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Discover which star names are accepted by `astro_star`.",
+            "Find catalog entries belonging to a constellation by Bayer designation.",
+        ]
     }
 }
 
@@ -549,6 +639,28 @@ impl Skill for AstroVisibleStars {
             Ok(text_result(out))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "What's overhead now",
+                args: r#"{"lat": 47.6062, "lon": -122.3321}"#,
+                note: Some("Bright stars (V ≤ 2.5) at least 10° above the horizon, sorted by altitude (highest first)."),
+            },
+            SkillExample {
+                title: "Loosen the limits",
+                args: r#"{"lat": 47.6062, "lon": -122.3321, "min_altitude_deg": 20, "max_magnitude": 1.5}"#,
+                note: Some("Only the very brightest, well clear of the horizon."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Find naked-eye targets currently above the horizon for a stargazing session.",
+            "Filter the bright-star catalog by altitude and magnitude in one call.",
+            "Build a quick 'what can I see right now' list for an observer.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -621,6 +733,28 @@ impl Skill for AstroIdentify {
             }
             Ok(text_result(out))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Near Sirius (J2000)",
+                args: r#"{"ra_deg": 101.3, "dec_deg": -16.7}"#,
+                note: Some("Default 5° tolerance; nearest catalog match returned first."),
+            },
+            SkillExample {
+                title: "Tight tolerance, more candidates",
+                args: r#"{"ra_deg": 78.6, "dec_deg": -8.2, "tolerance_deg": 1.0, "max": 3}"#,
+                note: Some("Tolerance is capped at 30°; `max` is capped at 20."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Identify the catalog star nearest a known RA / Dec direction.",
+            "Sanity-check a plate-solve solution by labeling the brightest match.",
+            "Find catalog candidates within a tolerance of a guessed pointing.",
+        ]
     }
 }
 

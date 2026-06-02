@@ -239,6 +239,27 @@ impl Skill for ForecastHoltLinear {
             Ok(text_result(render(&fit)))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Forecast 3 steps, grid-search params",
+                args: r#"{"values": [1.0, 3.0, 5.0, 7.0, 9.0, 11.0], "horizon": 3}"#,
+                note: Some("Omit α/β to grid-search the best in-sample fit."),
+            },
+            SkillExample {
+                title: "Pin alpha and beta",
+                args: r#"{"values": [10.0, 12.0, 14.0, 16.0, 18.0], "horizon": 2, "alpha": 0.5, "beta": 0.1}"#,
+                note: Some("Useful when you've already calibrated the smoothing constants."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Forecast a trending series with no clear seasonality, locally.",
+            "Drop-in trend forecast when you don't want to depend on Prophet / SARIMAX.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -311,6 +332,27 @@ impl Skill for ForecastHoltWinters {
             );
             Ok(text_result(render(&fit)))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Quarterly cycle, 4 steps ahead",
+                args: r#"{"values": [10.0, 20.0, 15.0, 5.0, 10.0, 20.0, 15.0, 5.0], "horizon": 4, "season_length": 4}"#,
+                note: Some("Needs ≥2 full seasons; grid-searches α/β/γ."),
+            },
+            SkillExample {
+                title: "Weekly seasonality, pinned params",
+                args: r#"{"values": [1, 2, 3, 4, 5, 6, 7, 1.1, 2.1, 3.1, 4.1, 5.1, 6.1, 7.1], "horizon": 7, "season_length": 7, "alpha": 0.3, "beta": 0.1, "gamma": 0.3}"#,
+                note: Some("Pin smoothing constants once you trust them."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Forecast a series with additive trend AND repeating seasonality.",
+            "Use when you have ≥2 full seasons; for non-seasonal data prefer forecast_holt_linear.",
+        ]
     }
 }
 

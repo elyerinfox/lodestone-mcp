@@ -51,6 +51,21 @@ impl Skill for WaveInfo {
             )))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[SkillExample {
+            title: "Probe a WAV file",
+            args: r#"{"path": "audio/tone.wav"}"#,
+            note: Some("Returns sample rate, channels, bit depth, format, and duration."),
+        }]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Confirm sample rate / channel count before feeding samples into signal_fft.",
+            "Quick metadata pass on captured audio (recording length, format sanity).",
+            "Decide whether a file is mono / stereo / multi-channel before extraction.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -137,6 +152,28 @@ impl Skill for WaveSamples {
             };
             Ok(make_result(&p, channel, &samples, max))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Default slice of channel 0",
+                args: r#"{"path": "audio/tone.wav"}"#,
+                note: Some("Returns up to 1024 normalized f64 samples from channel 0."),
+            },
+            SkillExample {
+                title: "Right channel, larger window",
+                args: r#"{"path": "audio/stereo.wav", "channel": 1, "max_samples": 16384}"#,
+                note: Some("Feed the float array into signal_fft or signal_rms next."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Extract a short window of audio for spectral or amplitude analysis.",
+            "Pull one channel out of a multi-channel file as a float vector.",
+            "Stage data before calling signal_fft / signal_dominant_frequencies.",
+        ]
     }
 }
 

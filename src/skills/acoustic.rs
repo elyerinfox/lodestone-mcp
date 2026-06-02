@@ -51,6 +51,28 @@ impl Skill for AcousticSoundSpeedWater {
             Ok(text_result(json!({ "c_m_s": c }).to_string()))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Surface seawater",
+                args: r#"{"temp_c": 15.0, "salinity_psu": 35.0, "depth_m": 0.0}"#,
+                note: Some("Returns `c_m_s` near 1507."),
+            },
+            SkillExample {
+                title: "Deep ocean",
+                args: r#"{"temp_c": 4.0, "salinity_psu": 34.5, "depth_m": 2000.0}"#,
+                note: Some("Pressure term dominates; c grows with depth."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Pick the sound-speed input for `acoustic_snell` or `acoustic_transmission_loss` in seawater.",
+            "Compute a depth-dependent profile by sweeping `depth_m` at fixed T/S.",
+            "Validate Mackenzie-equation results against measured SVP casts.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -89,6 +111,28 @@ impl Skill for AcousticSoundSpeedAir {
             }
             Ok(text_result(json!({ "c_m_s": c }).to_string()))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Room temperature, dry air",
+                args: r#"{"temp_c": 20.0}"#,
+                note: Some("Returns ~343.2 m/s."),
+            },
+            SkillExample {
+                title: "Cold air with humidity",
+                args: r#"{"temp_c": -5.0, "rh_pct": 80.0}"#,
+                note: Some("Humidity adds a sub-1 m/s correction."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Convert outdoor temperature to a propagation speed for time-of-flight ranging.",
+            "Provide the `c1`/`c2` input to `acoustic_snell` for an air-to-water boundary.",
+            "Sanity-check microphone-array delay-and-sum geometry.",
+        ]
     }
 }
 
@@ -130,6 +174,28 @@ impl Skill for AcousticSnell {
             let theta2 = sin_t2.asin().to_degrees();
             Ok(text_result(json!({ "refracted_deg": theta2 }).to_string()))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Air-to-water at 30 deg",
+                args: r#"{"incident_deg": 30.0, "c1": 343.0, "c2": 1500.0}"#,
+                note: Some("Returns `total_internal_reflection: true` — at 30° we're already past the ~13.2° critical angle for slow→fast (343 → 1500 m/s)."),
+            },
+            SkillExample {
+                title: "Water-to-water layer",
+                args: r#"{"incident_deg": 10.0, "c1": 1500.0, "c2": 1480.0}"#,
+                note: Some("Returns `refracted_deg` slightly less than 10."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Trace a ray bending across a thermocline or halocline.",
+            "Find the critical angle by sweeping `incident_deg` until total internal reflection triggers.",
+            "Couple with `acoustic_sound_speed_water` to model layered ocean acoustics.",
+        ]
     }
 }
 
@@ -191,6 +257,28 @@ impl Skill for AcousticTransmissionLoss {
             ))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Deep-water 10 km at 10 kHz",
+                args: r#"{"range_m": 10000.0, "frequency_khz": 10.0}"#,
+                note: Some("Default spherical spreading; absorption dominates at higher kHz."),
+            },
+            SkillExample {
+                title: "Shallow water cylindrical",
+                args: r#"{"range_m": 5000.0, "frequency_khz": 2.0, "geometry": "cylindrical"}"#,
+                note: Some("Cylindrical halves the spreading-loss slope."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Feed `tl_db` into `acoustic_sonar_equation` for a detection-budget estimate.",
+            "Compare absorption losses across operating frequencies for sonar design.",
+            "Toggle `geometry` to study shallow- vs deep-water TL slope.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -236,6 +324,28 @@ impl Skill for AcousticSonarEquation {
                 .to_string(),
             ))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Marginal detection",
+                args: r#"{"sl_db": 220.0, "tl_db": 80.0, "ts_db": 10.0, "nl_db": 60.0, "dt_db": 10.0}"#,
+                note: Some("Returns `signal_excess_db` and a boolean `detection`."),
+            },
+            SkillExample {
+                title: "With array gain",
+                args: r#"{"sl_db": 215.0, "tl_db": 75.0, "ts_db": 15.0, "nl_db": 70.0, "dt_db": 8.0, "array_gain_db": 12.0}"#,
+                note: Some("Array gain reduces effective noise level."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Close the loop on an active sonar detection budget after computing TL.",
+            "Sweep DT or AG to find the minimum array gain needed for detection.",
+            "Compare bistatic vs monostatic geometries with paired TL values.",
+        ]
     }
 }
 

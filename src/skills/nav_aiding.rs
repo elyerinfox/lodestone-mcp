@@ -65,6 +65,27 @@ impl Skill for NavDop {
             ))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Four satellites, near-orthogonal",
+                args: r#"{"los_enu": [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0], [-0.577, -0.577, -0.577]]}"#,
+                note: Some("Returns GDOP/PDOP/HDOP/VDOP/TDOP; low values = good geometry."),
+            },
+            SkillExample {
+                title: "Six-satellite snapshot",
+                args: r#"{"los_enu": [[0.3, 0.4, 0.866], [-0.5, 0.5, 0.707], [0.0, -0.707, 0.707], [0.866, 0.0, 0.5], [-0.866, 0.0, 0.5], [0.0, 0.0, 1.0]]}"#,
+                note: Some("Need ≥4 LOS vectors; more sats → better DOP."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Score current sat geometry before trusting a GNSS fix for navigation.",
+            "Compare two satellite constellations / time slices by HDOP or PDOP.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -130,6 +151,27 @@ impl Skill for NavKlobuchar {
             Ok(text_result(json!({ "delay_m": t_iono * C }).to_string()))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Mid-latitude noon",
+                args: r#"{"gps_tow_s": 43200.0, "lat_deg": 40.0, "lon_deg": -75.0, "elevation_deg": 60.0, "azimuth_deg": 180.0, "alpha": [1.4e-8, 0.0, -5.96e-8, 5.96e-8], "beta": [129024.0, 0.0, -262144.0, 262144.0]}"#,
+                note: Some("Returns slant ionospheric delay in meters."),
+            },
+            SkillExample {
+                title: "Low elevation increases delay",
+                args: r#"{"gps_tow_s": 43200.0, "lat_deg": 40.0, "lon_deg": -75.0, "elevation_deg": 10.0, "azimuth_deg": 90.0, "alpha": [1.4e-8, 0.0, -5.96e-8, 5.96e-8], "beta": [129024.0, 0.0, -262144.0, 262144.0]}"#,
+                note: Some("Mapping function amplifies delay for low sats."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Apply the broadcast Klobuchar correction to a single satellite pseudorange.",
+            "Estimate single-frequency ionospheric error budget at a given time/location.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -179,6 +221,27 @@ impl Skill for NavSaastamoinen {
             let delay = 0.002277 / z.cos() * (p + (1255.0 / t + 0.05) * e - z.tan().powi(2));
             Ok(text_result(json!({ "delay_m": delay }).to_string()))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Sea-level, 30° elevation",
+                args: r#"{"height_m": 0.0, "elevation_deg": 30.0}"#,
+                note: Some("Uses default p=1013.25 hPa, T=288.15 K, e=11.7 hPa."),
+            },
+            SkillExample {
+                title: "Custom atmosphere",
+                args: r#"{"height_m": 1500.0, "elevation_deg": 15.0, "pressure_hpa": 850.0, "temp_k": 280.0, "e_w_hpa": 8.0}"#,
+                note: Some("Pass measured surface met for tighter delay estimate."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Estimate tropospheric path delay for a satellite at known elevation.",
+            "Build a first-cut GNSS error budget combining tropo + iono + DOP.",
+        ]
     }
 }
 
@@ -234,6 +297,27 @@ impl Skill for NavEcefToEnu {
             ))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Reference origin → zero ENU",
+                args: r#"{"ref_lat": 40.0, "ref_lon": -75.0, "ref_alt_m": 0.0, "x": 1227128.6, "y": -4581400.0, "z": 4077985.6}"#,
+                note: Some("ECEF of the reference itself gives ENU ≈ (0, 0, 0)."),
+            },
+            SkillExample {
+                title: "Equator reference",
+                args: r#"{"ref_lat": 0.0, "ref_lon": 0.0, "ref_alt_m": 0.0, "x": 6378137.0, "y": 0.0, "z": 100.0}"#,
+                note: Some("Returns local east/north/up offset in meters."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Convert ECEF positions to a local tangent-plane frame for plotting / control.",
+            "Compute east/north/up offsets from a survey marker to a target.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -285,6 +369,27 @@ impl Skill for NavImuDrift {
                 .to_string(),
             ))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Tactical-grade, 60 s",
+                args: r#"{"gyro_random_walk_deg_sqrt_hr": 0.1, "bias_instability_deg_per_hr": 1.0, "scale_factor_ppm": 100.0, "time_s": 60.0}"#,
+                note: Some("Returns ARW, bias, scale-factor contributions and RSS total in deg."),
+            },
+            SkillExample {
+                title: "With vehicle rate",
+                args: r#"{"gyro_random_walk_deg_sqrt_hr": 0.05, "bias_instability_deg_per_hr": 0.5, "scale_factor_ppm": 50.0, "time_s": 300.0, "rate_deg_s": 10.0}"#,
+                note: Some("Non-zero rate exercises the scale-factor term."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Predict free-inertial attitude drift over a coast interval.",
+            "Compare IMU grades by their dominant error term over a chosen horizon.",
+        ]
     }
 }
 

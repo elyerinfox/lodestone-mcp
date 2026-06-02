@@ -93,6 +93,33 @@ impl Skill for PeeringDbNetwork {
             Ok(text_result(out))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Look up by ASN",
+                args: r#"{"asn": 13335}"#,
+                note: Some("AS13335 = Cloudflare; returns name, type, traffic, prefix counts."),
+            },
+            SkillExample {
+                title: "Name substring search",
+                args: r#"{"name": "cloudflare"}"#,
+                note: Some("Returns up to `max` networks matching the substring."),
+            },
+            SkillExample {
+                title: "Cap result count",
+                args: r#"{"name": "google", "max": 5}"#,
+                note: Some("`max` defaults to 10, capped at 50."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Resolve an ASN to an operator name and traffic profile.",
+            "Find which networks an organization runs by name.",
+            "Pre-flight interconnection planning by inspecting prefix counts.",
+        ]
+    }
 }
 
 // ----- peeringdb_exchange -----
@@ -181,6 +208,33 @@ impl Skill for PeeringDbExchange {
             Ok(text_result(out))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Find an IX by name",
+                args: r#"{"name": "AMS-IX"}"#,
+                note: Some("Returns name, city, country, organization, member count."),
+            },
+            SkillExample {
+                title: "All IXes in a country",
+                args: r#"{"country": "DE"}"#,
+                note: Some("ISO country code; auto-uppercased."),
+            },
+            SkillExample {
+                title: "IXes in a specific city",
+                args: r#"{"city": "Frankfurt", "max": 5}"#,
+                note: Some("Combine with `name`/`country` to narrow further."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Find internet exchanges in a region (peering planning).",
+            "Look up an IX's member count to gauge connectivity.",
+            "Map an IX to its operating organization.",
+        ]
+    }
 }
 
 // ----- peeringdb_facility -----
@@ -265,6 +319,33 @@ impl Skill for PeeringDbFacility {
             }
             Ok(text_result(out))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Find Equinix facilities globally",
+                args: r#"{"name": "equinix", "max": 10}"#,
+                note: Some("Returns name, address, operator org, net + IX counts."),
+            },
+            SkillExample {
+                title: "All facilities in a country",
+                args: r#"{"country": "US"}"#,
+                note: Some("ISO country code; auto-uppercased."),
+            },
+            SkillExample {
+                title: "City-scoped search",
+                args: r#"{"city": "Amsterdam", "max": 5}"#,
+                note: Some("Combine with `name`/`country` to narrow further."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Find carrier-neutral data centers in a region.",
+            "Compare colo tenancy by network and IX counts.",
+            "Map a facility back to its operating organization.",
+        ]
     }
 }
 

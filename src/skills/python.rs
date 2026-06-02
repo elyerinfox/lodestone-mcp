@@ -168,6 +168,38 @@ impl Skill for PythonRun {
             Ok(text_result(truncate_chars(&out, server.max_chars)))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Trivial script (first call gets a token)",
+                args: r#"{"code": "print(2 + 2)"}"#,
+                note: Some("First call returns a confirmation token; nothing runs."),
+            },
+            SkillExample {
+                title: "Run with the token",
+                args: r#"{"code": "print(2 + 2)", "confirm": "<token-from-prior-call>"}"#,
+                note: Some("Add `trust: true` to whitelist THIS exact script for the session."),
+            },
+            SkillExample {
+                title: "Pass argv and a custom timeout",
+                args: r#"{"code": "import sys; print(sys.argv[1:])", "args": ["hello", "world"], "timeout_secs": 5, "confirm": "<token>"}"#,
+                note: None,
+            },
+            SkillExample {
+                title: "Choose an interpreter explicitly",
+                args: r#"{"code": "import platform; print(platform.python_version())", "interpreter": "python3.12", "confirm": "<token>"}"#,
+                note: Some("Defaults to `[python].interpreter` (then `python3` / `python`)."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Run a quick numeric / string / parsing snippet beyond what the LLM can do in-context.",
+            "Drive a Python library (requests, pandas, etc.) on the host to produce a result.",
+            "Verify or extend a Python computation against the real interpreter.",
+        ]
+    }
 }
 
 pub struct Family;

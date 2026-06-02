@@ -111,6 +111,27 @@ impl Skill for GcodeDrillHole {
             Ok(text_result(json!({ "gcode": g }).to_string()))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Metric drilled hole",
+                args: r#"{"x": 10, "y": 20, "depth": 5, "safe_z": 5, "plunge_feed": 100, "rpm": 3000}"#,
+                note: Some("Default units = metric (G21)."),
+            },
+            SkillExample {
+                title: "Imperial drilled hole",
+                args: r#"{"x": 1.5, "y": 0.75, "depth": 0.25, "safe_z": 0.2, "plunge_feed": 5, "rpm": 5000, "units": "imperial", "tool": 3}"#,
+                note: None,
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Emit a self-contained G-code program for a single drilled hole.",
+            "Generate a tool-change + drill snippet portable across LinuxCNC / Grbl.",
+        ]
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -205,6 +226,27 @@ impl Skill for GcodeBoltPattern {
             let _ = writeln!(g, "M30");
             Ok(text_result(json!({ "gcode": g }).to_string()))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "4-hole flange at origin",
+                args: r#"{"pcd": 100, "n": 4, "depth": 5, "safe_z": 5, "plunge_feed": 100, "rpm": 3000}"#,
+                note: Some("Default center (0, 0), start angle 0°."),
+            },
+            SkillExample {
+                title: "Offset 6-hole pattern with rotation",
+                args: r#"{"pcd": 80, "n": 6, "depth": 6, "safe_z": 8, "plunge_feed": 120, "rpm": 4000, "cx": 50, "cy": 50, "start_angle_deg": 30}"#,
+                note: None,
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Emit a circular bolt-hole pattern for a flange or mounting plate.",
+            "Quickly drill N evenly-spaced holes without writing G-code by hand.",
+        ]
     }
 }
 
@@ -369,6 +411,28 @@ impl Skill for GcodeParseSummary {
             ))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Tiny program",
+                args: r#"{"gcode": "G21 G90\nG0 X10 Y0\nG1 Z-5 F100\nG0 Z5\nM30"}"#,
+                note: Some("Returns command counts, axis travel, bbox, max feed."),
+            },
+            SkillExample {
+                title: "With comments",
+                args: r#"{"gcode": "; header\nG17 G21 G90\n(tool change)\nT1 M6\nG0 X0 Y0\nM30"}"#,
+                note: Some("Both `(...)` and `;` comments are stripped before parsing."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Sanity-check a machine-generated G-code program before sending it.",
+            "Get bounding box and axis travel to estimate stock and runtime.",
+            "Inspect command counts to spot anomalies in CAM output.",
+        ]
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -411,6 +475,27 @@ impl Skill for ScadBox {
             );
             Ok(text_result(json!({ "scad": src }).to_string()))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Anchored cube",
+                args: r#"{"x": 20, "y": 30, "z": 10}"#,
+                note: Some("Default `center=false` (OpenSCAD's default)."),
+            },
+            SkillExample {
+                title: "Centered cube",
+                args: r#"{"x": 20, "y": 30, "z": 10, "center": true}"#,
+                note: None,
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Emit a one-line OpenSCAD `cube(...)` primitive.",
+            "Stitch a box into a larger CSG composition.",
+        ]
     }
 }
 
@@ -471,6 +556,32 @@ impl Skill for ScadCylinder {
             Ok(text_result(json!({ "scad": src }).to_string()))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Plain cylinder",
+                args: r#"{"height": 20, "r": 5}"#,
+                note: None,
+            },
+            SkillExample {
+                title: "Cone / frustum",
+                args: r#"{"height": 30, "r1": 10, "r2": 5, "fn_": 64}"#,
+                note: Some("Two-radius form makes a frustum (or cone if r2=0)."),
+            },
+            SkillExample {
+                title: "Centered with fine facets",
+                args: r#"{"height": 12, "r": 8, "fn_": 128, "center": true}"#,
+                note: None,
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Emit a cylinder, cone, or frustum primitive in OpenSCAD.",
+            "Set a custom `$fn` to control facet count for smooth curves.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -503,6 +614,27 @@ impl Skill for ScadSphere {
             let src = format!("sphere({args});\n");
             Ok(text_result(json!({ "scad": src }).to_string()))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Basic sphere",
+                args: r#"{"r": 10}"#,
+                note: None,
+            },
+            SkillExample {
+                title: "High-poly sphere",
+                args: r#"{"r": 25, "fn_": 128}"#,
+                note: Some("Use `fn_` to control facet smoothness."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Emit a sphere primitive in OpenSCAD.",
+            "Specify facet count for renders that need smooth curvature.",
+        ]
     }
 }
 
@@ -595,6 +727,27 @@ impl Skill for ScadFlange {
             let _ = writeln!(src, "}}");
             Ok(text_result(json!({ "scad": src }).to_string()))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Plain 4-hole flange",
+                args: r#"{"od": 100, "thickness": 8, "pcd": 80, "n": 4, "hole_r": 3.3}"#,
+                note: Some("`hole_r` is clearance radius (e.g. 3.3 for M6 clearance)."),
+            },
+            SkillExample {
+                title: "Flange with central bore",
+                args: r#"{"od": 120, "thickness": 10, "pcd": 95, "n": 6, "hole_r": 4.2, "bore": 40, "fn_": 96}"#,
+                note: None,
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Emit a parametric flange with optional bore and N bolt holes.",
+            "Bootstrap a mounting plate or pipe-flange design in OpenSCAD.",
+        ]
     }
 }
 

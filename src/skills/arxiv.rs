@@ -189,6 +189,37 @@ impl Skill for ArxivSearch {
             Ok(text_result(out))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Search by topic",
+                args: r#"{"query": "diffusion models"}"#,
+                note: Some(
+                    "Returns title, authors, date, categories, abstract snippet, abs + PDF URLs.",
+                ),
+            },
+            SkillExample {
+                title: "Narrow result count",
+                args: r#"{"query": "retrieval augmented generation", "max_results": 5}"#,
+                note: Some("`max_results` defaults to 8, capped at 25."),
+            },
+            SkillExample {
+                title: "Author-scoped search",
+                args: r#"{"query": "author:hinton dropout"}"#,
+                note: Some(
+                    "arXiv field tags (author:, ti:, abs:, cat:) are accepted in the query string.",
+                ),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Find recent arXiv preprints by topic, author, or category.",
+            "Discover a paper's id before pulling its abstract with `arxiv_get`.",
+            "Locate a free PDF to hand to `read_pdf` for the full text.",
+        ]
+    }
 }
 
 pub struct ArxivGet;

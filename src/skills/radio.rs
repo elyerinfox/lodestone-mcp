@@ -112,6 +112,28 @@ impl Skill for RadioLinkBudget {
             )))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Wi-Fi 2.4 GHz across 100 m",
+                args: r#"{"tx_power_dbm": 20.0, "tx_gain_dbi": 3.0, "rx_gain_dbi": 3.0, "frequency_hz": 2400000000.0, "distance_m": 100.0, "rx_sensitivity_dbm": -85.0}"#,
+                note: Some("Reports EIRP, FSPL, Rx power, and margin verdict."),
+            },
+            SkillExample {
+                title: "Marginal UHF link with feedline loss",
+                args: r#"{"tx_power_dbm": 30.0, "tx_gain_dbi": 6.0, "rx_gain_dbi": 6.0, "other_loss_db": 4.0, "frequency_hz": 433000000.0, "distance_m": 5000.0, "rx_sensitivity_dbm": -105.0}"#,
+                note: Some("`other_loss_db` rolls cable / mismatch / fade margin into one knob."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Decide whether a radio link will close at a given distance.",
+            "Combine multiple atomic Friis / noise pieces in one call.",
+            "Drive what-if studies on antenna gain or fade margin.",
+        ]
+    }
 }
 
 // ----- max range -----
@@ -166,6 +188,28 @@ impl Skill for RadioMaxRange {
                 fmt(budget)
             )))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "LoRa-class 868 MHz",
+                args: r#"{"tx_power_dbm": 14.0, "tx_gain_dbi": 2.0, "rx_gain_dbi": 2.0, "frequency_hz": 868000000.0, "rx_sensitivity_dbm": -137.0}"#,
+                note: Some("Returns max FSPL range and the equivalent link budget."),
+            },
+            SkillExample {
+                title: "Satellite downlink with feed losses",
+                args: r#"{"tx_power_dbm": 50.0, "tx_gain_dbi": 30.0, "rx_gain_dbi": 35.0, "other_loss_db": 5.0, "frequency_hz": 12000000000.0, "rx_sensitivity_dbm": -110.0}"#,
+                note: Some("`other_loss_db` captures atmospheric / rain margin."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Find the LOS distance ceiling for a known receiver sensitivity.",
+            "Compare radios by max-range when bandwidth is identical.",
+            "Pair with `radio_range_for_bandwidth` for a sensitivity-derived case.",
+        ]
     }
 }
 
@@ -249,6 +293,28 @@ impl Skill for RadioRangeForBandwidth {
                 fmt(cap / 1e6)
             )))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Narrowband 12.5 kHz channel",
+                args: r#"{"tx_power_dbm": 30.0, "tx_gain_dbi": 6.0, "rx_gain_dbi": 6.0, "frequency_hz": 450000000.0, "bandwidth_hz": 12500.0}"#,
+                note: Some("Defaults: NF=5 dB, T=290 K, required SNR=10 dB."),
+            },
+            SkillExample {
+                title: "Wideband 20 MHz Wi-Fi",
+                args: r#"{"tx_power_dbm": 23.0, "tx_gain_dbi": 4.0, "rx_gain_dbi": 4.0, "frequency_hz": 5800000000.0, "bandwidth_hz": 20000000.0, "required_snr_db": 20.0, "noise_figure_db": 7.0}"#,
+                note: Some("Wider bandwidth raises noise floor by 32 dB — kills range."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Visualize the range vs bandwidth trade for a digital radio.",
+            "Pick a bandwidth that just meets a coverage target.",
+            "Bundle FSPL + thermal noise + Shannon capacity in one answer.",
+        ]
     }
 }
 

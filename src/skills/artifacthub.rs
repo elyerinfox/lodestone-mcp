@@ -221,6 +221,35 @@ impl Skill for ArtifactHubSearch {
             Ok(text_result(out))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Search every kind",
+                args: r#"{"query": "ingress"}"#,
+                note: Some("Default 10 results; returns Helm charts, operators, plugins, …"),
+            },
+            SkillExample {
+                title: "Limit to Helm charts",
+                args: r#"{"query": "postgres", "kind": "helm"}"#,
+                note: Some(
+                    "Other kinds: olm, krew, falco, opa, kyverno, gatekeeper, tekton-task, …",
+                ),
+            },
+            SkillExample {
+                title: "More results, krew kubectl plugins",
+                args: r#"{"query": "ctx", "kind": "krew", "max_results": 30}"#,
+                note: Some("Capped at 30."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Find the canonical Helm chart for a service before installing it.",
+            "Discover a Kyverno/OPA policy that already enforces a rule you need.",
+            "Look up a krew plugin or Tekton task by keyword.",
+        ]
+    }
 }
 
 /// The skills this module contributes.

@@ -185,6 +185,38 @@ impl Skill for PhysicsFormula {
             Ok(text_result(out))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Kinetic energy",
+                args: r#"{"name": "kinetic_energy", "args": {"m": 2, "v": 3}}"#,
+                note: Some("Returns ½·m·v² = 9 J."),
+            },
+            SkillExample {
+                title: "Ohm's law (find voltage)",
+                args: r#"{"name": "ohms_law_voltage", "args": {"I": 2, "R": 3}}"#,
+                note: Some("V = I·R = 6 V."),
+            },
+            SkillExample {
+                title: "Mass-energy equivalence",
+                args: r#"{"name": "mass_energy", "args": {"m": 1}}"#,
+                note: Some("E = m·c² for 1 kg ≈ 9e16 J."),
+            },
+            SkillExample {
+                title: "Ideal gas with optional inputs",
+                args: r#"{"name": "ideal_gas_pressure", "args": {"n": 1, "T": 273.15, "V": 0.022414}}"#,
+                note: Some("SI units throughout; angles where applicable are in degrees."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Compute a named physics formula by id with explicit SI inputs.",
+            "Avoid hand-typing the formula when its id is in the catalog.",
+            "Plug values into a closed-form mechanics / EM / thermo equation.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -214,6 +246,33 @@ impl Skill for PhysicsFormulaList {
                 args.filter.as_deref(),
             )))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Every formula",
+                args: r#"{}"#,
+                note: Some("Lists every formula grouped by category."),
+            },
+            SkillExample {
+                title: "Filter by category",
+                args: r#"{"filter": "relativity"}"#,
+                note: Some("Matches category name or id / equation substring."),
+            },
+            SkillExample {
+                title: "Find Ohm's-law variants",
+                args: r#"{"filter": "ohms_law"}"#,
+                note: None,
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Discover which formula id to feed `physics_formula`.",
+            "Browse formulas in a category before picking one.",
+            "Search by keyword for a specific equation.",
+        ]
     }
 }
 
@@ -268,6 +327,37 @@ impl Skill for PhysicalConstant {
                 body.join("\n")
             )))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "List all constants",
+                args: r#"{}"#,
+                note: Some("Returns every SI constant with symbol, value, and unit."),
+            },
+            SkillExample {
+                title: "Filter by name substring",
+                args: r#"{"name": "speed of light"}"#,
+                note: Some(
+                    "`name` is a case-insensitive substring match against both symbol and name, \
+                     so narrow filters (`speed of light`, `boltzmann`) return one entry; broad \
+                     filters (`c`, `e`) return every entry that contains that letter.",
+                ),
+            },
+            SkillExample {
+                title: "Look up by name substring",
+                args: r#"{"name": "planck"}"#,
+                note: Some("Matches both `h` and `hbar`."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Look up the numeric value of a fundamental constant.",
+            "Confirm a unit / symbol before using a constant in a formula.",
+            "Browse the available SI constants.",
+        ]
     }
 }
 
@@ -346,6 +436,33 @@ impl Skill for WaveFrequency {
                 si(period, "s"),
             )))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "FM radio frequency to wavelength",
+                args: r#"{"frequency_hz": 1.0e8}"#,
+                note: Some("Defaults to speed of light; 100 MHz → ~3 m wavelength."),
+            },
+            SkillExample {
+                title: "Visible-light wavelength to frequency",
+                args: r#"{"wavelength_m": 5.5e-7}"#,
+                note: Some("550 nm green light → ~545 THz."),
+            },
+            SkillExample {
+                title: "Sound wave (speed override)",
+                args: r#"{"frequency_hz": 440, "speed_m_s": 343}"#,
+                note: Some("Concert-A through air; wavelength ≈ 0.78 m."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Convert between a wave's frequency, wavelength, and period.",
+            "Compute the wavelength of a radio / optical signal at the speed of light.",
+            "Work out acoustic wavelengths by overriding the propagation speed.",
+        ]
     }
 }
 

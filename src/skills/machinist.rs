@@ -86,6 +86,27 @@ impl Skill for MachCuttingSpeed {
             Ok(text_result(json!({ "rpm": rpm }).to_string()))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Metric — 6061 face mill",
+                args: r#"{"v": 300, "diameter": 50, "units": "metric"}"#,
+                note: Some("V in m/min, D in mm; returns RPM."),
+            },
+            SkillExample {
+                title: "Imperial — steel SFM",
+                args: r#"{"v": 100, "diameter": 0.5, "units": "imperial"}"#,
+                note: Some("V in sfm, D in inches."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Convert a recommended cutting speed (m/min or sfm) into spindle RPM.",
+            "Set up speeds-and-feeds for a turning or milling job.",
+        ]
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -121,6 +142,27 @@ impl Skill for MachFeedRate {
             let f = a.feed_per_tooth * a.teeth as f64 * a.rpm;
             Ok(text_result(json!({ "feed_per_min": f }).to_string()))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "4-flute end mill",
+                args: r#"{"feed_per_tooth": 0.05, "teeth": 4, "rpm": 1800}"#,
+                note: Some("Returns feed in mm/min (chip load was mm/tooth)."),
+            },
+            SkillExample {
+                title: "Drill — 2 flutes",
+                args: r#"{"feed_per_tooth": 0.1, "teeth": 2, "rpm": 1200}"#,
+                note: None,
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Compute linear feed from chip load, flute count, and RPM.",
+            "Verify the F value to enter into a CAM post or controller.",
+        ]
     }
 }
 
@@ -158,6 +200,27 @@ impl Skill for MachMrrMilling {
             let mrr = a.a_e_mm * a.a_p_mm * a.feed_mm_min / 1000.0;
             Ok(text_result(json!({ "mrr_cm3_min": mrr }).to_string()))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Slotting cut",
+                args: r#"{"a_e_mm": 10, "a_p_mm": 5, "feed_mm_min": 600}"#,
+                note: Some("Returns MRR in cm³/min."),
+            },
+            SkillExample {
+                title: "Light finish pass",
+                args: r#"{"a_e_mm": 2, "a_p_mm": 0.5, "feed_mm_min": 1200}"#,
+                note: None,
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Compute milling MRR for power / cycle-time estimates.",
+            "Compare two strategies' chip-removal throughput.",
+        ]
     }
 }
 
@@ -255,6 +318,33 @@ impl Skill for MachCuttingPower {
             ))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Aluminum at MRR 30 cm³/min",
+                args: r#"{"mrr_cm3_min": 30, "h_m_mm": 0.1, "material": "al-6061"}"#,
+                note: Some("Returns spindle power in kW and computed k_c."),
+            },
+            SkillExample {
+                title: "Carbon steel finish",
+                args: r#"{"mrr_cm3_min": 8, "h_m_mm": 0.08, "material": "steel-1020"}"#,
+                note: None,
+            },
+            SkillExample {
+                title: "Titanium roughing",
+                args: r#"{"mrr_cm3_min": 5, "h_m_mm": 0.15, "material": "ti-6al4v"}"#,
+                note: None,
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Estimate required spindle power for a cutting recipe.",
+            "Check whether a job fits a machine's power envelope.",
+            "Compare cutting energy across materials at the same MRR.",
+        ]
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -298,6 +388,27 @@ impl Skill for MachSurfaceFinishTurning {
                 .to_string(),
             ))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Standard insert finish",
+                args: r#"{"feed_mm_rev": 0.1, "nose_radius_mm": 0.4}"#,
+                note: Some("Returns Ra and Rt in micrometres."),
+            },
+            SkillExample {
+                title: "Fine finish, larger nose",
+                args: r#"{"feed_mm_rev": 0.05, "nose_radius_mm": 0.8}"#,
+                note: None,
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Estimate the lower-bound surface roughness for a turning operation.",
+            "Pick a feed/nose-radius pair to hit a target Ra.",
+        ]
     }
 }
 
@@ -355,6 +466,33 @@ impl Skill for MachBeamDeflection {
             Ok(text_result(json!({ "delta_m": delta }).to_string()))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Cantilever with end load",
+                args: r#"{"case": "cantilever_end_load", "load": 100, "length_m": 0.5, "e_pa": 2.0e11, "i_m4": 1.0e-9}"#,
+                note: Some("Steel, 500 mm, 100 N tip load."),
+            },
+            SkillExample {
+                title: "Simply-supported with center load",
+                args: r#"{"case": "simple_center_load", "load": 500, "length_m": 1.0, "e_pa": 6.89e10, "i_m4": 5.0e-9}"#,
+                note: None,
+            },
+            SkillExample {
+                title: "Cantilever with UDL",
+                args: r#"{"case": "cantilever_udl", "load": 200, "length_m": 0.8, "e_pa": 2.0e11, "i_m4": 4.9e-10}"#,
+                note: Some("`load` is distributed load w (N/m) for UDL cases."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Compute max deflection for a uniform beam under a standard load case.",
+            "Size a beam cross-section against a deflection budget.",
+            "Cross-check a hand calc against Shigley table A-9.",
+        ]
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -407,6 +545,27 @@ impl Skill for MachSectionInertia {
             Ok(text_result(json!({ "i_m4": i }).to_string()))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Rectangular bar",
+                args: r#"{"shape": "rect", "b_m": 0.05, "h_m": 0.025}"#,
+                note: Some("50×25 mm; I about the strong axis (h cubed)."),
+            },
+            SkillExample {
+                title: "Round shaft",
+                args: r#"{"shape": "round", "d_m": 0.020}"#,
+                note: Some("20 mm diameter solid round."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Get area moment of inertia I for a rect or round cross-section.",
+            "Feed I into `mach_beam_deflection` for a stiffness calc.",
+        ]
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -452,6 +611,27 @@ impl Skill for MachStressStrain {
             }
             Ok(text_result(out.to_string()))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Stress only",
+                args: r#"{"force_n": 10000, "area_m2": 0.0001}"#,
+                note: Some("Returns stress in Pa."),
+            },
+            SkillExample {
+                title: "Stress + strain (with E)",
+                args: r#"{"force_n": 5000, "area_m2": 0.00005, "e_pa": 2.0e11}"#,
+                note: None,
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Compute axial engineering stress σ = F/A.",
+            "Get elastic strain ε when Young's modulus is known.",
+        ]
     }
 }
 
@@ -553,6 +733,33 @@ impl Skill for MachBoltTorque {
                 .to_string(),
             ))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "M10 dry, 25 kN preload",
+                args: r#"{"diameter_m": 0.010, "preload_n": 25000, "condition": "dry"}"#,
+                note: Some("Returns installation torque in N·m."),
+            },
+            SkillExample {
+                title: "Lubricated 1/4-20",
+                args: r#"{"diameter_m": 0.00635, "preload_n": 5000, "condition": "lubricated"}"#,
+                note: None,
+            },
+            SkillExample {
+                title: "Anti-seize on stainless",
+                args: r#"{"diameter_m": 0.012, "preload_n": 30000, "condition": "anti-seize"}"#,
+                note: None,
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Compute target torque for a bolted joint at a given preload.",
+            "Compare lubrication conditions' effect on installation torque.",
+            "Sanity-check a torque spec against Shigley's nut-factor table.",
+        ]
     }
 }
 
@@ -718,6 +925,32 @@ impl Skill for MachThreadSpec {
             ))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "UNC inch",
+                args: r#"{"thread": "1/4-20"}"#,
+                note: Some("Returns pitch, major/minor diameters, and tap-drill size."),
+            },
+            SkillExample {
+                title: "ISO metric coarse",
+                args: r#"{"thread": "M6"}"#,
+                note: None,
+            },
+            SkillExample {
+                title: "Larger metric",
+                args: r#"{"thread": "M12"}"#,
+                note: None,
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Look up tap-drill size for a UNC or ISO metric thread.",
+            "Get pitch and minor diameter for a thread engagement calc.",
+        ]
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -843,6 +1076,33 @@ impl Skill for MachMaterial {
             ))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "6061-T6 aluminum",
+                args: r#"{"material": "al-6061-t6"}"#,
+                note: Some("Returns yield, ultimate, density, E, Poisson."),
+            },
+            SkillExample {
+                title: "Annealed 304 stainless",
+                args: r#"{"material": "ss-304"}"#,
+                note: None,
+            },
+            SkillExample {
+                title: "Ti-6Al-4V",
+                args: r#"{"material": "ti-6al4v"}"#,
+                note: None,
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Look up nominal mechanical properties for a common alloy.",
+            "Get Young's modulus to plug into beam-deflection or stress-strain calcs.",
+            "Estimate part weight from density and volume.",
+        ]
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -907,6 +1167,32 @@ impl Skill for MachHardnessConvert {
                 json!({ "hrc": a.hrc, "hv": hv, "hb": hb }).to_string(),
             ))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Mid-range HRC",
+                args: r#"{"hrc": 40}"#,
+                note: Some("Returns Vickers (HV) and Brinell (HB) equivalents."),
+            },
+            SkillExample {
+                title: "Soft steel",
+                args: r#"{"hrc": 25}"#,
+                note: None,
+            },
+            SkillExample {
+                title: "Hardened tool steel",
+                args: r#"{"hrc": 58}"#,
+                note: Some("Valid range is HRC 20-60."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Convert Rockwell-C hardness to Vickers or Brinell.",
+            "Cross-check a material certificate that lists a different hardness scale.",
+        ]
     }
 }
 

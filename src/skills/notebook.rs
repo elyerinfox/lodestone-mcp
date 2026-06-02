@@ -99,6 +99,30 @@ impl Skill for NotebookInfo {
             )))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Summarize a Python notebook",
+                args: r#"{"path": "notebooks/analysis.ipynb"}"#,
+                note: Some("Returns kernel, language, nbformat version, and cell counts by type."),
+            },
+            SkillExample {
+                title: "Notebook with a non-default kernel",
+                args: r#"{"path": "notebooks/julia_work.ipynb"}"#,
+                note: Some(
+                    "Same output shape; kernel/language come from the notebook's metadata block.",
+                ),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Decide whether a notebook is worth opening based on size and cell mix.",
+            "Identify the runtime / kernel before suggesting a re-execution path.",
+            "Quick header pass before drilling into specific cells via notebook_cells.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -174,6 +198,33 @@ impl Skill for NotebookCells {
             }
             Ok(text_result(out))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "First 20 cells, any type",
+                args: r#"{"path": "notebooks/analysis.ipynb"}"#,
+                note: Some("Defaults: 20 cells, 1000 chars per source preview."),
+            },
+            SkillExample {
+                title: "Only code cells, paged",
+                args: r#"{"path": "notebooks/analysis.ipynb", "cell_type": "code", "offset": 20, "max": 10}"#,
+                note: Some("Use offset / max to page through long notebooks."),
+            },
+            SkillExample {
+                title: "Bigger source snippets",
+                args: r#"{"path": "notebooks/analysis.ipynb", "cell_type": "markdown", "max_chars": 5000}"#,
+                note: Some("Raise max_chars when individual cells are documentation-heavy."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Read a notebook's cell contents without launching Jupyter.",
+            "Extract all markdown narration for a write-up.",
+            "Diff or audit notebook code cells against expected steps.",
+        ]
     }
 }
 

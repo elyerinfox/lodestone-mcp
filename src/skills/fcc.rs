@@ -236,6 +236,33 @@ impl Skill for FccCallsign {
             Ok(text_result(out))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "ARRL HQ club station",
+                args: r#"{"callsign": "W1AW"}"#,
+                note: Some("Returns licensee, class, trustee, grant/expiry, grid square."),
+            },
+            SkillExample {
+                title: "Personal amateur callsign",
+                args: r#"{"callsign": "KE8XYZ"}"#,
+                note: None,
+            },
+            SkillExample {
+                title: "Non-amateur (GMRS) — friendly redirect",
+                args: r#"{"callsign": "WQXY123"}"#,
+                note: Some("callook.info is amateur-only; tool returns a ULS web-search link."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Look up the licensee, class, and address behind a US amateur callsign.",
+            "Verify a club call's trustee and license status.",
+            "Get the grid square / FRN for an amateur operator.",
+        ]
+    }
 }
 
 fn urlencoded(s: &str) -> String {
@@ -655,6 +682,38 @@ impl Skill for FccAmateurBands {
             Ok(text_result(out))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Full band plan",
+                args: r#"{}"#,
+                note: Some("Lists every band 2200m through 1.25cm with all three classes."),
+            },
+            SkillExample {
+                title: "Just 20 meters",
+                args: r#"{"band": "20m"}"#,
+                note: None,
+            },
+            SkillExample {
+                title: "Frequency lookup",
+                args: r#"{"band": "14.250"}"#,
+                note: Some("Auto-resolves to the band whose range contains that MHz."),
+            },
+            SkillExample {
+                title: "Technician privileges on HF",
+                args: r#"{"band": "HF", "license_class": "technician"}"#,
+                note: None,
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Look up the frequency range and class privileges of a US amateur band.",
+            "Find which band a given frequency lives in.",
+            "Quote a Technician/General/Extra's specific sub-band privileges.",
+        ]
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1004,6 +1063,33 @@ impl Skill for FccRadioService {
             };
             Ok(text_result(body))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Side-by-side comparison",
+                args: r#"{"service": "compare"}"#,
+                note: Some("Quick table of FRS / GMRS / MURS / CB / amateur."),
+            },
+            SkillExample {
+                title: "GMRS overview",
+                args: r#"{"service": "gmrs"}"#,
+                note: Some("Power, license cost, repeater rules, channel sharing with FRS."),
+            },
+            SkillExample {
+                title: "Single FRS channel",
+                args: r#"{"service": "frs", "channel": 7}"#,
+                note: None,
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Answer 'do I need a license for X?' for US personal-radio services.",
+            "Look up the frequency and power cap of a specific FRS / MURS / CB channel.",
+            "Explain how FRS and GMRS share spectrum on the 462/467 MHz channels.",
+        ]
     }
 }
 

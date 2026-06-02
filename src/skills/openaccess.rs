@@ -192,6 +192,28 @@ impl Skill for UnpaywallLookup {
             Ok(text_result(report))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Bare DOI",
+                args: r#"{"doi": "10.1038/s41586-020-2649-2"}"#,
+                note: Some("Returns OA status, best OA PDF, and all known OA locations."),
+            },
+            SkillExample {
+                title: "DOI URL",
+                args: r#"{"doi": "https://doi.org/10.1038/nature12373"}"#,
+                note: Some("`https://doi.org/` and `doi:` prefixes are stripped."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Find a legal open-access PDF for a paywalled paper by DOI.",
+            "List repository deposits and author manuscripts for a paper.",
+            "Pre-flight a DOI before handing the PDF URL to `read_pdf`.",
+        ]
+    }
 }
 
 /// Author list from an OpenAlex work → "A, B, … et al." (capped).
@@ -333,6 +355,28 @@ impl Skill for OpenAlexSearch {
             Ok(text_result(report))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Free-text scholarly search",
+                args: r#"{"query": "attention is all you need"}"#,
+                note: Some("Matches title/abstract/metadata; OA PDF surfaced when available."),
+            },
+            SkillExample {
+                title: "Narrower result count",
+                args: r#"{"query": "graph neural networks drug discovery", "max_results": 5}"#,
+                note: Some("`max_results` defaults to 10, capped at 50."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Cross-discipline literature search across the OpenAlex scholarly graph.",
+            "Find a DOI for a paper you only know by title or topic.",
+            "Discover the OA PDF link before reading with `read_pdf`.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -391,6 +435,33 @@ impl Skill for OpenAlexWork {
             server.retrieval_put(key, &report);
             Ok(text_result(report))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Bare DOI",
+                args: r#"{"id": "10.1038/s41586-020-2649-2"}"#,
+                note: Some("Returns title, authors, year, venue, DOI, OA status + PDF."),
+            },
+            SkillExample {
+                title: "OpenAlex work id",
+                args: r#"{"id": "W2741809807"}"#,
+                note: Some("`W…` ids are accepted alongside DOIs."),
+            },
+            SkillExample {
+                title: "DOI URL form",
+                args: r#"{"id": "https://doi.org/10.1145/3357713.3384242"}"#,
+                note: Some("`https://doi.org/` and `doi:` prefixes are stripped."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Resolve one paper's structured metadata from a DOI or OpenAlex id.",
+            "Get an OA PDF link when one exists, then read with `read_pdf`.",
+            "Pair with `unpaywall_lookup` for the fullest OA picture.",
+        ]
     }
 }
 

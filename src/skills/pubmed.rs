@@ -219,6 +219,33 @@ impl Skill for PubmedSearch {
             Ok(text_result(report))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Free-text biomedical search",
+                args: r#"{"query": "crispr off-target"}"#,
+                note: Some("Returns PMID, title, authors, journal, date for each hit."),
+            },
+            SkillExample {
+                title: "PubMed field-tag query",
+                args: r#"{"query": "asthma[Title] AND 2023[Date - Publication]"}"#,
+                note: Some("Full PubMed query syntax supported (field tags, boolean ops)."),
+            },
+            SkillExample {
+                title: "Narrower result count",
+                args: r#"{"query": "GLP-1 receptor agonists", "max_results": 5}"#,
+                note: Some("`max_results` defaults to 10, capped at 50."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Biomedical literature search via the canonical NCBI API.",
+            "Find PMIDs to feed to `pubmed_summary` for abstracts.",
+            "Date- or title-scoped queries using PubMed field tags.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -322,6 +349,28 @@ impl Skill for PubmedSummary {
             server.retrieval_put(key, &report);
             Ok(text_result(report))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Read an abstract by PMID",
+                args: r#"{"pmid": "20020651"}"#,
+                note: Some("Returns title, authors, journal, DOI, link, and the abstract."),
+            },
+            SkillExample {
+                title: "Larger abstract budget",
+                args: r#"{"pmid": "38000000", "max_chars": 10000}"#,
+                note: Some("`max_chars` defaults to 3000, clamped to [200, 20000]."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Read one paper's abstract after locating it via `pubmed_search`.",
+            "Get a citable abstract + DOI for a known PMID.",
+            "Pre-flight before fetching full text from a publisher / OA source.",
+        ]
     }
 }
 
@@ -436,6 +485,35 @@ impl Skill for NcbiSearch {
             Ok(text_result(report))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Search PMC (full-text articles)",
+                args: r#"{"db": "pmc", "query": "tardigrade radiation resistance"}"#,
+                note: Some(
+                    "Returns PMCIDs with a headline, key fields, and an ncbi.nlm.nih.gov link.",
+                ),
+            },
+            SkillExample {
+                title: "Look up a gene",
+                args: r#"{"db": "gene", "query": "BRCA1"}"#,
+                note: Some("`db` accepts gene, protein, nucleotide, snp, clinvar, taxonomy, …"),
+            },
+            SkillExample {
+                title: "Taxonomy search",
+                args: r#"{"db": "taxonomy", "query": "drosophila melanogaster", "max_results": 5}"#,
+                note: Some("Use `ncbi_summary` to inspect one UID in detail."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Search any NCBI database (not just PubMed) with a single tool.",
+            "Resolve a gene/protein/taxon name to its NCBI UID.",
+            "Sibling: use `pubmed_search` for PubMed-specific result formatting.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -513,6 +591,28 @@ impl Skill for NcbiSummary {
             server.retrieval_put(key, &report);
             Ok(text_result(report))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Inspect a gene record",
+                args: r#"{"db": "gene", "id": "672"}"#,
+                note: Some("Gene 672 = BRCA1; returns all scalar fields + ncbi.nlm.nih.gov link."),
+            },
+            SkillExample {
+                title: "Inspect a taxonomy record",
+                args: r#"{"db": "taxonomy", "id": "7227"}"#,
+                note: Some("Taxon 7227 = Drosophila melanogaster."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Inspect one NCBI record's scalar metadata across any database.",
+            "Resolve a UID returned by `ncbi_search` to a full summary.",
+            "Sibling: use `pubmed_summary` to also fetch the abstract text.",
+        ]
     }
 }
 

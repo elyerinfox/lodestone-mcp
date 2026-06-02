@@ -97,6 +97,33 @@ impl Skill for NoaaAlerts {
             Ok(text_result(out))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Active alerts in Washington state",
+                args: r#"{"area": "WA"}"#,
+                note: Some("Returns severity, event type, area, and headline per alert."),
+            },
+            SkillExample {
+                title: "Nationwide alerts, top 10",
+                args: r#"{"max": 10}"#,
+                note: Some("Omit `area` for the full U.S. feed; capped at 200."),
+            },
+            SkillExample {
+                title: "Test-mode messages only",
+                args: r#"{"area": "CA", "status": "test"}"#,
+                note: None,
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Check current severe-weather warnings for a U.S. state.",
+            "Get a nationwide rollup of active NWS alerts.",
+            "Surface test/exercise alerts for drills or system checks.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -188,6 +215,33 @@ impl Skill for NoaaForecast {
             }
             Ok(text_result(out))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Hourly forecast near Seattle",
+                args: r#"{"lat": 47.67, "lon": -122.12}"#,
+                note: Some("Defaults to 12 hourly periods."),
+            },
+            SkillExample {
+                title: "7-day outlook",
+                args: r#"{"lat": 40.7128, "lon": -74.0060, "period": "daily", "max": 7}"#,
+                note: Some("`period: \"daily\"` returns AM/PM named periods, not hourly rows."),
+            },
+            SkillExample {
+                title: "Extended hourly window",
+                args: r#"{"lat": 39.7392, "lon": -104.9903, "max": 48}"#,
+                note: Some("Capped at 168 (one week of hourly periods)."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Pull the next few hours of weather at a U.S. lat/lon.",
+            "Generate a multi-day outlook for an event or trip.",
+            "Get authoritative NWS forecast text without scraping weather.gov.",
+        ]
     }
 }
 

@@ -132,6 +132,28 @@ impl Skill for Datetime {
             Ok(text_result(out))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Now in local + UTC",
+                args: r#"{}"#,
+                note: Some("Returns local time, UTC, day-of-week, and Unix timestamp."),
+            },
+            SkillExample {
+                title: "Also show Tokyo time",
+                args: r#"{"timezone": "Asia/Tokyo"}"#,
+                note: Some("Add any IANA zone name to also print 'now' there."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Ground the model with the current date/time before any temporal reasoning.",
+            "Get the current time in a specific IANA timezone.",
+            "Look up today's Unix timestamp.",
+        ]
+    }
 }
 
 pub struct DateDiff;
@@ -180,6 +202,33 @@ impl Skill for DateDiff {
             }
             Ok(text_result(out))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "How long ago was this date?",
+                args: r#"{"from": "2020-01-15"}"#,
+                note: Some("Omit `to` to compare against now."),
+            },
+            SkillExample {
+                title: "Days between two dates",
+                args: r#"{"from": "2024-01-01", "to": "2024-12-31"}"#,
+                note: None,
+            },
+            SkillExample {
+                title: "Hours between RFC3339 instants",
+                args: r#"{"from": "2025-05-27T18:25:00Z", "to": "2025-05-28T06:00:00Z"}"#,
+                note: None,
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Judge recency of a release, event, or document.",
+            "Compute exact days/hours between two dates.",
+            "Verify a model claim about how long ago something happened.",
+        ]
     }
 }
 
@@ -237,6 +286,33 @@ impl Skill for TimeConvert {
             );
             Ok(text_result(out))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "NY meeting time in Tokyo",
+                args: r#"{"time": "2025-06-15 09:00", "to_tz": "Asia/Tokyo", "from_tz": "America/New_York"}"#,
+                note: None,
+            },
+            SkillExample {
+                title: "RFC3339 instant to LA",
+                args: r#"{"time": "2025-05-27T18:25:00Z", "to_tz": "America/Los_Angeles"}"#,
+                note: Some("With an offset present, `from_tz` is ignored."),
+            },
+            SkillExample {
+                title: "Unix timestamp to Berlin",
+                args: r#"{"time": "1716835200", "to_tz": "Europe/Berlin"}"#,
+                note: None,
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Convert a meeting time across timezones.",
+            "Render a UTC instant in a user's local zone.",
+            "Translate a Unix timestamp into a human-readable zoned time.",
+        ]
     }
 }
 

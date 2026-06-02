@@ -159,6 +159,28 @@ impl Skill for AtmDensityAltitude {
             ))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Hot summer day, sea-level pressure",
+                args: r#"{"pressure_pa": 101325, "temp_c": 35}"#,
+                note: Some("Returns density altitude in meters — the equivalent ISA altitude."),
+            },
+            SkillExample {
+                title: "Humid conditions (virtual-temp correction)",
+                args: r#"{"pressure_pa": 100000, "temp_c": 30, "dewpoint_c": 25}"#,
+                note: Some("Supplying `dewpoint_c` triggers the humidity correction."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Compute density altitude for aircraft / rocket takeoff performance.",
+            "Convert local pressure / temperature into an equivalent ISA altitude.",
+            "Apply humidity correction to a hot-and-humid airfield computation.",
+        ]
+    }
 }
 
 fn saturation_vapor_pressure(temp_c: f64) -> f64 {
@@ -198,6 +220,30 @@ impl Skill for AtmDewpoint {
             let td = 243.12 * alpha / (17.62 - alpha);
             Ok(text_result(json!({ "dewpoint_c": td }).to_string()))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Room conditions",
+                args: r#"{"temp_c": 20, "rh_pct": 50}"#,
+                note: Some("Returns dewpoint around 9.3 °C."),
+            },
+            SkillExample {
+                title: "Hot and humid",
+                args: r#"{"temp_c": 35, "rh_pct": 80}"#,
+                note: Some(
+                    "Dewpoint near skin temperature flags dangerous heat-stress conditions.",
+                ),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Compute dewpoint from temperature and relative humidity for HVAC / meteorology.",
+            "Estimate frost / condensation threshold for an outdoor surface.",
+            "Pre-compute the dewpoint input that `atm_density_altitude` accepts.",
+        ]
     }
 }
 
@@ -242,6 +288,28 @@ impl Skill for AtmWbgt {
                 json!({ "wbgt_c": wbgt, "wet_bulb_c": tw }).to_string(),
             ))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Warehouse heat-stress check",
+                args: r#"{"temp_c": 32, "rh_pct": 65}"#,
+                note: Some("Returns indoor WBGT and the underlying wet-bulb temperature."),
+            },
+            SkillExample {
+                title: "Mild office conditions",
+                args: r#"{"temp_c": 22, "rh_pct": 40}"#,
+                note: None,
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Estimate indoor / shaded WBGT for occupational heat-stress decisions.",
+            "Screen ACGIH TLV thresholds before scheduling outdoor / hot work.",
+            "Get the wet-bulb temperature alongside WBGT in one call.",
+        ]
     }
 }
 
@@ -291,6 +359,23 @@ impl Skill for AtmSpaceWeatherKp {
             server.retrieval_put(key, &body);
             Ok(text_result(body))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[SkillExample {
+            title: "Fetch current Kp",
+            args: r#"{}"#,
+            note: Some(
+                "Returns the SWPC 3-hour planetary K-index array; the last row is the most recent.",
+            ),
+        }]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Check current geomagnetic disturbance level before HF radio operations.",
+            "Decide whether auroral activity is likely tonight at high latitudes.",
+            "Pull the raw NOAA SWPC Kp window for downstream analysis.",
+        ]
     }
 }
 

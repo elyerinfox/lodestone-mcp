@@ -349,6 +349,33 @@ impl Skill for GridPowerPlants {
             )))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "All plants in a small bbox",
+                args: r#"{"south": 47.5, "west": -122.3, "north": 47.7, "east": -122.1}"#,
+                note: Some("Default `max` is 100; capped at 1000."),
+            },
+            SkillExample {
+                title: "Filter by source",
+                args: r#"{"south": 35.0, "west": -120.0, "north": 38.0, "east": -117.0, "source": "solar"}"#,
+                note: Some("`source` matches OSM `plant:source` (coal/gas/oil/nuclear/wind/solar/hydro/biomass/geothermal)."),
+            },
+            SkillExample {
+                title: "Name filter on a wide bbox",
+                args: r#"{"south": 40.0, "west": -80.0, "north": 45.0, "east": -75.0, "name_filter": "TVA", "max": 200}"#,
+                note: Some("`name_filter` matches the `name` or `operator` tag, case-insensitive."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Inventory generation assets inside a region.",
+            "Pull all plants of a given fuel type for an energy-mix report.",
+            "Find a named utility's plants in a service-area bbox.",
+        ]
+    }
 }
 
 // ----- grid_substations -----
@@ -385,6 +412,28 @@ impl Skill for GridSubstations {
                 &["voltage", "operator", "substation"],
             )))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Substations in a small bbox",
+                args: r#"{"south": 47.66, "west": -122.13, "north": 47.68, "east": -122.11}"#,
+                note: Some("Returns name, voltage, operator where tagged."),
+            },
+            SkillExample {
+                title: "Filter by operator name",
+                args: r#"{"south": 51.4, "west": -0.3, "north": 51.6, "east": 0.0, "name_filter": "national grid", "max": 250}"#,
+                note: None,
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Locate substations to anchor a transmission-line analysis.",
+            "Audit substation coverage in an urban grid bbox.",
+            "Pin a specific operator's substations on a map.",
+        ]
     }
 }
 
@@ -441,6 +490,33 @@ impl Skill for GridTransmissionLines {
             )))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "All lines in a bbox",
+                args: r#"{"south": 47.5, "west": -122.3, "north": 47.7, "east": -122.1}"#,
+                note: Some("Includes `power=line` and `power=minor_line` ways."),
+            },
+            SkillExample {
+                title: "HV only (>= 110 kV)",
+                args: r#"{"south": 50.0, "west": 8.0, "north": 51.0, "east": 9.0, "min_voltage_v": 110000}"#,
+                note: Some("`min_voltage_v` is in volts; drops untagged-voltage rows."),
+            },
+            SkillExample {
+                title: "EHV with name filter",
+                args: r#"{"south": 30.0, "west": -100.0, "north": 35.0, "east": -95.0, "min_voltage_v": 345000, "name_filter": "ERCOT", "max": 300}"#,
+                note: None,
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Map high-voltage transmission corridors in a region.",
+            "Filter to HV/EHV lines while ignoring distribution clutter.",
+            "Locate a specific operator's lines connecting two substations.",
+        ]
+    }
 }
 
 // ----- grid_data_centers -----
@@ -476,6 +552,28 @@ impl Skill for GridDataCenters {
                 &["operator", "telecom", "building"],
             )))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Data centres in a city bbox",
+                args: r#"{"south": 38.9, "west": -77.6, "north": 39.1, "east": -77.3}"#,
+                note: Some("Matches both `telecom=data_center` and `building=data_center`."),
+            },
+            SkillExample {
+                title: "Filter by operator",
+                args: r#"{"south": 53.2, "west": 6.3, "north": 53.5, "east": 6.9, "name_filter": "equinix"}"#,
+                note: None,
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Locate tagged data-centre buildings in a metro area.",
+            "Cross-reference power and fibre proximity to a candidate site.",
+            "Audit a hyperscaler's known sites inside a regional bbox.",
+        ]
     }
 }
 
@@ -520,6 +618,33 @@ impl Skill for GridPipelines {
             )))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Gas pipelines (default substance)",
+                args: r#"{"south": 30.0, "west": -97.0, "north": 32.0, "east": -94.0}"#,
+                note: Some("`substance` defaults to gas."),
+            },
+            SkillExample {
+                title: "Oil pipelines",
+                args: r#"{"south": 49.0, "west": -114.0, "north": 53.0, "east": -110.0, "substance": "oil", "max": 250}"#,
+                note: None,
+            },
+            SkillExample {
+                title: "Hydrogen pilot pipelines",
+                args: r#"{"south": 51.0, "west": 4.0, "north": 53.0, "east": 7.0, "substance": "hydrogen"}"#,
+                note: Some("OSM coverage is sparse for emerging substances."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Trace gas / oil / water / hydrogen pipelines in a region.",
+            "Check pipeline proximity for a siting / hazard analysis.",
+            "Inventory pipelines by operator across a corridor bbox.",
+        ]
+    }
 }
 
 // ----- grid_submarine_cables -----
@@ -557,6 +682,28 @@ impl Skill for GridSubmarineCables {
                 &["operator", "owner", "communication", "power"],
             )))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "North Atlantic cables",
+                args: r#"{"south": 40.0, "west": -75.0, "north": 55.0, "east": -10.0, "max": 500}"#,
+                note: Some("Use a WIDE bbox — cables span oceans."),
+            },
+            SkillExample {
+                title: "Filter by operator name",
+                args: r#"{"south": -10.0, "west": 100.0, "north": 20.0, "east": 145.0, "name_filter": "SEA-ME-WE"}"#,
+                note: None,
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Inventory submarine comms/power cables in an ocean basin.",
+            "Find a specific cable system by name in a wide bbox.",
+            "Identify landing-adjacent infrastructure risk for a coastal site.",
+        ]
     }
 }
 
@@ -596,6 +743,30 @@ impl Skill for GridFloodZones {
                 &["natural", "hazard", "hazard:type", "basin", "landuse"],
             )))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Floodways in a city bbox",
+                args: r#"{"south": 29.6, "west": -95.7, "north": 29.9, "east": -95.2}"#,
+                note: Some(
+                    "OSM-tagged subset only — use FEMA NFHL for authoritative US floodplains.",
+                ),
+            },
+            SkillExample {
+                title: "Detention basins in a small bbox",
+                args: r#"{"south": 33.4, "west": -112.1, "north": 33.6, "east": -111.9, "max": 300}"#,
+                note: None,
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Find OSM-tagged flood hazard / floodway / detention features in a region.",
+            "Pre-screen a siting bbox for surface-water risk before fetching authoritative data.",
+            "Map detention basins around a target parcel.",
+        ]
     }
 }
 
@@ -657,6 +828,28 @@ impl Skill for GridPlannedLines {
                 ],
             )))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Planned lines in a regional bbox",
+                args: r#"{"south": 48.0, "west": 6.0, "north": 52.0, "east": 12.0}"#,
+                note: Some("Covers `proposed:power`, `construction:power`, and tagged in-construction lines."),
+            },
+            SkillExample {
+                title: "HV planned only",
+                args: r#"{"south": 40.0, "west": -80.0, "north": 45.0, "east": -75.0, "min_voltage_v": 220000, "max": 200}"#,
+                note: Some("For authoritative European TYNDP projects use ENTSO-E (not covered here)."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Spot proposed or under-construction transmission corridors in a region.",
+            "Filter planned lines by minimum voltage for an HV build-out scan.",
+            "Cross-reference planned lines with existing grid topology.",
+        ]
     }
 }
 

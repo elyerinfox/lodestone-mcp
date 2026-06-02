@@ -149,6 +149,38 @@ impl Skill for GitRun {
             Ok(text_result(truncate_chars(&out, server.max_chars)))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Short status",
+                args: r#"{"args": "status -sb"}"#,
+                note: Some("Read-only; no confirmation needed."),
+            },
+            SkillExample {
+                title: "Recent log",
+                args: r#"{"args": "log --oneline -10"}"#,
+                note: None,
+            },
+            SkillExample {
+                title: "Diff of working tree",
+                args: r#"{"args": "diff", "repo": "."}"#,
+                note: Some("Override `repo` to point at a different working copy."),
+            },
+            SkillExample {
+                title: "Destructive subcommand (push) — second call",
+                args: r#"{"args": "push origin main", "confirm": "<token-from-prior-call>"}"#,
+                note: Some("First call without `confirm` returns a token; second call runs it. Add `trust: true` to whitelist this subcommand for the session."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Inspect a repo's state (status / log / diff / show / branch / remote).",
+            "Stage and commit code changes from inside an LLM-driven workflow.",
+            "Run a mutating subcommand (push / reset / rebase) with explicit confirmation.",
+        ]
+    }
 }
 
 pub struct Family;

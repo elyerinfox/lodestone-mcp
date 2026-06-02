@@ -235,6 +235,28 @@ impl Skill for ChartPolar {
             Ok(svg_result(svg, desc))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Dipole-ish pattern in dB",
+                args: r#"{"magnitudes": [1.0, 0.95, 0.8, 0.5, 0.1, 0.5, 0.8, 0.95], "title": "Dipole sweep"}"#,
+                note: Some("Angles default to evenly spaced 0..360 over the samples."),
+            },
+            SkillExample {
+                title: "Custom angles, linear scale",
+                args: r#"{"magnitudes": [0.2, 0.7, 1.0, 0.7], "angles_deg": [0, 45, 90, 135], "use_db": false}"#,
+                note: Some("Set `use_db=false` for linear magnitude rings."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Plot an antenna gain pattern measured around the azimuth.",
+            "Show angular distribution of any directional signal in one frame.",
+            "Visualize a radiation lobe in the conventional dB-from-peak form.",
+        ]
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -356,6 +378,28 @@ impl Skill for ChartSmith {
                 format!("{title}: {} impedances, Z0={z0:.0} Ω.", a.impedances.len()),
             ))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "A few sample impedances at 50 Ω",
+                args: r#"{"impedances": [[50, 0], [25, 25], [100, -50]], "labels": ["match", "inductive", "capacitive"]}"#,
+                note: Some("Defaults to 50 Ω reference; labels are optional."),
+            },
+            SkillExample {
+                title: "75 Ω reference (video / CATV)",
+                args: r#"{"impedances": [[75, 0], [75, 100]], "z0": 75}"#,
+                note: Some("Override `z0` when working with non-50 Ω systems."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Visualize impedance points from an RF measurement.",
+            "Show a transformation across a matching network on standard axes.",
+            "Plot multi-frequency S11 samples on a familiar chart.",
+        ]
     }
 }
 
@@ -495,6 +539,28 @@ impl Skill for ChartWaterfall {
             ))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Tiny 2-row spectrogram",
+                args: r#"{"power": [[-60, -50, -40, -30], [-55, -45, -35, -25]], "freq_label": "MHz"}"#,
+                note: Some("Outer dim is time (top=oldest); inner is frequency."),
+            },
+            SkillExample {
+                title: "Explicit dB clip range",
+                args: r#"{"power": [[-80, -70], [-60, -50]], "db_min": -90, "db_max": -40}"#,
+                note: Some("Override clip for consistent coloring across multiple waterfalls."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Show how a spectrum evolves over time as a 2-D heatmap.",
+            "Compare two captures with a fixed dB color range.",
+            "Render an SDR capture's FFT-vs-time view inline.",
+        ]
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -587,6 +653,28 @@ impl Skill for ChartCompass {
                 format!("{title}: {n} bearing slices, peak {peak:.3}."),
             ))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "16-slice wind rose",
+                args: r#"{"magnitudes_by_bearing": [3, 5, 8, 12, 9, 6, 4, 2, 1, 2, 3, 4, 6, 7, 5, 4], "title": "Surface wind"}"#,
+                note: Some("Slices are drawn starting at 0° = north, clockwise."),
+            },
+            SkillExample {
+                title: "8-direction bin histogram",
+                args: r#"{"magnitudes_by_bearing": [10, 5, 2, 1, 1, 2, 5, 10]}"#,
+                note: Some("Slice count is taken from the array length."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Wind direction-frequency rose for meteorological data.",
+            "Direction-of-arrival distribution from a DF array.",
+            "Any radial histogram where the bin axis is a bearing.",
+        ]
     }
 }
 
@@ -687,6 +775,28 @@ impl Skill for ChartSkyplot {
                 format!("{title}: {} sky objects plotted.", a.az_el.len()),
             ))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Visible GPS satellites",
+                args: r#"{"az_el": [[35, 60], [120, 45], [200, 30], [310, 75]], "labels": ["G05", "G12", "G18", "G29"]}"#,
+                note: Some("Zenith (el=90) is the center; horizon is the outer ring."),
+            },
+            SkillExample {
+                title: "A few stars at known az/el",
+                args: r#"{"az_el": [[0, 80], [90, 20], [180, 45]]}"#,
+                note: Some("Labels are optional."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Show satellite positions from a GNSS receiver.",
+            "Plot visible-sky objects (planets, stars, ISS) above a location.",
+            "Diagnose antenna sky-coverage gaps.",
+        ]
     }
 }
 
@@ -828,6 +938,28 @@ impl Skill for ChartDensityMap {
                 ),
             ))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Default 32x32 binning",
+                args: r#"{"points": [[0.1, 0.2], [0.15, 0.25], [0.5, 0.5], [0.5, 0.5], [0.9, 0.8]]}"#,
+                note: Some("Returns a viridis heatmap of bin counts."),
+            },
+            SkillExample {
+                title: "Custom bin grid",
+                args: r#"{"points": [[1, 1], [2, 2], [3, 3]], "nx": 8, "ny": 8, "title": "Hits"}"#,
+                note: Some("Lower nx/ny smooths sparse data; raise for high-density samples."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Visualize a scatter that's too dense to read as individual dots.",
+            "Show spatial distribution from raw (x, y) samples.",
+            "Quick 2-D probability density estimate without a kernel.",
+        ]
     }
 }
 

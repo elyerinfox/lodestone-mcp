@@ -119,6 +119,27 @@ impl Skill for TrackKalman {
             ))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Constant-velocity 1-D, single update",
+                args: r#"{"x": [0.0, 1.0], "p": [[1.0, 0.0], [0.0, 1.0]], "f": [[1.0, 1.0], [0.0, 1.0]], "q": [[0.01, 0.0], [0.0, 0.01]], "h": [[1.0, 0.0]], "r": [[0.5]], "z": [1.2]}"#,
+                note: Some("Returns posterior x, P, innovation y, and NIS."),
+            },
+            SkillExample {
+                title: "Position-only observation",
+                args: r#"{"x": [10.0, 0.0], "p": [[4.0, 0.0], [0.0, 1.0]], "f": [[1.0, 0.1], [0.0, 1.0]], "q": [[0.001, 0.0], [0.0, 0.001]], "h": [[1.0, 0.0]], "r": [[1.0]], "z": [10.5]}"#,
+                note: Some("Use NIS for chi-squared gating across multiple steps."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Run one predict+update step of a linear Kalman filter from caller-supplied matrices.",
+            "Drive a stateless KF where the orchestration layer carries x and P between calls.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -185,6 +206,27 @@ impl Skill for TrackHungarian {
                 json!({ "assignment": out, "total_cost": total }).to_string(),
             ))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "3×3 square cost",
+                args: r#"{"cost": [[4.0, 1.0, 3.0], [2.0, 0.0, 5.0], [3.0, 2.0, 2.0]]}"#,
+                note: Some("Returns assignment worker_i → job_j minimizing total cost."),
+            },
+            SkillExample {
+                title: "Rectangular, more workers than jobs",
+                args: r#"{"cost": [[1.0, 2.0], [3.0, 1.0], [2.0, 5.0]]}"#,
+                note: Some("Padded internally; extra workers get assignment = -1."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Assign tracks ↔ detections in a multi-target tracker minimizing total gating cost.",
+            "Solve any min-cost bipartite assignment with non-negative weights.",
+        ]
     }
 }
 
@@ -256,6 +298,27 @@ impl Skill for TrackRansacLine {
                 .to_string(),
             ))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Mostly-inlier line",
+                args: r#"{"points": [[0.0, 0.0], [1.0, 1.0], [2.0, 2.0], [3.0, 3.0], [10.0, -5.0]], "threshold": 0.1}"#,
+                note: Some("Returns normalized (a, b, c) for ax+by+c=0 and the inlier indices."),
+            },
+            SkillExample {
+                title: "More iterations for noisy data",
+                args: r#"{"points": [[0.0, 0.0], [1.0, 0.9], [2.0, 2.1], [3.0, 3.0], [4.0, 4.2], [0.5, 5.0]], "threshold": 0.3, "iterations": 1000}"#,
+                note: Some("Raise iterations when contamination is high."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Robustly fit a 2-D line through outlier-contaminated points.",
+            "Identify which points belong to a dominant linear feature (lane edge, scan line).",
+        ]
     }
 }
 

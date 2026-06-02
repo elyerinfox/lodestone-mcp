@@ -132,6 +132,27 @@ impl Skill for TrajProjectileDrag {
             ))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Baseball-ish, 45° launch",
+                args: r#"{"v0_m_s": 40.0, "angle_deg": 45.0, "mass_kg": 0.145, "cd": 0.3, "area_m2": 0.0042}"#,
+                note: Some("Returns trajectory arrays + range, apex, impact velocity."),
+            },
+            SkillExample {
+                title: "Mortar shell with headwind",
+                args: r#"{"v0_m_s": 250.0, "angle_deg": 70.0, "mass_kg": 4.2, "cd": 0.18, "area_m2": 0.008, "wind_m_s": -10.0}"#,
+                note: Some("Negative wind = headwind; integrator runs until impact."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Simulate ballistic flight with quadratic drag (no analytical solution exists).",
+            "Get range / apex / impact velocity for a projectile under realistic air resistance.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -182,6 +203,27 @@ impl Skill for TrajHohmann {
             ))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "LEO → GEO around Earth",
+                args: r#"{"mu": 3.986e14, "r1_m": 6.778e6, "r2_m": 4.2164e7}"#,
+                note: Some("Returns Δv1, Δv2, total Δv (~3.9 km/s), and transfer time."),
+            },
+            SkillExample {
+                title: "Lunar parking orbit transfer",
+                args: r#"{"mu": 4.903e12, "r1_m": 1.838e6, "r2_m": 1.938e7}"#,
+                note: Some("Use μ for the central body (Moon here)."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Estimate Δv budget for a circular-to-circular orbit raise or lower.",
+            "Compute transfer half-period for mission timeline planning.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -217,6 +259,27 @@ impl Skill for TrajReentryHeating {
             let q = K * (a.density_kg_m3 / a.nose_radius_m).sqrt() * a.velocity_m_s.powi(3);
             Ok(text_result(json!({ "q_dot_w_m2": q }).to_string()))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Earth reentry, ~peak heating altitude",
+                args: r#"{"velocity_m_s": 7500.0, "density_kg_m3": 1.0e-4, "nose_radius_m": 0.3}"#,
+                note: Some("Returns stagnation-point heat flux in W/m²."),
+            },
+            SkillExample {
+                title: "Capsule with larger nose radius",
+                args: r#"{"velocity_m_s": 11000.0, "density_kg_m3": 5.0e-4, "nose_radius_m": 1.5}"#,
+                note: Some("Heat flux drops as 1/√R — blunt noses survive better."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "First-cut stagnation-point heat flux during atmospheric reentry trade studies.",
+            "Compare candidate nose radii for a thermal-protection-system sizing pass.",
+        ]
     }
 }
 

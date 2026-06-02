@@ -72,6 +72,20 @@ impl Skill for TasksList {
             Ok(text_result(out))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[SkillExample {
+            title: "List every tracked task",
+            args: r#"{}"#,
+            note: Some("Newest first; each row has id, status, label, kind, age, last progress."),
+        }]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "See what background work is in flight before launching more.",
+            "Find a forgotten `task_id` to inspect or cancel via the other `tasks_*` tools.",
+        ]
+    }
 }
 
 pub struct TasksGet;
@@ -98,6 +112,22 @@ impl Skill for TasksGet {
             Ok(text_result(body))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Get one task's metadata",
+                args: r#"{"task_id": "task-3"}"#,
+                note: Some("Returns JSON with id, kind, label, status, timestamps, last progress. Use `tasks_result` for the body."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Check whether a specific task is still working, completed, or failed.",
+            "Read a task's label and last progress message without pulling its body.",
+        ]
+    }
 }
 
 pub struct TasksResult;
@@ -123,6 +153,20 @@ impl Skill for TasksResult {
             let body = serde_json::to_string_pretty(&r).map_err(|e| crate::internal(e.into()))?;
             Ok(text_result(body))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[SkillExample {
+            title: "Fetch a finished task's body",
+            args: r#"{"task_id": "task-3"}"#,
+            note: Some("Returns `{task_id, status, result?, error?, progress_log[]}`."),
+        }]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Pick up the output of a background `search_async` / listener task.",
+            "Read the replayed progress log of a task that's still working.",
+        ]
     }
 }
 
@@ -153,6 +197,20 @@ impl Skill for TasksCancel {
                 )
             }))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[SkillExample {
+            title: "Cancel a running task",
+            args: r#"{"task_id": "task-3"}"#,
+            note: Some("No-op if the task is already terminal."),
+        }]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Stop a background task that's no longer needed (search / listener).",
+            "Free up runtime slots when a fan-out turned up enough results early.",
+        ]
     }
 }
 

@@ -181,6 +181,38 @@ impl Skill for ConvertUnits {
             )))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Length",
+                args: r#"{"value": 5, "from": "mi", "to": "km"}"#,
+                note: None,
+            },
+            SkillExample {
+                title: "Temperature",
+                args: r#"{"value": 100, "from": "celsius", "to": "fahrenheit"}"#,
+                note: Some("Celsius/Fahrenheit/Kelvin are affine, not factor-based."),
+            },
+            SkillExample {
+                title: "Decimal vs binary data",
+                args: r#"{"value": 1, "from": "gib", "to": "gb"}"#,
+                note: Some("`gib` is 2^30 bytes; `gb` is 10^9 bytes (IEC 80000-13)."),
+            },
+            SkillExample {
+                title: "Speed",
+                args: r#"{"value": 60, "from": "mph", "to": "m/s"}"#,
+                note: None,
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Convert between units of the same kind without risking a math error.",
+            "Translate imperial measurements to metric (or back).",
+            "Disambiguate decimal (GB) vs binary (GiB) storage sizes.",
+        ]
+    }
 }
 
 /// The skills this module contributes.

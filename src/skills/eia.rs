@@ -122,6 +122,37 @@ impl Skill for EiaSeries {
             Ok(text_result(out))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Annual U.S. retail electricity prices",
+                args: r#"{"path": "electricity/retail-sales/data", "frequency": "annual", "data": "price", "length": 5}"#,
+                note: Some("Requires `[eia].key` (free at eia.gov/opendata/register.php)."),
+            },
+            SkillExample {
+                title: "Washington residential electricity, monthly",
+                args: r#"{"path": "electricity/retail-sales/data", "frequency": "monthly", "facets": "stateid=WA,sectorid=RES", "data": "price,sales", "start": "2023-01", "length": 24}"#,
+                note: None,
+            },
+            SkillExample {
+                title: "Natural gas futures (NYMEX), last 30 days",
+                args: r#"{"path": "natural-gas/pri/fut/data", "frequency": "daily", "length": 30}"#,
+                note: Some(
+                    "`pri/fut` is the NYMEX futures dataset. For the Henry Hub spot price use \
+                     `natural-gas/pri/sum/data` instead. Browse dataset paths at \
+                     eia.gov/opendata/browser/.",
+                ),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Pull U.S. energy time series (electricity, gas, petroleum, coal, renewables).",
+            "Filter EIA datasets by state, sector, or fuel facet.",
+            "Get raw historical rows for charting or regression.",
+        ]
+    }
 }
 
 pub fn skills() -> Vec<Box<dyn Skill>> {

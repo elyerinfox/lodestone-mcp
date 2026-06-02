@@ -93,6 +93,28 @@ impl Skill for SignalFft {
             Ok(text_result(out))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Short tone burst",
+                args: r#"{"values": [0.0, 1.0, 0.0, -1.0, 0.0, 1.0, 0.0, -1.0], "sample_rate": 8000.0}"#,
+                note: Some("Reports per-bin magnitude with frequency labels."),
+            },
+            SkillExample {
+                title: "Limit reported bins",
+                args: r#"{"values": [0.0, 0.5, 1.0, 0.5, 0.0, -0.5, -1.0, -0.5, 0.0, 0.5, 1.0, 0.5, 0.0, -0.5, -1.0, -0.5], "sample_rate": 16000.0, "max_bins": 4}"#,
+                note: Some("Truncates the table to the first 4 positive-frequency bins."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Inspect the full FFT spectrum of a recording, not just the peaks.",
+            "Pair with `signal_window` to reduce leakage before transforming.",
+            "Compare adjacent bin magnitudes to estimate harmonic structure.",
+        ]
+    }
 }
 
 // ----- signal_dominant_frequencies -----
@@ -165,6 +187,28 @@ impl Skill for SignalDominant {
             Ok(text_result(out))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Top 3 peaks",
+                args: r#"{"values": [0.0, 1.0, 0.0, -1.0, 0.0, 1.0, 0.0, -1.0, 0.0, 1.0, 0.0, -1.0, 0.0, 1.0, 0.0, -1.0], "sample_rate": 8000.0, "max": 3}"#,
+                note: Some("Skips bin 0 (DC); returns the top peaks by magnitude."),
+            },
+            SkillExample {
+                title: "Single dominant tone",
+                args: r#"{"values": [0.0, 0.71, 1.0, 0.71, 0.0, -0.71, -1.0, -0.71, 0.0, 0.71, 1.0, 0.71, 0.0, -0.71, -1.0, -0.71], "sample_rate": 8000.0}"#,
+                note: Some("Default `max` = 5."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Identify fundamental + harmonics of a tone or musical note.",
+            "Quick spectral-peak detection without consuming the full FFT.",
+            "Drive a pitch estimator or tone-classifier downstream.",
+        ]
+    }
 }
 
 // ----- signal_rms -----
@@ -199,6 +243,28 @@ impl Skill for SignalRms {
                 args.values.len()
             )))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Sine wave",
+                args: r#"{"values": [0.0, 0.71, 1.0, 0.71, 0.0, -0.71, -1.0, -0.71]}"#,
+                note: Some("RMS of a unit sine ≈ 1/√2 ≈ 0.707."),
+            },
+            SkillExample {
+                title: "DC offset",
+                args: r#"{"values": [1.0, 1.0, 1.0, 1.0]}"#,
+                note: Some("RMS = 1.0 (matches the constant magnitude)."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Summarize signal amplitude / energy for level metering.",
+            "Compute SNR numerator when paired with a noise reference.",
+            "Quick check on whether a buffer is silent vs active.",
+        ]
     }
 }
 
@@ -270,6 +336,28 @@ impl Skill for SignalWindow {
                 }
             )))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Hann window",
+                args: r#"{"values": [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0], "kind": "hann"}"#,
+                note: Some("Tapers the edges to zero; preview shown in the result."),
+            },
+            SkillExample {
+                title: "Blackman before FFT",
+                args: r#"{"values": [0.1, 0.4, 0.9, 1.0, 0.9, 0.4, 0.1, 0.0], "kind": "blackman"}"#,
+                note: Some("Feeds nicely into `signal_fft` with reduced spectral leakage."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Apply a taper before FFT to suppress sidelobes / leakage.",
+            "Compare different window kinds against the same signal.",
+            "Combine with `signal_fft` for clean spectrum estimation.",
+        ]
     }
 }
 

@@ -540,6 +540,28 @@ impl Skill for DockerPs {
             ))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Just running containers",
+                args: r#"{}"#,
+                note: Some("Default — same as `docker ps`."),
+            },
+            SkillExample {
+                title: "Include stopped containers",
+                args: r#"{"all": true}"#,
+                note: Some("Same as `docker ps -a`."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "See what's currently running on the local daemon before acting on it.",
+            "Find a container's short id or name for `docker_logs` / `docker_exec`.",
+            "Audit stopped containers worth removing.",
+        ]
+    }
 }
 
 pub struct DockerImages;
@@ -555,6 +577,21 @@ impl Skill for DockerImages {
     }
     fn call<'a>(&self, _ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move { Ok(text_result(images().await.map_err(internal)?)) })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[SkillExample {
+            title: "List all local images",
+            args: r#"{}"#,
+            note: Some("Returns id, tags, and human-readable size per image."),
+        }]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "See which images are already cached locally before pulling.",
+            "Find candidates for `docker_rmi` to reclaim disk space.",
+            "Confirm a recent `docker_build` produced the expected tag.",
+        ]
     }
 }
 
@@ -579,6 +616,28 @@ impl Skill for DockerInspect {
                 server.max_chars,
             )))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Inspect by container name",
+                args: r#"{"container": "web"}"#,
+                note: Some("Full JSON: config, state, mounts, networks."),
+            },
+            SkillExample {
+                title: "Inspect by short id",
+                args: r#"{"container": "a1b2c3d4e5f6"}"#,
+                note: None,
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Find a container's bound ports, env vars, or mounted volumes.",
+            "Check restart policy or exit code after a crash.",
+            "Pull the image digest a running container was started from.",
+        ]
     }
 }
 
@@ -605,6 +664,28 @@ impl Skill for DockerLogs {
             )))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Last 200 lines (default tail)",
+                args: r#"{"container": "web"}"#,
+                note: None,
+            },
+            SkillExample {
+                title: "Tail more lines",
+                args: r#"{"container": "web", "tail": 1000}"#,
+                note: Some("Capped at 2000."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Debug a crashed or misbehaving container by reading its recent output.",
+            "Check whether a freshly-started service printed an expected boot message.",
+            "Surface stderr from a build/test container.",
+        ]
+    }
 }
 
 pub struct DockerInfo;
@@ -621,6 +702,21 @@ impl Skill for DockerInfo {
     }
     fn call<'a>(&self, _ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move { Ok(text_result(info().await.map_err(internal)?)) })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[SkillExample {
+            title: "Daemon health and totals",
+            args: r#"{}"#,
+            note: Some("Returns version, API version, os/arch, and container/image counts."),
+        }]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Confirm the local Docker daemon is reachable before running other docker_* tools.",
+            "Check the daemon's OS/arch when picking the right image platform.",
+            "Get a one-shot summary of how many containers/images are on the host.",
+        ]
     }
 }
 
@@ -743,6 +839,39 @@ impl Skill for DockerRun {
             Ok(text_result(out))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Run a named container from an image (first call, gets token)",
+                args: r#"{"image": "nginx:alpine", "name": "web"}"#,
+                note: Some(
+                    "First call returns a confirmation token; replay with `confirm` to start.",
+                ),
+            },
+            SkillExample {
+                title: "Run with a custom command",
+                args: r#"{"image": "alpine", "command": "echo hello", "confirm": "<token>"}"#,
+                note: Some(
+                    "Command is split on whitespace (NOT shell-parsed) and passed to the container \
+                     directly. If you need shell features (`-c`, quoting, pipes, redirects), bake \
+                     them into the image's CMD or use `docker_exec` against an interactive shell.",
+                ),
+            },
+            SkillExample {
+                title: "Anonymous container, default entrypoint",
+                args: r#"{"image": "hello-world", "confirm": "<token>"}"#,
+                note: None,
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Spin up a service container after pulling its image.",
+            "Run a one-shot command in a fresh container for a quick test.",
+            "Boot a sidecar (db, cache) for ad-hoc local development.",
+        ]
+    }
 }
 
 pub struct DockerStart;
@@ -777,6 +906,27 @@ impl Skill for DockerStart {
             Ok(text_result(start(&args.container).await.map_err(internal)?))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Start a stopped container (first call)",
+                args: r#"{"container": "web"}"#,
+                note: Some("Returns a confirmation token; replay with `confirm`."),
+            },
+            SkillExample {
+                title: "Start with the token",
+                args: r#"{"container": "web", "confirm": "<token>"}"#,
+                note: Some("Add `trust: true` to suppress prompts this session."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Resume a container that was previously stopped (without recreating it).",
+            "Restart a workload after host reboot when restart policy didn't fire.",
+        ]
+    }
 }
 
 pub struct DockerStop;
@@ -808,6 +958,27 @@ impl Skill for DockerStop {
             }
             Ok(text_result(stop(&args.container).await.map_err(internal)?))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Stop a running container (first call)",
+                args: r#"{"container": "web"}"#,
+                note: Some("Returns a confirmation token; replay with `confirm`."),
+            },
+            SkillExample {
+                title: "Stop with the token",
+                args: r#"{"container": "web", "confirm": "<token>"}"#,
+                note: Some("Sends SIGTERM then SIGKILL after a 10s grace period."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Bring a service down before reconfiguring or removing it.",
+            "Free a host port held by a misbehaving container.",
+        ]
     }
 }
 
@@ -846,6 +1017,28 @@ impl Skill for DockerRemove {
             let out = remove(&args.container, force).await.map_err(internal)?;
             Ok(text_result(out))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Remove a stopped container (first call)",
+                args: r#"{"container": "old-web"}"#,
+                note: Some("Returns a confirmation token; replay with `confirm`."),
+            },
+            SkillExample {
+                title: "Force-remove a still-running container",
+                args: r#"{"container": "stuck", "force": true, "confirm": "<token>"}"#,
+                note: Some("`force: true` kills + removes in one step."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Delete a stopped container after debugging.",
+            "Reclaim disk and a container name before recreating it.",
+            "Hard-kill a container that refuses to stop cleanly.",
+        ]
     }
 }
 
@@ -888,6 +1081,28 @@ impl Skill for DockerExec {
             )))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "List files inside a container (first call)",
+                args: r#"{"container": "web", "command": "ls -la /app"}"#,
+                note: Some("Returns a confirmation token; replay with `confirm`."),
+            },
+            SkillExample {
+                title: "Run a binary with args, second call",
+                args: r#"{"container": "web", "command": "cat /etc/nginx/nginx.conf", "confirm": "<token>"}"#,
+                note: Some("No host shell — args are parsed shell-style then run directly."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Inspect config / state files inside a running container.",
+            "Run a one-off admin command (migration, cache flush) in a workload.",
+            "Reproduce a bug in the exact filesystem the app sees.",
+        ]
+    }
 }
 
 pub struct DockerRmi;
@@ -925,6 +1140,28 @@ impl Skill for DockerRmi {
             let out = rmi(&args.image, force).await.map_err(internal)?;
             Ok(text_result(out))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Remove an unused image (first call)",
+                args: r#"{"image": "nginx:1.27"}"#,
+                note: Some("Returns a confirmation token; replay with `confirm`."),
+            },
+            SkillExample {
+                title: "Force-remove a tagged/in-use image",
+                args: r#"{"image": "old-app:latest", "force": true, "confirm": "<token>"}"#,
+                note: Some("`force: true` untags even when containers reference the image."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Free disk by removing an outdated image.",
+            "Clean up a build tag after a successful push to a registry.",
+            "Untag and delete an image that has too many references.",
+        ]
     }
 }
 
@@ -971,6 +1208,28 @@ impl Skill for DockerBuild {
                 server.max_chars,
             )))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Build from current dir, default Dockerfile (first call)",
+                args: r#"{"context": ".", "tag": "myapp:latest"}"#,
+                note: Some("Returns a confirmation token; replay with `confirm`."),
+            },
+            SkillExample {
+                title: "Build with a non-default Dockerfile",
+                args: r#"{"context": "./service", "tag": "svc:dev", "dockerfile": "Dockerfile.dev", "confirm": "<token>"}"#,
+                note: Some("`dockerfile` is relative to the `context` directory."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Build a local image from a project directory before running it.",
+            "Iterate on a Dockerfile and capture the build log for debugging.",
+            "Produce a tagged image ready for `docker_run` or a registry push.",
+        ]
     }
 }
 

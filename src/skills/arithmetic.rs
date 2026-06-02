@@ -73,6 +73,38 @@ impl Skill for ArithmeticEval {
             )))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Order-of-operations arithmetic",
+                args: r#"{"expression": "2 + 3 * (4 - 1)"}"#,
+                note: Some("Returns `2 + 3 * (4 - 1) = 11`."),
+            },
+            SkillExample {
+                title: "Functions and constants",
+                args: r#"{"expression": "pi * 5^2"}"#,
+                note: Some("`pi` and `e` are recognized; `^` is the power operator."),
+            },
+            SkillExample {
+                title: "Python-style `**` accepted",
+                args: r#"{"expression": "2**10"}"#,
+                note: Some("`**` is rewritten to `^` before evaluation."),
+            },
+            SkillExample {
+                title: "Trig in radians",
+                args: r#"{"expression": "sin(pi/2)"}"#,
+                note: Some("Trig args are radians here; for degrees use `trig_formula`."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Evaluate a free-form arithmetic expression with parens and functions.",
+            "Plug numbers into a one-shot formula you've already written out.",
+            "Quick sanity-check of a hand calculation without naming a formula.",
+        ]
+    }
 }
 
 /// The skills this module contributes.

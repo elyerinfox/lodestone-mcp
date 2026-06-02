@@ -145,6 +145,33 @@ impl Skill for WikipediaSearch {
             Ok(text_result(out))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "English Wikipedia search",
+                args: r#"{"query": "rust programming language"}"#,
+                note: Some("Returns matching titles with snippet + URL."),
+            },
+            SkillExample {
+                title: "Non-English edition",
+                args: r#"{"query": "Berlin", "lang": "de"}"#,
+                note: Some("`lang` selects the edition subdomain (default `en`)."),
+            },
+            SkillExample {
+                title: "Narrower result count",
+                args: r#"{"query": "kelp forest", "max_results": 5}"#,
+                note: Some("`max_results` defaults to 8, capped at 25."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Find Wikipedia article titles matching a keyword or phrase.",
+            "Resolve an ambiguous name before reading with `wikipedia_summary`.",
+            "Search non-English Wikipedia editions via `lang`.",
+        ]
+    }
 }
 
 pub struct WikipediaSummary;
@@ -254,6 +281,35 @@ impl Skill for WikipediaSummary {
             server.retrieval_put(key, &out);
             Ok(text_result(out))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Lead summary only",
+                args: r#"{"title": "Linux"}"#,
+                note: Some("Returns the article's lead extract via the REST API."),
+            },
+            SkillExample {
+                title: "Full plain-text article",
+                args: r#"{"title": "Rust (programming language)", "full": true}"#,
+                note: Some("`full=true` returns the whole article (capped by `max_chars`)."),
+            },
+            SkillExample {
+                title: "Non-English edition with custom budget",
+                args: r#"{"title": "Berlin", "lang": "de", "full": true, "max_chars": 30000}"#,
+                note: Some(
+                    "`lang` selects the edition; `max_chars` capped by `[retrieval].max_chars`.",
+                ),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Read a Wikipedia article (lead or full body) without scraping HTML.",
+            "Quote a passage from a non-English edition via `lang`.",
+            "Pair with `wikipedia_search` to disambiguate before reading.",
+        ]
     }
 }
 

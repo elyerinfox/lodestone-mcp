@@ -14,7 +14,16 @@ use crate::skills::{fs_read_bytes, schema_for, Skill, SkillCtx};
 use crate::{invalid, text_result};
 
 fn parse_hex(s: &str) -> Result<Vec<u8>, McpError> {
-    let cleaned: String = s.chars().filter(|c| c.is_ascii_hexdigit()).collect();
+    // Strip `0x` / `0X` prefixes per token so inputs like `"0x90 0xCC"` parse
+    // (the field's doc-comment promises this; without per-token stripping the
+    // `x` is dropped while the surrounding `0` is kept, leaving `090CC` and an
+    // odd-length error).
+    let stripped: String = s
+        .split(|c: char| c.is_ascii_whitespace() || c == ',')
+        .map(|tok| tok.trim_start_matches("0x").trim_start_matches("0X"))
+        .collect::<Vec<_>>()
+        .join("");
+    let cleaned: String = stripped.chars().filter(|c| c.is_ascii_hexdigit()).collect();
     if cleaned.is_empty() {
         return Err(invalid("no hex digits in bytes_hex"));
     }
@@ -100,6 +109,28 @@ impl Skill for DisasmHex {
             )))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "64-bit nops",
+                args: r#"{"bytes_hex": "909090", "bits": 64}"#,
+                note: Some("Three `nop` instructions in NASM syntax."),
+            },
+            SkillExample {
+                title: "32-bit shellcode at a virtual base",
+                args: r#"{"bytes_hex": "31c0 40", "bits": 32, "address": 4096}"#,
+                note: Some("Whitespace and `0x` prefixes in bytes_hex are stripped."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Decode shellcode pasted from CTF / exploit-dev material.",
+            "Spot-check a few opcodes without staging them in a file first.",
+            "Validate hand-assembled bytes before patching them into a binary.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -154,6 +185,30 @@ impl Skill for DisasmFile {
                 addr
             )))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Disassemble .text from a 64-bit ELF",
+                args: r#"{"path": "samples/hello.elf", "offset": 4096, "length": 256, "bits": 64, "address": 4198400}"#,
+                note: Some(
+                    "Use binary_info to find the section's file offset and runtime address first.",
+                ),
+            },
+            SkillExample {
+                title: "Decode a small slice as 32-bit",
+                args: r#"{"path": "samples/payload.bin", "offset": 0, "length": 64, "bits": 32}"#,
+                note: Some("Omits address; instruction IPs default to `offset`."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Disassemble a known code region of a binary on disk without a debugger.",
+            "Pair with binary_info to walk each section's machine code in order.",
+            "Reverse-engineer a small function when you already have its file offset.",
+        ]
     }
 }
 

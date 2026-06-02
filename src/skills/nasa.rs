@@ -243,6 +243,27 @@ impl Skill for NasaMarsPhotos {
             Ok(text_result(out))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Curiosity at sol 1000",
+                args: r#"{"rover": "curiosity", "sol": 1000}"#,
+                note: Some("Currently 404s — Mars Photos API is upstream-down."),
+            },
+            SkillExample {
+                title: "Perseverance by earth date",
+                args: r#"{"rover": "perseverance", "earth_date": "2024-03-15", "max_results": 5}"#,
+                note: Some("Prefer `earth_date` when you know the calendar day."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "List rover camera image URLs for a specific Martian sol.",
+            "Find photos by Earth date for a rover mission.",
+        ]
+    }
 }
 
 /// The skills this module contributes.

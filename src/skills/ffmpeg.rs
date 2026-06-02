@@ -76,6 +76,28 @@ impl Skill for FfmpegProbe {
             Ok(text_result(summarize_probe(&v, &args.input)))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Inspect a local video",
+                args: r#"{"input": "clip.mp4"}"#,
+                note: Some("Returns container, duration, bitrate, and per-stream codec details."),
+            },
+            SkillExample {
+                title: "Audio file",
+                args: r#"{"input": "podcast.mp3"}"#,
+                note: None,
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Find a video file's resolution, duration, and codecs.",
+            "Check sample rate and channel count of an audio file.",
+            "Verify metadata before transcoding.",
+        ]
+    }
 }
 
 /// Render a concise human summary from ffprobe's JSON.
@@ -244,6 +266,35 @@ impl Skill for FfmpegConvert {
                 human_size(size)
             )))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Container remux (confirm flow)",
+                args: r#"{"input": "in.mov", "output": "out.mp4"}"#,
+                note: Some(
+                    "First call returns a confirmation token; call again with `confirm=<token>`.",
+                ),
+            },
+            SkillExample {
+                title: "Re-encode and scale",
+                args: r#"{"input": "in.mp4", "output": "small.mp4", "args": ["-vf", "scale=1280:-1", "-c:v", "libx264", "-crf", "23"]}"#,
+                note: Some("Extra ffmpeg flags via `args` (pre-split, no shell)."),
+            },
+            SkillExample {
+                title: "Extract audio",
+                args: r#"{"input": "video.mp4", "output": "audio.mp3", "args": ["-vn", "-acodec", "libmp3lame"]}"#,
+                note: None,
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Transcode a local media file to a different container or codec.",
+            "Re-scale or re-encode for web/distribution.",
+            "Extract or strip an audio track.",
+        ]
     }
 }
 

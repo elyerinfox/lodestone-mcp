@@ -404,6 +404,35 @@ impl Skill for MqttPublish {
             )))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "First call returns a confirmation token",
+                args: r#"{"topic": "home/lights/kitchen", "payload": "on"}"#,
+                note: Some(
+                    "Returns a token; call again with `confirm=<token>` to actually publish.",
+                ),
+            },
+            SkillExample {
+                title: "Retained value, confirmed",
+                args: r#"{"topic": "home/lights/kitchen", "payload": "on", "retain": true, "confirm": "abc123"}"#,
+                note: Some("Broker stores the message and delivers it to future subscribers."),
+            },
+            SkillExample {
+                title: "Binary payload via base64",
+                args: r#"{"topic": "devices/firmware", "payload_base64": "AAECAw==", "qos": 1, "confirm": "abc123"}"#,
+                note: Some("Use `payload_base64` whenever the bytes aren't UTF-8 text."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Drive an MQTT-controlled actuator (smart bulb, relay, valve) by writing to its command topic.",
+            "Seed a new retained value so future subscribers see initial state.",
+            "Inject a test message onto a topic to exercise a subscriber pipeline.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -444,6 +473,33 @@ impl Skill for MqttSubscribe {
             )))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Exact topic",
+                args: r#"{"topic": "home/lights/kitchen"}"#,
+                note: None,
+            },
+            SkillExample {
+                title: "Single-level wildcard",
+                args: r#"{"topic": "sensors/+/temp", "qos": 1}"#,
+                note: Some("`+` matches exactly one path segment."),
+            },
+            SkillExample {
+                title: "Multi-level wildcard at the tail",
+                args: r#"{"topic": "home/#"}"#,
+                note: Some("`#` swallows the rest of the topic; must be the last segment."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Start buffering messages on a topic so a later `mqtt_recent` call has data to read.",
+            "Add a new wildcard filter while the broker stays connected.",
+            "Set up monitoring before publishing a probe with `mqtt_publish`.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -476,6 +532,27 @@ impl Skill for MqttUnsubscribe {
                 subs.len()
             )))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Drop an exact topic",
+                args: r#"{"topic": "home/lights/kitchen"}"#,
+                note: None,
+            },
+            SkillExample {
+                title: "Drop a wildcard filter",
+                args: r#"{"topic": "sensors/+/temp"}"#,
+                note: Some("Must match the original `mqtt_subscribe` filter string verbatim."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Stop buffering a noisy topic once you've extracted what you need.",
+            "Clean up the subscription list before swapping in a different filter shape.",
+        ]
     }
 }
 
@@ -530,6 +607,33 @@ impl Skill for MqttRecent {
             Ok(text_result(out))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Whole buffer, default 20",
+                args: r#"{}"#,
+                note: Some("Returns the 20 newest buffered messages across all topics."),
+            },
+            SkillExample {
+                title: "Filter by topic wildcard",
+                args: r#"{"topic": "sensors/+/temp", "limit": 50}"#,
+                note: Some("Wildcards `+` / `#` follow MQTT semantics."),
+            },
+            SkillExample {
+                title: "Tail one specific topic",
+                args: r#"{"topic": "home/lights/kitchen", "limit": 5}"#,
+                note: None,
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Sample what's been arriving on a subscription without spawning a watcher task.",
+            "Verify a publish actually landed on the broker by reading it back.",
+            "Inspect a few recent messages to figure out the payload shape before parsing.",
+        ]
+    }
 }
 
 pub struct MqttStatus;
@@ -574,6 +678,22 @@ impl Skill for MqttStatus {
             }
             Ok(text_result(out))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Print the current MQTT wiring",
+                args: r#"{}"#,
+                note: Some("Shows broker URL, credential presence, default QoS, buffer usage, and subscriptions."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Confirm the broker URL and credential state without leaking secrets.",
+            "Check the active subscription list before deciding what to publish or recent.",
+        ]
     }
 }
 
@@ -645,6 +765,30 @@ impl Skill for MqttListen {
                 args.topic, task_id, task_id
             )))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Watch a wildcard until 50 messages or 60s",
+                args: r#"{"topic": "sensors/+/temp"}"#,
+                note: Some(
+                    "Returns a task_id immediately; results stream via `notifications/progress`.",
+                ),
+            },
+            SkillExample {
+                title: "Bounded watch with explicit limits",
+                args: r#"{"topic": "home/#", "max_messages": 10, "timeout_secs": 30}"#,
+                note: Some("Stops early once either bound is hit; cancel via `tasks_cancel`."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Stream live MQTT messages to the model without polling `mqtt_recent` repeatedly.",
+            "Capture a fixed batch of inbound traffic for analysis, with a hard timeout.",
+            "Wait for a specific publish that's expected to arrive after another action.",
+        ]
     }
 }
 

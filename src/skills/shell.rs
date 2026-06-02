@@ -204,6 +204,33 @@ impl Skill for ShellRun {
             Ok(text_result(truncate_chars(&out, server.max_chars)))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Run a simple command (first call gets a token)",
+                args: r#"{"command": "ls -la"}"#,
+                note: Some("First call returns a confirmation token; nothing runs."),
+            },
+            SkillExample {
+                title: "Run with the token",
+                args: r#"{"command": "ls -la", "confirm": "<token-from-prior-call>"}"#,
+                note: Some("Add `trust: true` to skip future prompts for THIS exact command."),
+            },
+            SkillExample {
+                title: "Run in a specific workdir with a custom timeout",
+                args: r#"{"command": "cargo build --release", "workdir": "/srv/repo", "timeout_secs": 300, "confirm": "<token>"}"#,
+                note: Some("Timeout is capped at 600s; the process is killed on expiry."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Run a one-off shell command on the host with explicit per-call confirmation.",
+            "Drive a CLI tool the server doesn't wrap natively (allowlist mode keeps the surface small).",
+            "Reach for full shell features (pipes, redirects, env) when running unrestricted.",
+        ]
+    }
 }
 
 /// The skills this module contributes (gating happens in `disabled_by_config`).

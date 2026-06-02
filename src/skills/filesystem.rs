@@ -256,6 +256,28 @@ impl Skill for FsRead {
             )))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Read a file's text",
+                args: r#"{"path": "Cargo.toml"}"#,
+                note: Some("Output is truncated to the server's default character budget."),
+            },
+            SkillExample {
+                title: "Read more of a long file",
+                args: r#"{"path": "src/main.rs", "max_chars": 20000}"#,
+                note: Some("Pass `max_chars` for more text than the default budget."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Inspect a known file's contents inside an allowed filesystem root.",
+            "Read configuration / source / logs before editing them with `fs_edit`.",
+            "Pull text into context for analysis without leaving the configured roots.",
+        ]
+    }
 }
 
 pub struct FsList;
@@ -296,6 +318,28 @@ impl Skill for FsList {
             }
             Ok(text_result(out))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "List the primary root",
+                args: r#"{}"#,
+                note: Some("Omitting `path` lists the first configured root."),
+            },
+            SkillExample {
+                title: "List a subdirectory",
+                args: r#"{"path": "src"}"#,
+                note: Some("Directories show with a trailing `/`; files include a human size."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "See what's at a path before reading or editing files there.",
+            "Get a quick directory inventory (names, types, sizes) without shelling out.",
+            "Confirm a directory exists and is non-empty inside an allowed root.",
+        ]
     }
 }
 
@@ -344,6 +388,28 @@ impl Skill for FsStat {
             }
             Ok(text_result(out))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Stat a file",
+                args: r#"{"path": "Cargo.toml"}"#,
+                note: Some("Returns type, size, read-only flag, and modified time."),
+            },
+            SkillExample {
+                title: "Stat a directory",
+                args: r#"{"path": "src"}"#,
+                note: None,
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Check whether a path is a file or directory before acting on it.",
+            "Confirm an edit landed by looking at the new modified time / size.",
+            "Verify a path exists and is readable without pulling its contents.",
+        ]
     }
 }
 
@@ -414,6 +480,33 @@ impl Skill for FsFind {
                     .join("\n")
             )))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Find every Rust source file under src/",
+                args: r#"{"path": "src", "pattern": "*.rs"}"#,
+                note: Some("Skips `.git`, `target`, and `node_modules`; caps at 500 hits."),
+            },
+            SkillExample {
+                title: "Substring match anywhere under a root",
+                args: r#"{"pattern": "config"}"#,
+                note: Some("No `*` means substring match; `path` defaults to the primary root."),
+            },
+            SkillExample {
+                title: "Wildcard with directory hint",
+                args: r#"{"path": ".", "pattern": "src/*config*"}"#,
+                note: None,
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Locate files by name/extension before reading or editing them.",
+            "Quick repository inventory (`*.rs`, `*.toml`, etc.) without `fd` / `find`.",
+            "Find candidate config files when their exact path is unknown.",
+        ]
     }
 }
 
@@ -575,6 +668,33 @@ impl Skill for FsEdit {
             )))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Replace a unique snippet (first call gets a token)",
+                args: r#"{"path": "src/main.rs", "old_string": "let x = 1;", "new_string": "let x = 2;"}"#,
+                note: Some("First call returns a confirmation prompt with a token; nothing is written yet."),
+            },
+            SkillExample {
+                title: "Apply the edit with the token",
+                args: r#"{"path": "src/main.rs", "old_string": "let x = 1;", "new_string": "let x = 2;", "confirm": "<token-from-prior-call>"}"#,
+                note: Some("Add `trust: true` to skip the prompt for further edits to THIS file."),
+            },
+            SkillExample {
+                title: "Replace every occurrence",
+                args: r#"{"path": "src/lib.rs", "old_string": "old_name", "new_string": "new_name", "replace_all": true, "confirm": "<token>"}"#,
+                note: Some("Without `replace_all`, a non-unique match errors out."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Make a small, targeted edit to a file (rename a symbol, tweak a value).",
+            "Apply a fix the model just derived without rewriting the whole file.",
+            "Rename a token globally inside one file with `replace_all`.",
+        ]
+    }
 }
 
 pub struct FsMkdir;
@@ -597,6 +717,27 @@ impl Skill for FsMkdir {
                 .map_err(|e| invalid(format!("could not create '{}': {e}", path.display())))?;
             Ok(text_result(format!("Created directory {}", path.display())))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Create a single directory",
+                args: r#"{"path": "build"}"#,
+                note: None,
+            },
+            SkillExample {
+                title: "Create nested directories",
+                args: r#"{"path": "out/2026/reports"}"#,
+                note: Some("Missing parents are created (mkdir -p semantics)."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Prepare a target directory before writing files into it with `fs_write`.",
+            "Materialize a nested output layout in one call instead of step-by-step.",
+        ]
     }
 }
 
@@ -651,6 +792,34 @@ impl Skill for FsDelete {
             Ok(text_result(format!("Deleted {}", path.display())))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Delete a single file (first call gets a token)",
+                args: r#"{"path": "scratch/temp.log"}"#,
+                note: Some(
+                    "Destructive; first call returns a confirmation token and does nothing.",
+                ),
+            },
+            SkillExample {
+                title: "Delete with the token",
+                args: r#"{"path": "scratch/temp.log", "confirm": "<token-from-prior-call>"}"#,
+                note: None,
+            },
+            SkillExample {
+                title: "Recursively remove a non-empty directory",
+                args: r#"{"path": "build", "recursive": true, "confirm": "<token>"}"#,
+                note: Some("Without `recursive: true`, removing a non-empty directory errors."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Clean up a generated artifact or scratch file inside an allowed root.",
+            "Drop a build / cache directory wholesale with `recursive: true`.",
+        ]
+    }
 }
 
 pub struct FsMove;
@@ -691,6 +860,29 @@ impl Skill for FsMove {
                 dest.display()
             )))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Rename a file (first call gets a token)",
+                args: r#"{"source": "draft.md", "dest": "final.md"}"#,
+                note: Some(
+                    "Destructive; first call returns a confirmation token and does nothing.",
+                ),
+            },
+            SkillExample {
+                title: "Move with the token",
+                args: r#"{"source": "draft.md", "dest": "docs/final.md", "confirm": "<token-from-prior-call>"}"#,
+                note: Some("Both source and dest must be inside the configured roots."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Rename a file in place inside an allowed root.",
+            "Relocate a file between directories without copy+delete.",
+        ]
     }
 }
 

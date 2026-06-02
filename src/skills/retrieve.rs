@@ -293,6 +293,28 @@ impl Skill for FetchPage {
             Ok(text_result(out))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Read a documentation page",
+                args: r#"{"url": "https://doc.rust-lang.org/book/ch01-00-getting-started.html"}"#,
+                note: Some("Returns readable text (HTML stripped); PDF URLs auto-extracted."),
+            },
+            SkillExample {
+                title: "Increase character budget for a long page",
+                args: r#"{"url": "https://en.wikipedia.org/wiki/Linux", "max_chars": 40000}"#,
+                note: Some("Capped by the server's `[retrieval].max_chars`; call again with higher to read more."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Default way to read a web page (docs, blogs, articles).",
+            "Cheap pre-flight before falling back to `render_page` or `wayback_fetch`.",
+            "Inline PDF? It's auto-extracted — no separate `read_pdf` call needed.",
+        ]
+    }
 }
 
 pub struct RenderPage;
@@ -335,6 +357,28 @@ impl Skill for RenderPage {
             }
             Ok(text_result(out))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Render a JS-heavy SPA",
+                args: r#"{"url": "https://app.example.com/dashboard"}"#,
+                note: Some("Executes JavaScript via headless Chrome; slower than `fetch_page`."),
+            },
+            SkillExample {
+                title: "Larger character budget",
+                args: r#"{"url": "https://twitter.com/some/thread", "max_chars": 30000}"#,
+                note: Some("Capped by the server's `[retrieval].max_chars`."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Read a JS-heavy / SPA page that `fetch_page` returns empty for.",
+            "Bypass simple bot walls / rate-limits with a real browser fingerprint.",
+            "Use after `fetch_page` failed or produced unusable HTML.",
+        ]
     }
 }
 
@@ -405,6 +449,37 @@ impl Skill for WebpageToPdf {
             )))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "First call asks for confirmation",
+                args: r#"{"url": "https://example.com/article"}"#,
+                note: Some("Returns a one-time token; this call does not write."),
+            },
+            SkillExample {
+                title: "Confirm and write to temp dir",
+                args: r#"{"url": "https://example.com/article", "confirm": "<token>"}"#,
+                note: Some(
+                    "Without `path`, writes under the OS temp dir; the resolved path is returned.",
+                ),
+            },
+            SkillExample {
+                title: "Write to a specific path under a filesystem root",
+                args: r#"{"url": "https://example.com/article", "path": "out/article.pdf", "confirm": "<token>", "trust": true}"#,
+                note: Some(
+                    "`trust=true` stops asking for `webpage_to_pdf` for the rest of the session.",
+                ),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Archive a page as a PDF locally (no external print-to-PDF service).",
+            "Capture a JS-rendered view of a page for later offline reading.",
+            "Pair with `read_pdf` to extract text from the rendered PDF afterwards.",
+        ]
+    }
 }
 
 pub struct ReadPdf;
@@ -449,6 +524,33 @@ impl Skill for ReadPdf {
             server.retrieval_put(key, &out);
             Ok(text_result(out))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Read a remote PDF",
+                args: r#"{"source": "https://arxiv.org/pdf/1706.03762"}"#,
+                note: Some("Returns the extracted text layer; scanned/image PDFs error out."),
+            },
+            SkillExample {
+                title: "Read a local PDF",
+                args: r#"{"source": "/tmp/report.pdf"}"#,
+                note: Some("Local paths are read directly without HTTP."),
+            },
+            SkillExample {
+                title: "Larger character budget",
+                args: r#"{"source": "https://example.com/long.pdf", "max_chars": 60000}"#,
+                note: Some("Capped by the server's `[retrieval].max_chars`."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Get full text from a PDF returned by `arxiv_*` / `openalex_*` / `unpaywall_*`.",
+            "Read a saved PDF on disk without re-downloading.",
+            "Sibling: scanned PDFs without a text layer can't be read here.",
+        ]
     }
 }
 
@@ -524,6 +626,38 @@ impl Skill for FetchRepoFile {
             server.retrieval_put(key, &out);
             Ok(text_result(out))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "GitHub `owner/repo/path` shorthand",
+                args: r#"{"target": "rust-lang/rust/README.md"}"#,
+                note: Some("Tries `main` then `master` automatically; returns the whole file."),
+            },
+            SkillExample {
+                title: "GitHub blob URL with a line range",
+                args: r#"{"target": "https://github.com/rust-lang/rust/blob/master/README.md#L1-L20"}"#,
+                note: Some("`#L10-L40` fragments are honored; resolved to a raw URL transparently."),
+            },
+            SkillExample {
+                title: "Explicit line range arguments",
+                args: r#"{"target": "rust-lang/rust/src/lib.rs", "start_line": 1, "end_line": 50}"#,
+                note: Some("`start_line`/`end_line` override any `#L…` fragment in `target`."),
+            },
+            SkillExample {
+                title: "GitLab blob URL",
+                args: r#"{"target": "https://gitlab.com/gitlab-org/gitlab/-/blob/master/README.md"}"#,
+                note: Some("GitLab `/-/blob/` and Gitea/Codeberg `/src/branch/` are auto-rewritten to raw."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Read a single file from a public GitHub/GitLab/Gitea repo without a token.",
+            "Pull a specific line range from a long file (avoids over-fetching).",
+            "Resolve a blob URL pasted by a user into the raw file contents.",
+        ]
     }
 }
 

@@ -444,6 +444,35 @@ impl Skill for CodeSearch {
             Ok(text_result(format_code(&args.query, &engine, &hits)))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Search across public repos",
+                args: r#"{"query": "fn parse_duration"}"#,
+                note: Some(
+                    "Returns repo, file path, snippet; feed result URLs to `fetch_repo_file`.",
+                ),
+            },
+            SkillExample {
+                title: "Language-scoped search",
+                args: r#"{"query": "tokio::select!", "language": "rust", "max_results": 5}"#,
+                note: Some("`language` is a hint to providers (e.g. grep.app)."),
+            },
+            SkillExample {
+                title: "Render through headless browser",
+                args: r#"{"query": "use eframe::egui", "render": true}"#,
+                note: Some("Slower; bypasses bot walls/rate-limits."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Find real-world uses of a symbol, function, or library across public code.",
+            "Discover a snippet's repo before opening the file with `fetch_repo_file`.",
+            "Language-scoped grep across the open-source world.",
+        ]
+    }
 }
 
 pub struct DocsSearch;
@@ -482,6 +511,33 @@ impl Skill for DocsSearch {
             }
             Ok(text_result(format_docs(&args.query, &engine, &hits)))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Search package registries + framework docs",
+                args: r#"{"query": "serde derive"}"#,
+                note: Some("Matches crates.io, npm, MDN, framework doc sites, …"),
+            },
+            SkillExample {
+                title: "Look up an API",
+                args: r#"{"query": "Vec::extend_from_slice"}"#,
+                note: Some("Returns docs pages; pass URLs to `fetch_page` to read them."),
+            },
+            SkillExample {
+                title: "Narrow result count",
+                args: r#"{"query": "kubernetes pod lifecycle", "max_results": 5}"#,
+                note: Some("`max_results` defaults to 10, capped at 25."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Find official docs for a library, framework, or tool.",
+            "Resolve a package name to its registry page + version metadata.",
+            "Bootstrap a docs read with `fetch_page` on the top hit.",
+        ]
     }
 }
 
@@ -531,6 +587,33 @@ impl Skill for QaSearch {
             }
             Ok(text_result(format_qa(&args.query, &site, &hits)))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Default site (configured)",
+                args: r#"{"query": "rust async trait dyn dispatch"}"#,
+                note: Some("Returns matching questions with score, answer count, link."),
+            },
+            SkillExample {
+                title: "Target a specific StackExchange site",
+                args: r#"{"query": "systemd user service", "site": "unix"}"#,
+                note: Some("Sites: stackoverflow, serverfault, superuser, askubuntu, unix, …"),
+            },
+            SkillExample {
+                title: "Scrape via headless browser (no API quota)",
+                args: r#"{"query": "git rebase onto", "render": true}"#,
+                note: Some("Slower; needs local Chrome/Chromium."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Find existing Q&A threads for a programming or sysadmin problem.",
+            "Locate a question URL/id to feed to `qa_stackoverflow_answers`.",
+            "Site-scoped search (Server Fault, Super User, Ask Ubuntu, …).",
+        ]
     }
 }
 
@@ -641,6 +724,40 @@ impl Skill for QaStackoverflowAnswers {
             server.retrieval_put(key, &out);
             Ok(text_result(out))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Read answers via question URL",
+                args: r#"{"question": "https://stackoverflow.com/questions/231767/what-does-yield-do"}"#,
+                note: Some("Returns the question body and top answers sorted by votes."),
+            },
+            SkillExample {
+                title: "Bare question id",
+                args: r#"{"question": "231767", "max_answers": 5}"#,
+                note: Some("`max_answers` defaults to 3, capped at 10."),
+            },
+            SkillExample {
+                title: "Read from a non-default site",
+                args: r#"{"question": "https://serverfault.com/questions/1234567", "site": "serverfault"}"#,
+                note: Some("`site` must match the question's site."),
+            },
+            SkillExample {
+                title: "Scrape stackoverflow.com (no API quota)",
+                args: r#"{"question": "231767", "render": true}"#,
+                note: Some(
+                    "`render` only applies to stackoverflow; other sites still use the API.",
+                ),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Read a SO/SE question's body + top answers (with code blocks).",
+            "Follow up on a `qa_search` hit to see the actual solutions.",
+            "Save API quota by scraping stackoverflow.com via headless browser.",
+        ]
     }
 }
 

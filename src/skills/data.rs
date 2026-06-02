@@ -73,6 +73,28 @@ impl Skill for JsonQuery {
             ))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Validate JSON without selection",
+                args: r#"{"json": "{\"name\":\"alice\",\"age\":30}"}"#,
+                note: Some("Returns the whole document pretty-printed."),
+            },
+            SkillExample {
+                title: "Extract by JSON Pointer",
+                args: r#"{"json": "{\"items\":[{\"name\":\"a\"},{\"name\":\"b\"}]}", "pointer": "/items/0/name"}"#,
+                note: Some("Returns `\"a\"`. Errors if the pointer doesn't resolve."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Pull a single nested field out of a large JSON blob.",
+            "Parse-check JSON returned from another tool before passing it on.",
+            "Pretty-print a minified JSON string for human inspection.",
+        ]
+    }
 }
 
 pub struct JsonFormat;
@@ -101,6 +123,28 @@ impl Skill for JsonFormat {
             Ok(text_result(out))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Pretty-print",
+                args: r#"{"json": "{\"a\":1,\"b\":[2,3]}"}"#,
+                note: Some("Default behavior; minify=false."),
+            },
+            SkillExample {
+                title: "Minify",
+                args: r#"{"json": "{\n  \"a\": 1\n}", "minify": true}"#,
+                note: Some("Returns the compact form."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Reflow a pasted JSON blob into a canonical pretty layout.",
+            "Compact JSON for embedding or transmission.",
+            "Validate JSON syntax without extracting any specific field.",
+        ]
+    }
 }
 
 pub struct YamlToJson;
@@ -124,6 +168,28 @@ impl Skill for YamlToJson {
             ))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Convert a small YAML",
+                args: r#"{"data": "name: alice\nage: 30\n"}"#,
+                note: Some("Returns pretty-printed JSON."),
+            },
+            SkillExample {
+                title: "Kubernetes-style manifest",
+                args: r#"{"data": "apiVersion: v1\nkind: Pod\nmetadata:\n  name: web\n"}"#,
+                note: Some("Preserves nested mapping structure."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Feed YAML config into a tool that only accepts JSON.",
+            "Validate YAML by round-tripping through serde_json.",
+            "Normalize a YAML doc into JSON for diffing.",
+        ]
+    }
 }
 
 pub struct JsonToYaml;
@@ -146,6 +212,28 @@ impl Skill for JsonToYaml {
                 .map_err(|e| invalid(format!("could not serialize to YAML: {e}")))?;
             Ok(text_result(yaml))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Object to YAML",
+                args: r#"{"data": "{\"name\":\"alice\",\"age\":30}"}"#,
+                note: Some("Returns YAML; nested mappings and lists preserved."),
+            },
+            SkillExample {
+                title: "Array roundtrip",
+                args: r#"{"data": "[1, 2, 3]"}"#,
+                note: Some("Top-level arrays become a YAML sequence."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Convert API responses into YAML for human readability.",
+            "Generate sample config files from a JSON template.",
+            "Diff config in YAML form when the source was JSON.",
+        ]
     }
 }
 

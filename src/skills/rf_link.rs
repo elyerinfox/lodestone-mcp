@@ -66,6 +66,28 @@ impl Skill for RfTwoRayPathLoss {
             Ok(text_result(json!({ "path_loss_db": loss_db }).to_string()))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Cellular tower to rooftop",
+                args: r#"{"frequency_hz": 900000000.0, "tx_height_m": 30.0, "rx_height_m": 5.0, "distance_m": 2000.0}"#,
+                note: Some("Returns path loss; valid only in the d⁴ region (d ≫ √(h_tx·h_rx))."),
+            },
+            SkillExample {
+                title: "Long-range microwave link",
+                args: r#"{"frequency_hz": 5800000000.0, "tx_height_m": 20.0, "rx_height_m": 20.0, "distance_m": 10000.0}"#,
+                note: Some("Ground reflection causes 40 log d slope rather than FSPL's 20."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Estimate loss when ground reflection dominates LOS (rural / open).",
+            "Compare ground-reflection vs free-space slope at long range.",
+            "Bound expected attenuation when antenna heights are well-known.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -148,6 +170,28 @@ impl Skill for RfHataPathLoss {
             Ok(text_result(json!({ "path_loss_db": l }).to_string()))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "900 MHz dense urban",
+                args: r#"{"frequency_mhz": 900.0, "bs_height_m": 50.0, "mobile_height_m": 1.5, "distance_km": 5.0, "environment": "urban_large"}"#,
+                note: Some("Returns `path_loss_db`."),
+            },
+            SkillExample {
+                title: "VHF rural open terrain",
+                args: r#"{"frequency_mhz": 450.0, "bs_height_m": 100.0, "mobile_height_m": 2.0, "distance_km": 10.0, "environment": "open"}"#,
+                note: Some("Open-area correction reduces loss vs urban."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Estimate mobile-radio path loss in classic UHF/VHF cellular bands.",
+            "Compare environment categories for cell-planning trade studies.",
+            "Hand the result to `rf_friis_with_noise` as `extra_loss_db`.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -198,6 +242,28 @@ impl Skill for RfCost231PathLoss {
             Ok(text_result(json!({ "path_loss_db": l }).to_string()))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "PCS 1900 MHz metro",
+                args: r#"{"frequency_mhz": 1900.0, "bs_height_m": 40.0, "mobile_height_m": 1.5, "distance_km": 3.0, "environment": "metro_large"}"#,
+                note: Some("Adds 3 dB metro correction over the base Hata extension."),
+            },
+            SkillExample {
+                title: "Small-city GSM-1800",
+                args: r#"{"frequency_mhz": 1800.0, "bs_height_m": 30.0, "mobile_height_m": 1.5, "distance_km": 2.0, "environment": "medium_small_cities"}"#,
+                note: Some("No extra urban correction term applied."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Project path loss for PCS / GSM-1800/1900 / early 3G networks.",
+            "Extend Hata's domain past 1500 MHz without manual extrapolation.",
+            "Pair with `rf_friis_with_noise` for receive-power estimates.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -241,6 +307,28 @@ impl Skill for RfEgliPathLoss {
             let loss_db = -10.0 * path_gain.log10();
             Ok(text_result(json!({ "path_loss_db": loss_db }).to_string()))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "VHF rolling terrain",
+                args: r#"{"frequency_mhz": 150.0, "tx_height_m": 30.0, "rx_height_m": 3.0, "distance_km": 8.0}"#,
+                note: Some("Quick first-cut path loss without an env category."),
+            },
+            SkillExample {
+                title: "UHF hilltop relay",
+                args: r#"{"frequency_mhz": 460.0, "tx_height_m": 100.0, "rx_height_m": 10.0, "distance_km": 25.0}"#,
+                note: Some("Returns `path_loss_db` for the link."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Rough VHF/UHF point-to-point loss over gently rolling terrain.",
+            "Sanity-check a Hata or COST-231 result on a simpler model.",
+            "Field-engineer back-of-envelope when site categories are unknown.",
+        ]
     }
 }
 
@@ -321,6 +409,28 @@ impl Skill for RfItuP676Absorption {
             ))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Ka-band downlink",
+                args: r#"{"frequency_ghz": 20.0}"#,
+                note: Some("Defaults assume standard atmosphere at 15 °C, 7.5 g/m³ water vapor."),
+            },
+            SkillExample {
+                title: "Hot humid millimeter wave",
+                args: r#"{"frequency_ghz": 60.0, "temp_c": 30.0, "water_vapor_g_m3": 20.0}"#,
+                note: Some("Near the O₂ absorption peak — gamma is huge."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Add atmospheric absorption to a microwave / mm-wave link budget.",
+            "Pick a clear-window frequency between 22 GHz and 60 GHz resonances.",
+            "Compare dry- vs wet-component contributions across humidities.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -380,6 +490,28 @@ impl Skill for RfItuP838Rain {
             ))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Ku-band moderate rain",
+                args: r#"{"frequency_ghz": 12.0, "rain_rate_mm_h": 25.0, "polarization": "horizontal"}"#,
+                note: Some("Returns `gamma_db_per_km` plus the fit (k, alpha)."),
+            },
+            SkillExample {
+                title: "Ka-band heavy rain",
+                args: r#"{"frequency_ghz": 30.0, "rain_rate_mm_h": 50.0, "polarization": "circular"}"#,
+                note: Some("Circular polarization averages horizontal / vertical coefficients."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Compute rain-fade margins for satellite Ku/Ka links.",
+            "Pick polarization based on which has lower specific attenuation.",
+            "Couple with link length to get total dB fade for availability budgets.",
+        ]
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -420,6 +552,28 @@ impl Skill for RfDopplerShift {
                 .to_string(),
             ))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Highway-speed UHF",
+                args: r#"{"frequency_hz": 900000000.0, "velocity_m_s": 30.0}"#,
+                note: Some("Returns Doppler ~90 Hz."),
+            },
+            SkillExample {
+                title: "LEO satellite L-band overhead",
+                args: r#"{"frequency_hz": 1500000000.0, "velocity_m_s": 7500.0}"#,
+                note: Some("LOS component approaches 37 kHz at zenith approach."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Compute one-way radio Doppler (vs radar's two-way factor).",
+            "Pre-compensate receiver tuning for satellite passes.",
+            "Estimate maximum expected frequency offset for AFC design.",
+        ]
     }
 }
 
@@ -478,6 +632,33 @@ impl Skill for RfPolarizationLoss {
             };
             Ok(text_result(json!({ "loss_db": loss_db }).to_string()))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "H vs V — orthogonal linear",
+                args: r#"{"tx": "linear_h", "rx": "linear_v"}"#,
+                note: Some("Returns a very large loss (cos 90° = 0)."),
+            },
+            SkillExample {
+                title: "Tilted dipoles 30°",
+                args: r#"{"tx": "linear_at_deg", "rx": "linear_at_deg", "tx_angle_deg": 0.0, "rx_angle_deg": 30.0}"#,
+                note: Some("Loss = 20·log₁₀|cos 30°| ≈ 1.25 dB."),
+            },
+            SkillExample {
+                title: "Linear to circular",
+                args: r#"{"tx": "linear_v", "rx": "rhcp"}"#,
+                note: Some("Always 3 dB regardless of orientation."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Account for polarization mismatch in a final link budget.",
+            "Compare H/V vs circular antenna pairings.",
+            "Quantify the penalty for using LP at one end of a CP-designed link.",
+        ]
     }
 }
 
@@ -540,6 +721,28 @@ impl Skill for RfFresnelZoneRadius {
             Ok(text_result(json!({ "fresnel_radius_m": f }).to_string()))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "5 GHz midspan",
+                args: r#"{"frequency_hz": 5000000000.0, "distance_m": 1000.0, "distance_to_obstruction_m": 500.0}"#,
+                note: Some("Default first Fresnel zone (n=1)."),
+            },
+            SkillExample {
+                title: "2nd zone, offset point",
+                args: r#"{"frequency_hz": 2400000000.0, "distance_m": 2000.0, "distance_to_obstruction_m": 300.0, "n": 2}"#,
+                note: Some("Higher n → larger radius."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Decide minimum antenna height for 60 % first-zone clearance.",
+            "Plan a microwave path over rolling terrain or tree lines.",
+            "Estimate the radius around the LOS that must stay clear of obstacles.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -598,6 +801,28 @@ impl Skill for RfKnifeEdgeDiffraction {
             };
             Ok(text_result(json!({ "loss_db": -loss, "v": v }).to_string()))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Hill 10 m above LOS midway",
+                args: r#"{"frequency_hz": 900000000.0, "d1_m": 1000.0, "d2_m": 1000.0, "h_m": 10.0}"#,
+                note: Some("Positive `h_m` → obstruction; `loss_db` > 0."),
+            },
+            SkillExample {
+                title: "Edge 3 m below LOS",
+                args: r#"{"frequency_hz": 2400000000.0, "d1_m": 500.0, "d2_m": 1500.0, "h_m": -3.0}"#,
+                note: Some("Clear path — negligible loss."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Estimate diffraction loss over a single hill or rooftop.",
+            "Decide whether a partial Fresnel obstruction is tolerable.",
+            "Stack with FSPL to build a more realistic terrain-aware budget.",
+        ]
     }
 }
 
@@ -671,6 +896,28 @@ impl Skill for RfFriisWithNoise {
                 .to_string(),
             ))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "ISM 915 MHz over 1 km",
+                args: r#"{"frequency_hz": 915000000.0, "distance_m": 1000.0, "tx_power_dbm": 20.0, "tx_gain_dbi": 3.0, "rx_gain_dbi": 3.0, "bandwidth_hz": 125000.0}"#,
+                note: Some("Returns FSPL, Rx power, noise floor, SNR, and margin."),
+            },
+            SkillExample {
+                title: "Microwave backhaul with rain margin",
+                args: r#"{"frequency_hz": 11000000000.0, "distance_m": 10000.0, "tx_power_dbm": 28.0, "tx_gain_dbi": 35.0, "rx_gain_dbi": 35.0, "extra_loss_db": 8.0, "bandwidth_hz": 28000000.0, "required_snr_db": 20.0}"#,
+                note: Some("`extra_loss_db` lets you fold in atmospheric / rain loss directly."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "End-to-end link budget when you also need an explicit SNR margin.",
+            "Combine `rf_itu_p838_rain` or `rf_hata_path_loss` results into a final budget.",
+            "Single-shot sanity check before sizing transmit power.",
+        ]
     }
 }
 

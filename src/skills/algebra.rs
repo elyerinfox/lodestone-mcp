@@ -366,6 +366,35 @@ impl Skill for AlgebraFormula {
             Ok(text_result(out))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Combinations (52 choose 5)",
+                args: r#"{"name": "combinations", "args": {"n": 52, "r": 5}}"#,
+                note: Some("Returns the count of poker hands, `2598960`."),
+            },
+            SkillExample {
+                title: "Factorial",
+                args: r#"{"name": "factorial", "args": {"n": 5}}"#,
+                note: Some("`5! = 120`."),
+            },
+            SkillExample {
+                title: "Quadratic discriminant",
+                args: r#"{"name": "quadratic_discriminant", "args": {"a": 1, "b": -5, "c": 6}}"#,
+                note: Some(
+                    "`b² − 4ac`. Positive → two real roots; zero → repeated; negative → complex.",
+                ),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Compute permutations / combinations / factorial for a counting problem.",
+            "Get the discriminant of a quadratic before deciding how to solve it.",
+            "Plug specific n / r values into a named identity from `algebra_formula_list`.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -395,6 +424,29 @@ impl Skill for AlgebraFormulaList {
                 args.filter.as_deref(),
             )))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "List everything",
+                args: r#"{}"#,
+                note: Some(
+                    "Returns id, equation, and signature for every algebra/combinatorics formula.",
+                ),
+            },
+            SkillExample {
+                title: "Filter to combinatorics ids",
+                args: r#"{"filter": "comb"}"#,
+                note: Some("Substring match against id and summary; finds `combinations`."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Discover which formula id to feed to `algebra_formula`.",
+            "Browse the algebra/combinatorics formulas the server knows about.",
+        ]
     }
 }
 

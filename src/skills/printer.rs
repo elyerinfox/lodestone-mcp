@@ -52,6 +52,20 @@ impl Skill for PrinterList {
             Ok(text_result(out))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[SkillExample {
+            title: "List printers",
+            args: r#"{}"#,
+            note: Some("CUPS on Unix, the Windows spooler otherwise."),
+        }]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Pick a printer name to pass to `printer_print`.",
+            "Confirm the system print subsystem actually sees a target device.",
+        ]
+    }
 }
 
 pub struct PrinterPrint;
@@ -90,6 +104,27 @@ impl Skill for PrinterPrint {
                 args.text.len()
             )))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "First call returns a confirmation token",
+                args: r#"{"text": "hello\n"}"#,
+                note: Some("Uses the system default printer; resend with `confirm=<token>` to actually print."),
+            },
+            SkillExample {
+                title: "Named printer, confirmed",
+                args: r#"{"text": "receipt body\n", "printer": "Brother_HL_L2350DW", "confirm": "abc123"}"#,
+                note: Some("Printer name comes from `printer_list`."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Send a short text receipt / note to a configured printer.",
+            "Drop a one-shot label to a specific named printer without leaving the chat.",
+        ]
     }
 }
 

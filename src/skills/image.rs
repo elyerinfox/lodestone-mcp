@@ -90,6 +90,28 @@ impl Skill for ImageInfo {
             Ok(text_result(out))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Identify a JPEG photo",
+                args: r#"{"path": "photos/IMG_0001.jpg"}"#,
+                note: Some("Reports format, dimensions, bit depth, components."),
+            },
+            SkillExample {
+                title: "Animated PNG / GIF detection",
+                args: r#"{"path": "photos/clip.gif"}"#,
+                note: Some("Flags the file as animated when multiple frames are present."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "First step of any image forensic pass before image_exif / image_jpeg_analyze.",
+            "Confirm an image's true format when the extension is suspicious.",
+            "Read width / height without decoding pixels.",
+        ]
+    }
 }
 
 #[derive(Default)]
@@ -493,6 +515,30 @@ impl Skill for ImageExif {
             Ok(text_result(out))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Dump EXIF from a JPEG",
+                args: r#"{"path": "photos/IMG_0001.jpg"}"#,
+                note: Some(
+                    "Returns IFD0 / Exif / GPS / Interop tags plus decoded GPS and forensic flags.",
+                ),
+            },
+            SkillExample {
+                title: "TIFF with embedded EXIF",
+                args: r#"{"path": "photos/scan.tif"}"#,
+                note: Some("Same output shape; works on any TIFF-encoded EXIF container."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Recover camera make / model / lens / exposure from a photo.",
+            "Decode GPS coordinates into decimal degrees with an OSM map link.",
+            "Detect tampered or editor-resaved photos via Software / DateTime divergence.",
+        ]
+    }
 }
 
 fn field_string(e: &exif::Exif, ifd: In, tag: Tag) -> Option<String> {
@@ -652,6 +698,28 @@ impl Skill for ImageJpegAnalyze {
             }
             Ok(text_result(out))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Walk every marker in a JPEG",
+                args: r#"{"path": "photos/IMG_0001.jpg"}"#,
+                note: Some("Lists APP / DQT / DHT / SOFn / SOS markers with brief descriptions."),
+            },
+            SkillExample {
+                title: "Check for editor / Photoshop APP segments",
+                args: r#"{"path": "photos/edited.jpg"}"#,
+                note: Some("APP13 Photoshop blocks and APP1 XMP signal post-camera processing."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Source-camera attribution from DQT (quantization-table) fingerprints.",
+            "Tamper detection via unexpected APP segments or comment blocks.",
+            "Locate embedded thumbnails / MPF previews / ICC profiles for extraction.",
+        ]
     }
 }
 
@@ -815,6 +883,28 @@ impl Skill for ImagePngAnalyze {
             }
             Ok(text_result(out))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Walk every chunk in a PNG",
+                args: r#"{"path": "photos/screenshot.png"}"#,
+                note: Some("Reports IHDR, tEXt/iTXt, pHYs, tIME, acTL, IDAT, IEND with details."),
+            },
+            SkillExample {
+                title: "Inspect an APNG",
+                args: r#"{"path": "photos/clip.apng"}"#,
+                note: Some("Surfaces acTL with frame count and play loop."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Recover textual metadata (software, author, comments) embedded in tEXt / iTXt chunks.",
+            "Find DPI, gamma, sRGB intent, or ICC profile information.",
+            "Detect APNG animation and inspect frame count / loop behavior.",
+        ]
     }
 }
 

@@ -96,6 +96,28 @@ impl Skill for RegexSearch {
             Ok(text_result(format!("{count} match(es):\n{out}")))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Find all email-like tokens",
+                args: r#"{"pattern": "[\\w.+-]+@[\\w.-]+", "text": "ping alice@example.com and bob@x.io"}"#,
+                note: Some("Returns each match; capture groups numbered and named (if any)."),
+            },
+            SkillExample {
+                title: "Case-insensitive single match",
+                args: r#"{"pattern": "error: (?P<msg>.+)", "text": "ERROR: disk full", "all": false, "ignore_case": true}"#,
+                note: Some("Stops at the first hit; named capture `msg` is reported."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Extract structured fields from log lines or pasted output.",
+            "Verify whether some pattern appears anywhere in a blob of text.",
+            "Pull named capture groups for downstream processing.",
+        ]
+    }
 }
 
 pub struct RegexReplace;
@@ -123,6 +145,28 @@ impl Skill for RegexReplace {
             };
             Ok(text_result(out))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Swap order of two captures",
+                args: r#"{"pattern": "(\\w+) (\\w+)", "text": "alice bob", "replacement": "$2 $1"}"#,
+                note: Some("Returns `bob alice`."),
+            },
+            SkillExample {
+                title: "Replace first match only, case-insensitive",
+                args: r#"{"pattern": "foo", "text": "Foo and foo", "replacement": "bar", "all": false, "ignore_case": true}"#,
+                note: Some("Returns `bar and foo`."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Normalize whitespace or punctuation across a text blob.",
+            "Rewrite log lines into a different field order.",
+            "Strip or anonymize sensitive tokens (emails, IDs) before sharing.",
+        ]
     }
 }
 

@@ -219,6 +219,27 @@ impl Skill for BioDnaComplement {
             ))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Reverse complement (default)",
+                args: r#"{"sequence": "ATGC"}"#,
+                note: Some("Returns `GCAT` — the 5'→3' read of the opposite strand."),
+            },
+            SkillExample {
+                title: "Straight complement",
+                args: r#"{"sequence": "ATGC", "reverse": false}"#,
+                note: Some("Returns `TACG` at the same orientation."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Get the reverse-complement strand for primer or probe design.",
+            "Generate the antisense / opposite-orientation read of a DNA fragment.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -275,6 +296,27 @@ impl Skill for BioTranscribe {
                 json!({ "rna": rna, "length": rna.len() }).to_string(),
             ))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Coding strand (default)",
+                args: r#"{"sequence": "ATGGCC"}"#,
+                note: Some("Returns `AUGGCC` — coding-strand T→U substitution only."),
+            },
+            SkillExample {
+                title: "Template strand",
+                args: r#"{"sequence": "GGCCAT", "strand": "template"}"#,
+                note: Some("Reverse-complements first, then T→U."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Produce mRNA from a coding-strand DNA fragment for downstream translation.",
+            "Convert a template-strand sequence into its mRNA read.",
+        ]
     }
 }
 
@@ -341,6 +383,27 @@ impl Skill for BioTranslate {
             ))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Translate to first stop",
+                args: r#"{"sequence": "ATGGCCTAA"}"#,
+                note: Some("Returns protein `MA` — stops at UAA by default."),
+            },
+            SkillExample {
+                title: "Frame 2, read past stops",
+                args: r#"{"sequence": "GATGGCCTAAGCC", "frame": 2, "stop_at_stop": false}"#,
+                note: Some("Frame is 1-indexed; `*` is emitted for in-frame stops."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Translate an ORF to its protein sequence using the standard genetic code.",
+            "Scan an alternate reading frame for a candidate coding region.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -392,6 +455,27 @@ impl Skill for BioGcContent {
             ))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Even split",
+                args: r#"{"sequence": "ATGC"}"#,
+                note: Some("Returns `gc_fraction: 0.5` and per-base counts."),
+            },
+            SkillExample {
+                title: "AT-rich",
+                args: r#"{"sequence": "AAATTAAA"}"#,
+                note: Some("Low GC; useful for spotting promoter / UTR regions."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Compute %GC for a sequence as a quick compositional summary.",
+            "Detect AT-rich vs GC-rich tracts for primer design or genome-region triage.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -422,6 +506,32 @@ impl Skill for BioCodonLookup {
                     .to_string(),
             ))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Start codon",
+                args: r#"{"codon": "AUG"}"#,
+                note: Some("Returns `M` (Met)."),
+            },
+            SkillExample {
+                title: "Stop codon (DNA form)",
+                args: r#"{"codon": "TAA"}"#,
+                note: Some("T is accepted as U; returns `*`."),
+            },
+            SkillExample {
+                title: "Ambiguous codon",
+                args: r#"{"codon": "NNN"}"#,
+                note: Some("Out-of-alphabet codons return `X`."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Look up the single-letter amino acid for one codon.",
+            "Probe whether a triplet is a start, stop, or ambiguous codon.",
+        ]
     }
 }
 
@@ -481,6 +591,27 @@ impl Skill for BioProteinMw {
                 .to_string(),
             ))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Single glycine",
+                args: r#"{"sequence": "G"}"#,
+                note: Some("Returns ~75.032 Da (residue + water)."),
+            },
+            SkillExample {
+                title: "Short peptide",
+                args: r#"{"sequence": "MAEK"}"#,
+                note: Some("Monoisotopic MW for a 4-residue free peptide."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Estimate monoisotopic mass of a peptide for mass-spec planning.",
+            "Sanity-check a synthesized peptide's expected [M+H]+ before LC-MS.",
+        ]
     }
 }
 
@@ -579,6 +710,27 @@ impl Skill for BioOrfFinder {
             ))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Default min length",
+                args: r#"{"sequence": "ATGGCCATTGTAATGGGCCGCTGAAAGGGTGCCCGATAG"}"#,
+                note: Some("Scans all six frames; default `min_aa` = 30."),
+            },
+            SkillExample {
+                title: "Lower threshold for short ORFs",
+                args: r#"{"sequence": "ATGAAATAA", "min_aa": 1}"#,
+                note: Some("Lower `min_aa` to surface short ORFs (e.g. uORFs)."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Find candidate coding regions in an unannotated DNA fragment.",
+            "Sweep six frames for any ATG-to-stop ORF above a length threshold.",
+        ]
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -651,6 +803,27 @@ impl Skill for BioPcrTm {
                 .to_string(),
             ))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Short primer (Wallace auto)",
+                args: r#"{"primer": "ACGTACGT"}"#,
+                note: Some("≤14 nt defaults to Wallace: Tm = 4·(G+C) + 2·(A+T)."),
+            },
+            SkillExample {
+                title: "20-mer with Marmur",
+                args: r#"{"primer": "ACGTACGTACGTACGTACGT", "method": "basic"}"#,
+                note: Some("Basic Marmur formula, valid 15–50 nt at ~50 mM Na+."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Quick Tm estimate for a single primer during back-of-envelope design.",
+            "Pick between short-primer Wallace and 15–50 nt Marmur without external tools.",
+        ]
     }
 }
 
@@ -780,6 +953,27 @@ impl Skill for BioAlignGlobal {
             ))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Identical sequences",
+                args: r#"{"seq_a": "AGT", "seq_b": "AGT"}"#,
+                note: Some("Score 3, no gaps with default match/mismatch/gap."),
+            },
+            SkillExample {
+                title: "Custom scoring",
+                args: r#"{"seq_a": "GATTACA", "seq_b": "GCATGCU", "match": 2, "mismatch": -1, "gap": -2}"#,
+                note: Some("Override scoring knobs for stricter matches."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "End-to-end alignment of two whole sequences (Needleman-Wunsch).",
+            "Compare two sequences expected to span their full lengths; use local for substring matches.",
+        ]
+    }
 }
 
 pub struct BioAlignLocal;
@@ -810,6 +1004,27 @@ impl Skill for BioAlignLocal {
                 json!({ "score": score, "aligned_a": aa, "aligned_b": bb }).to_string(),
             ))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Embedded match",
+                args: r#"{"seq_a": "XXAGTCYY", "seq_b": "ZAGTCW"}"#,
+                note: Some("Returns the `AGTC` substring alignment, not end-to-end."),
+            },
+            SkillExample {
+                title: "Stricter mismatch",
+                args: r#"{"seq_a": "AAGGTT", "seq_b": "CCGGTT", "mismatch": -3}"#,
+                note: Some("Heavier mismatch penalty narrows the local region."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Find the best-scoring substring alignment between two sequences.",
+            "Detect motif / domain matches embedded in larger flanking sequence.",
+        ]
     }
 }
 
@@ -849,6 +1064,27 @@ impl Skill for BioMichaelisMenten {
             let v = a.vmax * a.substrate / (a.km + a.substrate);
             Ok(text_result(json!({ "rate": v }).to_string()))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "At Km, v = Vmax/2",
+                args: r#"{"vmax": 10.0, "km": 1.0, "substrate": 1.0}"#,
+                note: Some("Returns `rate: 5.0`."),
+            },
+            SkillExample {
+                title: "Saturating substrate",
+                args: r#"{"vmax": 100.0, "km": 0.5, "substrate": 50.0}"#,
+                note: Some("[S] ≫ Km → rate approaches Vmax."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Compute initial reaction rate for a single-substrate enzyme.",
+            "Sanity-check enzyme assay data against Michaelis-Menten predictions.",
+        ]
     }
 }
 
@@ -890,6 +1126,27 @@ impl Skill for BioHardyWeinberg {
                 .to_string(),
             ))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Balanced allele",
+                args: r#"{"p": 0.5}"#,
+                note: Some("Returns AA=0.25, Aa=0.5, aa=0.25."),
+            },
+            SkillExample {
+                title: "Rare allele",
+                args: r#"{"p": 0.01}"#,
+                note: Some("Heterozygote frequency dominates: Aa ≈ 0.0198."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Predict genotype frequencies from one allele frequency under HWE.",
+            "Estimate carrier frequency for a recessive allele in a large random-mating population.",
+        ]
     }
 }
 

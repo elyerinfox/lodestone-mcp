@@ -236,6 +236,33 @@ impl Skill for WeatherForecast {
             Ok(text_result(out))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Default hourly surface forecast",
+                args: r#"{"lat": 47.67, "lon": -122.12}"#,
+                note: Some("Best-match model, 7 days, 48 hourly rows printed."),
+            },
+            SkillExample {
+                title: "ECMWF, custom hourly variables",
+                args: r#"{"lat": 51.5, "lon": -0.12, "model": "ecmwf_ifs025", "hourly": "temperature_2m,wind_speed_10m,precipitation"}"#,
+                note: None,
+            },
+            SkillExample {
+                title: "Daily summary, local timezone",
+                args: r#"{"lat": 35.68, "lon": 139.69, "daily": "temperature_2m_max,temperature_2m_min,precipitation_sum,sunrise,sunset", "timezone": "auto", "forecast_days": 5}"#,
+                note: Some("Pass `daily` to also render the daily block."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Get a multi-day point forecast worldwide (no API key).",
+            "Compare NWP models (GFS / ECMWF / ICON / etc.) for a location.",
+            "Pull custom hourly variables (radiation, wind gusts, dew point) for analysis.",
+        ]
+    }
 }
 
 // ----- weather_archive (ERA5 reanalysis) -----
@@ -298,6 +325,27 @@ impl Skill for WeatherArchive {
             Ok(text_result(out))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "ERA5 single day",
+                args: r#"{"lat": 47.67, "lon": -122.12, "start_date": "2024-01-15", "end_date": "2024-01-15"}"#,
+                note: Some("Returns 24 hourly rows of the default surface variables."),
+            },
+            SkillExample {
+                title: "Heatwave window with custom variables",
+                args: r#"{"lat": 45.52, "lon": -122.68, "start_date": "2021-06-26", "end_date": "2021-06-29", "hourly": "temperature_2m,relative_humidity_2m"}"#,
+                note: None,
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Pull historical hourly weather at a point from ERA5 (1940-present).",
+            "Reconstruct conditions during a past event (storm, heatwave, race day).",
+        ]
+    }
 }
 
 // ----- weather_marine -----
@@ -354,6 +402,27 @@ impl Skill for WeatherMarine {
                 render_hourly(&v, "Hourly", hours_cap)
             )))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Open-ocean waves",
+                args: r#"{"lat": 36.7, "lon": -122.3}"#,
+                note: Some("Defaults to waves + swell variables for 48 hours."),
+            },
+            SkillExample {
+                title: "Custom set near a coastline",
+                args: r#"{"lat": 21.28, "lon": -157.83, "hourly": "wave_height,wave_period", "hours": 24}"#,
+                note: None,
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Get wave height, period, and swell for a marine forecast.",
+            "Plan surfing or sailing windows around incoming swell.",
+        ]
     }
 }
 
@@ -413,6 +482,33 @@ impl Skill for WeatherAirQuality {
                 render_hourly(&v, "Hourly", hours_cap)
             )))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Default AQI + pollutants",
+                args: r#"{"lat": 34.05, "lon": -118.24}"#,
+                note: Some("Returns PM2.5/PM10/O3/NO2/SO2/CO and European + US AQI."),
+            },
+            SkillExample {
+                title: "Pollen forecast",
+                args: r#"{"lat": 48.85, "lon": 2.35, "hourly": "alder_pollen,birch_pollen,grass_pollen,ragweed_pollen", "hours": 24}"#,
+                note: Some("Pollen variables only available for European points."),
+            },
+            SkillExample {
+                title: "Just PM2.5 for the next two days",
+                args: r#"{"lat": 28.61, "lon": 77.21, "hourly": "pm2_5", "hours": 48}"#,
+                note: None,
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Check current AQI and pollutant levels at a location.",
+            "Forecast pollen counts for allergy planning (Europe).",
+            "Pull a specific pollutant time series for analysis.",
+        ]
     }
 }
 

@@ -262,6 +262,27 @@ impl Skill for RadIsotopeLookup {
             ))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Co-60",
+                args: r#"{"isotope": "Co-60"}"#,
+                note: Some("Returns half-life, photons, Γ ≈ 0.351 mSv·m²·GBq⁻¹·h⁻¹."),
+            },
+            SkillExample {
+                title: "Compact symbol",
+                args: r#"{"isotope": "Tc99m"}"#,
+                note: Some("Hyphen optional; `Cs137`, `I131` etc. also resolve."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Look up half-life, decay mode, and Γ for a clinical / industrial isotope.",
+            "Pull photon emission lines for spectrometer calibration prep.",
+        ]
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -305,6 +326,32 @@ impl Skill for RadUnits {
             };
             Ok(text_result(json!({ "result": out }).to_string()))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Gray to rad",
+                args: r#"{"direction": "gy_to_rad", "value": 2.5}"#,
+                note: Some("Returns 250 (1 Gy = 100 rad)."),
+            },
+            SkillExample {
+                title: "Sievert to rem",
+                args: r#"{"direction": "sv_to_rem", "value": 0.05}"#,
+                note: Some("Returns 5 rem."),
+            },
+            SkillExample {
+                title: "Roentgen to air kerma",
+                args: r#"{"direction": "r_to_gy_air", "value": 100.0}"#,
+                note: Some("Uses 0.876 cGy/R; result in Gy."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Convert between SI (Gy/Sv) and legacy (rad/rem/R) dose units.",
+            "Translate an exposure reading in Roentgen to air-kerma Gy for modern reports.",
+        ]
     }
 }
 
@@ -358,6 +405,27 @@ impl Skill for RadAttenuation {
             ))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "One HVL through lead",
+                args: r#"{"mu": 62.9, "thickness": 0.011}"#,
+                note: Some("Pb @ 100 keV: ~half transmitted at ~0.011 cm."),
+            },
+            SkillExample {
+                title: "Beam with non-unit intensity",
+                args: r#"{"mu": 0.5, "thickness": 4.6, "i0": 1000.0}"#,
+                note: Some("Returns transmitted intensity, HVL, and TVL."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Compute transmitted intensity through a slab given μ and thickness.",
+            "Read off HVL and TVL from a chosen linear attenuation coefficient.",
+        ]
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -397,6 +465,27 @@ impl Skill for RadInverseSquare {
                 json!({"d": a.d_ref * scale, "scale": scale}).to_string(),
             ))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Double the distance",
+                args: r#"{"d_ref": 100.0, "r_ref": 1.0, "r_target": 2.0}"#,
+                note: Some("Returns 25 (one-quarter at twice the distance)."),
+            },
+            SkillExample {
+                title: "Step in closer",
+                args: r#"{"d_ref": 1.0, "r_ref": 1.0, "r_target": 0.5}"#,
+                note: Some("Returns 4 — dose quadruples at half the distance."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Scale a measured point-source dose rate to a new working distance.",
+            "Plan ALARA distance changes when re-positioning a worker.",
+        ]
     }
 }
 
@@ -451,6 +540,27 @@ impl Skill for RadDoseRate {
                 .to_string(),
             ))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "1 GBq Co-60 at 1 m",
+                args: r#"{"isotope": "Co-60", "activity_gbq": 1.0, "distance_m": 1.0}"#,
+                note: Some("Returns ~0.351 mSv/h (bare point source, no buildup)."),
+            },
+            SkillExample {
+                title: "Cs-137 at 0.5 m",
+                args: r#"{"isotope": "Cs-137", "activity_gbq": 10.0, "distance_m": 0.5}"#,
+                note: Some("Scales with A/r²; pure-β isotopes (Y-90, Sr-89) error out."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "First-cut dose-rate from a known activity and distance for a γ emitter.",
+            "Compare bare-source dose rates between two isotopes at the same A and r.",
+        ]
     }
 }
 
@@ -522,6 +632,32 @@ impl Skill for RadEquivalentDose {
             ))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Photon dose",
+                args: r#"{"d_gy": 0.01, "radiation": "photon"}"#,
+                note: Some("w_R = 1 → H = 0.01 Sv."),
+            },
+            SkillExample {
+                title: "Alpha dose",
+                args: r#"{"d_gy": 0.001, "radiation": "alpha"}"#,
+                note: Some("w_R = 20 → H = 0.02 Sv."),
+            },
+            SkillExample {
+                title: "1 MeV neutron",
+                args: r#"{"d_gy": 0.001, "radiation": "neutron", "neutron_energy_mev": 1.0}"#,
+                note: Some("Neutron w_R from ICRP 103 Eq. (B.1.1)."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Convert absorbed dose (Gy) to equivalent dose (Sv) for a single radiation type.",
+            "Get the energy-dependent w_R for a neutron field of known mean energy.",
+        ]
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -558,6 +694,27 @@ impl Skill for RadEffectiveHalfLife {
             let t_eff = 1.0 / (1.0 / a.t_phys + 1.0 / a.t_bio);
             Ok(text_result(json!({ "t_eff": t_eff }).to_string()))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "I-131 in thyroid",
+                args: r#"{"t_phys": 8.0, "t_bio": 24.0}"#,
+                note: Some("Returns T_eff = 6 days (units match the inputs)."),
+            },
+            SkillExample {
+                title: "Long-lived isotope, fast clearance",
+                args: r#"{"t_phys": 30000.0, "t_bio": 5.0}"#,
+                note: Some("Biology dominates → T_eff ≈ T_bio."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Combine physical and biological half-lives for in-vivo dosimetry.",
+            "Estimate residence time of a radiopharmaceutical in a target organ.",
+        ]
     }
 }
 
@@ -610,6 +767,22 @@ impl Skill for RadOccupationalLimits {
                 .to_string(),
             ))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[SkillExample {
+            title: "Fetch both regimes",
+            args: r#"{}"#,
+            note: Some(
+                "No args; returns ICRP 103 and US 10 CFR 20 / NCRP 116 limits side-by-side.",
+            ),
+        }]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Surface annual occupational and public dose limits for compliance write-ups.",
+            "Compare the ICRP 118 lens-of-eye limit (20 mSv/y) against the US 150 mSv/y.",
+        ]
     }
 }
 
@@ -742,6 +915,27 @@ impl Skill for RadShieldingThickness {
             ))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Lead for 661 keV (Cs-137), 10% transmission",
+                args: r#"{"energy_kev": 661.0, "material": "lead", "transmission": 0.1}"#,
+                note: Some("Returns one TVL of Pb thickness in cm/mm."),
+            },
+            SkillExample {
+                title: "Concrete for 1 MeV, 1% transmission",
+                args: r#"{"energy_kev": 1000.0, "material": "concrete", "transmission": 0.01}"#,
+                note: Some("Apply a buildup factor before using for real shielding design."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "First-order shielding thickness for a chosen material and γ energy.",
+            "Compare HVL/TVL across lead vs concrete vs steel for a given line.",
+        ]
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -808,6 +1002,27 @@ impl Skill for RadAlara {
                 .to_string(),
             ))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Bare source, 30 min at 2 m",
+                args: r#"{"dose_rate_msv_h_ref": 1.0, "distance_ref_m": 1.0, "distance_worker_m": 2.0, "time_h": 0.5}"#,
+                note: Some("Returns dose ≈ 0.125 mSv (no shielding)."),
+            },
+            SkillExample {
+                title: "Add one HVL of shielding",
+                args: r#"{"dose_rate_msv_h_ref": 0.5, "distance_ref_m": 1.0, "distance_worker_m": 1.0, "time_h": 1.0, "shielding_transmission": 0.5}"#,
+                note: Some("0.5 transmission halves the worker dose."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Estimate worker dose for a planned task combining time/distance/shielding.",
+            "See which ALARA lever (less time, more distance, more shielding) buys the most.",
+        ]
     }
 }
 

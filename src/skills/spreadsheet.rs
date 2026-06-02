@@ -165,6 +165,27 @@ impl Skill for SheetRead {
             Ok(text_result(body))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Read a CSV",
+                args: r#"{"path": "data/people.csv"}"#,
+                note: Some("Returns rows as an aligned text table; defaults to 50 rows."),
+            },
+            SkillExample {
+                title: "Read a specific sheet from an XLSX",
+                args: r#"{"path": "data/report.xlsx", "sheet": "Q3", "max_rows": 200}"#,
+                note: Some("`sheet` is required when the workbook has multiple sheets and you want a non-default one."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Peek at a CSV / TSV / XLSX file's contents before analyzing it.",
+            "Pull a small slice of a sheet into context as a text table.",
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -216,6 +237,37 @@ impl Skill for SheetQuery {
             .map_err(invalid)?;
             Ok(text_result(result))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Filter all rows where city = NYC",
+                args: r#"{"path": "data/people.csv", "column": "city", "equals": "NYC"}"#,
+                note: Some(
+                    "Match is case-insensitive and trimmed; first row is treated as the header.",
+                ),
+            },
+            SkillExample {
+                title: "Filter and project specific columns",
+                args: r#"{"path": "data/people.csv", "column": "city", "equals": "NYC", "select": ["name", "age"]}"#,
+                note: Some(
+                    "Output table contains only the projected columns plus the matching count.",
+                ),
+            },
+            SkillExample {
+                title: "Filter a named XLSX sheet",
+                args: r#"{"path": "data/report.xlsx", "sheet": "Sales", "column": "region", "equals": "EMEA", "max_rows": 200}"#,
+                note: None,
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Pick rows out of a CSV / XLSX by a single column equality without `sheet_read` + slicing.",
+            "Project to just the columns the model cares about for downstream analysis.",
+            "Quick lookups in a tabular file the user pointed at.",
+        ]
     }
 }
 
@@ -324,6 +376,32 @@ impl Skill for SheetWrite {
             write_blocking(path, args.rows, sheet_name).await?;
             Ok(text_result(format!("Wrote {n} row(s) to {}.", args.path)))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Write a CSV (first call gets a token)",
+                args: r#"{"path": "out/people.csv", "rows": [["name", "city"], ["alice", "nyc"], ["bob", "sf"]]}"#,
+                note: Some("Destructive (writes a file); first call returns a confirmation token."),
+            },
+            SkillExample {
+                title: "Write with the token",
+                args: r#"{"path": "out/people.csv", "rows": [["name", "city"], ["alice", "nyc"]], "confirm": "<token-from-prior-call>"}"#,
+                note: None,
+            },
+            SkillExample {
+                title: "Write an XLSX with a named sheet",
+                args: r#"{"path": "out/report.xlsx", "rows": [["q", "rev"], ["Q1", "120"]], "sheet_name": "Sales", "confirm": "<token>"}"#,
+                note: Some("Format is chosen by the path's extension (`.csv` / `.tsv` / `.xlsx`)."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Emit a small computed table to disk as CSV for downstream tools.",
+            "Generate a single-sheet XLSX report from rows assembled in-context.",
+        ]
     }
 }
 

@@ -100,6 +100,33 @@ impl Skill for OsmGeocode {
             Ok(text_result(out))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "City and state",
+                args: r#"{"query": "Redmond, WA"}"#,
+                note: Some("Returns up to 5 ranked candidates with lat/lon and OSM ids."),
+            },
+            SkillExample {
+                title: "Landmark",
+                args: r#"{"query": "Eiffel Tower"}"#,
+                note: None,
+            },
+            SkillExample {
+                title: "Cap results",
+                args: r#"{"query": "Springfield", "max": 10}"#,
+                note: Some("`max` is clamped to 1..=25."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Turn a free-form place name or address into lat/lon.",
+            "Disambiguate a place by inspecting ranked candidates with admin context.",
+            "Get an OSM id to feed into a follow-up Overpass or routing call.",
+        ]
+    }
 }
 
 // ----- osm_reverse_geocode -----
@@ -174,6 +201,28 @@ impl Skill for OsmReverseGeocode {
             server.retrieval_put(cache, &out);
             Ok(text_result(out))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Building-level address",
+                args: r#"{"lat": 47.6700, "lon": -122.1200}"#,
+                note: Some("Defaults to `zoom: 18` (building-level)."),
+            },
+            SkillExample {
+                title: "City-level lookup",
+                args: r#"{"lat": 48.8584, "lon": 2.2945, "zoom": 10}"#,
+                note: Some("Lower `zoom` resolves to a coarser admin unit."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Find the street address or place name at a known coordinate.",
+            "Pull admin context (city, state, country) for a lat/lon.",
+            "Label a sub-point produced by routing or satellite sub-point math.",
+        ]
     }
 }
 
@@ -359,6 +408,28 @@ impl Skill for OsmElevation {
             Ok(text_result(out))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Single point",
+                args: r#"{"points": [[47.67, -122.12]]}"#,
+                note: Some("Returns ground elevation in meters above sea level."),
+            },
+            SkillExample {
+                title: "Batch lookup",
+                args: r#"{"points": [[27.9881, 86.9250], [35.3606, 138.7274], [44.4280, -110.5885]]}"#,
+                note: Some("Up to 100 points per call."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Get terrain elevation for one or many lat/lon points.",
+            "Sample a profile along a route by spacing points beforehand.",
+            "Estimate antenna height-above-terrain for line-of-sight reasoning.",
+        ]
+    }
 }
 
 // ----- osm_route -----
@@ -434,6 +505,33 @@ impl Skill for OsmRoute {
             Ok(text_result(out))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Driving route",
+                args: r#"{"from_lat": 47.67, "from_lon": -122.12, "to_lat": 47.61, "to_lon": -122.33}"#,
+                note: Some("`profile` defaults to driving."),
+            },
+            SkillExample {
+                title: "Walking route",
+                args: r#"{"from_lat": 51.5007, "from_lon": -0.1246, "to_lat": 51.5074, "to_lon": -0.0901, "profile": "walking"}"#,
+                note: None,
+            },
+            SkillExample {
+                title: "Cycling route",
+                args: r#"{"from_lat": 52.5200, "from_lon": 13.4050, "to_lat": 52.5163, "to_lon": 13.3777, "profile": "cycling"}"#,
+                note: Some("For pure great-circle distance use `geo_distance` instead."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Estimate real road/walk/bike distance and travel time between two points.",
+            "Compare driving vs walking vs cycling time for the same OD pair.",
+            "Sanity-check a great-circle distance against an actual routable path.",
+        ]
+    }
 }
 
 // ----- gis_bbox -----
@@ -483,6 +581,30 @@ impl Skill for GisBbox {
                 max_lon,
             )))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Two points",
+                args: r#"{"points": [[47.5, -122.3], [47.7, -122.1]]}"#,
+                note: Some(
+                    "Output includes a ready-to-paste Overpass `(south,west,north,east)` bbox.",
+                ),
+            },
+            SkillExample {
+                title: "Polygon vertices",
+                args: r#"{"points": [[40.70, -74.02], [40.78, -73.96], [40.74, -73.91], [40.71, -74.00]]}"#,
+                note: None,
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Derive a tight bbox from a cluster of POIs to scope an Overpass query.",
+            "Compute the extent of a route or trajectory for map framing.",
+            "Bound a set of geocoded results before a `grid_*` infrastructure call.",
+        ]
     }
 }
 
@@ -544,6 +666,28 @@ impl Skill for GisPointInPolygon {
                 args.polygon.len()
             )))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Inside a square",
+                args: r#"{"point": [0.5, 0.5], "polygon": [[0.0, 0.0], [0.0, 1.0], [1.0, 1.0], [1.0, 0.0]]}"#,
+                note: Some("Returns `INSIDE` or `OUTSIDE` plus the vertex count."),
+            },
+            SkillExample {
+                title: "Real-world polygon test",
+                args: r#"{"point": [47.6062, -122.3321], "polygon": [[47.50, -122.45], [47.50, -122.20], [47.75, -122.20], [47.75, -122.45]]}"#,
+                note: Some("Planar test — fine up to state-sized regions."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Check whether a coordinate falls inside a hand-drawn region.",
+            "Filter a list of points to those within a named admin polygon.",
+            "Decide a binary in/out flag without firing a spatial DB query.",
+        ]
     }
 }
 
@@ -648,6 +792,33 @@ impl Skill for GisGeojsonSummary {
             }
             Ok(text_result(out))
         })
+    }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Single Point feature",
+                args: r#"{"geojson": {"type": "Feature", "geometry": {"type": "Point", "coordinates": [-122.12, 47.67]}, "properties": {}}}"#,
+                note: Some("Reports 1 feature, a Point in `geometries by type`, and the bbox."),
+            },
+            SkillExample {
+                title: "FeatureCollection",
+                args: r#"{"geojson": {"type": "FeatureCollection", "features": [{"type": "Feature", "geometry": {"type": "Point", "coordinates": [0.0, 0.0]}, "properties": {}}, {"type": "Feature", "geometry": {"type": "LineString", "coordinates": [[0.0, 0.0], [1.0, 1.0]]}, "properties": {}}]}}"#,
+                note: None,
+            },
+            SkillExample {
+                title: "Bare geometry",
+                args: r#"{"geojson": {"type": "Polygon", "coordinates": [[[0.0, 0.0], [0.0, 1.0], [1.0, 1.0], [1.0, 0.0], [0.0, 0.0]]]}}"#,
+                note: Some("Accepts Feature, FeatureCollection, or a bare Geometry."),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Get feature count and geometry-type breakdown of an unknown GeoJSON blob.",
+            "Pull the overall bbox of a FeatureCollection without parsing it yourself.",
+            "Quickly sanity-check a GeoJSON file before downstream processing.",
+        ]
     }
 }
 

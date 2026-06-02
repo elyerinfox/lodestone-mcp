@@ -88,6 +88,31 @@ impl Skill for InterchangeStlInfo {
             ))
         })
     }
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "ASCII STL inline",
+                args: r#"{"data_ascii": "solid cube\nfacet normal 0 0 1\nouter loop\nvertex 0 0 0\nvertex 1 0 0\nvertex 0 1 0\nendloop\nendfacet\nendsolid\n"}"#,
+                note: Some("Returns triangle count, bbox, surface area, and centroid as JSON."),
+            },
+            SkillExample {
+                title: "Single-triangle ASCII STL",
+                args: r#"{"data_ascii": "solid tri\nfacet normal 1 0 0\nouter loop\nvertex 0 0 0\nvertex 0 1 0\nvertex 0 0 1\nendloop\nendfacet\nendsolid\n"}"#,
+                note: Some(
+                    "Supply either `data_ascii` OR `data_base64`, not both. For binary STL pass \
+                     the raw bytes base64-encoded (header is 84 bytes minimum + 50 per triangle).",
+                ),
+            },
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "Quick mesh sanity check before importing into a CAD pipeline.",
+            "Extract bbox / centroid for placing or scaling an STL model.",
+            "Estimate surface area for printing-time / material calculations.",
+        ]
+    }
 }
 
 struct StlTriangle {
