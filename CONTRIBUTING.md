@@ -807,23 +807,26 @@ Three small edits, all mechanical:
   without declaring `Shared` is a [golden rule 13](docs/golden-rules.md)
   violation visible from outside the skill's call body.
 
-- **Worked examples and use cases.** Two more `Skill` trait methods both
-  default to empty and are strictly opt-in, but landing them is the most
-  cost-effective way to raise an LLM's hit rate on your tool:
+- **Worked examples and use cases — expected for every new skill.**
+  Coverage as of 0.1.9 is 432 / 466 Skill impls (93%); these are no
+  longer opt-in. A new `impl Skill for X` should land with both:
 
-  - `fn examples(&self) -> &'static [SkillExample]` — canonical
+  - `fn examples(&self) -> &'static [SkillExample]` — 2 to 4 canonical
     invocations. Each entry carries a one-line `title`, an `args` JSON
     literal (raw string — `r#"{"key": "value"}"#`), and an optional
-    `note` describing what the output looks like or a gotcha.
-  - `fn use_cases(&self) -> &'static [&'static str]` — short phrases
-    naming the situations this tool is the right answer for. The LLM
-    uses these to disambiguate between similarly-named tools
-    (`web_search` vs `code_search` vs `docs_search`).
+    `note` about output shape or a gotcha. Set `note: None` rather
+    than writing a vague "Returns the result." filler.
+  - `fn use_cases(&self) -> &'static [&'static str]` — 2 to 4 short
+    phrases naming the situations this tool is the right answer for.
+    The LLM uses these to disambiguate similarly-named tools
+    (`web_search` vs `code_search` vs `docs_search`). Phrase them as
+    "WHEN to reach for THIS one over a sibling," not "compute X."
 
   Both surface through the `describe_skill` meta tool and fold into the
-  dynamic instructions handshake at session start. They are **not** part
-  of the MCP `tools/list` payload — the orientation is paid for once and
-  looked up on demand thereafter, so cost is zero unless the LLM asks.
+  dynamic server-side instructions handshake at session start. They are
+  **not** part of the MCP `tools/list` payload — the orientation is
+  paid for once and looked up on demand thereafter, so cost is zero
+  unless the LLM asks.
 
   Reference: [`AlgebraSolve`](src/skills/algebra.rs) carries five
   examples covering the simple-linear, quadratic-two-roots,
@@ -853,11 +856,48 @@ Three small edits, all mechanical:
   }
   ```
 
+  **Self-check before you commit.** The 0.1.9 catalog-fill workflow
+  surfaced a recurring set of bugs in examples that nominally
+  compiled but failed at runtime. Walk this checklist on every new
+  example you write:
+
+  1. **JSON validity.** Mentally apply `serde_json::from_str(args)`.
+     Common breaks: unquoted keys, single quotes, trailing commas,
+     unescaped backslashes inside `r#"..."#`.
+  2. **Required fields.** Every required field on the `Args` struct
+     must be present. Re-read the struct.
+  3. **Field names exactly.** Match the Args field names verbatim,
+     including any `#[serde(rename = "...")]` and the enum-variant
+     tag (`#[serde(tag = "kind", rename_all = "lowercase")]` requires
+     lowercase variant names in JSON; without `rename_all` you need
+     PascalCase).
+  4. **Plausible values.** A `bio_dna_complement` example using non-
+     ACGTN characters or an `arxiv_get` using an obviously invalid
+     arXiv id misleads the LLM about what the tool actually accepts.
+     If the tool returns physical results, sanity-check the value:
+     an `astro_sun` example claiming altitude ≈ 90° at lat=0 on the
+     June solstice is wrong (Sun declination is +23.44° then).
+  5. **Note must describe actual behavior.** Don't claim a filter
+     returns "the speed of light entry" if the filter is a substring
+     match that returns every constant containing `c`. If you can't
+     write a precise note in one short sentence, set `note: None`.
+  6. **TLEs and other time-anchored inputs.** SGP4 is accurate within
+     ~1–2 weeks of the TLE epoch; an example with a 2024 TLE and a
+     2026 `at` will run but the result is physically meaningless.
+     Either use a fresh TLE near the example `at`, or use the
+     canonical SGP4 verification-suite TLE (2008 epoch) with a
+     same-epoch `at` and call it out as illustrative in the note.
+  7. **Placeholders flagged.** IDs like `task-3` (real format) are
+     better than `tsk_01HXYZ...` (made up). If you literally cannot
+     produce a real example value (e.g. a base64-encoded binary
+     blob), drop the example rather than ship a parser-rejecting
+     placeholder.
+
 - **Family example flows.** When the tool is part of a `FamilyMeta`,
   override `FamilyMeta::example_flow()` once per family with a
-  markdown-friendly numbered list of 2–5 chained tool calls. This is the
-  "show me a typical task" surface the LLM sees through `describe_family`
-  and the family inventory in the handshake.
+  markdown-friendly numbered list of 2–5 chained tool calls. This is
+  the "show me a typical task" surface the LLM sees through
+  `describe_family` and the family inventory in the handshake.
 
   ```rust
   impl FamilyMeta for Family {
@@ -871,6 +911,18 @@ Three small edits, all mechanical:
       }
   }
   ```
+
+- **What lands in the handshake.** As of 0.1.9 the dynamic
+  instructions emitted by `get_info()` in `src/main.rs` lead with an
+  introductory preamble + a dedicated **LOOKUP TOOLS** section
+  (calling out `describe_skill`, `describe_family`, `features`,
+  `list_providers`), followed by general approach guidance, the
+  per-family inventory walked from registered `FamilyMeta` entries,
+  the "other families" block grouped by name prefix, and a footer
+  pointing back at the lookup tools. If you're adding a family,
+  registering its `FamilyMeta` automatically opts you into the
+  inventory section; landing an `example_flow()` adds the
+  worked-flow pointer to the family's line.
 
 ### 4. (When the family needs a host resource) Implement `FamilyMeta`
 
