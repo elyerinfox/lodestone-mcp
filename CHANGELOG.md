@@ -6,6 +6,43 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-06-02
+
+Security patch + cosmetic doc updates. No tool catalog changes.
+
+### Security
+
+- **Drop `rustls-webpki 0.102.8` (4 GHSA advisories).** `rumqttc 0.24` was
+  the only consumer of the vulnerable version and pinned `^0.102`. Switched
+  `rumqttc` to `0.25` with the `use-native-tls` feature so the MQTT TLS path
+  runs through the platform stack (Schannel / Secure Transport / OpenSSL,
+  whichever each OS vendor patches). Only `rustls-webpki 0.103.13` remains in
+  the lock graph (used by `reqwest` for HTTPS). Advisories closed:
+  - **GHSA-82j2-j2ch-gfr8** (high) — DoS via panic on malformed CRL BIT STRING.
+  - **GHSA-pwjx-qhcg-rvj4** (medium) — CRLs not considered authoritative by
+    Distribution Point.
+  - **GHSA-xgp8-3hg3-c2mh** (low) — name constraints accepted on wildcard certs.
+  - **GHSA-965h-392x-2mh5** (low) — name constraints for URI names incorrectly
+    accepted.
+
+  Note: `lodestone-mcp` never processed CRLs through `rumqttc`, so the
+  high-severity DoS was not reachable on our actual code paths. Closing the
+  alerts cleanly is still the right move.
+
+### Changed
+
+- **README badges.** Added shields for crate version, license, CI status, and
+  the MCP / Rust toolchain target so the project page at a glance shows the
+  release line and build health.
+
+### Compatibility
+
+- MQTT brokers presented by a certificate the platform trust store doesn't
+  recognize will now fail at the OS level rather than via the vendored Rustls
+  root set. Self-signed brokers should either be installed into the OS trust
+  store, fronted by an HTTPS terminator with a public cert, or accessed via
+  `tcp://` from a trusted network.
+
 ## [0.1.2] - 2026-06-02
 
 This is a **capability** release: the catalog jumps from ~300 to **~400 tools**

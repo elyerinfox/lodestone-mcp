@@ -1,5 +1,13 @@
 # lodestone-mcp
 
+[![CI](https://github.com/elyerinfox/lodestone-mcp/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/elyerinfox/lodestone-mcp/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/elyerinfox/lodestone-mcp?label=release&color=brightgreen)](https://github.com/elyerinfox/lodestone-mcp/releases/latest)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Rust](https://img.shields.io/badge/rust-1.74%2B-orange?logo=rust)](https://www.rust-lang.org)
+[![MCP](https://img.shields.io/badge/MCP-Streamable%20HTTP-7c3aed)](https://modelcontextprotocol.io)
+[![Tools](https://img.shields.io/badge/tools-%7E400-success)](docs/tools.md)
+[![Skills](https://img.shields.io/badge/skill%20families-%7E85-success)](docs/skills.md)
+
 A **keyless-by-default, self-hosted [MCP](https://modelcontextprotocol.io) server**
 that gives a local LLM a broad, composable toolkit — **search and retrieve** the open
 web and developer ecosystem, **operate** the machine it runs on (Docker, Kubernetes,

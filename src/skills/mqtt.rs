@@ -88,10 +88,13 @@ impl MqttClient {
         let mut opts = MqttOptions::new(client_id, host.clone(), port);
         opts.set_keep_alive(Duration::from_secs(cfg.keep_alive_secs.max(5) as u64));
         if use_tls {
-            // Default rustls config — webpki roots. Users who need a
-            // custom CA can self-host an `tcp://` broker behind their
-            // own TLS terminator for v1.
-            opts.set_transport(rumqttc::Transport::tls_with_default_config());
+            // Use the platform's native TLS stack (Schannel on Windows,
+            // Secure Transport on macOS, OpenSSL on Linux) so OS-vendor
+            // CVE patches apply. Users who need a custom CA can self-host
+            // a `tcp://` broker behind their own TLS terminator for v1.
+            opts.set_transport(rumqttc::Transport::tls_with_config(
+                rumqttc::TlsConfiguration::Native,
+            ));
         }
         if !cfg.username.is_empty() {
             opts.set_credentials(&cfg.username, &cfg.password);
