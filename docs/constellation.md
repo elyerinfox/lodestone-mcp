@@ -161,15 +161,16 @@ Bloom-digest sync; this section spells out each branch.
 ### Path A — local cache hit (warm path, no network)
 
 The fastest case. We've fetched this document before and it's still
-within its TTL.
+within its TTL. Zero network calls.
 
-```
-skill: retrieval_get("arxiv|2401.01860")
-   │
-   ▼
-local cache (TtlCache)
-   │
-   ├── hit ──► return bytes  ◄── done; zero network calls
+```mermaid
+sequenceDiagram
+    autonumber
+    participant S as Skill
+    participant L as Local cache (TtlCache)
+    S->>L: retrieval_get("arxiv|2401.01860")
+    L-->>S: cached bytes
+    Note over S,L: done; zero network calls
 ```
 
 This is the path that fires when the same model asks the same query
@@ -182,24 +183,19 @@ by an alternate identifier the caller chose.
 We don't have it locally, but a peer's Bloom digest claims they do.
 This is the "helping the greater good" path that GR #13 is built on.
 
-```
-skill: retrieval_get("arxiv|2401.01860")
-   │
-   ▼
-1. local cache              ─── miss
-2. hash the key             ─── h = hash("arxiv|2401.01860")
-3. check each peer's Bloom  ─── peer X advertises a match
-4. POST /constellation/query
-   to peer X
-   body: { key: h }
-   header: Authorization: Bearer <network.token>
-   │
-   ▼
-peer X returns the cached bytes
-   │
-   ▼
-5. local cache.put(key, body)   ◄── store for next time
-6. return bytes                  ◄── upstream NEVER touched
+```mermaid
+sequenceDiagram
+    autonumber
+    participant S as Skill
+    participant L as Local cache
+    participant P as Peer X
+    S->>L: retrieval_get("arxiv|2401.01860")
+    L-->>S: miss
+    Note over S: hash the key, check peer Blooms
+    S->>P: POST /constellation/query { key: h }<br/>Authorization: Bearer <network.token>
+    P-->>S: cached bytes
+    S->>L: cache.put(key, body)
+    Note over S: return bytes — upstream NEVER touched
 ```
 
 Notes:
@@ -218,64 +214,54 @@ Brand-new document; nobody on the mesh has it; the upstream is
 reachable. We fetch from the upstream and then advertise the result
 so peers don't have to.
 
-```
-skill: retrieval_get("arxiv|2401.01860")
-   │
-   ▼
-1. local cache         ─── miss
-2. peer Bloom check    ─── miss (no peer advertises h)
-3. return None         ─── from retrieval_get
-   │
-   ▼
-4. skill calls the upstream HTTP API (arxiv.org)
-   │
-   ▼
-5. upstream returns the bytes
-   │
-   ▼
-6. retrieval_put("arxiv|2401.01860", body)
-   • TtlCache.put — bytes available locally now
-   • on the next constellation sync (≤ sync_secs, default 30 s)
-     the key's hash is added to our advertised Bloom filter
-   │
-   ▼
-7. return bytes to the model
+```mermaid
+sequenceDiagram
+    autonumber
+    participant S as Skill
+    participant L as Local cache
+    participant P as Peers (Bloom check)
+    participant U as Upstream (arxiv.org)
+    S->>L: retrieval_get("arxiv|2401.01860")
+    L-->>S: miss
+    S->>P: check advertised Blooms
+    P-->>S: no match
+    S->>U: HTTP fetch
+    U-->>S: document bytes
+    S->>L: retrieval_put(key, body)
+    Note over S,L: on the next constellation sync (≤ sync_secs,<br/>default 30 s) the key hash is added to OUR<br/>advertised Bloom filter
 ```
 
-After step 6, any peer that subsequently calls `retrieval_get` for the
+After step 7, any peer that subsequently calls `retrieval_get` for the
 same artifact will hit us via Path B and avoid the upstream entirely.
 That's the "ratchet" that gives the constellation its value — every
 cold-path fetch raises the warm-path coverage of the whole mesh.
 
-For tools whose aliases are known at fetch time
-(arxiv id ↔ abs URL ↔ pdf URL; DOI ↔ raw URL; UniProt accession ↔
-entry name), the skill calls `retrieval_put_indexed(Identifiers,
-body)` instead so the artifact is discoverable under every public name.
-That's what closes the alignment gap for long-tail content — a peer
-asking by URL still finds an entry we cached by DOI, and vice versa.
+For tools whose aliases are known at fetch time (arxiv id ↔ abs URL
+↔ pdf URL; DOI ↔ raw URL; UniProt accession ↔ entry name), the skill
+calls `retrieval_put_indexed(Identifiers, body)` instead so the
+artifact is discoverable under every public name. That's what closes
+the alignment gap for long-tail content — a peer asking by URL still
+finds an entry we cached by DOI, and vice versa (see Path E).
 
 ### Path D — mesh miss, upstream rate-limited (the honest gap)
 
 Brand-new document, nobody on the mesh has it, AND the upstream is
 returning 429 / CAPTCHA / quota exceeded.
 
-```
-skill: retrieval_get("arxiv|2401.01860")
-   │
-   ▼
-1. local cache         ─── miss
-2. peer Bloom check    ─── miss
-3. return None
-   │
-   ▼
-4. skill calls arxiv.org
-   │
-   ▼
-5. upstream returns 429 / 403 / CAPTCHA wall
-   │
-   ▼
-6. skill returns an error to the model.
-   No retrieval_put — nothing to share.
+```mermaid
+sequenceDiagram
+    autonumber
+    participant S as Skill
+    participant L as Local cache
+    participant P as Peers (Bloom check)
+    participant U as Upstream (arxiv.org)
+    S->>L: retrieval_get(key)
+    L-->>S: miss
+    S->>P: check advertised Blooms
+    P-->>S: no match
+    S->>U: HTTP fetch
+    U-->>S: 429 / 403 / CAPTCHA
+    Note over S: skill returns error to the model<br/>NO retrieval_put — nothing to share<br/>NO peer-relay (today)
 ```
 
 **The constellation does not "ask a peer to fetch on our behalf"**.
@@ -310,57 +296,45 @@ the peer fetched from), and we ask by a different identifier (the DOI
 the skill prefers). The constellation finds it because the peer used
 `retrieval_put_indexed` with both aliases.
 
-```
-peer cached earlier as:
-  Identifiers {
-    primary: "arxiv|2401.01860",
-    aliases: { url: "https://arxiv.org/abs/2401.01860",
-               doi: "10.48550/arXiv.2401.01860" }
-  }
-  → all three hashes go on the peer's advertised Bloom
-
-we ask now as:
-  retrieval_get("doi|10.48550/arXiv.2401.01860")
-   │
-   ▼
-1. local cache         ─── miss
-2. compute h_doi       ─── matches peer's Bloom (via the alias)
-3. POST /constellation/query
-   → peer X returns the bytes (lookup by alias-hash works)
-4. local cache.put(...)
-5. return bytes
+```mermaid
+sequenceDiagram
+    autonumber
+    participant S as Skill
+    participant L as Local cache
+    participant P as Peer X
+    Note over P: previously cached as Identifiers {<br/>primary: arxiv|2401.01860,<br/>aliases: { url: ..., doi: ... } }<br/>all three hashes advertised on Bloom
+    S->>L: retrieval_get("doi|10.48550/arXiv.2401.01860")
+    L-->>S: miss
+    Note over S: h_doi matches peer X's Bloom via the alias
+    S->>P: POST /constellation/query { key: h_doi }
+    P-->>S: bytes (looked up via alias-hash index)
+    S->>L: cache.put(...)
 ```
 
-This is the "we close the alignment gap on long-tail rate-limited
-content" path. Without aliases, two nodes asking for the same paper
-by different identifiers would each fetch from the upstream
-independently.
+This is the path that closes the alignment gap on long-tail content.
+Without aliases, two nodes asking for the same paper by different
+identifiers would each fetch from the upstream independently.
 
 ### Path F — relayed peer-of-peer hop
 
 We don't have it; our direct peers' Blooms don't match; but a peer
-two hops away does. Relay carries the query along the graph for up
-to `[network].relay_hops` hops (clamped to 2 in the current implementation).
+two hops away does. Relay carries the query along the graph for up to
+`[network].relay_hops` hops (clamped to 2 in the current implementation).
 
-```
-us → peer A: POST /constellation/query
-              body: { key: h, ttl: 2, seen: [us] }
-              │
-              ▼
-            peer A: local check — miss
-                    Bloom check — peer B claims to have it
-                    seen ← [us, A]; ttl ← 1
-                    forwards to peer B
-              │
-              ▼
-            peer B: local check — hit
-                    returns bytes back to peer A
-              │
-              ▼
-            peer A returns the bytes to us
-              │
-              ▼
-us: local cache.put(...), return bytes
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Us as Us
+    participant A as Peer A
+    participant B as Peer B (2 hops away)
+    Us->>A: POST /constellation/query { key: h, ttl: 2, seen: [Us] }
+    Note over A: local miss<br/>Bloom: peer B claims a match<br/>seen ← [Us, A]; ttl ← 1
+    A->>B: POST /constellation/query { key: h, ttl: 1, seen: [Us, A] }
+    Note over B: local HIT
+    B-->>A: bytes
+    A-->>Us: bytes
+    Us->>Us: cache.put(...)
+    Note over Us: A counts as ONE consensus vote regardless of how<br/>many sub-peers it relayed through — relay cannot<br/>manufacture corroboration to meet min_agreement
 ```
 
 Constraints that keep relay honest:
@@ -376,24 +350,31 @@ Constraints that keep relay honest:
 
 ### Path G — opted-out / constellation disabled
 
-When `[network].enabled = false` (the default for the constellation
-family — confirmed in the 0.1.6 defaults review), only Path A and a
-direct version of Path C exist:
+When `[network].enabled = false` (the default — joining a constellation
+is a privacy decision), only Path A and a direct version of Path C
+exist; the local cache still serves the same node's repeated queries,
+but nothing crosses the mesh.
 
-```
-skill: retrieval_get("arxiv|2401.01860")
-   │
-   ├── local cache hit ──► return bytes
-   │
-   └── miss ──► skill calls upstream directly ──► retrieval_put locally
-                                                  (no advertisement,
-                                                   no peer ever sees it)
+```mermaid
+sequenceDiagram
+    autonumber
+    participant S as Skill
+    participant L as Local cache
+    participant U as Upstream
+    Note over S: [network].enabled = false (default)
+    S->>L: retrieval_get(key)
+    alt cache hit
+        L-->>S: cached bytes
+    else cache miss
+        L-->>S: miss
+        S->>U: HTTP fetch
+        U-->>S: bytes
+        S->>L: retrieval_put (local only; no advertise)
+    end
 ```
 
-This is the safe-default mode. Nothing crosses the mesh. The local
-cache still serves the same node's repeated queries. Operators who
-have not deliberately joined a constellation (via static `peers` or
-mDNS) operate in this mode.
+This is the safe-default mode. Operators who have not deliberately
+joined a constellation (via static `peers` or mDNS) operate here.
 
 ## Inspecting the mesh
 

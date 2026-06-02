@@ -254,3 +254,50 @@ truth — the README and CONTRIBUTING link here rather than restating them.
 
     The audit in [audit-report.md](audit-report.md) tracks which
     tools currently comply and which are queued for retrofit.
+
+14. **Diagrams are Mermaid.** Every architecture diagram, request flow,
+    sequence interaction, decision tree, or state machine in the project's
+    Markdown lives in a fenced ` ```mermaid ` block — never ASCII art,
+    never an embedded `.png` / `.svg`, never an external diagramming
+    tool's screenshot. Mermaid renders natively in GitHub, MkDocs, most
+    IDE Markdown previewers, and `mdbook`; the source is plain text that
+    survives copy-paste, diffs cleanly, and renders identically regardless
+    of monospace font.
+
+    Pick the diagram type by what you're describing:
+
+    - **`flowchart`** — branching logic, decision trees, "what happens
+      next" with conditional steps, architecture-as-boxes-and-arrows
+      (e.g. the toolchain overview in [CONTRIBUTING.md](../CONTRIBUTING.md)
+      or "Adding a skill" tree).
+    - **`sequenceDiagram`** — request flows, actor-to-actor
+      conversations over time, RPC traces. Anything that's "X asks Y;
+      Y answers Z" benefits from a sequence diagram with `autonumber`
+      so the steps in the prose match the numbered arrows (see the
+      seven constellation [request flows](constellation.md#request-flows)).
+    - **`stateDiagram-v2`** — finite-state machines like the
+      [`guard`](../src/skills/guard.rs) confirmation flow (Pending →
+      Token-issued → Confirmed → Trusted).
+    - **`erDiagram`** — only when documenting a stored schema (memory
+      / solution tables) — rare.
+
+    Diagrams must be **self-explaining**: every actor labelled with its
+    real-world name, every arrow labelled with the message or event,
+    every branch labelled with the condition. A diagram that needs an
+    adjacent paragraph to be understood is doing half its job. The
+    surrounding prose is for *why*; the diagram is for *what happens*.
+
+    When you add a feature that has any flow at all — multi-step
+    initialization, request handling, fall-back chains, retry logic,
+    constellation-aware paths — sketch the diagram first, then write
+    the prose against it. The 0.1.6 request-flows documentation in
+    [constellation.md](constellation.md#request-flows) is the reference
+    pattern.
+
+    Why this is a hard rule and not a guideline: ASCII art breaks the
+    moment a renderer uses a proportional font, embeds at a different
+    column width, or strips trailing whitespace. Screenshots can't be
+    edited by the next contributor. External `.svg` files are opaque
+    in diffs. Mermaid is the **only** option that is editable,
+    diffable, plain-text, and renders consistently across every place
+    the project's docs are read.
