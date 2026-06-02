@@ -325,9 +325,11 @@ impl Skill for CryptoPbkdf2 {
         "crypto_pbkdf2"
     }
     fn description(&self) -> &'static str {
-        "PBKDF2-HMAC-SHA-256 (RFC 2898). Outputs `length` bytes as hex. \
-        Use a high iteration count (≥ 100 000 today; check OWASP guidance \
-        for current recommendation)."
+        "PBKDF2-HMAC-SHA-256 (RFC 8018, RFC 2898). Outputs `length` bytes \
+        as hex. Use a high iteration count — current OWASP / NIST guidance \
+        for PBKDF2-HMAC-SHA-256 is **600 000** iterations (OWASP Password \
+        Storage Cheat Sheet, 2023). Below ~100 000 is no longer considered \
+        adequate."
     }
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<Pbkdf2Args>()
@@ -377,7 +379,10 @@ impl Skill for CryptoArgon2 {
     }
     fn description(&self) -> &'static str {
         "Argon2id KDF (RFC 9106). Defaults: t=3, m=64 MiB, p=1, 32-byte \
-        output — those are the OWASP 2023 recommended low-end. Memory-hard."
+        output. Memory-hard. OWASP 2023 publishes a *floor* of t=2, m=19 \
+        MiB, p=1; these defaults sit conservatively above it but below the \
+        OWASP high-end (t=3, m=64 MiB, p=4). Tune `time`, `memory`, and \
+        `parallelism` for your threat model."
     }
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<Argon2Args>()

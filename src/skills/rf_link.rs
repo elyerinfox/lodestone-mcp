@@ -116,7 +116,14 @@ impl Skill for RfHataPathLoss {
             // Mobile antenna correction.
             let a_hm = match a.environment.to_lowercase().as_str() {
                 "urban_large" => {
-                    if f >= 200.0 {
+                    // Hata's published large-city a(h_m) has two branches:
+                    // f ≤ 200 MHz: 8.29·(log(1.54·h_m))² − 1.10
+                    // f ≥ 400 MHz: 3.2·(log(11.75·h_m))² − 4.97
+                    // The 200–400 MHz band is not defined by Hata. Earlier
+                    // code used `f >= 200.0`, applying the 400-MHz branch
+                    // throughout the gap; switching to `f >= 400.0` matches
+                    // the published spec.
+                    if f >= 400.0 {
                         3.2 * (11.75 * hm).log10().powi(2) - 4.97
                     } else {
                         8.29 * (1.54 * hm).log10().powi(2) - 1.1
@@ -528,7 +535,11 @@ struct KnifeEdgeArgs {
     d1_m: f64,
     /// Distance from knife edge to Rx (m).
     d2_m: f64,
-    /// Edge clearance height above the line of sight (m; negative = obstructed).
+    /// Obstacle excess height above the line of sight (m). **Standard
+    /// Rappaport / ITU sign convention**: positive `h` = the edge pokes
+    /// above LOS (obstructing); negative `h` = the edge lies below LOS
+    /// (clear). This matches the Fresnel-Kirchhoff parameter `v = h·√(…)`
+    /// where v > 0 implies loss.
     h_m: f64,
 }
 
@@ -541,8 +552,10 @@ impl Skill for RfKnifeEdgeDiffraction {
         "Single-edge knife-edge diffraction loss via the Fresnel-Kirchhoff \
         parameter v = h · √(2/λ · (1/d1 + 1/d2)). Uses Lee's approximation. \
         Returns `loss_db` (positive = additional loss above free space) and \
-        the parameter `v`. `h` is the clearance above the line of sight \
-        (positive = clear, negative = obstructing)."
+        the parameter `v`. **Sign convention**: `h` is the obstacle's \
+        excess height above the line of sight — positive = obstructing, \
+        negative = clear (Rappaport 2002 §4.7; ITU-R P.526). This matches \
+        the v calculation so v > 0 → loss > 0."
     }
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<KnifeEdgeArgs>()

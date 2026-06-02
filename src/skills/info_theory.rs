@@ -346,9 +346,15 @@ impl Skill for CodeCrc {
         "code_crc"
     }
     fn description(&self) -> &'static str {
-        "Compute one of several common CRC variants. Supports `crc8`, \
-        `crc16-ccitt`, `crc16-modbus`, `crc16-x25`, `crc32`, `crc32c`, \
-        `crc64-ecma`, `crc64-iso`. Returns the digest as a hex string."
+        "Compute one of several common CRC variants. Supports `crc8` \
+        (SMBus, poly 0x07), `crc16-ccitt` (**KERMIT** parameters — poly \
+        0x1021, reflected input/output, init 0x0000; this is *one* of \
+        three sets often called \"CRC-16-CCITT\" — the other two are \
+        XMODEM and CCITT-FALSE, which differ in initial value), \
+        `crc16-modbus` (poly 0x8005, reflected, init 0xFFFF), `crc16-x25` \
+        (IBM-SDLC / X.25 / HDLC), `crc32` (ISO-HDLC — Ethernet, PNG, \
+        zip), `crc32c` (Castagnoli — iSCSI, SCTP), `crc64-ecma`, \
+        `crc64-iso`. Returns the digest as a hex string."
     }
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<CrcArgs>()

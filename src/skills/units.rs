@@ -159,9 +159,11 @@ impl Skill for ConvertUnits {
     }
     fn description(&self) -> &'static str {
         "Convert a value between units of the same kind (local, no network): length (mm/cm/m/km/in/\
-        ft/yd/mi), mass (mg/g/kg/t/oz/lb/st), volume (ml/l/m3/tsp/tbsp/cup/pt/qt/gal), area \
+        ft/yd/mi), mass (mg/g/kg/t/oz/lb/st), volume (ml/l/m3/tsp/tbsp/cup/pt/qt/gal — **US \
+        customary**, not imperial: US gal = 3.785 L vs imperial gal = 4.546 L), area \
         (cm2/m2/km2/ha/acre/sqft), speed (m/s/km/h/mph/knot), time (ms/s/min/h/day/week), data \
-        (bit/byte/kb/mb/gb/kib/mib/gib), and temperature (celsius/fahrenheit/kelvin)."
+        (bit/byte/kb/mb/gb/kib/mib/gib — kb is decimal 10³, kib is binary 2¹⁰ per IEC 80000-13), \
+        and temperature (celsius/fahrenheit/kelvin)."
     }
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<ConvertUnitsArgs>()

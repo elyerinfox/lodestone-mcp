@@ -61,8 +61,12 @@ fn equ_to_topo(
     let dec = rad(dec_deg);
     let lat = rad(lat_deg);
     let alt = (lat.sin() * dec.sin() + lat.cos() * dec.cos() * ha.cos()).asin();
+    // North-referenced azimuth (0° = N, 90° = E, 180° = S, 270° = W) so it can
+    // be passed straight to `compass()`. Meeus 13.6 gives the south-referenced
+    // angle; we add 180° to rebase to north so a body due south reports 180°,
+    // not 0°.
     let az = (-ha.sin()).atan2(lat.cos() * dec.tan() - lat.sin() * ha.cos());
-    (deg(alt), norm360(deg(az)))
+    (deg(alt), norm360(deg(az) + 180.0))
 }
 
 /// Sun position (RA, Dec in degrees) at `dt` — Meeus low-accuracy.
@@ -91,7 +95,10 @@ fn moon_radec(dt: &NaiveDateTime) -> (f64, f64) {
         + 0.658 * rad(2.0 * d).sin()
         - 0.186 * rad(m).sin()
         - 0.059 * rad(2.0 * mp - 2.0 * d).sin();
-    let beta = 5.128 * rad(f).sin() + 0.281 * rad(mp + f).sin() + 0.278 * rad(mp - f).sin();
+    // Top three terms of Meeus Table 47.B (ecliptic latitude). The third term
+    // is +0.173·sin(M′ − F) — earlier code used 0.278 which is the coefficient
+    // from a different table and caused a ~0.1° declination error.
+    let beta = 5.128 * rad(f).sin() + 0.281 * rad(mp + f).sin() + 0.173 * rad(mp - f).sin();
     let eps = rad(23.439 - 0.0000004 * (jd - 2451545.0));
     let lam = rad(lambda);
     let bet = rad(beta);
@@ -299,7 +306,12 @@ impl Skill for AstroMoon {
             let (ra, dec) = moon_radec(&when);
             let (alt, az) = equ_to_topo(ra, dec, args.lat, args.lon, &when);
             let (illum, phase) = moon_phase(&when);
-            let (rise, transit, set) = rise_set(moon_radec, 0.567, args.lat, args.lon, when.date());
+            // Moon rise/set: standard altitude h₀ ≈ +0.125° (refraction
+            // ≈ +0.567° minus mean lunar parallax ≈ −0.95° plus mean
+            // semi-diameter ≈ +0.26°), per Meeus §15. The earlier value
+            // 0.567° was refraction only and placed rise/set several
+            // minutes early/late.
+            let (rise, transit, set) = rise_set(moon_radec, 0.125, args.lat, args.lon, when.date());
             Ok(text_result(format!(
                 "Moon at {} from ({:.4}, {:.4}):\n  altitude: {:>5.1}°  azimuth: {:>5.1}° ({})\n  illumination: {:.0}%  phase: {}\n  RA/Dec: {:.2}°, {:.2}°\nToday: rise {} · transit {} · set {}",
                 when.format("%Y-%m-%d %H:%M UTC"),

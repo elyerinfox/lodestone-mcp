@@ -473,12 +473,18 @@ impl Skill for SatPasses {
                         peak_t = t;
                     }
                 } else if in_pass && el < 0.0 {
-                    // Setting — refine set time between (t - step) and t.
+                    // Setting — refine set time between (t - step, above) and
+                    // (t, below). Earlier code passed `(t, t - step)` which
+                    // inverted the bisector's lo/hi contract (`lo` must be
+                    // chronologically earlier); the bisection then walked
+                    // backward and could return the wrong endpoint by up to
+                    // one step. Fix: pass earlier-then-later, matching the
+                    // rise-time call above.
                     let set_t = refine_horizon(
                         l1,
                         l2,
-                        t,
                         t - step,
+                        t,
                         args.observer_lat,
                         args.observer_lon,
                         obs_alt,

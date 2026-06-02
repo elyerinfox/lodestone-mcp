@@ -205,7 +205,19 @@ impl Skill for LinalgEigen {
             if a.nrows() != a.ncols() {
                 return Err(invalid("eigen requires a square symmetric matrix"));
             }
-            // Tolerate small asymmetry (numerical) by symmetrizing.
+            // Reject inputs that aren't symmetric within a small tolerance
+            // rather than silently averaging A and A^T — the latter quietly
+            // hides caller bugs and produces wrong eigenvalues for a truly
+            // non-symmetric matrix. Threshold is 1e-9 · ‖A‖_F.
+            let asym = (&a - a.transpose()).norm();
+            let tol = 1.0e-9 * a.norm().max(1.0);
+            if asym > tol {
+                return Err(invalid(format!(
+                    "matrix is not symmetric (‖A − Aᵀ‖ = {asym:.3e} > {tol:.3e}); \
+                     linalg_eigen is the symmetric eigendecomposition only"
+                )));
+            }
+            // Symmetrize to clean up tiny numerical asymmetry before solving.
             let sym = (&a + a.transpose()) * 0.5;
             let eig = sym.symmetric_eigen();
             Ok(text_result(

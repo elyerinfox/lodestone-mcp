@@ -6,6 +6,114 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-06-02
+
+Cross-codebase **correctness audit** of every skill that makes factual or
+mathematical claims. Six parallel research agents read the relevant Rust
+source and cross-checked every formula and vendored constant against
+canonical sources (IEEE/ISO/NIST/CODATA, vendor handbooks, original
+papers). Findings consolidated in
+**[docs/audit-report.md](docs/audit-report.md)**; this changelog covers
+the fixes.
+
+### Fixed — wrong-answer bugs
+
+- **`astro.rs` azimuth was south-referenced** (Meeus convention) but
+  passed straight to `compass()` (north-referenced). Every astro tool —
+  `astro_sun`, `astro_moon`, `astro_star`, `astro_visible_stars` —
+  reported its compass direction rotated by 180° (a body due south
+  showed up as `N`). **Added 180° to the Meeus azimuth before
+  normalizing.**
+
+- **`astro.rs` lunar β third-largest coefficient** was `0.278·sin(M′−F)`;
+  Meeus Table 47.B specifies **`0.173·sin(M′−F)`**. ~0.1° declination
+  error.
+
+- **`astro.rs` Moon rise/set threshold** was `0.567°` (refraction only).
+  The standard altitude h₀ = **+0.125°** accounts for parallax and
+  semi-diameter as well (Meeus §15). Earlier value placed rise/set
+  several minutes early/late.
+
+- **`satellite.rs` `sat_passes` set-time bisection** passed `(t, t −
+  step)` as `(lo, hi)`, inverting the bisector's `lo < hi` contract.
+  The bisection walked backward and could return the wrong endpoint by
+  up to one step. **Fixed** to pass earlier-then-later, matching the
+  rise-time call.
+
+- **`dsp_advanced.rs` M-QAM BER** was missing the `1/√2` factor in the
+  erfc argument: `√(3·k·γ/(M−1))` instead of `√(3·k·γ/(2(M−1)))` — see
+  Proakis 5e §5.2.9. Understated BER by ≈3 dB effective SNR.
+
+- **`rf_link.rs` Hata large-city threshold** was `f ≥ 200 MHz` (which
+  applies the 400-MHz branch throughout the 200–400 MHz band that Hata
+  doesn't actually cover). **Fixed to `f ≥ 400 MHz`.**
+
+- **`rf_link.rs` knife-edge docstring** claimed `h positive = clear`
+  but the formula `v = h·√(…)` follows the standard "h positive =
+  obstructing" convention (Rappaport §4.7; ITU-R P.526). Rewrote
+  description and field doc to match the implementation.
+
+- **`geodesy.rs` MGRS row-letter set selection** used `(set / 3) % 2`,
+  alternating the row pattern every **3** zones. NGA TM 8358.1 §3.2.2.3
+  alternates **every** zone (odd vs even). MGRS strings were wrong for
+  ~2/3 of UTM zones in both `mgrs_forward` and `mgrs_inverse`. **Fixed**
+  with `(zone − 1) % 2`.
+
+### Changed — guard rails / honesty
+
+- **`linalg_eigen` now rejects non-symmetric input** rather than silently
+  averaging `A` and `Aᵀ`. Threshold: `‖A − Aᵀ‖ > 1e-9·‖A‖`. Silent
+  symmetrization was hiding caller bugs.
+
+- **`opt_tsp_2opt` now rejects asymmetric distance matrices** with a
+  clear error pointing at the violating cell. The 2-opt delta is only
+  valid for symmetric distances.
+
+- **`crypto_pbkdf2` description** now cites the current OWASP / NIST
+  guidance of **600 000** iterations (was "≥ 100 000 today").
+
+- **`crypto_argon2` description** corrected: defaults are between
+  OWASP's floor (t=2, m=19 MiB, p=1) and high-end (t=3, m=64 MiB, p=4)
+  — not "OWASP 2023 low-end".
+
+- **`code_crc` description** now spells out which of the three
+  "CRC-16-CCITT" parameter sets `crc16-ccitt` resolves to (KERMIT
+  variant), and the polynomial behind each algorithm key.
+
+- **`trigonometry` `arc_length` and `sector_area` summaries** rewritten
+  to show `s = r·θ·π/180` (the code is correct — it converts
+  internally — but the summaries had `s = r·θ (degrees)` which is
+  algebraically wrong without the conversion).
+
+- **`convert_units` description** now spells out **US customary** vs
+  imperial for volume and **decimal vs binary** prefixes (IEC 80000-13)
+  for data.
+
+- **`nav_saastamoinen` description** documents the omitted height-
+  dependent `B(h)` and `δR(h, z)` terms (the `height_m` arg stays for
+  forward-compat).
+
+- **`geo_latlon_from_ecef` description** rewritten to call out Bowring's
+  closed-form single-pass (was "converges in 2–3 iterations") and the
+  polar-singularity caveat.
+
+### Acknowledged caveats (no code change)
+
+A handful of findings are documented in
+[`docs/audit-report.md`](docs/audit-report.md) Tier 3 — these are
+scoped trade-offs (rough but documented approximations) rather than
+bugs. Includes: CODATA 2018 vs 2022 constants in `physics.rs`,
+haversine antipodal stability, OS-CFAR Rohling approximation,
+Holt-Winters seasonal-seed averaging, KF Joseph form, MGRS-inverse
+band-edge handling, and the ITU-R P.676/P.838 simplified line fits.
+
+### Test status
+
+- 347 / 347 unit tests pass.
+- 163 / 163 tools exercised end-to-end through `Skill::call` in the
+  smoketest.
+- `cargo fmt --check` + `cargo clippy --all-targets -- -D warnings` clean.
+
 ## [0.1.5] - 2026-06-02
 
 Nuclear physics, radiation protection / dosage, machinist + mechanical

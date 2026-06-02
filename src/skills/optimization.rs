@@ -44,6 +44,23 @@ impl Skill for OptTsp2opt {
                     return Err(invalid("distance matrix must be square"));
                 }
             }
+            // Symmetry check. The 2-opt delta below only re-glues the two
+            // edges at the swap boundary; it implicitly assumes the
+            // reversed-segment's internal cost is unchanged, which is only
+            // true for symmetric distances. Reject asymmetric inputs rather
+            // than producing wrong tours silently.
+            for i in 0..n {
+                for j in (i + 1)..n {
+                    if (a.distances[i][j] - a.distances[j][i]).abs() > 1e-9 {
+                        return Err(invalid(format!(
+                            "distance matrix is asymmetric at ({i}, {j}): \
+                             d[{i}][{j}]={} vs d[{j}][{i}]={} — opt_tsp_2opt \
+                             requires symmetric distances",
+                            a.distances[i][j], a.distances[j][i]
+                        )));
+                    }
+                }
+            }
             // Nearest-neighbour start.
             let mut tour: Vec<usize> = Vec::with_capacity(n);
             let mut visited = vec![false; n];

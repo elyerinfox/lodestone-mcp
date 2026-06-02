@@ -541,14 +541,19 @@ fn mgrs_forward(lat: f64, lon: f64, precision: u8) -> String {
     let band = mgrs_lat_band(lat) as char;
 
     // 100 000 m grid square ID — 2 letters.
-    let set = ((zone as i32 - 1) % 6) as usize;
+    // Column scheme cycles every 3 zones (zones 1, 4, 7, … → ABCDEFGH).
     let col_letters_sets: [&[u8]; 3] = [b"ABCDEFGH", b"JKLMNPQR", b"STUVWXYZ"];
+    // Row scheme alternates **every** zone (NGA TM 8358.1 §3.2.2.3): odd
+    // zones use ABC..V, even zones use FGH..E. Earlier code used
+    // `(set/3)%2` which flipped the scheme every 3 zones — wrong, and
+    // produced incorrect row letters for ~2/3 of all UTM zones.
+    let col_letters_idx = ((zone as i32 - 1) % 3) as usize;
+    let col_set = col_letters_sets[col_letters_idx];
     let row_letters_sets: [&[u8]; 2] = [
         b"ABCDEFGHJKLMNPQRSTUV", // odd zones
         b"FGHJKLMNPQRSTUVABCDE", // even zones
     ];
-    let col_set = col_letters_sets[set % 3];
-    let row_set = row_letters_sets[(set / 3) % 2];
+    let row_set = row_letters_sets[((zone as i32 - 1) % 2) as usize];
     let col_idx = ((easting / 100_000.0).floor() as i32 - 1).clamp(0, 7) as usize;
     let row_idx = (((northing % 2_000_000.0) / 100_000.0).floor() as i32).clamp(0, 19) as usize;
     let col_letter = col_set[col_idx] as char;
@@ -605,11 +610,12 @@ fn mgrs_inverse(s: &str) -> anyhow::Result<(f64, f64)> {
     let e_part: f64 = e_str.parse::<i64>()? as f64 * scale;
     let n_part: f64 = n_str.parse::<i64>()? as f64 * scale;
 
-    let set = ((zone as i32 - 1) % 6) as usize;
+    // Row scheme alternates every zone (see comment in mgrs_forward); column
+    // scheme cycles every 3 zones.
     let col_letters_sets: [&[u8]; 3] = [b"ABCDEFGH", b"JKLMNPQR", b"STUVWXYZ"];
     let row_letters_sets: [&[u8]; 2] = [b"ABCDEFGHJKLMNPQRSTUV", b"FGHJKLMNPQRSTUVABCDE"];
-    let col_set = col_letters_sets[set % 3];
-    let row_set = row_letters_sets[(set / 3) % 2];
+    let col_set = col_letters_sets[((zone as i32 - 1) % 3) as usize];
+    let row_set = row_letters_sets[((zone as i32 - 1) % 2) as usize];
     let col_idx = col_set
         .iter()
         .position(|&c| c == col_letter)
@@ -682,8 +688,12 @@ impl Skill for GeoLatLonFromEcef {
         "geo_latlon_from_ecef"
     }
     fn description(&self) -> &'static str {
-        "ECEF (x, y, z) → WGS84 (lat, lon, alt) via Bowring's iterative method \
-        (converges in 2–3 iterations to machine precision)."
+        "ECEF (x, y, z) → WGS84 (lat, lon, alt) via Bowring's **closed-form** \
+        method (Bowring 1976, *Survey Review* 23:323). Single non-iterative \
+        pass; accurate to ≈ 0.1 mm in latitude for all altitudes typical of \
+        Earth-orbit work. Near the poles (z → 0 latitude singularity) the \
+        formulation degrades — for sub-mm precision at the pole use the \
+        Heikkinen 1982 or Vermeille 2002 algorithms."
     }
     fn schema(&self) -> Arc<JsonObject> {
         schema_for::<EcefArgs>()

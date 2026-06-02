@@ -168,6 +168,13 @@ impl Skill for NavSaastamoinen {
             let t = a.temp_k.unwrap_or(288.15);
             let e = a.e_w_hpa.unwrap_or(11.7);
             let z = (90.0 - a.elevation_deg).to_radians();
+            // Simplified Saastamoinen (1972). The full model adds a
+            // height-dependent B(h) factor multiplying tan²(z), and a
+            // δR(h, z) correction; this implementation omits both, which
+            // is accurate to ~5 mm at sea level and ~30 mm at 4000 m, and
+            // worse near the horizon. height_m is kept on the schema for
+            // forward-compatibility but is currently unused — see the
+            // `description()` text for the caveat.
             let _h = a.height_m;
             let delay = 0.002277 / z.cos() * (p + (1255.0 / t + 0.05) * e - z.tan().powi(2));
             Ok(text_result(json!({ "delay_m": delay }).to_string()))

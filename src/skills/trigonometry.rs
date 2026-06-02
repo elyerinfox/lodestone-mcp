@@ -29,8 +29,8 @@ static FORMULAS: LazyLock<Vec<Formula>> = LazyLock::new(|| {
         Formula { id: "law_of_cosines_angle", category: "trigonometry", summary: "Law of cosines (angle): C = acos((a²+b²-c²)/(2ab)) in degrees", inputs: vec![v("a",""), v("b",""), v("c","")], out: v("angle_c","deg"), eval: |a| ((a["a"].powi(2)+a["b"].powi(2)-a["c"].powi(2))/(2.0*a["a"]*a["b"])).acos().to_degrees() },
         Formula { id: "right_triangle_leg", category: "trigonometry", summary: "Right-triangle leg: b = √(c²-a²) (c hypotenuse)", inputs: vec![v("c",""), v("a","")], out: v("b",""), eval: |a| (a["c"].powi(2)-a["a"].powi(2)).sqrt() },
         Formula { id: "hypotenuse_from_angle", category: "trigonometry", summary: "Hypotenuse from opposite side & angle: c = opposite/sin(theta°)", inputs: vec![v("opposite",""), v("theta","deg")], out: v("c",""), eval: |a| a["opposite"]/a["theta"].to_radians().sin() },
-        Formula { id: "arc_length", category: "trigonometry", summary: "Arc length: s = r·theta (theta in degrees)", inputs: vec![v("r",""), v("theta","deg")], out: v("s",""), eval: |a| a["r"]*a["theta"].to_radians() },
-        Formula { id: "sector_area", category: "trigonometry", summary: "Circular sector area: A = ½·r²·theta (theta in degrees)", inputs: vec![v("r",""), v("theta","deg")], out: v("A",""), eval: |a| 0.5*a["r"].powi(2)*a["theta"].to_radians() },
+        Formula { id: "arc_length", category: "trigonometry", summary: "Arc length: s = r·theta·π/180 (theta input in degrees; internally converted to radians)", inputs: vec![v("r",""), v("theta","deg")], out: v("s",""), eval: |a| a["r"]*a["theta"].to_radians() },
+        Formula { id: "sector_area", category: "trigonometry", summary: "Circular sector area: A = ½·r²·theta·π/180 (theta input in degrees; internally converted to radians)", inputs: vec![v("r",""), v("theta","deg")], out: v("A",""), eval: |a| 0.5*a["r"].powi(2)*a["theta"].to_radians() },
     ]
 });
 

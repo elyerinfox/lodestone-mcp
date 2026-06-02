@@ -351,9 +351,16 @@ impl Skill for DspBer {
                     erfc((k * gamma).sqrt() * (std::f64::consts::PI / m as f64).sin()) / k
                 }
                 "qam_m" => {
+                    // Square M-QAM BER (Proakis 5e §5.2.9):
+                    // SER ≈ 4·(1 − 1/√M)·Q(√(3·k·γ/(M−1))). With
+                    // Q(x) = ½·erfc(x/√2), this becomes
+                    // SER ≈ 2·(1 − 1/√M)·erfc(√(3·k·γ/(2(M−1)))).
+                    // BER ≈ SER / k (Gray coding).
+                    // Earlier code was missing the 1/√2 factor (2(M−1) in the
+                    // denominator), which understated BER by ~3 dB effective SNR.
                     let m = a.m.ok_or_else(|| invalid("qam_m requires m"))?;
                     let k = (m as f64).log2();
-                    let arg = (3.0 * k * gamma / (m as f64 - 1.0)).sqrt();
+                    let arg = (3.0 * k * gamma / (2.0 * (m as f64 - 1.0))).sqrt();
                     2.0 * (1.0 - 1.0 / (m as f64).sqrt()) * erfc(arg) / k
                 }
                 "fsk_coherent" => 0.5 * erfc((gamma / 2.0).sqrt()),
