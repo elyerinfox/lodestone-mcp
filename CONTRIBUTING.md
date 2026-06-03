@@ -931,10 +931,21 @@ Three small edits, all mechanical:
   by `validation_rules()`. The dispatcher evaluates the rules between
   `ctx.parse()` (which checks shape) and the call body (which does
   business work); on failure the LLM receives a structured
-  `{"validation_failed": [{"field": ..., "rule": ..., "expected": ...}]}`
-  payload it can correct from, never a free-form error string.
+  `{"validation_failed": [{"field": ..., "rule": ..., "expected": ...,
+  "got": ..., "message": ...}]}` payload it can correct from, never a
+  free-form error string.
 
-  Rule kinds (see [`src/skills/validation.rs`](src/skills/validation.rs)):
+  **The full reference for the framework — every rule variant with
+  examples, evaluation semantics, the error payload contract, `Any` /
+  `All` / `Not` composition patterns, and a migration guide for
+  existing skills — lives in [docs/validation.md](docs/validation.md).
+  Read it before authoring a rule set more complex than the quick
+  examples below.**
+
+  Rule kinds at a glance (see
+  [docs/validation.md#the-rule-dsl](docs/validation.md#the-rule-dsl)
+  for the full semantics and per-variant payload shapes; the
+  implementation is in [`src/skills/validation.rs`](src/skills/validation.rs)):
 
   | Variant | Use for |
   | --- | --- |
@@ -944,15 +955,19 @@ Three small edits, all mechanical:
   | `Length { field, min?, max? }` | String / array length bounds (non-empty `data`, max 50 results). |
   | `ExactlyOne { fields }` | Mutually exclusive required (`data_ascii` XOR `data_base64`). |
   | `AtLeastOne { fields }` | At least one required (`keyword` or `cpe` or `cvss_v3_min`). |
-  | `All(...)` | Conjunction — every sub-rule must pass. |
+  | `All(...)` | Conjunction — every sub-rule must pass; failures aggregate. |
   | `Any(...)` | Disjunction — at least one branch must pass; otherwise every branch's failures aggregate. |
   | `Not(...)` | Negation. |
   | `Custom { name, summary, eval }` | Escape hatch when the declarative variants can't express it. |
 
-  The same rule list is rendered through `describe_skill` as the
-  `Validation rules:` block so the LLM can audit constraints up-front.
+  The same rule list is rendered through `describe_skill` as a
+  `Validation rules:` block so the LLM can audit constraints up-front,
+  not just learn them from failed calls.
+
+  **Quick examples** (the three exemplars that landed in 0.1.16):
 
   ```rust
+  // http_status_decode — single Range rule.
   impl Skill for HttpStatusDecode {
       // ...
       fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
@@ -961,6 +976,7 @@ Three small edits, all mechanical:
       }
   }
 
+  // stats_percentile — bounded p AND non-empty data, evaluated together.
   impl Skill for StatsPercentile {
       // ...
       fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
@@ -971,25 +987,54 @@ Three small edits, all mechanical:
           ]
       }
   }
+
+  // numerals_base_convert — two Range checks plus a Length check.
+  impl Skill for NumeralsBaseConvert {
+      // ...
+      fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+          use crate::skills::validation::Rule;
+          &[
+              Rule::Range { field: "from_base", min: Some(2.0), max: Some(36.0) },
+              Rule::Range { field: "to_base", min: Some(2.0), max: Some(36.0) },
+              Rule::Length { field: "number", min: Some(1), max: None },
+          ]
+      }
+  }
   ```
 
-  When a rule fails, the call returns (not errors) with a structured
-  payload like:
+  **What the LLM sees on failure.** A call to `http_status_decode {"code":
+  700}` returns:
 
   ```json
   {"validation_failed": [
     {"field": "code", "rule": "range",
      "message": "`code` must be in [100..599], got 700",
-     "expected": {"min": 100.0, "max": 599.0}, "got": 700.0}
+     "expected": {"min": 100.0, "max": 599.0}, "got": 700}
   ]}
   ```
 
-  The default `validation_rules()` returns `&[]` (no rules → no
-  dispatcher cost), and the default `validate()` implementation calls
+  The structured shape (described in detail at
+  [docs/validation.md#the-error-payload-contract](docs/validation.md#the-error-payload-contract))
+  means the LLM doesn't have to parse English to figure out what went
+  wrong — it can pattern-match on `rule` + `expected` + `got` and
+  recover.
+
+  **Composition.** Most skills only need a flat list of rules (the
+  list itself is implicit `All`). For OR / mutual-exclusion patterns
+  reach for `Any` / `ExactlyOne` / `AtLeastOne` — see
+  [docs/validation.md#common-patterns](docs/validation.md#common-patterns)
+  for the canonical shapes (filter set with at least one mandatory
+  filter, allow-enum-OR-identifier, etc.).
+
+  **Defaults are zero-cost.** `validation_rules()` returns `&[]` by
+  default and the dispatcher's overhead for skills without rules is one
+  method call plus a slice length check. The default `validate()` calls
   `evaluate(self.validation_rules(), args)`. Override `validate()`
-  directly only when you need fully imperative logic the rule DSL can't
+  directly only when you need fully imperative logic the DSL can't
   express; otherwise stick to the declarative tree so `describe_skill`
-  can show the constraints.
+  can show the constraints — see
+  [docs/validation.md#when-not-to-use-the-framework](docs/validation.md#when-not-to-use-the-framework)
+  for the trade-offs.
 
 - **Family example flows.** When the tool is part of a `FamilyMeta`,
   override `FamilyMeta::example_flow()` once per family with a
