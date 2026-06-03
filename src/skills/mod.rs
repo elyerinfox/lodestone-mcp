@@ -29,10 +29,12 @@ pub mod cnc;
 pub mod color;
 pub mod cron_expr;
 pub mod crypto_math;
+pub mod cve;
 pub mod data;
 pub mod databases;
 pub mod datetime;
 pub mod disasm;
+pub mod dns;
 pub mod docker;
 pub mod dsp_advanced;
 pub mod earth_models;
@@ -61,6 +63,7 @@ pub mod kubernetes;
 pub mod linalg;
 pub mod machinist;
 pub mod mcp_tasks;
+pub mod md;
 pub mod memory;
 pub mod meshtastic;
 pub mod meta;
@@ -82,6 +85,7 @@ pub mod osm;
 pub mod packages;
 pub mod pcap;
 pub mod peeringdb;
+pub mod phone;
 pub mod physics;
 pub mod printer;
 pub mod pubmed;
@@ -108,6 +112,8 @@ pub mod store;
 pub mod sysinfo;
 pub mod systemd;
 pub mod tasks;
+pub mod tls;
+pub mod tokens;
 pub mod tracking;
 pub mod trajectory;
 pub mod translate;
@@ -116,6 +122,7 @@ pub mod units;
 pub mod uuid_tools;
 pub mod wave;
 pub mod weather;
+pub mod whois;
 pub mod wikipedia;
 pub mod yahoo;
 
@@ -508,6 +515,13 @@ pub fn families() -> Vec<Box<dyn FamilyMeta>> {
         Box::new(uuid_tools::Family),
         Box::new(color::Family),
         Box::new(http_decode::Family),
+        Box::new(md::Family),
+        Box::new(phone::Family),
+        Box::new(tokens::Family),
+        Box::new(dns::Family),
+        Box::new(cve::Family),
+        Box::new(whois::Family),
+        Box::new(tls::Family),
     ]
 }
 
@@ -1121,6 +1135,13 @@ pub fn all_skills() -> Vec<Box<dyn Skill>> {
     skills.extend(uuid_tools::skills());
     skills.extend(color::skills());
     skills.extend(http_decode::skills());
+    skills.extend(md::skills());
+    skills.extend(phone::skills());
+    skills.extend(tokens::skills());
+    skills.extend(dns::skills());
+    skills.extend(cve::skills());
+    skills.extend(whois::skills());
+    skills.extend(tls::skills());
     skills.extend(nasa::skills());
     skills.extend(stocks::skills());
     skills.extend(yahoo::skills());

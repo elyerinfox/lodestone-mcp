@@ -6,6 +6,59 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.14] - 2026-06-02
+
+### Added — seven new skill families, the rest of the LLM-struggle queue
+
+Seven of the eight remaining queued candidates land here (the eighth,
+`tls_ciphersuites`, is deferred to a follow-up). 17 new tools, 23 new
+unit tests.
+
+- **`md` family** (3 tools): `md_to_html` (CommonMark + GFM via
+  pulldown-cmark), `html_to_md` (via html2text), `md_lint` (heading
+  skips, unclosed fences, trailing whitespace, broken refs).
+- **`phone` family** (2 tools): `phone_parse` (E.164 normalization +
+  country + validity), `phone_format` (e164 / international /
+  national / rfc3966). Backed by the phonenumber crate.
+- **`token` family** (2 tools): `token_count` (against
+  cl100k_base / o200k_base / p50k_base / r50k_base — covers GPT-4o /
+  o1 / o3 / GPT-4 / GPT-3.5 / davinci / curie / babbage / ada),
+  `token_compare` (every tokenizer side-by-side). Anthropic / Llama
+  / Mistral get an approximate count via cl100k_base with a
+  `caveat` field calling out the approximation. Backed by tiktoken-rs.
+- **`dns` family** (3 tools): `dns_lookup` (A/AAAA/MX/TXT/CNAME/NS/
+  SOA/SRV/CAA/PTR/DS/DNSKEY against any resolver — defaults to
+  Cloudflare 1.1.1.1), `dns_reverse` (PTR), `dns_propagation` (fan
+  out across 10 well-known public resolvers in parallel; surface
+  disagreements). Backed by hickory-resolver 0.24.
+  `retrieval_policy::Shared { Source::Other }`.
+- **`cve` family** (3 tools): `cve_get` (NVD by id, returns CVSS v3.1
+  vector + CWEs + affected CPEs + references; explicit found=false
+  with a "LLMs fabricate IDs" warning when NVD has no record),
+  `cve_search` (keyword + CPE + date + severity floor), `cpe_search`
+  (CPE 2.3 id discovery). Keyless NVD API. Backed by reqwest +
+  the existing constellation cache.
+  `retrieval_policy::Shared { Source::Other }`.
+- **`whois` family** (3 tools): `whois_domain` (RDAP via IANA DNS
+  bootstrap → registrar / status / dates / nameservers),
+  `whois_ip` (RDAP via IANA IPv4/v6 bootstrap → RIR / org /
+  network range), `whois_asn` (RDAP via IANA ASN bootstrap →
+  owning org / country / events). Keyless. RFC 7480-7484.
+- **`tls` family** (2 tools): `tls_inspect` (connect to host:port,
+  capture the full cert chain via a custom rustls
+  ServerCertVerifier that intentionally accepts whatever the
+  server sends; report leaf + every intermediate with subject /
+  issuer / SANs / NotBefore / NotAfter / serial / signature
+  algorithm / SHA-256 fingerprint), `tls_pem_decode` (decode
+  pasted PEM, silently dropping any private-key blocks per
+  GR-11). Backed by rustls + tokio-rustls + x509-parser. The cipher-
+  suite probe is a follow-up.
+
+All seven carry `examples()` + `use_cases()` per tool,
+`FamilyMeta::example_flow()`, and module-level RFC / spec
+citations. `cargo test 389 → 412` (23 new), clippy
+`--all-targets -D warnings` clean, fmt clean.
+
 ## [0.1.13] - 2026-06-02
 
 ### Added — `http` family (3 tools)
