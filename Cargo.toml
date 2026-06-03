@@ -1,6 +1,6 @@
 [package]
 name = "lodestone-mcp"
-version = "0.1.14"
+version = "0.1.15"
 edition = "2021"
 description = "MCP server that searches and retrieves code from the web by scraping search engines (no API keys)."
 license = "MIT"

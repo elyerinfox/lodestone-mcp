@@ -37,8 +37,10 @@ pub mod disasm;
 pub mod dns;
 pub mod docker;
 pub mod dsp_advanced;
+pub mod duration;
 pub mod earth_models;
 pub mod eia;
+pub mod encode;
 pub mod fcc;
 pub mod ffmpeg;
 pub mod filesystem;
@@ -76,6 +78,7 @@ pub mod news;
 pub mod noaa;
 pub mod notebook;
 pub mod nuclear;
+pub mod numerals;
 pub mod oci;
 pub mod ode;
 pub mod open_data;
@@ -107,11 +110,13 @@ pub mod signal;
 pub mod spreadsheet;
 pub mod ssrf;
 pub mod standards;
+pub mod stats;
 pub mod stocks;
 pub mod store;
 pub mod sysinfo;
 pub mod systemd;
 pub mod tasks;
+pub mod text;
 pub mod tls;
 pub mod tokens;
 pub mod tracking;
@@ -120,6 +125,7 @@ pub mod translate;
 pub mod trigonometry;
 pub mod units;
 pub mod uuid_tools;
+pub mod validate;
 pub mod wave;
 pub mod weather;
 pub mod whois;
@@ -522,6 +528,12 @@ pub fn families() -> Vec<Box<dyn FamilyMeta>> {
         Box::new(cve::Family),
         Box::new(whois::Family),
         Box::new(tls::Family),
+        Box::new(encode::Family),
+        Box::new(numerals::Family),
+        Box::new(stats::Family),
+        Box::new(text::Family),
+        Box::new(validate::Family),
+        Box::new(duration::Family),
     ]
 }
 
@@ -1142,6 +1154,12 @@ pub fn all_skills() -> Vec<Box<dyn Skill>> {
     skills.extend(cve::skills());
     skills.extend(whois::skills());
     skills.extend(tls::skills());
+    skills.extend(encode::skills());
+    skills.extend(numerals::skills());
+    skills.extend(stats::skills());
+    skills.extend(text::skills());
+    skills.extend(validate::skills());
+    skills.extend(duration::skills());
     skills.extend(nasa::skills());
     skills.extend(stocks::skills());
     skills.extend(yahoo::skills());

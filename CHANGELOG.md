@@ -6,6 +6,41 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.15] - 2026-06-03
+
+### Added — six more LLM-struggle families (encode / numerals / stats / text / validate / duration)
+
+23 new tools targeting deterministic answers for tasks LLMs reliably
+mis-compute. All pure local compute, no new credentials, no new gating.
+
+- **`encode`** (10 tools): `encode_base64` / `decode_base64`
+  (standard + url_safe), `encode_hex` / `decode_hex` (whitespace + `0x`
+  tolerated), `encode_url` / `decode_url` (RFC 3986 percent), `encode_html`
+  / `decode_html` (5 entities + `&#NN;` + `&#xHH;`), `encode_rot13`,
+  `encode_morse`.
+- **`numerals`** (3 tools): `numerals_base_convert` (any base 2-36,
+  handles `0x`/`0b`/`0o` prefixes), `numerals_roman` (1-3999, validates
+  canonical form), `numerals_to_words` (short + long scale).
+- **`stats`** (4 tools): `stats_summary` (Welford-stable mean / variance,
+  both population and sample stdev, full five-number summary + IQR +
+  mode), `stats_percentile` (R-7 / numpy default linear interp),
+  `stats_correlation` (Pearson r + r²), `stats_zscore`.
+- **`text`** (5 tools): `text_case_convert` (snake / kebab / camel /
+  pascal / screaming / screaming_kebab / sentence / title; tokenizes
+  HTTPResponseCode correctly), `text_slugify`, `text_edit_distance`
+  (Levenshtein + similarity), `text_diff` (LCS line-level), `text_word_count`.
+- **`validate`** (4 tools): `validate_luhn` (PAN / IMEI + issuer guess),
+  `validate_isbn` (10 + 13), `validate_iban` (mod 97), `validate_issn`.
+- **`duration`** (3 tools): `duration_parse` (human `2h 30m`, ISO 8601
+  `PT2H30M`, bare seconds, fractional units), `duration_format` (human /
+  iso8601 / HH:MM:SS), `duration_between` (signed span between two RFC3339
+  timestamps).
+
+Each family carries the full Skill contract per tool (`examples()` +
+`use_cases()`), `FamilyMeta` with `example_flow()`, and module-level
+RFC / ISO citations. `cargo test 412 → 445`, clippy
+`--all-targets -D warnings` clean, fmt clean.
+
 ## [0.1.14] - 2026-06-02
 
 ### Added — seven new skill families, the rest of the LLM-struggle queue
