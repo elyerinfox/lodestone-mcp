@@ -610,7 +610,7 @@ touches. Each tool the skill exposes is a struct that implements the
 ```mermaid
 flowchart TD
   start([New skill]) --> mod
-  mod["1. Create src/skills/&lt;name&gt;.rs<br/>· struct + impl Skill (name/description/schema/call)<br/>· pub fn skills() -&gt; Vec&lt;Box&lt;dyn Skill&gt;&gt;"]
+  mod["1. Create src/skills/&lt;name&gt;.rs<br/>· struct + impl Skill — REQUIRED methods:<br/>&nbsp;&nbsp;name / description / schema / call<br/>&nbsp;&nbsp;examples / use_cases<br/>· pub fn skills() -&gt; Vec&lt;Box&lt;dyn Skill&gt;&gt;"]
   mod --> wire
   wire["2. Wire it up (3 edits)"]
   wire --> wire_mod["src/skills/mod.rs<br/>· pub mod &lt;name&gt;;<br/>· skills.extend(&lt;name&gt;::skills());"]
@@ -621,12 +621,21 @@ flowchart TD
   wire_meta --> docs
   docs["3. Document<br/>· docs/skills/&lt;name&gt;.md<br/>· row in docs/skills.md + docs/tools.md<br/>· CHANGELOG.md [Unreleased] entry"]
   docs --> verify["cargo build · cargo clippy --all-targets -D warnings · cargo test"]
-  verify --> done(["Tool appears in /mcp tools/list"])
+  verify --> done(["Tool appears in /mcp tools/list and describe_skill"])
 
   style mod fill:#f0f8ff
   style wire fill:#fff5e6
   style docs fill:#f0fff0
 ```
+
+> **The Skill contract has six methods, not four.** `name`, `description`,
+> `schema`, and `call` are the runtime path; `examples` and `use_cases` are
+> the LLM-orientation path consumed by `describe_skill` and the dynamic
+> handshake. Both are now expected for every new skill (coverage is at 432
+> of 466 as of 0.1.10). The detailed contract and self-check checklist
+> live in [§"Worked examples and use cases"](#worked-examples-and-use-cases)
+> below; the skeleton in step 1 includes them up-front so you don't bolt
+> them on as an afterthought.
 
 ### 1. Write the module
 
@@ -666,6 +675,29 @@ impl Skill for DoThing {
             //   or env-var-merge code …
             Ok(text_result(format!("ran on {}", args.target)))
         })
+    }
+
+    // examples() and use_cases() are expected for every new skill — the
+    // LLM-orientation path consumed by `describe_skill` and the dynamic
+    // handshake. See §"Worked examples and use cases" below for the
+    // contract + a self-check checklist drawn from real bugs the
+    // catalog-fill verifier caught.
+    fn examples(&self) -> &'static [crate::skills::SkillExample] {
+        use crate::skills::SkillExample;
+        &[
+            SkillExample {
+                title: "Canonical minimal invocation",
+                args: r#"{"target": "example"}"#,
+                note: Some("Returns `ran on example`."),
+            },
+            // 1–3 more examples that each demonstrate something different.
+        ]
+    }
+    fn use_cases(&self) -> &'static [&'static str] {
+        &[
+            "When to reach for THIS tool over a sibling (e.g. `web_search` vs `code_search`).",
+            "A second situation, framed as a one-liner.",
+        ]
     }
 }
 ```
@@ -807,6 +839,7 @@ Three small edits, all mechanical:
   without declaring `Shared` is a [golden rule 13](docs/golden-rules.md)
   violation visible from outside the skill's call body.
 
+<a id="worked-examples-and-use-cases"></a>
 - **Worked examples and use cases — expected for every new skill.**
   Coverage as of 0.1.9 is 432 / 466 Skill impls (93%); these are no
   longer opt-in. A new `impl Skill for X` should land with both:
