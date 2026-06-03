@@ -1,6 +1,6 @@
 [package]
 name = "lodestone-mcp"
-version = "0.1.10"
+version = "0.1.11"
 edition = "2021"
 description = "MCP server that searches and retrieves code from the web by scraping search engines (no API keys)."
 license = "MIT"
@@ -134,3 +134,6 @@ rand = "0.8"
 wkt = "0.10"
 quick-xml = { version = "0.36", features = ["serialize"] }
 gpx = "0.10"
+ipnet = "2.12.0"
+cron = "0.16.0"
+uuid = { version = "1.23.2", features = ["v4", "v7"] }

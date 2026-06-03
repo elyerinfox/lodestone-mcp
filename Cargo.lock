@@ -761,6 +761,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "cron"
+version = "0.16.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "089df96cf6a25253b4b6b6744d86f91150a3d4df546f31a95def47976b8cba97"
+dependencies = [
+ "chrono",
+ "once_cell",
+ "phf 0.11.3",
+ "winnow 0.7.15",
+]
+
+[[package]]
 name = "crossbeam-deque"
 version = "0.8.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2346,7 +2358,7 @@ dependencies = [
 
 [[package]]
 name = "lodestone-mcp"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "anyhow",
  "argon2",
@@ -2360,6 +2372,7 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "crc",
+ "cron",
  "csv",
  "futures",
  "geographiclib-rs",
@@ -2369,6 +2382,7 @@ dependencies = [
  "hound",
  "html2text",
  "iced-x86",
+ "ipnet",
  "k8s-openapi",
  "kamadak-exif",
  "kube",
@@ -2417,6 +2431,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
+ "uuid",
  "wkt",
 ]
 
@@ -4934,7 +4949,7 @@ dependencies = [
  "getrandom 0.4.2",
  "once_cell",
  "rustix 1.1.4",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -6101,6 +6116,9 @@ name = "winnow"
 version = "0.7.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "df79d97927682d2fd8adb29682d1140b343be4ac0f08fd68b7765d9c059d3945"
+dependencies = [
+ "memchr",
+]
 
 [[package]]
 name = "winnow"

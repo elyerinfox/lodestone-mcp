@@ -6,6 +6,96 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.11] - 2026-06-02
+
+Three new skill families landing 11 tools targeting tasks other LLMs
+measurably fail at: CIDR / subnet math, cron expression
+description/iteration/validation, and UUID generation/parsing/short-form
+encoding. All three are pure-compute, keyless, on by default, and
+`retrieval_policy::None`. No new credentials, no new external services.
+
+### Added — `network` family (5 tools)
+
+Binary subnet math that LLMs get wrong roughly half the time on
+intermediate cases (off-aligned CIDRs, mixed v4/v6, IANA special-purpose
+categorization).
+
+- **`net_cidr_info { cidr }`** — network address, broadcast (v4),
+  netmask, wildcard mask, host range, total addresses, usable hosts,
+  prefix length. Off-aligned hosts (e.g. `10.42.7.83/19`) truncate to
+  the canonical network in the output.
+- **`net_cidr_subnets { cidr, new_prefix, limit? }`** — split a CIDR
+  into equal-sized subnets at a longer prefix. `limit` (default 256)
+  bounds the output so a /16 → /32 split doesn't dump 65 536 rows.
+- **`net_ip_in_cidr { ip, cidr }`** — membership test + the 0-indexed
+  position of the IP within the block when contained.
+- **`net_ip_classify { ip }`** — public / private (RFC 1918) /
+  loopback / link-local / multicast / CGNAT (RFC 6598) / documentation
+  (RFC 5737, RFC 3849) / unspecified / reserved (v4) / unique-local /
+  TEREDO / 6to4 (v6). Each category cites the governing RFC.
+- **`net_cidr_summarize { cidrs }`** — coalesce a list of CIDRs into
+  the minimal covering set (v4 and v6 aggregated separately).
+
+Backed by [`ipnet`](https://crates.io/crates/ipnet); no extra deps
+beyond what was already in the tree. `FamilyMeta::example_flow()`
+walks classify → info → subnets → summarize. Docs at
+[`docs/skills/network.md`](docs/skills/network.md).
+
+### Added — `cron` family (3 tools)
+
+The DOM/DOW interaction in Vixie cron is a recurring LLM stumble; this
+family spells it out explicitly.
+
+- **`cron_describe { expression, timezone? }`** — plain-English
+  description plus the next 3 firings when the expression iterates.
+  When both DOM and DOW are restricted, the output names the Vixie
+  OR semantics ("fires when EITHER constraint matches") — that's the
+  rule LLMs get backwards. Accepts 5-field (`min hour dom month dow`)
+  and 6-field (`sec min hour dom month dow`) form; 5-field gets
+  `0 ` prepended for seconds before the underlying parser.
+- **`cron_next { expression, count?, from?, timezone? }`** — next N
+  firings as ISO timestamps. `count` defaults to 5 (max 100); `from`
+  defaults to now.
+- **`cron_validate { expression }`** — parse + return `valid=true` or
+  a precise error pointing at the bad field.
+
+Backed by [`cron`](https://crates.io/crates/cron) (Quartz-style
+iterator) + a small custom describer. The underlying iterator won't
+evaluate expressions that restrict both DOM and DOW (Quartz requires
+one to be `?`); `cron_describe` handles that gracefully — the English
+description still renders and the response carries an
+`iteration_note` explaining why no firings are listed. Docs at
+[`docs/skills/cron.md`](docs/skills/cron.md).
+
+### Added — `uuid` family (3 tools)
+
+LLMs hallucinate UUIDv7 field layouts more often than not. This family
+gives them deterministic generators and a parser that reads the
+actual RFC 9562 bit layout.
+
+- **`uuid_generate { version, count?, at? }`** — generate v4 (random,
+  RFC 9562 §5.4) or v7 (Unix-millisecond timestamp + entropy, RFC 9562
+  §5.7). `count` defaults to 1, max 1000. `at` (v7 only) embeds a
+  specific RFC3339 moment instead of "now"; truncated to ms precision
+  per spec.
+- **`uuid_parse { uuid }`** — version (1-8) + variant (RFC 4122/9562,
+  Microsoft, NCS, future) + canonical forms (hyphenated, hex-only,
+  urn:uuid:). For time-based versions (1, 6, 7) the embedded timestamp
+  is decoded and returned as RFC3339 + Unix ms.
+- **`uuid_to_short { uuid, encoding }`** — re-encode into `base32`
+  (26 chars), `base58` (Bitcoin alphabet, ~22 chars, no visually-
+  confusing characters), or `base64url` (22 chars, URL-safe alphabet,
+  no padding).
+
+Backed by [`uuid`](https://crates.io/crates/uuid) with `v4` and `v7`
+features. Docs at [`docs/skills/uuid.md`](docs/skills/uuid.md).
+
+### Tests
+
+20 new unit tests across the three families (`network`: 8,
+`cron_expr`: 6, `uuid_tools`: 6). Total `cargo test` count 375
+(355 → 375), clippy `--all-targets -D warnings` clean, fmt clean.
+
 ## [0.1.10] - 2026-06-02
 
 ### Changed — handshake footer collapses redundant lookup-tools list

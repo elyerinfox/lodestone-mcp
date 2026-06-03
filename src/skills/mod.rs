@@ -26,6 +26,7 @@ pub mod browser_session;
 pub mod chart;
 pub mod chemistry;
 pub mod cnc;
+pub mod cron_expr;
 pub mod crypto_math;
 pub mod data;
 pub mod databases;
@@ -64,6 +65,7 @@ pub mod meta;
 pub mod mqtt;
 pub mod nasa;
 pub mod nav_aiding;
+pub mod network;
 pub mod new_charts;
 pub mod news;
 pub mod noaa;
@@ -109,6 +111,7 @@ pub mod trajectory;
 pub mod translate;
 pub mod trigonometry;
 pub mod units;
+pub mod uuid_tools;
 pub mod wave;
 pub mod weather;
 pub mod wikipedia;
@@ -498,6 +501,9 @@ pub fn families() -> Vec<Box<dyn FamilyMeta>> {
         Box::new(mqtt::Family),
         Box::new(meshtastic::Family),
         Box::new(packages::Family),
+        Box::new(network::Family),
+        Box::new(cron_expr::Family),
+        Box::new(uuid_tools::Family),
     ]
 }
 
@@ -1106,6 +1112,9 @@ pub fn all_skills() -> Vec<Box<dyn Skill>> {
     skills.extend(finance::skills());
     skills.extend(forecast::skills());
     skills.extend(units::skills());
+    skills.extend(network::skills());
+    skills.extend(cron_expr::skills());
+    skills.extend(uuid_tools::skills());
     skills.extend(nasa::skills());
     skills.extend(stocks::skills());
     skills.extend(yahoo::skills());
