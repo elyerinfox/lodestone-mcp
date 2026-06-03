@@ -6,6 +6,30 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.12] - 2026-06-02
+
+### Added — `color` family (3 tools)
+
+Pure-compute color math LLMs reliably get wrong: hex codes for named
+colors, HSL → RGB conversion, contrast ratios, and "what's the
+perceptual midpoint of these two colors" (the lerp space matters).
+
+- **`color_convert { color }`** — parse a color (hex `#aabbcc`/`#abc`,
+  `rgb()/rgba()`, `hsl()/hsla()`) and emit hex, RGB 0–255, HSL deg/%,
+  CIE L\*a\*b\* under D65, and linear sRGB at once.
+- **`color_contrast { foreground, background }`** — WCAG 2.1 SC 1.4.3
+  contrast ratio with pass/fail at AA / AAA for normal and large
+  text. Spells out which thresholds are met.
+- **`color_blend { a, b, t?, space? }`** — blend at factor `t`
+  (default 0.5). `space="linear"` (default) is the perceptually-correct
+  linear-sRGB lerp; `space="srgb"` matches the naive lerp most CSS
+  tools do.
+
+Hand-rolled (no extra crate). 7 unit tests including the `#777` on
+white "tasteful gray fails AA" check, HSL→RGB→HSL round-trip, and
+sRGB white → L\*100 verification. Docs at
+[`docs/skills/color.md`](docs/skills/color.md).
+
 ## [0.1.11] - 2026-06-02
 
 Three new skill families landing 11 tools targeting tasks other LLMs

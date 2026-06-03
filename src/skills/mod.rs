@@ -26,6 +26,7 @@ pub mod browser_session;
 pub mod chart;
 pub mod chemistry;
 pub mod cnc;
+pub mod color;
 pub mod cron_expr;
 pub mod crypto_math;
 pub mod data;
@@ -504,6 +505,7 @@ pub fn families() -> Vec<Box<dyn FamilyMeta>> {
         Box::new(network::Family),
         Box::new(cron_expr::Family),
         Box::new(uuid_tools::Family),
+        Box::new(color::Family),
     ]
 }
 
@@ -1115,6 +1117,7 @@ pub fn all_skills() -> Vec<Box<dyn Skill>> {
     skills.extend(network::skills());
     skills.extend(cron_expr::skills());
     skills.extend(uuid_tools::skills());
+    skills.extend(color::skills());
     skills.extend(nasa::skills());
     skills.extend(stocks::skills());
     skills.extend(yahoo::skills());
