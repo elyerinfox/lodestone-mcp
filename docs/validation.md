@@ -7,6 +7,10 @@ contributors should skim CONTRIBUTING for the contract, then return here
 when they need the full rule shape, evaluation semantics, error payload
 contract, or composition patterns.
 
+[Golden rule 15](golden-rules.md) makes this contract mandatory —
+every skill whose Args carry domain constraints beyond what serde /
+schemars already enforce declares them via `validation_rules()`.
+
 Module: [`src/skills/validation.rs`](../src/skills/validation.rs).
 Tests: same file, `mod tests`.
 

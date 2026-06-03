@@ -926,7 +926,7 @@ Three small edits, all mechanical:
      blob), drop the example rather than ship a parser-rejecting
      placeholder.
 
-- **Declarative input validation — required for every new skill.** Each
+- **Declarative input validation — required for every new skill ([golden rule 15](docs/golden-rules.md)).** Each
   Skill declares its domain constraints as a static rule tree returned
   by `validation_rules()`. The dispatcher evaluates the rules between
   `ctx.parse()` (which checks shape) and the call body (which does

@@ -301,3 +301,56 @@ truth — the README and CONTRIBUTING link here rather than restating them.
     in diffs. Mermaid is the **only** option that is editable,
     diffable, plain-text, and renders consistently across every place
     the project's docs are read.
+
+15. **Skills declare their input constraints structurally, not in prose.**
+    Every `impl Skill for X` whose `Args` carries any domain constraint
+    beyond what `serde` / `schemars` enforces — numeric ranges, allowed
+    enum values, mutual exclusion, required-cardinality across fields,
+    shape regex — declares those constraints by overriding
+    `validation_rules()` and returning a static `&[Rule]`. The
+    [`Rule` DSL](validation.md#the-rule-dsl) lives at
+    [`src/skills/validation.rs`](../src/skills/validation.rs); the
+    [contributor guide](../CONTRIBUTING.md#adding-a-skill--adding-a-tool)
+    has a quick-reference table, and [docs/validation.md](validation.md)
+    is the long-form reference.
+
+    Two surfaces depend on this:
+
+    - **`describe_skill` shows the rules up-front.** An LLM that reads a
+      tool's description gets the constraint set in the same call —
+      `code` must be 100–599, `data` must be non-empty, `from_base` and
+      `to_base` must each be 2–36 — so the model can pre-correct without
+      probing. Constraints buried inside `call()` as `if`-statements
+      can't be surfaced.
+    - **Failures come back structured.** When the LLM submits bad
+      input, the dispatcher emits
+      `{"validation_failed": [{"field": ..., "rule": ..., "expected": ..., "got": ..., "message": ...}]}`
+      — a payload the model can pattern-match on `rule` + `expected`
+      to recover from. Free-form `Err(invalid("..."))` strings from
+      `call()` force the model to parse English, and force every skill
+      author to invent their own error prose.
+
+    The DSL covers the common shapes natively: `Range`, `OneOf`,
+    `Regex`, `Length`, `ExactlyOne`, `AtLeastOne`, plus `All` / `Any` /
+    `Not` combinators that aggregate failures (every branch of a failed
+    `Any` is surfaced, not just the first). For anything the declarative
+    surface can't express, [`Rule::Custom`](validation.md#custom--name-summary-eval-)
+    is the escape hatch — the eval function returns a fully-shaped
+    `FieldViolation` the dispatcher returns verbatim.
+
+    Three exemplars as of 0.1.16: `http_status_decode` (`code` in
+    100..599), `stats_percentile` (`p` in 0..100 + non-empty `data`),
+    `numerals_base_convert` (two `Range` + one `Length`). Every new
+    skill that has any check beyond shape ships with `validation_rules`;
+    converting older skills' imperative checks is a paying-down
+    obligation — see the
+    [migration playbook](validation.md#migration-guide-for-existing-skills).
+
+    Why this is a hard rule, not a guideline: every prose error message
+    that exists today is a bytes-thrown-at-an-LLM tax the model pays in
+    correctness. Every error that comes back as
+    `{"validation_failed": [...]}` instead is a tax the model is
+    refunded — the structured form is what an LLM is best at parsing.
+    The framework defaults to `&[]` and costs nothing for skills that
+    truly have no constraints; the obligation is to use it the moment a
+    skill has one.
