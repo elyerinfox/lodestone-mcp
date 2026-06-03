@@ -91,6 +91,14 @@ impl Skill for HttpStatusDecode {
             "Confirm whether a response code is idempotent / cacheable before reusing it.",
         ]
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Range {
+            field: "code",
+            min: Some(100.0),
+            max: Some(599.0),
+        }]
+    }
 }
 
 fn decode_status(code: u16) -> serde_json::Value {

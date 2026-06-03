@@ -220,6 +220,13 @@ impl Skill for StatsPercentile {
     fn use_cases(&self) -> &'static [&'static str] {
         &["Compute a single percentile (p95 latency, p99, etc.) accurately.", "Use the R-7 / numpy-equivalent linear interpolation method without re-implementing it."]
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[
+            Rule::Range { field: "p", min: Some(0.0), max: Some(100.0) },
+            Rule::Length { field: "data", min: Some(1), max: None },
+        ]
+    }
 }
 
 // ---------- correlation ----------

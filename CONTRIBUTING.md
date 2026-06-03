@@ -926,6 +926,71 @@ Three small edits, all mechanical:
      blob), drop the example rather than ship a parser-rejecting
      placeholder.
 
+- **Declarative input validation — required for every new skill.** Each
+  Skill declares its domain constraints as a static rule tree returned
+  by `validation_rules()`. The dispatcher evaluates the rules between
+  `ctx.parse()` (which checks shape) and the call body (which does
+  business work); on failure the LLM receives a structured
+  `{"validation_failed": [{"field": ..., "rule": ..., "expected": ...}]}`
+  payload it can correct from, never a free-form error string.
+
+  Rule kinds (see [`src/skills/validation.rs`](src/skills/validation.rs)):
+
+  | Variant | Use for |
+  | --- | --- |
+  | `Range { field, min?, max? }` | Numeric bounds (HTTP code 100–599, prefix 2–36, percentile 0–100). |
+  | `OneOf { field, values }` | String enum constraint (`"v4"` or `"v7"`, `"public"` or `"private"`). |
+  | `Regex { field, pattern, summary }` | Shape constraint (E.164, CVE id, UUID). |
+  | `Length { field, min?, max? }` | String / array length bounds (non-empty `data`, max 50 results). |
+  | `ExactlyOne { fields }` | Mutually exclusive required (`data_ascii` XOR `data_base64`). |
+  | `AtLeastOne { fields }` | At least one required (`keyword` or `cpe` or `cvss_v3_min`). |
+  | `All(...)` | Conjunction — every sub-rule must pass. |
+  | `Any(...)` | Disjunction — at least one branch must pass; otherwise every branch's failures aggregate. |
+  | `Not(...)` | Negation. |
+  | `Custom { name, summary, eval }` | Escape hatch when the declarative variants can't express it. |
+
+  The same rule list is rendered through `describe_skill` as the
+  `Validation rules:` block so the LLM can audit constraints up-front.
+
+  ```rust
+  impl Skill for HttpStatusDecode {
+      // ...
+      fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+          use crate::skills::validation::Rule;
+          &[Rule::Range { field: "code", min: Some(100.0), max: Some(599.0) }]
+      }
+  }
+
+  impl Skill for StatsPercentile {
+      // ...
+      fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+          use crate::skills::validation::Rule;
+          &[
+              Rule::Range { field: "p", min: Some(0.0), max: Some(100.0) },
+              Rule::Length { field: "data", min: Some(1), max: None },
+          ]
+      }
+  }
+  ```
+
+  When a rule fails, the call returns (not errors) with a structured
+  payload like:
+
+  ```json
+  {"validation_failed": [
+    {"field": "code", "rule": "range",
+     "message": "`code` must be in [100..599], got 700",
+     "expected": {"min": 100.0, "max": 599.0}, "got": 700.0}
+  ]}
+  ```
+
+  The default `validation_rules()` returns `&[]` (no rules → no
+  dispatcher cost), and the default `validate()` implementation calls
+  `evaluate(self.validation_rules(), args)`. Override `validate()`
+  directly only when you need fully imperative logic the rule DSL can't
+  express; otherwise stick to the declarative tree so `describe_skill`
+  can show the constraints.
+
 - **Family example flows.** When the tool is part of a `FamilyMeta`,
   override `FamilyMeta::example_flow()` once per family with a
   markdown-friendly numbered list of 2–5 chained tool calls. This is

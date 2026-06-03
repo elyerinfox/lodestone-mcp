@@ -126,6 +126,7 @@ pub mod trigonometry;
 pub mod units;
 pub mod uuid_tools;
 pub mod validate;
+pub mod validation;
 pub mod wave;
 pub mod weather;
 pub mod whois;
@@ -325,6 +326,26 @@ pub trait Skill: Send + Sync + 'static {
     #[allow(dead_code)]
     fn use_cases(&self) -> &'static [&'static str] {
         &[]
+    }
+    /// Declarative validation rules evaluated by the dispatcher BEFORE the
+    /// call body runs. Defaults to empty (no rules). Override to assert
+    /// domain constraints (range bounds, allowed enum values, mutual
+    /// exclusion) so the LLM gets a structured `validation_failed` payload
+    /// it can correct from, rather than a free-form error string. See
+    /// [`crate::skills::validation::Rule`] for the DSL.
+    ///
+    /// The rule list is also surfaced through `describe_skill` so the LLM
+    /// can audit constraints up-front.
+    #[allow(dead_code)]
+    fn validation_rules(&self) -> &'static [validation::Rule] {
+        &[]
+    }
+    /// Run validation against the parsed argument object. Default impl
+    /// evaluates [`Self::validation_rules`] — most skills only override
+    /// the declarative rule list. Override this directly when you need
+    /// fully imperative validation that can't be expressed in the DSL.
+    fn validate(&self, args: &JsonObject) -> validation::ValidationResult {
+        validation::evaluate(self.validation_rules(), args)
     }
     /// Per-tool capability probe — defaults to `Ready`. Override when a
     /// single tool has a requirement its family doesn't cover (a stricter
@@ -895,6 +916,18 @@ fn route(skill: Box<dyn Skill>) -> ToolRoute<Lodestone> {
         }
         let peer = Some(ctx.request_context.peer.clone());
         let meta = Some(ctx.request_context.meta.clone());
+
+        // Declarative-validation gate. Every skill's validate() runs against
+        // the parsed argument object before the call body. On failure we
+        // return the structured `{"validation_failed": [...]}` payload as
+        // the call result so the LLM can correct itself without parsing
+        // English error strings. Default impl returns Pass (no rules), so
+        // skills that don't override it pay zero cost.
+        if let validation::ValidationResult::Fail(_) = skill.validate(&args) {
+            let payload = skill.validate(&args).to_payload();
+            let body = serde_json::to_string(&payload).unwrap_or_default();
+            return Box::pin(async move { Ok(crate::text_result(body)) });
+        }
 
         // Background fork — `background: true` was extracted from args.
         // Spawn the skill body into the shared TaskRuntime and return a

@@ -6,6 +6,47 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.16] - 2026-06-03
+
+### Added — declarative input validation contract on every Skill
+
+Every Skill now declares its domain constraints as a static rule tree
+via the new `Skill::validation_rules()` method (defaults to `&[]`).
+The dispatcher evaluates the rules between `ctx.parse()` (shape) and
+the call body (business work); on failure the LLM receives a
+structured `{"validation_failed": [{"field": ..., "rule": ...,
+"expected": ..., "got": ..., "message": ...}]}` payload it can
+correct from, never a free-form English error.
+
+The rule DSL lives in `src/skills/validation.rs`:
+
+- `Range { field, min?, max? }` — numeric bounds.
+- `OneOf { field, values }` — string enum.
+- `Regex { field, pattern, summary }` — pattern match.
+- `Length { field, min?, max? }` — string / array length bounds.
+- `ExactlyOne { fields }` / `AtLeastOne { fields }` — mutually-
+  exclusive / "supply at least one of" semantics native to the DSL.
+- `All(...)` / `Any(...)` / `Not(...)` — conjunction / disjunction /
+  negation. `Any` aggregates every branch's failures only when EVERY
+  branch fails.
+- `Custom { name, summary, eval }` — escape hatch.
+
+Rules are surfaced through `describe_skill` as a structured
+`Validation rules:` block so the LLM can audit constraints at session
+start as well as recover from failures at call time.
+
+Exemplars landed on `http_status_decode` (code in 100..599),
+`stats_percentile` (p in 0..100 + non-empty data),
+`numerals_base_convert` (both bases in 2..36 + non-empty number).
+The rest of the catalog returns the empty default and fills
+incrementally per the contributor guide. The new section in
+[`CONTRIBUTING.md`](CONTRIBUTING.md) documents the contract.
+
+8 unit tests in `validation` (range pass/fail, one_of pass/reject,
+exactly_one, any_or pass-on-any, any_or fail-aggregation, payload
+shape). `cargo test 445 → 453`, clippy `--all-targets -D warnings`
+clean, fmt clean.
+
 ## [0.1.15] - 2026-06-03
 
 ### Added — six more LLM-struggle families (encode / numerals / stats / text / validate / duration)

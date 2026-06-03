@@ -945,6 +945,16 @@ impl Skill for DescribeSkill {
                 }
             }
 
+            let rules = skill.validation_rules();
+            if !rules.is_empty() {
+                let _ = writeln!(out);
+                let _ = writeln!(out, "Validation rules:");
+                let rules_json = crate::skills::validation::rules_to_json(rules);
+                let rules_pretty = serde_json::to_string_pretty(&rules_json)
+                    .unwrap_or_else(|_| "<could not serialize rules>".into());
+                let _ = writeln!(out, "{rules_pretty}");
+            }
+
             let _ = writeln!(out);
             let _ = writeln!(out, "Argument schema (JSON):");
             let _ = writeln!(out, "{schema_json}");

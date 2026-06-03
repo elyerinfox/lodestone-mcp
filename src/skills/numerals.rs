@@ -105,6 +105,14 @@ impl Skill for NumeralsBaseConvert {
             "Decode an arbitrary-base number from a homework / CTF problem.",
         ]
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[
+            Rule::Range { field: "from_base", min: Some(2.0), max: Some(36.0) },
+            Rule::Range { field: "to_base", min: Some(2.0), max: Some(36.0) },
+            Rule::Length { field: "number", min: Some(1), max: None },
+        ]
+    }
 }
 
 fn render_in_base(n: u128, base: u32) -> String {
