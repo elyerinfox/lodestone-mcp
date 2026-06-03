@@ -127,6 +127,14 @@ impl Skill for OsmGeocode {
             "Get an OSM id to feed into a follow-up Overpass or routing call.",
         ]
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Length {
+            field: "query",
+            min: Some(1),
+            max: None,
+        }]
+    }
 }
 
 // ----- osm_reverse_geocode -----
@@ -222,6 +230,21 @@ impl Skill for OsmReverseGeocode {
             "Find the street address or place name at a known coordinate.",
             "Pull admin context (city, state, country) for a lat/lon.",
             "Label a sub-point produced by routing or satellite sub-point math.",
+        ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[
+            Rule::Range {
+                field: "lat",
+                min: Some(-90.0),
+                max: Some(90.0),
+            },
+            Rule::Range {
+                field: "lon",
+                min: Some(-180.0),
+                max: Some(180.0),
+            },
         ]
     }
 }
@@ -351,6 +374,14 @@ impl Skill for OsmOverpass {
             "Pull OSM ids + names for downstream geocoding or rendering.",
         ]
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Length {
+            field: "query",
+            min: Some(1),
+            max: None,
+        }]
+    }
 }
 
 // ----- osm_elevation -----
@@ -376,12 +407,6 @@ impl Skill for OsmElevation {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (server, args) = ctx.parse::<ElevationArgs>()?;
-            if args.points.is_empty() {
-                return Err(invalid("points must not be empty"));
-            }
-            if args.points.len() > 100 {
-                return Err(invalid("max 100 points per call"));
-            }
             let body = serde_json::json!({
                 "locations": args.points.iter().map(|(lat, lon)| serde_json::json!({"latitude": lat, "longitude": lon})).collect::<Vec<_>>()
             });
@@ -429,6 +454,14 @@ impl Skill for OsmElevation {
             "Sample a profile along a route by spacing points beforehand.",
             "Estimate antenna height-above-terrain for line-of-sight reasoning.",
         ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Length {
+            field: "points",
+            min: Some(1),
+            max: Some(100),
+        }]
     }
 }
 
@@ -532,6 +565,31 @@ impl Skill for OsmRoute {
             "Sanity-check a great-circle distance against an actual routable path.",
         ]
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[
+            Rule::Range {
+                field: "from_lat",
+                min: Some(-90.0),
+                max: Some(90.0),
+            },
+            Rule::Range {
+                field: "from_lon",
+                min: Some(-180.0),
+                max: Some(180.0),
+            },
+            Rule::Range {
+                field: "to_lat",
+                min: Some(-90.0),
+                max: Some(90.0),
+            },
+            Rule::Range {
+                field: "to_lon",
+                min: Some(-180.0),
+                max: Some(180.0),
+            },
+        ]
+    }
 }
 
 // ----- gis_bbox -----
@@ -557,9 +615,6 @@ impl Skill for GisBbox {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (_, args) = ctx.parse::<BboxArgs>()?;
-            if args.points.is_empty() {
-                return Err(invalid("points must not be empty"));
-            }
             let (mut min_lat, mut max_lat) = (f64::INFINITY, f64::NEG_INFINITY);
             let (mut min_lon, mut max_lon) = (f64::INFINITY, f64::NEG_INFINITY);
             for (lat, lon) in &args.points {
@@ -605,6 +660,14 @@ impl Skill for GisBbox {
             "Compute the extent of a route or trajectory for map framing.",
             "Bound a set of geocoded results before a `grid_*` infrastructure call.",
         ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Length {
+            field: "points",
+            min: Some(1),
+            max: None,
+        }]
     }
 }
 
@@ -654,9 +717,6 @@ impl Skill for GisPointInPolygon {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (_, args) = ctx.parse::<PointInPolyArgs>()?;
-            if args.polygon.len() < 3 {
-                return Err(invalid("polygon needs at least 3 vertices"));
-            }
             let inside = point_in_polygon(args.point, &args.polygon);
             Ok(text_result(format!(
                 "Point ({:.6}, {:.6}) is {} the polygon ({} vertices).",
@@ -688,6 +748,14 @@ impl Skill for GisPointInPolygon {
             "Filter a list of points to those within a named admin polygon.",
             "Decide a binary in/out flag without firing a spatial DB query.",
         ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Length {
+            field: "polygon",
+            min: Some(3),
+            max: None,
+        }]
     }
 }
 

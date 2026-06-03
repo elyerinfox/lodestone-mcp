@@ -301,7 +301,7 @@ impl Skill for DurationFormat {
             let (_s, a) = ctx.parse::<FormatArgs>()?;
             let style = a.style.as_deref().unwrap_or("human");
             let out = match style {
-                "human" | "" => format_human(a.seconds),
+                "human" => format_human(a.seconds),
                 "iso8601" | "iso" => to_iso8601(a.seconds),
                 "hms" => {
                     let hours = a.seconds.abs() / 3600;
@@ -315,11 +315,7 @@ impl Skill for DurationFormat {
                         secs
                     )
                 }
-                other => {
-                    return Err(invalid(format!(
-                        "unknown style `{other}` (try `human`, `iso8601`, or `hms`)"
-                    )))
-                }
+                _ => unreachable!("validation_rules restricts `style` to the matched arms"),
             };
             Ok(text_result(
                 json!({"seconds": a.seconds, "style": style, "formatted": out}).to_string(),
@@ -350,6 +346,13 @@ impl Skill for DurationFormat {
             "Render an interval in a chosen style for display.",
             "Round-trip seconds through ISO 8601 form.",
         ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::OneOf {
+            field: "style",
+            values: &["human", "iso8601", "iso", "hms"],
+        }]
     }
 }
 

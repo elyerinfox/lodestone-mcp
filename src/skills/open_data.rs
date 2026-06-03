@@ -20,7 +20,7 @@ use serde::Deserialize;
 
 use crate::skills::{schema_for, NoArgs, Skill, SkillCtx};
 use crate::util::truncate_chars;
-use crate::{internal, invalid, text_result};
+use crate::{internal, text_result};
 
 async fn fetch(server: &crate::Lodestone, url: &str) -> std::result::Result<String, McpError> {
     let r = server
@@ -150,12 +150,6 @@ impl Skill for UsgsEarthquakes {
             let (_s, a) = ctx.parse::<EarthquakeArgs>()?;
             let period = a.period.unwrap_or_else(|| "day".into());
             let minimum = a.minimum.unwrap_or_else(|| "2.5".into());
-            if !["hour", "day", "week", "month"].contains(&period.as_str()) {
-                return Err(invalid("period must be hour/day/week/month"));
-            }
-            if !["all", "1.0", "2.5", "4.5", "significant"].contains(&minimum.as_str()) {
-                return Err(invalid("minimum must be all/1.0/2.5/4.5/significant"));
-            }
             let key = format!("usgs_quake|{minimum}|{period}");
             if let Some(c) = server.retrieval_get(&key).await {
                 return Ok(text_result(c));
@@ -193,6 +187,19 @@ impl Skill for UsgsEarthquakes {
             "Pull the real-time USGS quake feed for a magnitude/timeframe.",
             "Drive a dashboard or alert pipeline off significant seismic events.",
             "Get raw GeoJSON for downstream mapping.",
+        ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[
+            Rule::OneOf {
+                field: "period",
+                values: &["hour", "day", "week", "month"],
+            },
+            Rule::OneOf {
+                field: "minimum",
+                values: &["all", "1.0", "2.5", "4.5", "significant"],
+            },
         ]
     }
 }

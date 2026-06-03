@@ -51,10 +51,6 @@ struct GeoArgs {
     lon2: f64,
 }
 
-fn valid_coord(lat: f64, lon: f64) -> bool {
-    (-90.0..=90.0).contains(&lat) && (-180.0..=180.0).contains(&lon) && lat.is_finite()
-}
-
 fn haversine_km(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
     let (p1, p2) = (lat1.to_radians(), lat2.to_radians());
     let dphi = (lat2 - lat1).to_radians();
@@ -94,11 +90,6 @@ impl Skill for GeoDistance {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (_server, a) = ctx.parse::<GeoArgs>()?;
-            if !valid_coord(a.lat1, a.lon1) || !valid_coord(a.lat2, a.lon2) {
-                return Err(invalid(
-                    "coordinates out of range (lat −90..90, lon −180..180)",
-                ));
-            }
             let km = haversine_km(a.lat1, a.lon1, a.lat2, a.lon2);
             Ok(text_result(format!(
                 "({}, {}) → ({}, {})\n  distance: {} km ({} mi)",
@@ -110,6 +101,31 @@ impl Skill for GeoDistance {
                 fmt_num((km * 0.621371 * 1e3).round() / 1e3),
             )))
         })
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[
+            Rule::Range {
+                field: "lat1",
+                min: Some(-90.0),
+                max: Some(90.0),
+            },
+            Rule::Range {
+                field: "lon1",
+                min: Some(-180.0),
+                max: Some(180.0),
+            },
+            Rule::Range {
+                field: "lat2",
+                min: Some(-90.0),
+                max: Some(90.0),
+            },
+            Rule::Range {
+                field: "lon2",
+                min: Some(-180.0),
+                max: Some(180.0),
+            },
+        ]
     }
     fn examples(&self) -> &'static [crate::skills::SkillExample] {
         use crate::skills::SkillExample;
@@ -150,11 +166,6 @@ impl Skill for GeoAzimuth {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (_server, a) = ctx.parse::<GeoArgs>()?;
-            if !valid_coord(a.lat1, a.lon1) || !valid_coord(a.lat2, a.lon2) {
-                return Err(invalid(
-                    "coordinates out of range (lat −90..90, lon −180..180)",
-                ));
-            }
             let fwd = azimuth_deg(a.lat1, a.lon1, a.lat2, a.lon2);
             let back = azimuth_deg(a.lat2, a.lon2, a.lat1, a.lon1);
             Ok(text_result(format!(
@@ -169,6 +180,31 @@ impl Skill for GeoAzimuth {
                 compass(back),
             )))
         })
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[
+            Rule::Range {
+                field: "lat1",
+                min: Some(-90.0),
+                max: Some(90.0),
+            },
+            Rule::Range {
+                field: "lon1",
+                min: Some(-180.0),
+                max: Some(180.0),
+            },
+            Rule::Range {
+                field: "lat2",
+                min: Some(-90.0),
+                max: Some(90.0),
+            },
+            Rule::Range {
+                field: "lon2",
+                min: Some(-180.0),
+                max: Some(180.0),
+            },
+        ]
     }
     fn examples(&self) -> &'static [crate::skills::SkillExample] {
         use crate::skills::SkillExample;
@@ -222,6 +258,26 @@ impl Skill for GeometryFormula {
             let out = formula::compute(&FORMULAS, &args.name, &args.args).map_err(invalid)?;
             Ok(text_result(out))
         })
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::OneOf {
+            field: "name",
+            values: &[
+                "pythagorean",
+                "distance_2d",
+                "distance_3d",
+                "circle_area",
+                "circle_circumference",
+                "sphere_volume",
+                "sphere_surface_area",
+                "cylinder_volume",
+                "cone_volume",
+                "triangle_area",
+                "heron_area",
+                "law_of_cosines_side",
+            ],
+        }]
     }
     fn examples(&self) -> &'static [crate::skills::SkillExample] {
         use crate::skills::SkillExample;

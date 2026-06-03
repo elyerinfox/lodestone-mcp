@@ -377,6 +377,21 @@ impl Skill for SatObserve {
             "Confirm visibility (elevation > 0) from a site at a target time.",
         ]
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[
+            Rule::Range {
+                field: "observer_lat",
+                min: Some(-90.0),
+                max: Some(90.0),
+            },
+            Rule::Range {
+                field: "observer_lon",
+                min: Some(-180.0),
+                max: Some(180.0),
+            },
+        ]
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -697,6 +712,21 @@ impl Skill for SatPasses {
             "Plan a contact window for a ground-station schedule.",
         ]
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[
+            Rule::Range {
+                field: "observer_lat",
+                min: Some(-90.0),
+                max: Some(90.0),
+            },
+            Rule::Range {
+                field: "observer_lon",
+                min: Some(-180.0),
+                max: Some(180.0),
+            },
+        ]
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -852,6 +882,14 @@ impl Skill for SatGroup {
             "Grab a named shell of Starlinks or one block of GPS sats via `name_filter`.",
             "Seed `sat_passes` or `sat_observe` with TLEs for every member of a group.",
         ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Length {
+            field: "group",
+            min: Some(1),
+            max: None,
+        }]
     }
 }
 

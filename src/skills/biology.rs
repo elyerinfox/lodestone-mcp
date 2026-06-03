@@ -318,6 +318,13 @@ impl Skill for BioTranscribe {
             "Convert a template-strand sequence into its mRNA read.",
         ]
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::OneOf {
+            field: "strand",
+            values: &["coding", "sense", "template"],
+        }]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -351,9 +358,6 @@ impl Skill for BioTranslate {
         Box::pin(async move {
             let (_s, a) = ctx.parse::<TranslateArgs>()?;
             let frame = a.frame.unwrap_or(1);
-            if !(1..=3).contains(&frame) {
-                return Err(invalid("frame must be 1, 2, or 3"));
-            }
             let stop_at_stop = a.stop_at_stop.unwrap_or(true);
             let seq = clean_nucleotide(&a.sequence);
             let bytes = seq.as_bytes();
@@ -403,6 +407,14 @@ impl Skill for BioTranslate {
             "Translate an ORF to its protein sequence using the standard genetic code.",
             "Scan an alternate reading frame for a candidate coding region.",
         ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Range {
+            field: "frame",
+            min: Some(1.0),
+            max: Some(3.0),
+        }]
     }
 }
 
@@ -825,6 +837,13 @@ impl Skill for BioPcrTm {
             "Pick between short-primer Wallace and 15–50 nt Marmur without external tools.",
         ]
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::OneOf {
+            field: "method",
+            values: &["wallace", "basic", "marmur"],
+        }]
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1058,9 +1077,6 @@ impl Skill for BioMichaelisMenten {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (_s, a) = ctx.parse::<MmArgs>()?;
-            if a.km < 0.0 || a.substrate < 0.0 || a.vmax < 0.0 {
-                return Err(invalid("vmax, km, substrate must be ≥ 0"));
-            }
             let v = a.vmax * a.substrate / (a.km + a.substrate);
             Ok(text_result(json!({ "rate": v }).to_string()))
         })
@@ -1084,6 +1100,26 @@ impl Skill for BioMichaelisMenten {
         &[
             "Compute initial reaction rate for a single-substrate enzyme.",
             "Sanity-check enzyme assay data against Michaelis-Menten predictions.",
+        ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[
+            Rule::Range {
+                field: "vmax",
+                min: Some(0.0),
+                max: None,
+            },
+            Rule::Range {
+                field: "km",
+                min: Some(0.0),
+                max: None,
+            },
+            Rule::Range {
+                field: "substrate",
+                min: Some(0.0),
+                max: None,
+            },
         ]
     }
 }
@@ -1111,9 +1147,6 @@ impl Skill for BioHardyWeinberg {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (_s, a) = ctx.parse::<HwArgs>()?;
-            if !(0.0..=1.0).contains(&a.p) {
-                return Err(invalid("p must be in [0, 1]"));
-            }
             let q = 1.0 - a.p;
             Ok(text_result(
                 json!({
@@ -1147,6 +1180,14 @@ impl Skill for BioHardyWeinberg {
             "Predict genotype frequencies from one allele frequency under HWE.",
             "Estimate carrier frequency for a recessive allele in a large random-mating population.",
         ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Range {
+            field: "p",
+            min: Some(0.0),
+            max: Some(1.0),
+        }]
     }
 }
 

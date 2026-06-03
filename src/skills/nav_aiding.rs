@@ -37,9 +37,6 @@ impl Skill for NavDop {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (_s, a) = ctx.parse::<DopArgs>()?;
-            if a.los_enu.len() < 4 {
-                return Err(invalid("need ≥ 4 line-of-sight vectors"));
-            }
             let n = a.los_enu.len();
             let mut h = DMatrix::<f64>::zeros(n, 4);
             for (i, los) in a.los_enu.iter().enumerate() {
@@ -85,6 +82,14 @@ impl Skill for NavDop {
             "Score current sat geometry before trusting a GNSS fix for navigation.",
             "Compare two satellite constellations / time slices by HDOP or PDOP.",
         ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Length {
+            field: "los_enu",
+            min: Some(4),
+            max: None,
+        }]
     }
 }
 
@@ -172,6 +177,31 @@ impl Skill for NavKlobuchar {
             "Estimate single-frequency ionospheric error budget at a given time/location.",
         ]
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[
+            Rule::Range {
+                field: "lat_deg",
+                min: Some(-90.0),
+                max: Some(90.0),
+            },
+            Rule::Range {
+                field: "lon_deg",
+                min: Some(-180.0),
+                max: Some(180.0),
+            },
+            Rule::Range {
+                field: "elevation_deg",
+                min: Some(-90.0),
+                max: Some(90.0),
+            },
+            Rule::Range {
+                field: "azimuth_deg",
+                min: Some(0.0),
+                max: Some(360.0),
+            },
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -242,6 +272,14 @@ impl Skill for NavSaastamoinen {
             "Estimate tropospheric path delay for a satellite at known elevation.",
             "Build a first-cut GNSS error budget combining tropo + iono + DOP.",
         ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Range {
+            field: "elevation_deg",
+            min: Some(-90.0),
+            max: Some(90.0),
+        }]
     }
 }
 
@@ -318,6 +356,21 @@ impl Skill for NavEcefToEnu {
             "Compute east/north/up offsets from a survey marker to a target.",
         ]
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[
+            Rule::Range {
+                field: "ref_lat",
+                min: Some(-90.0),
+                max: Some(90.0),
+            },
+            Rule::Range {
+                field: "ref_lon",
+                min: Some(-180.0),
+                max: Some(180.0),
+            },
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -351,9 +404,6 @@ impl Skill for NavImuDrift {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (_s, a) = ctx.parse::<ImuDriftArgs>()?;
-            if a.time_s < 0.0 {
-                return Err(invalid("time_s must be ≥ 0"));
-            }
             let hours = a.time_s / 3600.0;
             let arw = a.gyro_random_walk_deg_sqrt_hr * hours.sqrt();
             let bi = a.bias_instability_deg_per_hr * hours;
@@ -390,6 +440,14 @@ impl Skill for NavImuDrift {
             "Predict free-inertial attitude drift over a coast interval.",
             "Compare IMU grades by their dominant error term over a chosen horizon.",
         ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Range {
+            field: "time_s",
+            min: Some(0.0),
+            max: None,
+        }]
     }
 }
 

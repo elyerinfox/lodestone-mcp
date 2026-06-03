@@ -215,9 +215,6 @@ impl Skill for RadarIntegrationGain {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (_s, a) = ctx.parse::<IntegrationArgs>()?;
-            if a.n == 0 {
-                return Err(invalid("n must be ≥ 1"));
-            }
             let nf = a.n as f64;
             let g = match a.method.to_lowercase().as_str() {
                 "coherent" => 10.0 * nf.log10(),
@@ -255,6 +252,14 @@ impl Skill for RadarIntegrationGain {
             "Compare coherent vs envelope-detection schemes.",
             "Decide on pulse-train length for a required detection probability.",
         ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Range {
+            field: "n",
+            min: Some(1.0),
+            max: None,
+        }]
     }
 }
 
@@ -346,9 +351,6 @@ impl Skill for RadarCfar {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (_s, a) = ctx.parse::<CfarArgs>()?;
-            if a.n_cells == 0 {
-                return Err(invalid("n_cells must be ≥ 1"));
-            }
             if !(0.0..1.0).contains(&a.pfa) {
                 return Err(invalid("pfa must be in (0, 1)"));
             }
@@ -389,6 +391,21 @@ impl Skill for RadarCfar {
             "Choose a CFAR threshold for a target probability of false alarm.",
             "Compare CA-CFAR vs OS-CFAR robustness given a clutter scenario.",
             "Calibrate detector logic in a radar signal-processing pipeline.",
+        ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[
+            Rule::Range {
+                field: "n_cells",
+                min: Some(1.0),
+                max: None,
+            },
+            Rule::Range {
+                field: "pfa",
+                min: Some(0.0),
+                max: Some(1.0),
+            },
         ]
     }
 }

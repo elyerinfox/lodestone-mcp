@@ -515,6 +515,21 @@ impl Skill for NukeBindingEnergy {
             "Compare BE/A across a nuclide range to sketch the binding curve.",
         ]
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[
+            Rule::Range {
+                field: "z",
+                min: Some(1.0),
+                max: None,
+            },
+            Rule::Range {
+                field: "a",
+                min: Some(1.0),
+                max: None,
+            },
+        ]
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -546,9 +561,6 @@ impl Skill for NukeQValue {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (_s, a) = ctx.parse::<QArgs>()?;
-            if a.reactants_u.is_empty() || a.products_u.is_empty() {
-                return Err(invalid("need at least one reactant and one product"));
-            }
             let r: f64 = a.reactants_u.iter().sum();
             let p: f64 = a.products_u.iter().sum();
             let q = (r - p) * U_TO_MEV;
@@ -582,6 +594,21 @@ impl Skill for NukeQValue {
             "Compute the energy release of a nuclear reaction from atomic masses.",
             "Decide whether a postulated reaction is exothermic or endothermic.",
             "Convert AME-tabulated mass differences into MeV.",
+        ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[
+            Rule::Length {
+                field: "reactants_u",
+                min: Some(1),
+                max: None,
+            },
+            Rule::Length {
+                field: "products_u",
+                min: Some(1),
+                max: None,
+            },
         ]
     }
 }
@@ -653,6 +680,14 @@ impl Skill for NukeDecayLaw {
             "Get the decay constant λ from a known half-life in one call.",
             "Estimate medical / industrial isotope inventory at a future time.",
         ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Range {
+            field: "half_life_s",
+            min: Some(0.0),
+            max: None,
+        }]
     }
 }
 
@@ -733,6 +768,21 @@ impl Skill for NukeDecayChain {
             "Track parent + daughter inventory in a two-step decay chain.",
             "Check secular- or transient-equilibrium behavior for a known pair.",
             "Sanity-check a Bateman calculation against the closed-form solution.",
+        ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[
+            Rule::Range {
+                field: "half_life_a_s",
+                min: Some(0.0),
+                max: None,
+            },
+            Rule::Range {
+                field: "half_life_b_s",
+                min: Some(0.0),
+                max: None,
+            },
         ]
     }
 }

@@ -183,15 +183,9 @@ fn render(fit: &Fit) -> String {
 }
 
 /// Validate the shared `values` + `horizon` inputs.
-fn check(values: &[f64], horizon: usize) -> Result<(), McpError> {
-    if values.len() < 2 {
-        return Err(invalid("need at least 2 data points to forecast"));
-    }
+fn check(values: &[f64], _horizon: usize) -> Result<(), McpError> {
     if values.iter().any(|v| !v.is_finite()) {
         return Err(invalid("values must all be finite numbers"));
-    }
-    if !(1..=500).contains(&horizon) {
-        return Err(invalid("horizon must be between 1 and 500"));
     }
     Ok(())
 }
@@ -228,13 +222,6 @@ impl Skill for ForecastHoltLinear {
         Box::pin(async move {
             let (_server, args) = ctx.parse::<HoltLinearArgs>()?;
             check(&args.values, args.horizon)?;
-            for (label, p) in [("alpha", args.alpha), ("beta", args.beta)] {
-                if let Some(p) = p {
-                    if !(0.0..=1.0).contains(&p) {
-                        return Err(invalid(format!("{label} must be between 0 and 1")));
-                    }
-                }
-            }
             let fit = fit_holt_linear(&args.values, args.horizon, args.alpha, args.beta);
             Ok(text_result(render(&fit)))
         })
@@ -258,6 +245,31 @@ impl Skill for ForecastHoltLinear {
         &[
             "Forecast a trending series with no clear seasonality, locally.",
             "Drop-in trend forecast when you don't want to depend on Prophet / SARIMAX.",
+        ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[
+            Rule::Length {
+                field: "values",
+                min: Some(2),
+                max: None,
+            },
+            Rule::Range {
+                field: "horizon",
+                min: Some(1.0),
+                max: Some(500.0),
+            },
+            Rule::Range {
+                field: "alpha",
+                min: Some(0.0),
+                max: Some(1.0),
+            },
+            Rule::Range {
+                field: "beta",
+                min: Some(0.0),
+                max: Some(1.0),
+            },
         ]
     }
 }
@@ -301,26 +313,12 @@ impl Skill for ForecastHoltWinters {
             let (_server, args) = ctx.parse::<HoltWintersArgs>()?;
             check(&args.values, args.horizon)?;
             let m = args.season_length;
-            if m < 2 {
-                return Err(invalid("season_length must be at least 2"));
-            }
             if args.values.len() < 2 * m {
                 return Err(invalid(format!(
                     "Holt-Winters needs at least {} data points (2 full seasons of {m}); {} given",
                     2 * m,
                     args.values.len()
                 )));
-            }
-            for (label, p) in [
-                ("alpha", args.alpha),
-                ("beta", args.beta),
-                ("gamma", args.gamma),
-            ] {
-                if let Some(p) = p {
-                    if !(0.0..=1.0).contains(&p) {
-                        return Err(invalid(format!("{label} must be between 0 and 1")));
-                    }
-                }
             }
             let fit = fit_holt_winters(
                 &args.values,
@@ -352,6 +350,41 @@ impl Skill for ForecastHoltWinters {
         &[
             "Forecast a series with additive trend AND repeating seasonality.",
             "Use when you have ≥2 full seasons; for non-seasonal data prefer forecast_holt_linear.",
+        ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[
+            Rule::Length {
+                field: "values",
+                min: Some(2),
+                max: None,
+            },
+            Rule::Range {
+                field: "horizon",
+                min: Some(1.0),
+                max: Some(500.0),
+            },
+            Rule::Range {
+                field: "season_length",
+                min: Some(2.0),
+                max: None,
+            },
+            Rule::Range {
+                field: "alpha",
+                min: Some(0.0),
+                max: Some(1.0),
+            },
+            Rule::Range {
+                field: "beta",
+                min: Some(0.0),
+                max: Some(1.0),
+            },
+            Rule::Range {
+                field: "gamma",
+                min: Some(0.0),
+                max: Some(1.0),
+            },
         ]
     }
 }

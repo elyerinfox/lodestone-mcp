@@ -103,6 +103,19 @@ impl Skill for HtmlRender {
             "Confirm a URL actually loads cleanly from this host's network.",
         ]
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[
+            Rule::ExactlyOne {
+                fields: &["html", "url"],
+            },
+            Rule::Range {
+                field: "wait_ms",
+                min: Some(0.0),
+                max: Some(30000.0),
+            },
+        ]
+    }
 }
 
 fn format_diagnostics(d: &crate::browser::PageDiagnostics) -> String {

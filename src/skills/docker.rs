@@ -1103,6 +1103,21 @@ impl Skill for DockerExec {
             "Reproduce a bug in the exact filesystem the app sees.",
         ]
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[
+            Rule::Length {
+                field: "container",
+                min: Some(1),
+                max: None,
+            },
+            Rule::Length {
+                field: "command",
+                min: Some(1),
+                max: None,
+            },
+        ]
+    }
 }
 
 pub struct DockerRmi;

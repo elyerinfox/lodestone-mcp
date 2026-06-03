@@ -259,9 +259,6 @@ impl Skill for TrackRansacLine {
             use rand::seq::SliceRandom;
             use rand::thread_rng;
             let (_s, a) = ctx.parse::<RansacLineArgs>()?;
-            if a.points.len() < 2 {
-                return Err(invalid("need ≥ 2 points"));
-            }
             let iters = a.iterations.unwrap_or(200);
             let mut rng = thread_rng();
             let mut best_inliers: Vec<usize> = Vec::new();
@@ -319,6 +316,14 @@ impl Skill for TrackRansacLine {
             "Robustly fit a 2-D line through outlier-contaminated points.",
             "Identify which points belong to a dominant linear feature (lane edge, scan line).",
         ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Length {
+            field: "points",
+            min: Some(2),
+            max: None,
+        }]
     }
 }
 

@@ -124,6 +124,26 @@ impl Skill for DspSpectrogram {
             "Prepare a feature matrix for downstream classification.",
         ]
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[
+            Rule::Length {
+                field: "samples",
+                min: Some(1),
+                max: None,
+            },
+            Rule::Range {
+                field: "sample_rate_hz",
+                min: Some(f64::MIN_POSITIVE),
+                max: None,
+            },
+            Rule::Range {
+                field: "window_size",
+                min: Some(2.0),
+                max: None,
+            },
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -232,6 +252,26 @@ impl Skill for DspCrossCorrelation {
             "Align two time series before subtracting or coherently averaging.",
         ]
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[
+            Rule::Length {
+                field: "a",
+                min: Some(1),
+                max: None,
+            },
+            Rule::Length {
+                field: "b",
+                min: Some(1),
+                max: None,
+            },
+            Rule::Range {
+                field: "sample_rate_hz",
+                min: Some(f64::MIN_POSITIVE),
+                max: None,
+            },
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -258,9 +298,6 @@ impl Skill for DspHilbert {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (_s, a) = ctx.parse::<HilbertArgs>()?;
-            if a.samples.is_empty() {
-                return Err(invalid("samples empty"));
-            }
             let n = a.samples.len();
             let mut planner = FftPlanner::<f64>::new();
             let fft = planner.plan_fft_forward(n);
@@ -331,6 +368,14 @@ impl Skill for DspHilbert {
             "Build SSB modulators / single-sideband filters in post-processing.",
         ]
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Length {
+            field: "samples",
+            min: Some(1),
+            max: None,
+        }]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -356,9 +401,6 @@ impl Skill for DspCepstrum {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (_s, a) = ctx.parse::<CepstrumArgs>()?;
-            if a.samples.is_empty() {
-                return Err(invalid("samples empty"));
-            }
             let n = a.samples.len().next_power_of_two();
             let mut planner = FftPlanner::<f64>::new();
             let fft = planner.plan_fft_forward(n);
@@ -402,6 +444,14 @@ impl Skill for DspCepstrum {
             "Find echoes and multipath delays in acoustic / radar returns.",
             "Decouple source from filter for homomorphic processing.",
         ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Length {
+            field: "samples",
+            min: Some(1),
+            max: None,
+        }]
     }
 }
 
@@ -584,6 +634,21 @@ impl Skill for DspIqDemod {
             "Convert SDR I/Q samples to magnitude / phase for envelope detection.",
             "Drive constellation plotting tools from raw quadrature data.",
             "Extract phase to feed a PLL or frequency-tracking loop.",
+        ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[
+            Rule::Length {
+                field: "i",
+                min: Some(1),
+                max: None,
+            },
+            Rule::Length {
+                field: "q",
+                min: Some(1),
+                max: None,
+            },
         ]
     }
 }

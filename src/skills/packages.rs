@@ -43,6 +43,26 @@ use crate::{internal, invalid, text_result};
 /// can't lock up a process.
 const CMD_TIMEOUT: Duration = Duration::from_secs(600);
 
+/// Supported package-manager `kind` ids. Shared across every
+/// `package_*` skill's `validation_rules` so the schema-level OneOf
+/// check stays in sync with `Pm::parse`'s canonical names. Aliases
+/// (`choco`, `apt-get`, `aur`, `homebrew`) are accepted by the
+/// imperative `parse_kind` for defense in depth but are not advertised
+/// here.
+const PM_KINDS: &[&str] = &[
+    "winget",
+    "chocolatey",
+    "apt",
+    "dnf",
+    "yum",
+    "apk",
+    "pacman",
+    "yay",
+    "brew",
+    "zypper",
+    "pkg",
+];
+
 /// One supported package manager. The variants below are matched by the
 /// `kind` arg verbatim (case-insensitive). Adding one means: another
 /// variant, a match arm in each `cmd_*` builder, and an entry in
@@ -582,6 +602,20 @@ impl Skill for PackageSearch {
             "Confirm a package exists in the PM's repos at all.",
         ]
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[
+            Rule::OneOf {
+                field: "kind",
+                values: PM_KINDS,
+            },
+            Rule::Length {
+                field: "query",
+                min: Some(1),
+                max: None,
+            },
+        ]
+    }
 }
 
 pub struct PackageInfo;
@@ -636,6 +670,20 @@ impl Skill for PackageInfo {
             "Confirm a specific version is available in the configured repos.",
         ]
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[
+            Rule::OneOf {
+                field: "kind",
+                values: PM_KINDS,
+            },
+            Rule::Length {
+                field: "name",
+                min: Some(1),
+                max: None,
+            },
+        ]
+    }
 }
 
 pub struct PackageList;
@@ -680,6 +728,13 @@ impl Skill for PackageList {
             "Check whether a tool is already installed via a specific PM.",
             "Audit the package set on a host before reproducing it elsewhere.",
         ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::OneOf {
+            field: "kind",
+            values: PM_KINDS,
+        }]
     }
 }
 
@@ -734,6 +789,13 @@ impl Skill for PackageUpdates {
             "See what updates a PM has pending before deciding to run package_upgrade.",
             "Audit drift between installed versions and the repos' latest.",
         ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::OneOf {
+            field: "kind",
+            values: PM_KINDS,
+        }]
     }
 }
 
@@ -833,6 +895,13 @@ impl Skill for PackageInstall {
             "Add a missing dependency before running another command.",
         ]
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::OneOf {
+            field: "kind",
+            values: PM_KINDS,
+        }]
+    }
 }
 
 pub struct PackageUpgrade;
@@ -898,6 +967,13 @@ impl Skill for PackageUpgrade {
             "Apply all pending updates after reviewing package_updates.",
         ]
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::OneOf {
+            field: "kind",
+            values: PM_KINDS,
+        }]
+    }
 }
 
 pub struct PackageRemove;
@@ -959,6 +1035,13 @@ impl Skill for PackageRemove {
             "Uninstall a tool that's no longer needed.",
             "Roll back a `package_install` that turned out to be the wrong package.",
         ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::OneOf {
+            field: "kind",
+            values: PM_KINDS,
+        }]
     }
 }
 

@@ -115,6 +115,14 @@ impl Skill for SignalFft {
             "Compare adjacent bin magnitudes to estimate harmonic structure.",
         ]
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Length {
+            field: "values",
+            min: Some(2),
+            max: None,
+        }]
+    }
 }
 
 // ----- signal_dominant_frequencies -----
@@ -209,6 +217,21 @@ impl Skill for SignalDominant {
             "Drive a pitch estimator or tone-classifier downstream.",
         ]
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[
+            Rule::Length {
+                field: "values",
+                min: Some(2),
+                max: None,
+            },
+            Rule::Range {
+                field: "sample_rate",
+                min: Some(f64::MIN_POSITIVE),
+                max: None,
+            },
+        ]
+    }
 }
 
 // ----- signal_rms -----
@@ -265,6 +288,14 @@ impl Skill for SignalRms {
             "Compute SNR numerator when paired with a noise reference.",
             "Quick check on whether a buffer is silent vs active.",
         ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Length {
+            field: "values",
+            min: Some(2),
+            max: None,
+        }]
     }
 }
 
@@ -358,6 +389,14 @@ impl Skill for SignalWindow {
             "Compare different window kinds against the same signal.",
             "Combine with `signal_fft` for clean spectrum estimation.",
         ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Length {
+            field: "values",
+            min: Some(2),
+            max: None,
+        }]
     }
 }
 

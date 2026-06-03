@@ -113,6 +113,12 @@ impl Skill for InterchangeStlInfo {
             "Estimate surface area for printing-time / material calculations.",
         ]
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::ExactlyOne {
+            fields: &["data_base64", "data_ascii"],
+        }]
+    }
 }
 
 struct StlTriangle {

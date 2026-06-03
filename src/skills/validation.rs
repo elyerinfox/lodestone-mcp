@@ -122,13 +122,9 @@ pub enum Rule {
         max: Option<usize>,
     },
     /// Exactly one of the named fields must be present + non-null.
-    ExactlyOne {
-        fields: &'static [&'static str],
-    },
+    ExactlyOne { fields: &'static [&'static str] },
     /// At least one of the named fields must be present + non-null.
-    AtLeastOne {
-        fields: &'static [&'static str],
-    },
+    AtLeastOne { fields: &'static [&'static str] },
     /// Conjunction — every sub-rule must pass.
     All(&'static [Rule]),
     /// Disjunction — at least one sub-rule must pass. Failures are reported
@@ -219,15 +215,17 @@ fn eval_one(rule: &Rule, args: &JsonObject) -> Result<(), Vec<FieldViolation>> {
                 Err(vec![FieldViolation {
                     field: (*field).to_string(),
                     rule: "one_of",
-                    message: format!(
-                        "`{field}` must be one of {values:?}, got `{s}`"
-                    ),
+                    message: format!("`{field}` must be one of {values:?}, got `{s}`"),
                     expected: json!({"one_of": values}),
                     got: Some(json!(s)),
                 }])
             }
         }
-        Rule::Regex { field, pattern, summary } => {
+        Rule::Regex {
+            field,
+            pattern,
+            summary,
+        } => {
             let v = lookup(args, field);
             let Some(value) = v else { return Ok(()) };
             let s = match value.as_str() {
@@ -299,9 +297,7 @@ fn eval_one(rule: &Rule, args: &JsonObject) -> Result<(), Vec<FieldViolation>> {
                 Err(vec![FieldViolation {
                     field: fields.join(", "),
                     rule: "exactly_one",
-                    message: format!(
-                        "exactly one of {fields:?} must be supplied; got {present:?}"
-                    ),
+                    message: format!("exactly one of {fields:?} must be supplied; got {present:?}"),
                     expected: json!({"exactly_one": fields}),
                     got: Some(json!(present)),
                 }])
@@ -333,7 +329,11 @@ fn eval_one(rule: &Rule, args: &JsonObject) -> Result<(), Vec<FieldViolation>> {
                     out.append(&mut v);
                 }
             }
-            if out.is_empty() { Ok(()) } else { Err(out) }
+            if out.is_empty() {
+                Ok(())
+            } else {
+                Err(out)
+            }
         }
         Rule::Any(sub) => {
             // At least one branch must pass. Only surface failures when
@@ -410,7 +410,11 @@ fn rule_to_json(r: &Rule) -> Value {
         Rule::OneOf { field, values } => {
             json!({"rule": "one_of", "field": field, "values": values})
         }
-        Rule::Regex { field, pattern, summary } => {
+        Rule::Regex {
+            field,
+            pattern,
+            summary,
+        } => {
             json!({"rule": "regex", "field": field, "pattern": pattern, "summary": summary})
         }
         Rule::Length { field, min, max } => {
@@ -437,20 +441,30 @@ mod tests {
     use serde_json::Map;
 
     fn args(json: Value) -> JsonObject {
-        let Value::Object(m) = json else { panic!("not an object") };
+        let Value::Object(m) = json else {
+            panic!("not an object")
+        };
         m.into_iter().collect::<Map<_, _>>()
     }
 
     #[test]
     fn range_in_bounds_passes() {
-        let r = [Rule::Range { field: "code", min: Some(100.0), max: Some(599.0) }];
+        let r = [Rule::Range {
+            field: "code",
+            min: Some(100.0),
+            max: Some(599.0),
+        }];
         let a = args(json!({"code": 200}));
         assert!(evaluate(&r, &a).is_pass());
     }
 
     #[test]
     fn range_out_of_bounds_fails() {
-        let r = [Rule::Range { field: "code", min: Some(100.0), max: Some(599.0) }];
+        let r = [Rule::Range {
+            field: "code",
+            min: Some(100.0),
+            max: Some(599.0),
+        }];
         let a = args(json!({"code": 700}));
         match evaluate(&r, &a) {
             ValidationResult::Fail(v) => {
@@ -463,14 +477,20 @@ mod tests {
 
     #[test]
     fn one_of_passes() {
-        let r = [Rule::OneOf { field: "kind", values: &["a", "b", "c"] }];
+        let r = [Rule::OneOf {
+            field: "kind",
+            values: &["a", "b", "c"],
+        }];
         let a = args(json!({"kind": "b"}));
         assert!(evaluate(&r, &a).is_pass());
     }
 
     #[test]
     fn one_of_rejects() {
-        let r = [Rule::OneOf { field: "kind", values: &["a", "b"] }];
+        let r = [Rule::OneOf {
+            field: "kind",
+            values: &["a", "b"],
+        }];
         let a = args(json!({"kind": "x"}));
         let res = evaluate(&r, &a);
         assert!(matches!(res, ValidationResult::Fail(_)));
@@ -478,7 +498,9 @@ mod tests {
 
     #[test]
     fn exactly_one_enforced() {
-        let r = [Rule::ExactlyOne { fields: &["a", "b"] }];
+        let r = [Rule::ExactlyOne {
+            fields: &["a", "b"],
+        }];
         // Both → fail.
         let two = args(json!({"a": 1, "b": 2}));
         assert!(matches!(evaluate(&r, &two), ValidationResult::Fail(_)));
@@ -493,8 +515,15 @@ mod tests {
     #[test]
     fn any_or_passes_when_one_branch_does() {
         static SUB: &[Rule] = &[
-            Rule::OneOf { field: "kind", values: &["x"] },
-            Rule::Range { field: "code", min: Some(0.0), max: Some(10.0) },
+            Rule::OneOf {
+                field: "kind",
+                values: &["x"],
+            },
+            Rule::Range {
+                field: "code",
+                min: Some(0.0),
+                max: Some(10.0),
+            },
         ];
         let r = [Rule::Any(SUB)];
         let a = args(json!({"kind": "wrong", "code": 5}));
@@ -504,8 +533,15 @@ mod tests {
     #[test]
     fn any_or_fails_when_all_branches_do() {
         static SUB: &[Rule] = &[
-            Rule::OneOf { field: "kind", values: &["x"] },
-            Rule::Range { field: "code", min: Some(0.0), max: Some(10.0) },
+            Rule::OneOf {
+                field: "kind",
+                values: &["x"],
+            },
+            Rule::Range {
+                field: "code",
+                min: Some(0.0),
+                max: Some(10.0),
+            },
         ];
         let r = [Rule::Any(SUB)];
         let a = args(json!({"kind": "wrong", "code": 100}));
@@ -517,7 +553,11 @@ mod tests {
 
     #[test]
     fn payload_shape() {
-        let r = [Rule::Range { field: "p", min: Some(0.0), max: Some(100.0) }];
+        let r = [Rule::Range {
+            field: "p",
+            min: Some(0.0),
+            max: Some(100.0),
+        }];
         let a = args(json!({"p": 150}));
         let p = evaluate(&r, &a).to_payload();
         assert!(p["validation_failed"].is_array());

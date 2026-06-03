@@ -117,6 +117,14 @@ impl Skill for TlsInspect {
             "Inspect a cert behind a non-standard port or SNI.",
         ]
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Length {
+            field: "host",
+            min: Some(1),
+            max: None,
+        }]
+    }
 }
 
 async fn fetch_chain(

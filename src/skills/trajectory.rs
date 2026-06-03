@@ -153,6 +153,21 @@ impl Skill for TrajProjectileDrag {
             "Get range / apex / impact velocity for a projectile under realistic air resistance.",
         ]
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[
+            Rule::Range {
+                field: "cd",
+                min: Some(0.0),
+                max: None,
+            },
+            Rule::Range {
+                field: "area_m2",
+                min: Some(0.0),
+                max: None,
+            },
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]

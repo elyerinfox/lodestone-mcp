@@ -142,13 +142,7 @@ impl Skill for SdrScan {
             {
                 return Err(invalid("require finite start_mhz < end_mhz"));
             }
-            if args.start_mhz < 0.0 || args.end_mhz > 6000.0 {
-                return Err(invalid("frequencies must be within 0–6000 MHz"));
-            }
             let bin_khz = args.bin_khz.unwrap_or(100.0);
-            if !(0.1..=10_000.0).contains(&bin_khz) {
-                return Err(invalid("bin_khz must be between 0.1 and 10000"));
-            }
             let top = args.top.unwrap_or(15).clamp(1, 100);
 
             let start_hz = (args.start_mhz * 1e6).round() as i64;
@@ -198,6 +192,31 @@ impl Skill for SdrScan {
             "Find the strongest signals in a target band before tuning further.",
             "Sanity-check that an antenna is actually picking up known broadcasters.",
             "Survey ISM bands for active transmitters (433 MHz, 915 MHz, etc.).",
+        ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[
+            Rule::Range {
+                field: "start_mhz",
+                min: Some(0.0),
+                max: Some(6000.0),
+            },
+            Rule::Range {
+                field: "end_mhz",
+                min: Some(0.0),
+                max: Some(6000.0),
+            },
+            Rule::Range {
+                field: "bin_khz",
+                min: Some(0.1),
+                max: Some(10000.0),
+            },
+            Rule::Range {
+                field: "top",
+                min: Some(1.0),
+                max: Some(100.0),
+            },
         ]
     }
 }

@@ -231,6 +231,21 @@ impl Skill for ShellRun {
             "Reach for full shell features (pipes, redirects, env) when running unrestricted.",
         ]
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[
+            Rule::Length {
+                field: "command",
+                min: Some(1),
+                max: None,
+            },
+            Rule::Range {
+                field: "timeout_secs",
+                min: Some(1.0),
+                max: Some(600.0),
+            },
+        ]
+    }
 }
 
 /// The skills this module contributes (gating happens in `disabled_by_config`).

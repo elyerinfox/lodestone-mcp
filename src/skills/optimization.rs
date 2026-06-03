@@ -36,9 +36,6 @@ impl Skill for OptTsp2opt {
         Box::pin(async move {
             let (_s, a) = ctx.parse::<TspArgs>()?;
             let n = a.distances.len();
-            if n < 2 {
-                return Err(invalid("need ≥ 2 nodes"));
-            }
             for r in &a.distances {
                 if r.len() != n {
                     return Err(invalid("distance matrix must be square"));
@@ -126,6 +123,14 @@ impl Skill for OptTsp2opt {
             "Get a near-optimal route through N points with a symmetric distance matrix.",
             "Sequence delivery / inspection stops to minimize total travel.",
         ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Length {
+            field: "distances",
+            min: Some(2),
+            max: None,
+        }]
     }
 }
 

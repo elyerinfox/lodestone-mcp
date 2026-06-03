@@ -475,6 +475,14 @@ impl Skill for MeshtasticSend {
             "Inject a probe message to test that the bridging node is forwarding to LoRa.",
         ]
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Length {
+            field: "text",
+            min: Some(1),
+            max: Some(220),
+        }]
+    }
 }
 
 pub struct MeshtasticStatus;

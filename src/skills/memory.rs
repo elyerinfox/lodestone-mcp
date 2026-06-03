@@ -1550,6 +1550,14 @@ impl Skill for Remember {
             "Stash a one-line note in a scope without hand-crafting a `memory_save` call.",
         ]
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Length {
+            field: "text",
+            min: Some(1),
+            max: None,
+        }]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -1607,6 +1615,14 @@ impl Skill for RememberFact {
             "Bypass the auto-classifier when you know the text is a fact, not a recipe.",
             "Store a quick note without committing to a key naming convention.",
         ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Length {
+            field: "text",
+            min: Some(1),
+            max: None,
+        }]
     }
 }
 
@@ -1678,6 +1694,14 @@ impl Skill for RememberSolution {
             "Capture a problem-resolution recipe so future similar queries surface it.",
             "Skip the auto-classifier when you know the text describes a solution.",
         ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Length {
+            field: "text",
+            min: Some(1),
+            max: None,
+        }]
     }
 }
 
@@ -2133,6 +2157,14 @@ impl Skill for Recall {
             "Reproduce the auto-recall preamble manually for triage / debugging.",
         ]
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Length {
+            field: "query",
+            min: Some(1),
+            max: None,
+        }]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -2253,6 +2285,14 @@ impl Skill for MemorySave {
             "Stash a project-specific note under a scope so it doesn't collide with other work.",
             "Record a tagged factoid that `memory_search` / `recall` can surface later.",
         ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Length {
+            field: "key",
+            min: Some(1),
+            max: None,
+        }]
     }
 }
 
@@ -2577,6 +2617,14 @@ impl Skill for MemorySearch {
             "Find a memo when you remember a word from it but not the key.",
             "Use `recall` instead when you also want prior solutions in the same call.",
         ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Length {
+            field: "query",
+            min: Some(1),
+            max: None,
+        }]
     }
 }
 
@@ -4257,6 +4305,21 @@ impl Skill for SolutionAliasAdd {
         &[
             "Close a recall gap when the original problem wording wouldn't match a likely future query.",
             "Teach a solution to surface on rephrasings without recording a duplicate solution.",
+        ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[
+            Rule::Length {
+                field: "phrasing",
+                min: Some(1),
+                max: None,
+            },
+            Rule::Length {
+                field: "id",
+                min: Some(1),
+                max: None,
+            },
         ]
     }
 }

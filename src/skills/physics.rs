@@ -464,6 +464,12 @@ impl Skill for WaveFrequency {
             "Work out acoustic wavelengths by overriding the propagation speed.",
         ]
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::ExactlyOne {
+            fields: &["frequency_hz", "wavelength_m"],
+        }]
+    }
 }
 
 /// The skills this module contributes.

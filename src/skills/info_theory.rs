@@ -59,6 +59,19 @@ impl Skill for ItShannonCapacity {
             Ok(text_result(json!({ "capacity_bps": c }).to_string()))
         })
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[
+            Rule::ExactlyOne {
+                fields: &["snr_linear", "snr_db"],
+            },
+            Rule::Range {
+                field: "snr_linear",
+                min: Some(0.0),
+                max: None,
+            },
+        ]
+    }
     fn examples(&self) -> &'static [crate::skills::SkillExample] {
         use crate::skills::SkillExample;
         &[
@@ -124,6 +137,14 @@ impl Skill for ItEntropy {
             };
             Ok(text_result(json!({ "entropy_bits": h }).to_string()))
         })
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Length {
+            field: "p",
+            min: Some(1),
+            max: None,
+        }]
     }
     fn examples(&self) -> &'static [crate::skills::SkillExample] {
         use crate::skills::SkillExample;
@@ -195,6 +216,21 @@ impl Skill for ItKlDivergence {
             Ok(text_result(json!({ "kl_bits": d }).to_string()))
         })
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[
+            Rule::Length {
+                field: "p",
+                min: Some(1),
+                max: None,
+            },
+            Rule::Length {
+                field: "q",
+                min: Some(1),
+                max: None,
+            },
+        ]
+    }
     fn examples(&self) -> &'static [crate::skills::SkillExample] {
         use crate::skills::SkillExample;
         &[
@@ -256,6 +292,21 @@ impl Skill for ItJsDivergence {
             let js = 0.5 * kl(&p, &m) + 0.5 * kl(&q, &m);
             Ok(text_result(json!({ "js_bits": js }).to_string()))
         })
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[
+            Rule::Length {
+                field: "p",
+                min: Some(1),
+                max: None,
+            },
+            Rule::Length {
+                field: "q",
+                min: Some(1),
+                max: None,
+            },
+        ]
     }
     fn examples(&self) -> &'static [crate::skills::SkillExample] {
         use crate::skills::SkillExample;
@@ -359,6 +410,14 @@ impl Skill for ItMutualInformation {
                 .to_string(),
             ))
         })
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Length {
+            field: "joint",
+            min: Some(1),
+            max: None,
+        }]
     }
     fn examples(&self) -> &'static [crate::skills::SkillExample] {
         use crate::skills::SkillExample;
@@ -601,6 +660,21 @@ impl Skill for CodeRsEncode {
                 .map_err(|e| invalid(format!("RS encode: {e}")))?;
             Ok(text_result(json!({ "shards": shards }).to_string()))
         })
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[
+            Rule::Length {
+                field: "data_shards",
+                min: Some(1),
+                max: None,
+            },
+            Rule::Range {
+                field: "parity_shards",
+                min: Some(1.0),
+                max: Some(254.0),
+            },
+        ]
     }
     fn examples(&self) -> &'static [crate::skills::SkillExample] {
         use crate::skills::SkillExample;

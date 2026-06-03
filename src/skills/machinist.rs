@@ -1194,6 +1194,14 @@ impl Skill for MachHardnessConvert {
             "Cross-check a material certificate that lists a different hardness scale.",
         ]
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Range {
+            field: "hrc",
+            min: Some(20.0),
+            max: Some(60.0),
+        }]
+    }
 }
 
 pub fn skills() -> Vec<Box<dyn Skill>> {

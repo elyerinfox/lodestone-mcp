@@ -223,8 +223,16 @@ impl Skill for StatsPercentile {
     fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
         use crate::skills::validation::Rule;
         &[
-            Rule::Range { field: "p", min: Some(0.0), max: Some(100.0) },
-            Rule::Length { field: "data", min: Some(1), max: None },
+            Rule::Range {
+                field: "p",
+                min: Some(0.0),
+                max: Some(100.0),
+            },
+            Rule::Length {
+                field: "data",
+                min: Some(1),
+                max: None,
+            },
         ]
     }
 }

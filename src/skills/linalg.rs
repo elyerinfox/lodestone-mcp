@@ -112,6 +112,21 @@ impl Skill for LinalgSolve {
             ))
         })
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[
+            Rule::Length {
+                field: "a",
+                min: Some(1),
+                max: None,
+            },
+            Rule::Length {
+                field: "b",
+                min: Some(1),
+                max: None,
+            },
+        ]
+    }
 }
 
 pub struct LinalgLstsq;
@@ -150,6 +165,21 @@ impl Skill for LinalgLstsq {
             ))
         })
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[
+            Rule::Length {
+                field: "a",
+                min: Some(1),
+                max: None,
+            },
+            Rule::Length {
+                field: "b",
+                min: Some(1),
+                max: None,
+            },
+        ]
+    }
 }
 
 pub struct LinalgSvd;
@@ -182,6 +212,14 @@ impl Skill for LinalgSvd {
                 .to_string(),
             ))
         })
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Length {
+            field: "matrix",
+            min: Some(1),
+            max: None,
+        }]
     }
 }
 
@@ -229,6 +267,14 @@ impl Skill for LinalgEigen {
             ))
         })
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Length {
+            field: "matrix",
+            min: Some(1),
+            max: None,
+        }]
+    }
 }
 
 pub struct LinalgQr;
@@ -254,6 +300,14 @@ impl Skill for LinalgQr {
                 json!({ "q": matrix_to_rows(&q), "r": matrix_to_rows(&r) }).to_string(),
             ))
         })
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Length {
+            field: "matrix",
+            min: Some(1),
+            max: None,
+        }]
     }
 }
 
@@ -285,6 +339,14 @@ impl Skill for LinalgInv {
             ))
         })
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Length {
+            field: "matrix",
+            min: Some(1),
+            max: None,
+        }]
+    }
 }
 
 pub struct LinalgDet;
@@ -310,6 +372,14 @@ impl Skill for LinalgDet {
             ))
         })
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Length {
+            field: "matrix",
+            min: Some(1),
+            max: None,
+        }]
+    }
 }
 
 pub struct LinalgRank;
@@ -331,6 +401,14 @@ impl Skill for LinalgRank {
             let r = a.rank(1e-12);
             Ok(text_result(json!({ "rank": r }).to_string()))
         })
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Length {
+            field: "matrix",
+            min: Some(1),
+            max: None,
+        }]
     }
 }
 
@@ -389,6 +467,12 @@ impl Skill for LinalgNorm {
             Ok(text_result(json!({ "norm": n }).to_string()))
         })
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::ExactlyOne {
+            fields: &["vector", "matrix"],
+        }]
+    }
 }
 
 pub struct LinalgMatmul;
@@ -421,6 +505,21 @@ impl Skill for LinalgMatmul {
                 json!({ "result": matrix_to_rows(&c) }).to_string(),
             ))
         })
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[
+            Rule::Length {
+                field: "a",
+                min: Some(1),
+                max: None,
+            },
+            Rule::Length {
+                field: "b",
+                min: Some(1),
+                max: None,
+            },
+        ]
     }
 }
 

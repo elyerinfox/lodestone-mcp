@@ -353,6 +353,20 @@ impl Skill for RadUnits {
             "Translate an exposure reading in Roentgen to air-kerma Gy for modern reports.",
         ]
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::OneOf {
+            field: "direction",
+            values: &[
+                "gy_to_rad",
+                "rad_to_gy",
+                "sv_to_rem",
+                "rem_to_sv",
+                "r_to_gy_air",
+                "gy_air_to_r",
+            ],
+        }]
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -426,6 +440,14 @@ impl Skill for RadAttenuation {
             "Read off HVL and TVL from a chosen linear attenuation coefficient.",
         ]
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Range {
+            field: "mu",
+            min: Some(0.0),
+            max: None,
+        }]
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -485,6 +507,21 @@ impl Skill for RadInverseSquare {
         &[
             "Scale a measured point-source dose rate to a new working distance.",
             "Plan ALARA distance changes when re-positioning a worker.",
+        ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[
+            Rule::Range {
+                field: "r_ref",
+                min: Some(0.0),
+                max: None,
+            },
+            Rule::Range {
+                field: "r_target",
+                min: Some(0.0),
+                max: None,
+            },
         ]
     }
 }
@@ -561,6 +598,14 @@ impl Skill for RadDoseRate {
             "First-cut dose-rate from a known activity and distance for a γ emitter.",
             "Compare bare-source dose rates between two isotopes at the same A and r.",
         ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Range {
+            field: "distance_m",
+            min: Some(0.0),
+            max: None,
+        }]
     }
 }
 
@@ -658,6 +703,23 @@ impl Skill for RadEquivalentDose {
             "Get the energy-dependent w_R for a neutron field of known mean energy.",
         ]
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::OneOf {
+            field: "radiation",
+            values: &[
+                "photon",
+                "electron",
+                "muon",
+                "proton",
+                "charged_pion",
+                "alpha",
+                "fission_fragment",
+                "heavy_ion",
+                "neutron",
+            ],
+        }]
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -714,6 +776,21 @@ impl Skill for RadEffectiveHalfLife {
         &[
             "Combine physical and biological half-lives for in-vivo dosimetry.",
             "Estimate residence time of a radiopharmaceutical in a target organ.",
+        ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[
+            Rule::Range {
+                field: "t_phys",
+                min: Some(0.0),
+                max: None,
+            },
+            Rule::Range {
+                field: "t_bio",
+                min: Some(0.0),
+                max: None,
+            },
         ]
     }
 }
@@ -936,6 +1013,21 @@ impl Skill for RadShieldingThickness {
             "Compare HVL/TVL across lead vs concrete vs steel for a given line.",
         ]
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[
+            Rule::Range {
+                field: "energy_kev",
+                min: Some(100.0),
+                max: Some(2000.0),
+            },
+            Rule::Range {
+                field: "transmission",
+                min: Some(0.0),
+                max: Some(1.0),
+            },
+        ]
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -981,9 +1073,6 @@ impl Skill for RadAlara {
             if a.distance_worker_m <= 0.0 || a.distance_ref_m <= 0.0 {
                 return Err(invalid("distances must be > 0"));
             }
-            if a.time_h < 0.0 {
-                return Err(invalid("time_h must be ≥ 0"));
-            }
             let t = a.shielding_transmission.unwrap_or(1.0);
             if !(t > 0.0 && t <= 1.0) {
                 return Err(invalid("shielding_transmission must be in (0, 1]"));
@@ -1022,6 +1111,31 @@ impl Skill for RadAlara {
         &[
             "Estimate worker dose for a planned task combining time/distance/shielding.",
             "See which ALARA lever (less time, more distance, more shielding) buys the most.",
+        ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[
+            Rule::Range {
+                field: "distance_ref_m",
+                min: Some(0.0),
+                max: None,
+            },
+            Rule::Range {
+                field: "distance_worker_m",
+                min: Some(0.0),
+                max: None,
+            },
+            Rule::Range {
+                field: "time_h",
+                min: Some(0.0),
+                max: None,
+            },
+            Rule::Range {
+                field: "shielding_transmission",
+                min: Some(0.0),
+                max: Some(1.0),
+            },
         ]
     }
 }

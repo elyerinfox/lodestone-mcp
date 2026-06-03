@@ -356,9 +356,6 @@ impl Skill for QuatSlerp {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (_s, args) = ctx.parse::<SlerpArgs>()?;
-            if !(0.0..=1.0).contains(&args.t) {
-                return Err(invalid("t must be in [0, 1]"));
-            }
             let a = quat_from_array(args.a);
             let b = quat_from_array(args.b);
             let q = a.slerp(&b, args.t);
@@ -386,6 +383,14 @@ impl Skill for QuatSlerp {
             "Generate intermediate orientations along a great-circle in quaternion space.",
             "Blend two IMU pose estimates by a fractional weight.",
         ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Range {
+            field: "t",
+            min: Some(0.0),
+            max: Some(1.0),
+        }]
     }
 }
 

@@ -103,9 +103,6 @@ impl Skill for AcousticSoundSpeedAir {
             let t_k = a.temp_c + 273.15;
             let mut c = 20.05 * t_k.sqrt();
             if let Some(rh) = a.rh_pct {
-                if !(0.0..=100.0).contains(&rh) {
-                    return Err(invalid("rh_pct must be 0..100"));
-                }
                 // Approx humidity correction: c += 0.6 * (RH/100).
                 c += 0.6 * (rh / 100.0);
             }
@@ -133,6 +130,14 @@ impl Skill for AcousticSoundSpeedAir {
             "Provide the `c1`/`c2` input to `acoustic_snell` for an air-to-water boundary.",
             "Sanity-check microphone-array delay-and-sum geometry.",
         ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Range {
+            field: "rh_pct",
+            min: Some(0.0),
+            max: Some(100.0),
+        }]
     }
 }
 

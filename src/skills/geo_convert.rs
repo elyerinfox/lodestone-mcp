@@ -250,6 +250,21 @@ impl Skill for ConvertCotEncode {
             "Wrap a known position into the canonical TAK XML envelope.",
         ]
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[
+            Rule::Range {
+                field: "lat",
+                min: Some(-90.0),
+                max: Some(90.0),
+            },
+            Rule::Range {
+                field: "lon",
+                min: Some(-180.0),
+                max: Some(180.0),
+            },
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]

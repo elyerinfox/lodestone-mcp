@@ -143,9 +143,6 @@ impl Skill for ChartPolar {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (_s, a) = ctx.parse::<PolarArgs>()?;
-            if a.magnitudes.is_empty() {
-                return Err(invalid("magnitudes empty"));
-            }
             let n = a.magnitudes.len();
             let angles: Vec<f64> = a
                 .angles_deg
@@ -256,6 +253,14 @@ impl Skill for ChartPolar {
             "Show angular distribution of any directional signal in one frame.",
             "Visualize a radiation lobe in the conventional dB-from-peak form.",
         ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Length {
+            field: "magnitudes",
+            min: Some(1),
+            max: None,
+        }]
     }
 }
 
@@ -442,7 +447,7 @@ impl Skill for ChartWaterfall {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (_s, a) = ctx.parse::<WaterfallArgs>()?;
-            if a.power.is_empty() || a.power[0].is_empty() {
+            if a.power[0].is_empty() {
                 return Err(invalid("power matrix empty"));
             }
             let n_rows = a.power.len();
@@ -561,6 +566,14 @@ impl Skill for ChartWaterfall {
             "Render an SDR capture's FFT-vs-time view inline.",
         ]
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Length {
+            field: "power",
+            min: Some(1),
+            max: None,
+        }]
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -592,9 +605,6 @@ impl Skill for ChartCompass {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (_s, a) = ctx.parse::<CompassArgs>()?;
-            if a.magnitudes_by_bearing.is_empty() {
-                return Err(invalid("magnitudes_by_bearing empty"));
-            }
             let n = a.magnitudes_by_bearing.len();
             let title = a.title.clone().unwrap_or_else(|| "Compass rose".into());
             let mut svg = svg_open(W, H, &title);
@@ -675,6 +685,14 @@ impl Skill for ChartCompass {
             "Direction-of-arrival distribution from a DF array.",
             "Any radial histogram where the bin axis is a bearing.",
         ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Length {
+            field: "magnitudes_by_bearing",
+            min: Some(1),
+            max: None,
+        }]
     }
 }
 
@@ -836,9 +854,6 @@ impl Skill for ChartDensityMap {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (_s, a) = ctx.parse::<DensityArgs>()?;
-            if a.points.is_empty() {
-                return Err(invalid("points empty"));
-            }
             let nx = a.nx.unwrap_or(32).max(2);
             let ny = a.ny.unwrap_or(32).max(2);
             let (mut xmn, mut xmx) = (f64::INFINITY, f64::NEG_INFINITY);
@@ -960,6 +975,14 @@ impl Skill for ChartDensityMap {
             "Show spatial distribution from raw (x, y) samples.",
             "Quick 2-D probability density estimate without a kernel.",
         ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Length {
+            field: "points",
+            min: Some(1),
+            max: None,
+        }]
     }
 }
 

@@ -113,6 +113,14 @@ impl Skill for CompoundInterest {
             "Compute interest earned over a time horizon.",
         ]
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Range {
+            field: "years",
+            min: Some(0.0),
+            max: None,
+        }]
+    }
 }
 
 pub struct LoanPayment;
@@ -131,9 +139,6 @@ impl Skill for LoanPayment {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (_server, a) = ctx.parse::<LoanArgs>()?;
-            if a.months == 0 {
-                return Err(invalid("months must be >= 1"));
-            }
             let i = a.annual_rate_percent / 100.0 / 12.0;
             let n = a.months as f64;
             let payment = if i.abs() < 1e-12 {
@@ -180,6 +185,14 @@ impl Skill for LoanPayment {
             "See total interest paid over the life of a loan.",
             "Compare loan terms (rate, principal, months).",
         ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Range {
+            field: "months",
+            min: Some(1.0),
+            max: None,
+        }]
     }
 }
 
@@ -299,6 +312,21 @@ impl Skill for CurrencyConvert {
             "Convert an amount between two ISO 4217 currencies at the ECB reference rate.",
             "Get the current FX reference rate for a pair.",
             "Estimate the value of a foreign-currency price in a familiar one.",
+        ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[
+            Rule::Regex {
+                field: "from",
+                pattern: r"^[A-Za-z]{3}$",
+                summary: "ISO 4217 alpha-3 code",
+            },
+            Rule::Regex {
+                field: "to",
+                pattern: r"^[A-Za-z]{3}$",
+                summary: "ISO 4217 alpha-3 code",
+            },
         ]
     }
 }

@@ -33,12 +33,6 @@ use serde_json::Value;
 use crate::skills::{schema_for, send_json_ctx, Skill, SkillCtx};
 use crate::{invalid, text_result};
 
-fn upper_alnum_only(s: &str) -> bool {
-    !s.is_empty()
-        && s.chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.')
-}
-
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct UniprotArgs {
     /// UniProt accession (e.g. `"P12345"`) or entry name (e.g. `"INS_HUMAN"`).
@@ -68,9 +62,6 @@ impl Skill for BioUniprotGet {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (server, a) = ctx.parse::<UniprotArgs>()?;
-            if !upper_alnum_only(&a.accession) {
-                return Err(invalid("accession must be alphanumeric (with `_`/`-`/`.`)"));
-            }
             let key = format!("uniprot|{}", a.accession);
             if let Some(c) = server.retrieval_get(&key).await {
                 return Ok(text_result(c));
@@ -103,6 +94,14 @@ impl Skill for BioUniprotGet {
             "Use when you have an accession or entry name and need structured protein metadata.",
             "Prefer over Ensembl when working at the protein (not gene/transcript) level.",
         ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Regex {
+            field: "accession",
+            pattern: r"^[A-Za-z0-9_.\-]+$",
+            summary: "alphanumeric (with `_`/`-`/`.`)",
+        }]
     }
 }
 
@@ -171,6 +170,14 @@ impl Skill for BioPdbGet {
             "Look up a 3-D structure entry; use UniProt instead when you only have a sequence.",
         ]
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Regex {
+            field: "pdb_id",
+            pattern: r"^\s*[A-Za-z0-9]{4}\s*$",
+            summary: "4-character alphanumeric PDB id",
+        }]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -208,9 +215,6 @@ impl Skill for BioEnsemblLookup {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (server, a) = ctx.parse::<EnsemblArgs>()?;
-            if !upper_alnum_only(&a.id) {
-                return Err(invalid("id must be alphanumeric (with `_`/`-`/`.`)"));
-            }
             let expand = if a.expand.unwrap_or(true) { "1" } else { "0" };
             let key = format!("ensembl|{}|expand={expand}", a.id);
             if let Some(c) = server.retrieval_get(&key).await {
@@ -250,6 +254,14 @@ impl Skill for BioEnsemblLookup {
             "Resolve an Ensembl stable id to coordinates, biotype, and species.",
             "Walk gene → transcripts → exons by chaining lookups with `expand=true`.",
         ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Regex {
+            field: "id",
+            pattern: r"^[A-Za-z0-9_.\-]+$",
+            summary: "alphanumeric (with `_`/`-`/`.`)",
+        }]
     }
 }
 

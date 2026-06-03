@@ -256,6 +256,21 @@ impl Skill for CryptoCrt {
             ))
         })
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[
+            Rule::Length {
+                field: "residues",
+                min: Some(1),
+                max: None,
+            },
+            Rule::Length {
+                field: "moduli",
+                min: Some(1),
+                max: None,
+            },
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -290,9 +305,6 @@ impl Skill for CryptoHkdf {
             use hkdf::Hkdf;
             use sha2::Sha256;
             let (_s, a) = ctx.parse::<HkdfArgs>()?;
-            if a.length == 0 || a.length > 255 * 32 {
-                return Err(invalid("length must be 1..8160"));
-            }
             let ikm = hex_decode(&a.ikm)?;
             let salt = match a.salt {
                 Some(s) => hex_decode(&s)?,
@@ -309,6 +321,14 @@ impl Skill for CryptoHkdf {
             let hex: String = out.iter().map(|b| format!("{b:02x}")).collect();
             Ok(text_result(json!({ "output_hex": hex }).to_string()))
         })
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Range {
+            field: "length",
+            min: Some(1.0),
+            max: Some(8160.0),
+        }]
     }
 }
 
@@ -344,18 +364,27 @@ impl Skill for CryptoPbkdf2 {
             use pbkdf2::pbkdf2_hmac;
             use sha2::Sha256;
             let (_s, a) = ctx.parse::<Pbkdf2Args>()?;
-            if a.length == 0 || a.length > 4096 {
-                return Err(invalid("length must be 1..4096"));
-            }
-            if a.iterations == 0 {
-                return Err(invalid("iterations must be ≥ 1"));
-            }
             let salt = hex_decode(&a.salt_hex)?;
             let mut out = vec![0_u8; a.length];
             pbkdf2_hmac::<Sha256>(a.password.as_bytes(), &salt, a.iterations, &mut out);
             let hex: String = out.iter().map(|b| format!("{b:02x}")).collect();
             Ok(text_result(json!({ "output_hex": hex }).to_string()))
         })
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[
+            Rule::Range {
+                field: "length",
+                min: Some(1.0),
+                max: Some(4096.0),
+            },
+            Rule::Range {
+                field: "iterations",
+                min: Some(1.0),
+                max: None,
+            },
+        ]
     }
 }
 
@@ -507,9 +536,6 @@ impl Skill for CryptoJwtDecode {
             use base64::Engine;
             let (_s, a) = ctx.parse::<JwtArgs>()?;
             let parts: Vec<&str> = a.token.split('.').collect();
-            if parts.len() != 3 {
-                return Err(invalid("JWT must have three dot-separated parts"));
-            }
             let b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD;
             let header_bytes = b64
                 .decode(parts[0])
@@ -530,6 +556,14 @@ impl Skill for CryptoJwtDecode {
                 .to_string(),
             ))
         })
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Regex {
+            field: "token",
+            pattern: r"^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*$",
+            summary: "JWT: three base64url parts separated by dots",
+        }]
     }
 }
 

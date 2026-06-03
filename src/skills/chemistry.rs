@@ -1964,6 +1964,20 @@ impl Skill for ChemPh {
             "Convert between [H+], [OH-], pH, and pOH given a concentration.",
         ]
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[
+            Rule::Range {
+                field: "concentration_m",
+                min: Some(0.0),
+                max: None,
+            },
+            Rule::OneOf {
+                field: "kind",
+                values: &["strong_acid", "strong_base", "weak_acid", "weak_base"],
+            },
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -2018,6 +2032,21 @@ impl Skill for ChemBuffer {
         &[
             "Compute pH of a known buffer composition via Henderson-Hasselbalch.",
             "Pick a [A⁻]/[HA] ratio to hit a target pH near a chosen pKa.",
+        ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[
+            Rule::Range {
+                field: "base_m",
+                min: Some(0.0),
+                max: None,
+            },
+            Rule::Range {
+                field: "acid_m",
+                min: Some(0.0),
+                max: None,
+            },
         ]
     }
 }
@@ -2324,6 +2353,14 @@ impl Skill for ChemRadioactiveDecay {
             "Compute remaining activity / mass after a given decay interval.",
             "Get λ = ln(2)/t½ from a half-life for use in downstream calcs.",
         ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Range {
+            field: "half_life_s",
+            min: Some(0.0),
+            max: None,
+        }]
     }
 }
 

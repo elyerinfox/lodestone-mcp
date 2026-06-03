@@ -686,11 +686,6 @@ impl Skill for ChartLine {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (_server, args) = ctx.parse::<LineArgs>()?;
-            if args.series.is_empty() {
-                return Err(invalid(
-                    "`series` must contain at least one entry".to_string(),
-                ));
-            }
             // Parse points with flexible x (number OR ISO date string).
             // We collect numeric (x, y) for scaling AND a parallel "was the
             // x originally a date string?" flag so the axis can show dates
@@ -823,6 +818,14 @@ impl Skill for ChartLine {
             "Render any (x, y) trace where interpolation between samples is appropriate.",
         ]
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Length {
+            field: "series",
+            min: Some(1),
+            max: None,
+        }]
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -868,11 +871,6 @@ impl Skill for ChartBar {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (_server, args) = ctx.parse::<BarArgs>()?;
-            if args.labels.is_empty() {
-                return Err(invalid(
-                    "`labels` must contain at least one entry".to_string(),
-                ));
-            }
             if args.labels.len() != args.values.len() {
                 return Err(invalid(
                     "`labels` and `values` must be the same length".to_string(),
@@ -986,6 +984,21 @@ impl Skill for ChartBar {
             "Render any single-series bar plot from labels + values.",
         ]
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[
+            Rule::Length {
+                field: "labels",
+                min: Some(1),
+                max: None,
+            },
+            Rule::Length {
+                field: "values",
+                min: Some(1),
+                max: None,
+            },
+        ]
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1034,7 +1047,6 @@ impl Skill for ChartScatter {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (_server, args) = ctx.parse::<ScatterArgs>()?;
-            ensure_min_len(&args.points, 1, "points")?;
             // Same flexible point parsing as chart_line: x can be a number
             // OR a date string. Tracks `x_is_date` so the axis gets date
             // tick labels when appropriate.
@@ -1144,6 +1156,14 @@ impl Skill for ChartScatter {
             "Visualize a date-indexed sparse series.",
         ]
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Length {
+            field: "points",
+            min: Some(1),
+            max: None,
+        }]
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1190,11 +1210,6 @@ impl Skill for ChartHistogram {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (_server, args) = ctx.parse::<HistogramArgs>()?;
-            if args.values.is_empty() {
-                return Err(invalid(
-                    "`values` must contain at least one observation".to_string(),
-                ));
-            }
             let vmin = args.values.iter().copied().fold(f64::INFINITY, f64::min);
             let vmax = args
                 .values
@@ -1305,6 +1320,14 @@ impl Skill for ChartHistogram {
             "Visualize a latency / response-time distribution.",
         ]
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Length {
+            field: "values",
+            min: Some(1),
+            max: None,
+        }]
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1347,11 +1370,6 @@ impl Skill for ChartPie {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (_server, args) = ctx.parse::<PieArgs>()?;
-            if args.slices.is_empty() {
-                return Err(invalid(
-                    "`slices` must contain at least one entry".to_string(),
-                ));
-            }
             let total: f64 = args.slices.iter().map(|s| s.value.max(0.0)).sum();
             if total <= 0.0 {
                 return Err(invalid(
@@ -1441,6 +1459,14 @@ impl Skill for ChartPie {
             "Quick share-of-total view for a presentation.",
         ]
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Length {
+            field: "slices",
+            min: Some(1),
+            max: None,
+        }]
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1522,6 +1548,14 @@ impl Skill for ChartMermaid {
             "Embed a diagram that the client can re-theme natively, not a server-rasterized image.",
             "Diagram types beyond the built-in chart_* set (state machines, ER schemas, etc).",
         ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Length {
+            field: "source",
+            min: Some(1),
+            max: None,
+        }]
     }
 }
 
@@ -1632,11 +1666,6 @@ impl Skill for ChartHeatmap {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (_server, args) = ctx.parse::<HeatmapArgs>()?;
-            if args.matrix.is_empty() {
-                return Err(invalid(
-                    "`matrix` must contain at least one row".to_string(),
-                ));
-            }
             let ncols = args.matrix[0].len();
             if ncols == 0 {
                 return Err(invalid("rows must be non-empty".to_string()));
@@ -1791,6 +1820,14 @@ impl Skill for ChartHeatmap {
             "Image-intensity-like heatmaps for science / ML reports.",
         ]
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Length {
+            field: "matrix",
+            min: Some(1),
+            max: None,
+        }]
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1909,11 +1946,6 @@ impl Skill for ChartCanvas {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (_server, args) = ctx.parse::<CanvasArgs>()?;
-            if args.commands.is_empty() {
-                return Err(invalid(
-                    "`commands` must contain at least one entry".to_string(),
-                ));
-            }
             let w = args.width.unwrap_or(800.0).clamp(16.0, 8000.0);
             let h = args.height.unwrap_or(600.0).clamp(16.0, 8000.0);
             let bg = color_or(&args.background, "#ffffff");
@@ -2082,6 +2114,14 @@ impl Skill for ChartCanvas {
             "Programmatic SVG output without writing the markup by hand.",
         ]
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Length {
+            field: "commands",
+            min: Some(1),
+            max: None,
+        }]
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -2134,7 +2174,6 @@ impl Skill for ChartGrafana {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (_server, args) = ctx.parse::<GrafanaArgs>()?;
-            ensure_min_len(&args.series, 1, "series")?;
             // Same flexible-x parsing as chart_line / chart_scatter.
             let mut series_xy: Vec<Vec<(f64, f64)>> = Vec::with_capacity(args.series.len());
             let mut x_is_date = false;
@@ -2331,6 +2370,14 @@ impl Skill for ChartGrafana {
             "Metric / observability dashboards rendered server-side.",
             "Time-series with translucent area fills and last-value labels.",
         ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Length {
+            field: "series",
+            min: Some(1),
+            max: None,
+        }]
     }
 }
 
@@ -2846,11 +2893,6 @@ impl Skill for ChartBarGauge {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (_server, args) = ctx.parse::<BarGaugeArgs>()?;
-            if args.items.is_empty() {
-                return Err(invalid(
-                    "`items` must contain at least one entry".to_string(),
-                ));
-            }
             if args.max <= args.min {
                 return Err(invalid("`max` must be greater than `min`".to_string()));
             }
@@ -2932,6 +2974,14 @@ impl Skill for ChartBarGauge {
             "Side-by-side comparison of bounded values across labels.",
             "Quick health snapshot of several services on a single tile.",
         ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Length {
+            field: "items",
+            min: Some(1),
+            max: None,
+        }]
     }
 }
 
@@ -3017,11 +3067,6 @@ impl Skill for ChartStateTimeline {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (_server, args) = ctx.parse::<StateTimelineArgs>()?;
-            if args.rows.is_empty() {
-                return Err(invalid(
-                    "`rows` must contain at least one entry".to_string(),
-                ));
-            }
             // Compute the global x-range from all segments.
             let mut xmin = f64::INFINITY;
             let mut xmax = f64::NEG_INFINITY;
@@ -3145,6 +3190,14 @@ impl Skill for ChartStateTimeline {
             "Deployment / job lifecycle panel with named stages.",
         ]
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Length {
+            field: "rows",
+            min: Some(1),
+            max: None,
+        }]
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -3204,7 +3257,6 @@ impl Skill for ChartCandlestick {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (_server, args) = ctx.parse::<CandlestickArgs>()?;
-            ensure_min_len(&args.candles, 1, "candles")?;
             let mut xs: Vec<f64> = args.candles.iter().map(|c| c.x).collect();
             xs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
             let xmin_data = *xs.first().unwrap();
@@ -3323,6 +3375,14 @@ impl Skill for ChartCandlestick {
             "Show volatility along with direction at a glance.",
         ]
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Length {
+            field: "candles",
+            min: Some(1),
+            max: None,
+        }]
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -3364,7 +3424,6 @@ impl Skill for ChartSparkline {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (_server, args) = ctx.parse::<SparklineArgs>()?;
-            ensure_min_len(&args.points, 2, "points")?;
             let w = args.width.unwrap_or(240.0).clamp(40.0, 4000.0);
             let h = args.height.unwrap_or(60.0).clamp(20.0, 4000.0);
             let color = args.color.as_deref().unwrap_or("#5794f2");
@@ -3406,6 +3465,14 @@ impl Skill for ChartSparkline {
             "Compact table-cell trendlines.",
             "Render a Tufte-style minimalist data shape.",
         ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Length {
+            field: "points",
+            min: Some(2),
+            max: None,
+        }]
     }
 }
 
@@ -3538,6 +3605,13 @@ impl Skill for ChartInteractive {
             "Embed a chart inside a Jupyter or browser-based MCP client.",
             "Plotly-only chart types (3D, surface, sankey, treemap) not in the static SVG set.",
         ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::OneOf {
+            field: "library",
+            values: &["chartjs", "chart.js", "plotly"],
+        }]
     }
 }
 

@@ -120,18 +120,6 @@ impl Skill for RfHataPathLoss {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (_s, a) = ctx.parse::<HataArgs>()?;
-            if !(150.0..=1500.0).contains(&a.frequency_mhz) {
-                return Err(invalid("Hata: 150 MHz ≤ frequency ≤ 1500 MHz"));
-            }
-            if !(30.0..=200.0).contains(&a.bs_height_m) {
-                return Err(invalid("BS height must be 30..200 m"));
-            }
-            if !(1.0..=10.0).contains(&a.mobile_height_m) {
-                return Err(invalid("mobile height must be 1..10 m"));
-            }
-            if !(1.0..=100.0).contains(&a.distance_km) {
-                return Err(invalid("distance must be 1..100 km"));
-            }
             let f = a.frequency_mhz;
             let hb = a.bs_height_m;
             let hm = a.mobile_height_m;
@@ -192,6 +180,31 @@ impl Skill for RfHataPathLoss {
             "Hand the result to `rf_friis_with_noise` as `extra_loss_db`.",
         ]
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[
+            Rule::Range {
+                field: "frequency_mhz",
+                min: Some(150.0),
+                max: Some(1500.0),
+            },
+            Rule::Range {
+                field: "bs_height_m",
+                min: Some(30.0),
+                max: Some(200.0),
+            },
+            Rule::Range {
+                field: "mobile_height_m",
+                min: Some(1.0),
+                max: Some(10.0),
+            },
+            Rule::Range {
+                field: "distance_km",
+                min: Some(1.0),
+                max: Some(20.0),
+            },
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -223,9 +236,6 @@ impl Skill for RfCost231PathLoss {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (_s, a) = ctx.parse::<Cost231Args>()?;
-            if !(1500.0..=2000.0).contains(&a.frequency_mhz) {
-                return Err(invalid("COST-231: 1500 MHz ≤ frequency ≤ 2000 MHz"));
-            }
             let f = a.frequency_mhz;
             let hb = a.bs_height_m;
             let hm = a.mobile_height_m;
@@ -263,6 +273,14 @@ impl Skill for RfCost231PathLoss {
             "Extend Hata's domain past 1500 MHz without manual extrapolation.",
             "Pair with `rf_friis_with_noise` for receive-power estimates.",
         ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Range {
+            field: "frequency_mhz",
+            min: Some(1500.0),
+            max: Some(2000.0),
+        }]
     }
 }
 
@@ -370,9 +388,6 @@ impl Skill for RfItuP676Absorption {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (_s, a) = ctx.parse::<Itup676Args>()?;
-            if !(1.0..=1000.0).contains(&a.frequency_ghz) {
-                return Err(invalid("frequency must be 1..1000 GHz"));
-            }
             let f = a.frequency_ghz;
             let p = a.pressure_hpa.unwrap_or(1013.25);
             let t = a.temp_c.unwrap_or(15.0) + 273.15;
@@ -431,6 +446,14 @@ impl Skill for RfItuP676Absorption {
             "Compare dry- vs wet-component contributions across humidities.",
         ]
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Range {
+            field: "frequency_ghz",
+            min: Some(1.0),
+            max: Some(1000.0),
+        }]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -460,9 +483,6 @@ impl Skill for RfItuP838Rain {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (_s, a) = ctx.parse::<Itup838Args>()?;
-            if a.rain_rate_mm_h < 0.0 {
-                return Err(invalid("rain_rate_mm_h must be ≥ 0"));
-            }
             let f = a.frequency_ghz;
             // Compact log-log fits (Olsen-Rogers-Hodge family); standard reference for P.838.
             let (kh, ah) = (
@@ -510,6 +530,21 @@ impl Skill for RfItuP838Rain {
             "Compute rain-fade margins for satellite Ku/Ka links.",
             "Pick polarization based on which has lower specific attenuation.",
             "Couple with link length to get total dB fade for availability budgets.",
+        ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[
+            Rule::Range {
+                field: "rain_rate_mm_h",
+                min: Some(0.0),
+                max: None,
+            },
+            Rule::Range {
+                field: "frequency_ghz",
+                min: Some(1.0),
+                max: Some(1000.0),
+            },
         ]
     }
 }

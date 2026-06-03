@@ -13,7 +13,7 @@ use serde_json::json;
 
 use crate::skills::{schema_for, NoArgs, Skill, SkillCtx};
 use crate::util::truncate_chars;
-use crate::{internal, invalid, text_result};
+use crate::{internal, text_result};
 
 const G0: f64 = 9.806_65;
 const R_AIR: f64 = 287.052_8;
@@ -44,9 +44,6 @@ impl Skill for AtmIsa {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (_s, a) = ctx.parse::<AltArgs>()?;
-            if !(-1000.0..=86_000.0).contains(&a.altitude_m) {
-                return Err(invalid("altitude must be within −1000..86000 m"));
-            }
             let (t, p, rho) = isa(a.altitude_m);
             Ok(text_result(
                 json!({ "temp_k": t, "pressure_pa": p, "density_kg_m3": rho }).to_string(),
@@ -81,6 +78,14 @@ impl Skill for AtmIsa {
             "Feed a density value into a propulsion / aerodynamic calculation.",
             "Sanity-check sensor readings against the standard atmosphere.",
         ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Range {
+            field: "altitude_m",
+            min: Some(-1000.0),
+            max: Some(86_000.0),
+        }]
     }
 }
 
@@ -181,6 +186,14 @@ impl Skill for AtmDensityAltitude {
             "Apply humidity correction to a hot-and-humid airfield computation.",
         ]
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Range {
+            field: "pressure_pa",
+            min: Some(0.0),
+            max: None,
+        }]
+    }
 }
 
 fn saturation_vapor_pressure(temp_c: f64) -> f64 {
@@ -213,9 +226,6 @@ impl Skill for AtmDewpoint {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (_s, a) = ctx.parse::<DewpointArgs>()?;
-            if !(0.0..=100.0).contains(&a.rh_pct) {
-                return Err(invalid("rh_pct must be 0..100"));
-            }
             let alpha = ((a.rh_pct / 100.0).ln()) + (17.62 * a.temp_c) / (243.12 + a.temp_c);
             let td = 243.12 * alpha / (17.62 - alpha);
             Ok(text_result(json!({ "dewpoint_c": td }).to_string()))
@@ -245,6 +255,14 @@ impl Skill for AtmDewpoint {
             "Pre-compute the dewpoint input that `atm_density_altitude` accepts.",
         ]
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Range {
+            field: "rh_pct",
+            min: Some(0.0),
+            max: Some(100.0),
+        }]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -273,9 +291,6 @@ impl Skill for AtmWbgt {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (_s, a) = ctx.parse::<WbgtArgs>()?;
-            if !(0.0..=100.0).contains(&a.rh_pct) {
-                return Err(invalid("rh_pct must be 0..100"));
-            }
             // Stull (2011) wet-bulb temperature from T and RH.
             let t = a.temp_c;
             let rh = a.rh_pct;
@@ -310,6 +325,14 @@ impl Skill for AtmWbgt {
             "Screen ACGIH TLV thresholds before scheduling outdoor / hot work.",
             "Get the wet-bulb temperature alongside WBGT in one call.",
         ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Range {
+            field: "rh_pct",
+            min: Some(0.0),
+            max: Some(100.0),
+        }]
     }
 }
 

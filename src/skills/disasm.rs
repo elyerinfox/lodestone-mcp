@@ -131,6 +131,33 @@ impl Skill for DisasmHex {
             "Validate hand-assembled bytes before patching them into a binary.",
         ]
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[
+            Rule::Length {
+                field: "bytes_hex",
+                min: Some(1),
+                max: None,
+            },
+            Rule::Any(&[
+                Rule::Range {
+                    field: "bits",
+                    min: Some(16.0),
+                    max: Some(16.0),
+                },
+                Rule::Range {
+                    field: "bits",
+                    min: Some(32.0),
+                    max: Some(32.0),
+                },
+                Rule::Range {
+                    field: "bits",
+                    min: Some(64.0),
+                    max: Some(64.0),
+                },
+            ]),
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -208,6 +235,38 @@ impl Skill for DisasmFile {
             "Disassemble a known code region of a binary on disk without a debugger.",
             "Pair with binary_info to walk each section's machine code in order.",
             "Reverse-engineer a small function when you already have its file offset.",
+        ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[
+            Rule::Length {
+                field: "path",
+                min: Some(1),
+                max: None,
+            },
+            Rule::Range {
+                field: "length",
+                min: Some(1.0),
+                max: Some(65536.0),
+            },
+            Rule::Any(&[
+                Rule::Range {
+                    field: "bits",
+                    min: Some(16.0),
+                    max: Some(16.0),
+                },
+                Rule::Range {
+                    field: "bits",
+                    min: Some(32.0),
+                    max: Some(32.0),
+                },
+                Rule::Range {
+                    field: "bits",
+                    min: Some(64.0),
+                    max: Some(64.0),
+                },
+            ]),
         ]
     }
 }

@@ -40,9 +40,6 @@ impl Skill for NumeralsBaseConvert {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (_s, a) = ctx.parse::<BaseArgs>()?;
-            if !(2..=36).contains(&a.from_base) || !(2..=36).contains(&a.to_base) {
-                return Err(invalid("from_base and to_base must each be in 2..=36"));
-            }
             let raw = a.number.trim();
             let (neg, body) = if let Some(rest) = raw.strip_prefix('-') {
                 (true, rest)
@@ -108,9 +105,21 @@ impl Skill for NumeralsBaseConvert {
     fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
         use crate::skills::validation::Rule;
         &[
-            Rule::Range { field: "from_base", min: Some(2.0), max: Some(36.0) },
-            Rule::Range { field: "to_base", min: Some(2.0), max: Some(36.0) },
-            Rule::Length { field: "number", min: Some(1), max: None },
+            Rule::Range {
+                field: "from_base",
+                min: Some(2.0),
+                max: Some(36.0),
+            },
+            Rule::Range {
+                field: "to_base",
+                min: Some(2.0),
+                max: Some(36.0),
+            },
+            Rule::Length {
+                field: "number",
+                min: Some(1),
+                max: None,
+            },
         ]
     }
 }
@@ -273,9 +282,6 @@ impl Skill for NumeralsToWords {
         Box::pin(async move {
             let (_s, a) = ctx.parse::<WordsArgs>()?;
             let scale = a.scale.as_deref().unwrap_or("short");
-            if scale != "short" && scale != "long" {
-                return Err(invalid("scale must be `short` or `long`"));
-            }
             let words = num_to_words(a.number, scale == "long");
             Ok(text_result(
                 json!({"number": a.number, "scale": scale, "words": words}).to_string(),
@@ -308,6 +314,13 @@ impl Skill for NumeralsToWords {
             "Spell out an amount accurately for legal / financial text.",
             "Disambiguate short vs long scale (billion/milliard) without guessing.",
         ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::OneOf {
+            field: "scale",
+            values: &["short", "long"],
+        }]
     }
 }
 

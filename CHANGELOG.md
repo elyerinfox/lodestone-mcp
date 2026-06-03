@@ -6,6 +6,59 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.17] - 2026-06-03
+
+### Added — golden rule 15 sweep: 151 Skills now declare their input constraints
+
+Every Skill whose `Args` struct carries a domain constraint beyond what
+`serde` / `schemars` enforce now declares those constraints structurally
+via `validation_rules()` per [golden rule 15](docs/golden-rules.md#15-validation_rules-not-prose).
+154 Skill impls (every constraint-bearing tool in the catalog, up from
+three exemplars in v0.1.16) ship with a static `&[Rule]` describing
+numeric bounds, allowed enum values, length bounds, mutual exclusion,
+or regex shape. The dispatcher evaluates the rules between
+`ctx.parse()` and `call()`; failures return a structured
+`{"validation_failed": [...]}` payload (never a free-form English
+error) and `describe_skill` renders the rule tree up front so the LLM
+sees the contract before invoking.
+
+Highlights of the conversion:
+
+- **151 net-new `validation_rules()` overrides** across 48 skill
+  modules — covering chart family (sizes, libraries, source non-empty),
+  memory family (text/key/query/phrasing/id non-empty), life sciences
+  (PDB ids, transcribe strands, PCR Tm methods, pH/buffer concentrations,
+  radioactive decay, all six rad_units directions, all nine
+  rad_equivalent_dose radiation types, shielding transmission ranges,
+  nuclear binding-energy Z/A bounds), math core (linalg shape rules,
+  CRT / HKDF / PBKDF2 / JWT bounds, info-theory Shannon capacity,
+  geometry distance / azimuth lat-lon), signal / RF (FFT sample rates,
+  spectrogram window sizes, CFAR `pfa` ∈ [0,1], Hata path-loss range
+  1..20 km, ITU P.838 frequency 1..1000 GHz), geo + machine (Vincenty,
+  UTM, MGRS, ECEF lat-lon bounds, Klobuchar / Saastamoinen elevations,
+  IMU drift), physics & engineering (ISA altitude bounds, dewpoint /
+  WBGT temperatures, 2-opt TSP, Holt / Holt-Winters smoothing factors,
+  compound-interest, loan payment), system / devices (`shell_run` /
+  `git_run` / `docker_exec` command non-empty, package `kind` ∈
+  {11 supported managers}, TLS host non-empty, hex-bytes non-empty,
+  CIDR shape regex, x86 disasm length bounds), util (`numerals_to_words`
+  scale, `duration_format` style enum).
+- **~80 imperative `Err(invalid(...))` checks** that were directly
+  replaced by declarative rules; the imperative guards remained only
+  where they enforce post-trim / post-normalize semantics the inclusive
+  Range DSL or case-sensitive OneOf can't express (e.g. `>0` strict
+  positivity, whitespace-only rejection, case-insensitive enums).
+- **Bias toward declarative correctness, not behaviour change.**
+  Where a Skill's call body silently clamped numeric inputs or
+  case-folded enums, the imperative side was preserved — the rule was
+  added to surface the contract to the LLM up front without flipping
+  prior-accepted inputs into hard failures. Where a constraint was
+  ambiguous between strict and inclusive bounds, both layers run;
+  the rule is the contract, the body the enforcement.
+
+`cargo test 453 → 453` (no behavioural regressions),
+clippy `--all-targets -D warnings` clean, fmt clean.
+
 ## [0.1.16] - 2026-06-03
 
 ### Added — declarative input validation contract on every Skill

@@ -90,6 +90,14 @@ impl Skill for NetCidrInfo {
             "Get the host-count / usable-host figures for capacity planning.",
         ]
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Length {
+            field: "cidr",
+            min: Some(1),
+            max: None,
+        }]
+    }
 }
 
 fn cidr_info(net: &IpNet) -> String {
@@ -283,6 +291,21 @@ impl Skill for NetCidrSubnets {
             "Compute the first N subnets of a larger block without expanding the whole range.",
         ]
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[
+            Rule::Length {
+                field: "cidr",
+                min: Some(1),
+                max: None,
+            },
+            Rule::Range {
+                field: "new_prefix",
+                min: Some(0.0),
+                max: Some(128.0),
+            },
+        ]
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -369,6 +392,21 @@ impl Skill for NetIpInCidr {
             "Spot off-by-one prefix errors before committing a firewall rule.",
         ]
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[
+            Rule::Length {
+                field: "ip",
+                min: Some(1),
+                max: None,
+            },
+            Rule::Length {
+                field: "cidr",
+                min: Some(1),
+                max: None,
+            },
+        ]
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -436,6 +474,14 @@ impl Skill for NetIpClassify {
             "Spot accidental documentation addresses (192.0.2.0/24, 2001:db8::/32) in production logs.",
             "Recognize CGNAT (RFC 6598) hits that look private but aren't RFC 1918.",
         ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Length {
+            field: "ip",
+            min: Some(1),
+            max: None,
+        }]
     }
 }
 

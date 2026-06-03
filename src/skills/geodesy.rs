@@ -108,6 +108,31 @@ impl Skill for GeoVincentyInverse {
             "Handle antipodal / near-antipodal cases reliably.",
         ]
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[
+            Rule::Range {
+                field: "lat1",
+                min: Some(-90.0),
+                max: Some(90.0),
+            },
+            Rule::Range {
+                field: "lon1",
+                min: Some(-180.0),
+                max: Some(180.0),
+            },
+            Rule::Range {
+                field: "lat2",
+                min: Some(-90.0),
+                max: Some(90.0),
+            },
+            Rule::Range {
+                field: "lon2",
+                min: Some(-180.0),
+                max: Some(180.0),
+            },
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -174,6 +199,26 @@ impl Skill for GeoVincentyDirect {
             "Generate flight-plan waypoints by repeatedly applying a direct solution.",
         ]
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[
+            Rule::Range {
+                field: "lat",
+                min: Some(-90.0),
+                max: Some(90.0),
+            },
+            Rule::Range {
+                field: "lon",
+                min: Some(-180.0),
+                max: Some(180.0),
+            },
+            Rule::Range {
+                field: "distance_m",
+                min: Some(0.0),
+                max: None,
+            },
+        ]
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -208,12 +253,6 @@ impl Skill for GeoGreatCirclePolyline {
         Box::pin(async move {
             use geographiclib_rs::DirectGeodesic;
             let (_s, a) = ctx.parse::<PolylineArgs>()?;
-            if a.n < 2 {
-                return Err(invalid("n must be ≥ 2"));
-            }
-            if a.n > 10_000 {
-                return Err(invalid("n must be ≤ 10000"));
-            }
             let g = wgs84();
             let (s12, azi1, _): (f64, f64, f64) = g.inverse(a.lat1, a.lon1, a.lat2, a.lon2);
             let mut points: Vec<[f64; 2]> = Vec::with_capacity(a.n);
@@ -245,6 +284,36 @@ impl Skill for GeoGreatCirclePolyline {
             "Render a great-circle flight path as a polyline on a map.",
             "Densify a geodesic for downstream interpolation or visualization.",
             "Generate intermediate waypoints between two endpoints.",
+        ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[
+            Rule::Range {
+                field: "lat1",
+                min: Some(-90.0),
+                max: Some(90.0),
+            },
+            Rule::Range {
+                field: "lon1",
+                min: Some(-180.0),
+                max: Some(180.0),
+            },
+            Rule::Range {
+                field: "lat2",
+                min: Some(-90.0),
+                max: Some(90.0),
+            },
+            Rule::Range {
+                field: "lon2",
+                min: Some(-180.0),
+                max: Some(180.0),
+            },
+            Rule::Range {
+                field: "n",
+                min: Some(2.0),
+                max: Some(10_000.0),
+            },
         ]
     }
 }
@@ -329,6 +398,41 @@ impl Skill for GeoCrossTrack {
             "Sanity-check whether a waypoint lies on a leg of a route.",
         ]
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[
+            Rule::Range {
+                field: "lat",
+                min: Some(-90.0),
+                max: Some(90.0),
+            },
+            Rule::Range {
+                field: "lon",
+                min: Some(-180.0),
+                max: Some(180.0),
+            },
+            Rule::Range {
+                field: "lat1",
+                min: Some(-90.0),
+                max: Some(90.0),
+            },
+            Rule::Range {
+                field: "lon1",
+                min: Some(-180.0),
+                max: Some(180.0),
+            },
+            Rule::Range {
+                field: "lat2",
+                min: Some(-90.0),
+                max: Some(90.0),
+            },
+            Rule::Range {
+                field: "lon2",
+                min: Some(-180.0),
+                max: Some(180.0),
+            },
+        ]
+    }
 }
 
 fn haversine(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
@@ -369,9 +473,6 @@ impl Skill for GeoPolygonAreaGeodesic {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (_s, a) = ctx.parse::<PolygonAreaArgs>()?;
-            if a.vertices.len() < 3 {
-                return Err(invalid("polygon needs ≥ 3 vertices"));
-            }
             let g = wgs84();
             let mut p = PolygonArea::new(&g, Winding::CounterClockwise);
             for v in &a.vertices {
@@ -404,6 +505,14 @@ impl Skill for GeoPolygonAreaGeodesic {
             "Get exact ellipsoidal area where planar projections would distort results.",
             "Pair area and perimeter for a polygon in a single call.",
         ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Length {
+            field: "vertices",
+            min: Some(3),
+            max: None,
+        }]
     }
 }
 
@@ -448,9 +557,6 @@ impl Skill for GeoUtmFromLatLon {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (_s, a) = ctx.parse::<LatLonArgs>()?;
-            if !(-80.0..=84.0).contains(&a.lat) {
-                return Err(invalid("UTM is undefined outside −80°..84°"));
-            }
             let (zone, hemi, easting, northing) = utm_forward(a.lat, a.lon);
             Ok(text_result(
                 json!({
@@ -485,6 +591,21 @@ impl Skill for GeoUtmFromLatLon {
             "Identify the UTM zone covering a given point.",
         ]
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[
+            Rule::Range {
+                field: "lat",
+                min: Some(-80.0),
+                max: Some(84.0),
+            },
+            Rule::Range {
+                field: "lon",
+                min: Some(-180.0),
+                max: Some(180.0),
+            },
+        ]
+    }
 }
 
 pub struct GeoLatLonFromUtm;
@@ -502,9 +623,6 @@ impl Skill for GeoLatLonFromUtm {
     fn call<'a>(&self, ctx: SkillCtx<'a>) -> BoxFuture<'a, Result<CallToolResult, McpError>> {
         Box::pin(async move {
             let (_s, a) = ctx.parse::<UtmArgs>()?;
-            if !(1..=60).contains(&a.zone) {
-                return Err(invalid("zone must be 1..60"));
-            }
             let hemi = a.hemisphere.trim().to_uppercase();
             if hemi != "N" && hemi != "S" {
                 return Err(invalid("hemisphere must be 'N' or 'S'"));
@@ -534,6 +652,14 @@ impl Skill for GeoLatLonFromUtm {
             "Decode survey-data easting / northing into geographic coordinates.",
             "Round-trip a coordinate through UTM for testing.",
         ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Range {
+            field: "zone",
+            min: Some(1.0),
+            max: Some(60.0),
+        }]
     }
 }
 
@@ -670,9 +796,6 @@ impl Skill for GeoMgrsFromLatLon {
         Box::pin(async move {
             let (_s, a) = ctx.parse::<MgrsFromLatLonArgs>()?;
             let precision = a.precision.unwrap_or(5).clamp(1, 5);
-            if !(-80.0..=84.0).contains(&a.lat) {
-                return Err(invalid("MGRS undefined outside −80°..84°"));
-            }
             let mgrs = mgrs_forward(a.lat, a.lon, precision);
             Ok(text_result(json!({ "mgrs": mgrs }).to_string()))
         })
@@ -697,6 +820,21 @@ impl Skill for GeoMgrsFromLatLon {
             "Encode a position as an MGRS / USNG grid reference for a field report.",
             "Generate a coarse MGRS cell for area-level filtering.",
             "Produce a shareable string instead of raw decimal coords.",
+        ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[
+            Rule::Range {
+                field: "lat",
+                min: Some(-80.0),
+                max: Some(84.0),
+            },
+            Rule::Range {
+                field: "lon",
+                min: Some(-180.0),
+                max: Some(180.0),
+            },
         ]
     }
 }
@@ -921,6 +1059,21 @@ impl Skill for GeoEcefFromLatLon {
             "Convert geographic coords to ECEF for satellite / GNSS computation.",
             "Get a Cartesian state vector seed for an orbital propagator.",
             "Feed a Helmert datum transform with ECEF inputs.",
+        ]
+    }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[
+            Rule::Range {
+                field: "lat",
+                min: Some(-90.0),
+                max: Some(90.0),
+            },
+            Rule::Range {
+                field: "lon",
+                min: Some(-180.0),
+                max: Some(180.0),
+            },
         ]
     }
 }

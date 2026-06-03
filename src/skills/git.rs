@@ -181,6 +181,14 @@ impl Skill for GitRun {
             "Run a mutating subcommand (push / reset / rebase) with explicit confirmation.",
         ]
     }
+    fn validation_rules(&self) -> &'static [crate::skills::validation::Rule] {
+        use crate::skills::validation::Rule;
+        &[Rule::Length {
+            field: "args",
+            min: Some(1),
+            max: None,
+        }]
+    }
 }
 
 pub struct Family;
