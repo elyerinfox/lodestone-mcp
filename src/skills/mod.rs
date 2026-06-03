@@ -51,6 +51,7 @@ pub mod github;
 pub mod grid;
 pub mod guard;
 pub mod html;
+pub mod http_decode;
 pub mod huggingface;
 pub mod image;
 pub mod info_theory;
@@ -506,6 +507,7 @@ pub fn families() -> Vec<Box<dyn FamilyMeta>> {
         Box::new(cron_expr::Family),
         Box::new(uuid_tools::Family),
         Box::new(color::Family),
+        Box::new(http_decode::Family),
     ]
 }
 
@@ -1118,6 +1120,7 @@ pub fn all_skills() -> Vec<Box<dyn Skill>> {
     skills.extend(cron_expr::skills());
     skills.extend(uuid_tools::skills());
     skills.extend(color::skills());
+    skills.extend(http_decode::skills());
     skills.extend(nasa::skills());
     skills.extend(stocks::skills());
     skills.extend(yahoo::skills());

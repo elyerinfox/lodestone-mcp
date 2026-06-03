@@ -6,6 +6,38 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.13] - 2026-06-02
+
+### Added — `http` family (3 tools)
+
+Three deterministic decoders for HTTP semantics LLMs typically mix up:
+the 301/302/303/307/308 redirect family, `no-cache` vs `no-store`,
+`Vary` cache-keying, and the 25-odd well-known headers it's easy to
+get backwards.
+
+- **`http_status_decode { code }`** — RFC 9110 name, class
+  (informational/success/redirection/client_error/server_error),
+  human summary, idempotency/cacheability hints, and an LLM-typical
+  gotcha per code where one applies. Special focus on the redirect
+  family and 429/503 retry semantics.
+- **`http_header_explain { name }`** — purpose, request/response
+  context, syntax, and gotchas for ~25 well-known headers curated
+  from RFC 9110 / 9111 / 6265bis / 7239 / 8297 and the IANA HTTP
+  Field Name Registry.
+- **`http_cache_decode { cache_control?, expires?, pragma?, vary?, age? }`** —
+  parse a response's cache-related headers into a structured
+  verdict: storable, shared-cacheable, must-revalidate, effective
+  max-age, `Vary` axes, plus every parsed `Cache-Control` directive
+  (`public`, `private`, `no-cache`, `no-store`, `must-revalidate`,
+  `proxy-revalidate`, `immutable`, `stale-while-revalidate`,
+  `stale-if-error`, `s-maxage`).
+
+Hand-rolled — no external HTTP-parsing crate dependency. 7 unit
+tests covering the 308/303 distinction, the `no-cache`/`no-store`
+parse paths, and the curated header registry. Docs at
+[`docs/skills/http.md`](docs/skills/http.md). `cargo test 382 → 389`,
+clippy + fmt clean.
+
 ## [0.1.12] - 2026-06-02
 
 ### Added — `color` family (3 tools)
