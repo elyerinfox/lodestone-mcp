@@ -750,13 +750,36 @@ fn build_instructions(cfg: &Config) -> String {
     let _ = writeln!(out, "GENERAL APPROACH");
     let _ = writeln!(
         out,
-        "- Pick the most specific tool. Prefer typed lookups (e.g. `arxiv_get`, `wikipedia_summary`, \
-         `kernel_releases`) over a generic `web_search` when a structured source exists."
+        "- `web_search` is a LAST-DITCH fallback. Reach for a dedicated, task-oriented tool FIRST — \
+         almost every surface this server covers has a typed family: papers (`arxiv_*`, `pubmed_*`, \
+         `openalex_*`, `unpaywall_lookup`), code (`code_search`, `github_*`, `fetch_repo_file`), \
+         standards / RFCs (`rfc_*`, `standards_search`), packages (`package_*`), containers \
+         (`docker_search/image/tags`, `oci_*`), CVEs (`cve_*`), DNS / WHOIS / phones / TLS / IP \
+         (`dns_*`, `whois_*`, `phone_*`, `tls_*`, `net_*`), Wikipedia (`wikipedia_*`), news \
+         (`news_feed`), markets (`stock_quote`, `yahoo_*`), satellites (`sat_*`), weather / space \
+         (`weather_*`, `noaa_*`, `swpc_solar_wind`, `atm_*`), math (`*_formula`, `arithmetic_eval`, \
+         `algebra_solve`, `linalg_*`, `stats_*`, `geometry_formula`), charts (`chart_*`), binaries \
+         (`binary_*`, `disasm_*`), encoding / numerals / durations / dates (`encode_*`, `numerals_*`, \
+         `duration_*`, `datetime`, `time_convert`), regex / text (`regex_*`, `text_*`), and many \
+         more. Skim the TOOL FAMILIES inventory below or call `features` / `describe_family` to \
+         confirm what's enabled before dropping to a generic open-web search."
     );
     let _ = writeln!(
         out,
-        "- Search first, then retrieve. `fetch_page` reads plain HTML; `render_page` drives a \
-         headless browser when JavaScript is required."
+        "- Once a typed tool returns a URL or document id, switch to retrieval. Prefer `fetch_page` \
+         (plain HTTP) by default; escalate to `render_page` (headless Chrome) ONLY when you know \
+         the page needs JavaScript to populate what you want. `read_pdf` for PDFs, \
+         `fetch_repo_file` for raw repo files."
+    );
+    let _ = writeln!(
+        out,
+        "- DON'T hand-roll a typed-tool API URL and pass it to `fetch_page` / `render_page` — if \
+         the URL is something like `export.arxiv.org/api/query`, `api.crossref.org`, \
+         `api.openalex.org`, `eutils.ncbi.nlm.nih.gov`, `api.unpaywall.org`, \
+         `nominatim.openstreetmap.org`, `crt.sh`, `whois.iana.org`, `rdap.*`, a GitHub API or raw \
+         URL, or any other upstream endpoint of a typed family, the typed tool is faster, handles \
+         caching / rate-limit / retry / result parsing for you, and avoids burning a headless Chrome \
+         on what is structurally an XML or JSON feed."
     );
     let _ = writeln!(
         out,
