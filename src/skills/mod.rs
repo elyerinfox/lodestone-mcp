@@ -126,7 +126,6 @@ pub mod trigonometry;
 pub mod units;
 pub mod uuid_tools;
 pub mod validate;
-pub mod validation;
 pub mod wave;
 pub mod weather;
 pub mod whois;
@@ -137,13 +136,22 @@ use std::sync::Arc;
 
 use futures::future::BoxFuture;
 use rmcp::handler::server::router::tool::ToolRoute;
-use rmcp::handler::server::tool::{parse_json_object, schema_for_type, ToolCallContext};
+use rmcp::handler::server::tool::{parse_json_object, ToolCallContext};
 use rmcp::model::{CallToolResult, JsonObject, Tool};
 use rmcp::ErrorData as McpError;
-use schemars::JsonSchema;
 use serde::de::DeserializeOwned;
 
 use crate::Lodestone;
+
+// The reusable framework primitives now live in the `mcp-skill-framework` crate.
+// Re-export the pieces lodestone shares with it so existing `crate::skills::…`
+// paths keep resolving unchanged across all skill modules. The lodestone-specific
+// `Skill` trait, `SkillCtx`, `RetrievalPolicy`, and dispatch `route()` below stay
+// local — they embed constellation/memory/background concerns the framework
+// deliberately doesn't carry.
+pub use mcp_skill_framework::{
+    schema_for, validation, FamilyMeta, NoArgs, SkillCapability, SkillExample,
+};
 
 /// What a [`Skill::call`] receives: the shared server state plus the raw,
 /// already-extracted argument object (parse it with [`SkillCtx::parse`]).
@@ -282,25 +290,6 @@ impl RetrievalPolicy {
     }
 }
 
-/// One concrete worked example for a [`Skill`]. Surfaced via `describe_skill`
-/// and folded into the dynamic server-side instructions handshake. Not part
-/// of the MCP `tools/list` payload — that one stays tight (just `description`
-/// and `inputSchema`) so the orientation is paid for once at session start
-/// and looked up on demand thereafter.
-pub struct SkillExample {
-    /// One-line summary of what this example demonstrates.
-    pub title: &'static str,
-    /// The tool arguments as a JSON literal, e.g.
-    /// `r#"{"image": "nginx:1.27"}"#`. Kept as a string so each example is
-    /// embeddable verbatim into the LLM context without round-tripping
-    /// through `serde_json` at startup.
-    pub args: &'static str,
-    /// Optional short note — what the output shape looks like, common
-    /// gotchas, the right next call. Omit when the example is
-    /// self-explanatory.
-    pub note: Option<&'static str>,
-}
-
 /// The contract every tool implements. Object-safe, so skills are stored as
 /// `Box<dyn Skill>` and assembled uniformly.
 pub trait Skill: Send + Sync + 'static {
@@ -380,11 +369,6 @@ pub trait Skill: Send + Sync + 'static {
     }
 }
 
-/// Build a JSON schema for an arguments struct (helper for [`Skill::schema`]).
-pub(crate) fn schema_for<T: JsonSchema + 'static>() -> Arc<JsonObject> {
-    schema_for_type::<T>()
-}
-
 // ---------------------------------------------------------------------------
 // Capability framework — per-family runtime probes.
 // ---------------------------------------------------------------------------
@@ -409,108 +393,10 @@ pub(crate) fn schema_for<T: JsonSchema + 'static>() -> Arc<JsonObject> {
 // existence, OS) — not at the resolved server config. Anything config-driven
 // is the operator's choice and stays gated by the family's `enabled` flag.
 
-#[derive(Debug, Clone)]
-pub enum SkillCapability {
-    /// Probe succeeded — the family's tools can run.
-    Ready,
-    /// Probe failed; the family's tools are blocked at dispatch and the
-    /// dashboard groups them under a collapsed "Unavailable" header. Both
-    /// strings are short enough to render inline.
-    Unavailable {
-        /// One-line description of what's missing, e.g.
-        /// `"Docker daemon socket not reachable"`.
-        reason: String,
-        /// One-line remediation, e.g.
-        /// `"mount /var/run/docker.sock or set DOCKER_HOST"`.
-        hint: Option<String>,
-    },
-}
-
-impl SkillCapability {
-    pub fn unavailable(reason: impl Into<String>, hint: impl Into<String>) -> Self {
-        Self::Unavailable {
-            reason: reason.into(),
-            hint: Some(hint.into()),
-        }
-    }
-    /// Variant for probes whose failure mode has no actionable hint
-    /// (e.g. "x86 disasm only on x86 hosts"). Used by some of the
-    /// not-yet-wired families; kept here so adding them doesn't need
-    /// another helper.
-    #[allow(dead_code)]
-    pub fn unavailable_no_hint(reason: impl Into<String>) -> Self {
-        Self::Unavailable {
-            reason: reason.into(),
-            hint: None,
-        }
-    }
-    /// Sister of `unavailable_no_hint` — symmetric predicate. Used by
-    /// dashboard / introspection paths via dyn-typed `SkillCapability`,
-    /// which clippy can't see across the trait-object boundary.
-    #[allow(dead_code)]
-    pub fn is_ready(&self) -> bool {
-        matches!(self, Self::Ready)
-    }
-}
-
-/// The contract every skill **family** implements. Each family-level
-/// module under `src/skills/` exports a unit struct (conventionally
-/// `pub struct Family;`) that impls this trait, the registry lists it
-/// via [`families`], and the dispatch wrapper + dashboard + startup
-/// logs all flow off the same source of truth.
-///
-/// `check_capability` defaults to [`SkillCapability::Ready`] — most
-/// families are pure-Rust and have no host requirement. Families that
-/// shell out to a binary (`docker`, `git`, `ffmpeg`, …), depend on an
-/// OS subsystem (`systemd`, `serial`, `printer`, `sdr`), or need a
-/// reachable resource (`kubernetes` kubeconfig, `python` interpreter)
-/// override it. The probe runs ONCE at startup; the result is cached.
-pub trait FamilyMeta: Send + Sync + 'static {
-    /// Stable id used in logs, snapshot fields, dashboard groupings, and
-    /// the error messages the LLM sees on a blocked dispatch.
-    fn family(&self) -> &'static str;
-    /// The tools this family exposes. Derived from the module's
-    /// `skills()` registry rather than maintained as a separate const
-    /// list — every `Skill::name()` is `&'static str`, so we just collect
-    /// them. The single source of truth is the `skills()` `vec!` literal,
-    /// which means there's no risk of the const drifting from the boxed
-    /// skill list.
-    fn tools(&self) -> Vec<&'static str>;
-    /// Short, human-readable summary of what this family does and the
-    /// host requirement that makes it interesting (e.g. "Inspect/control
-    /// the local Docker daemon via the engine API"). Shown verbatim on
-    /// the dashboard's Tools page under the family group header.
-    ///
-    /// **Required, no default.** A `FamilyMeta` impl that didn't surface
-    /// a description would carry no useful signal — pure-Rust families
-    /// just don't register `FamilyMeta`. If you're wiring one up, you're
-    /// asserting "the dashboard / operator should see this family"; a
-    /// real one-line description is the price of admission.
-    fn description(&self) -> &'static str;
-    /// Probe the host for whatever this family depends on (a binary on
-    /// `$PATH`, a socket, a kubeconfig, …). Runs once at startup; the
-    /// result is cached on `Lodestone.skill_capabilities` and consulted
-    /// by the dispatch wrapper.
-    ///
-    /// **Required, no default.** Probing the host is the *whole reason*
-    /// a family registers `FamilyMeta` — a default `Ready` would mean
-    /// "I needed no probe," and a family with no probe shouldn't register
-    /// at all (pure-Rust families inherit the implicit-Ready path in
-    /// dispatch). If your family probably needs a probe but you can't
-    /// write one yet, return `Ready` explicitly so the choice is visible
-    /// in the source.
-    fn check_capability(&self) -> SkillCapability;
-    /// Multi-tool worked example showing how this family's tools chain in
-    /// a representative task. Optional; defaults to `None`. When set, it's
-    /// surfaced through `describe_family` and folded into the dynamic
-    /// server-side instructions handshake. Markdown-friendly — a short
-    /// numbered list of `tool_name { arg: value }` calls is the canonical
-    /// shape.
-    #[allow(dead_code)]
-    fn example_flow(&self) -> Option<&'static str> {
-        None
-    }
-}
+// `SkillCapability` and the `FamilyMeta` family-metadata trait now live in the
+// `mcp-skill-framework` crate and are re-exported near the top of this module.
+// Per-tool capability resolution + the startup WARN logging stay in `main.rs`
+// (`probe_families` / `probe_tools`), which read the re-exported type.
 
 /// Every family registered with the capability framework. Adding a
 /// family means: write its module, register its `Family` here, and the
@@ -573,10 +459,6 @@ pub(crate) fn binary_on_path(bin: &str) -> bool {
     }
     false
 }
-
-/// Empty argument set, for skills that take no parameters.
-#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
-pub(crate) struct NoArgs {}
 
 // ---------------------------------------------------------------------------
 // Shared building blocks — small helpers many skills used to copy-paste.

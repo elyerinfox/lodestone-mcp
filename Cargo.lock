@@ -2613,6 +2613,7 @@ dependencies = [
  "kamadak-exif",
  "kube",
  "machine-uid",
+ "mcp-skill-framework",
  "mdns-sd",
  "meval",
  "minilp",
@@ -2822,6 +2823,20 @@ checksum = "a06de3016e9fae57a36fd14dba131fccf49f74b40b7fbdb472f96e361ec71a08"
 dependencies = [
  "autocfg",
  "rawpointer",
+]
+
+[[package]]
+name = "mcp-skill-framework"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2a2878c56b78351d3aa9e54d8c753d043afe517fd43315e1bf6b10ca62ffa0d1"
+dependencies = [
+ "futures",
+ "regex",
+ "rmcp",
+ "schemars 1.2.1",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

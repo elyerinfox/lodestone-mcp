@@ -6,6 +6,9 @@ description = "MCP server that searches and retrieves code from the web by scrap
 license = "MIT"
 
 [dependencies]
+# The reusable skill framework (skill contract, validation DSL, capability
+# probes, family metadata, schema helpers), published from this project.
+mcp-skill-framework = "0.1"
 rmcp = { version = "1.7", features = [
     "server",
     "macros",
