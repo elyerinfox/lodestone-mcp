@@ -11,14 +11,15 @@
 //! - RFC 4034 / 4035 / 6840 (DNSSEC).
 //! - RFC 8499 (DNS terminology).
 
-use std::net::{IpAddr, SocketAddr};
+use std::net::IpAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
 use futures::future::BoxFuture;
-use hickory_resolver::config::{NameServerConfig, Protocol, ResolverConfig, ResolverOpts};
+use hickory_resolver::config::{NameServerConfig, ResolverConfig};
+use hickory_resolver::net::runtime::TokioRuntimeProvider;
 use hickory_resolver::proto::rr::RecordType;
-use hickory_resolver::TokioAsyncResolver;
+use hickory_resolver::TokioResolver;
 use rmcp::model::{CallToolResult, JsonObject};
 use rmcp::ErrorData as McpError;
 use serde::Deserialize;
@@ -41,23 +42,39 @@ const PUBLIC_RESOLVERS: &[(&str, &str)] = &[
     ("Verisign", "64.6.64.6"),
 ];
 
-fn make_resolver(target: Option<IpAddr>) -> Result<TokioAsyncResolver, McpError> {
-    let (config, mut opts) = if let Some(ip) = target {
-        let mut cfg = ResolverConfig::new();
-        cfg.add_name_server(NameServerConfig {
-            socket_addr: SocketAddr::new(ip, 53),
-            protocol: Protocol::Udp,
-            tls_dns_name: None,
-            trust_negative_responses: false,
-            bind_addr: None,
-        });
-        (cfg, ResolverOpts::default())
-    } else {
-        (ResolverConfig::cloudflare(), ResolverOpts::default())
-    };
-    opts.timeout = Duration::from_secs(3);
-    opts.attempts = 1;
-    Ok(TokioAsyncResolver::tokio(config, opts))
+fn make_resolver(target: Option<IpAddr>) -> Result<TokioResolver, McpError> {
+    // Default to Cloudflare 1.1.1.1 for predictability across hosts.
+    let ip = target.unwrap_or(IpAddr::from([1, 1, 1, 1]));
+    let config = ResolverConfig::from_parts(None, vec![], vec![NameServerConfig::udp(ip)]);
+    let mut builder = TokioResolver::builder_with_config(config, TokioRuntimeProvider::default());
+    {
+        let opts = builder.options_mut();
+        opts.timeout = Duration::from_secs(3);
+        opts.attempts = 1;
+    }
+    builder
+        .build()
+        .map_err(|e| invalid(format!("DNS resolver init failed: {e}")))
+}
+
+/// Build the reverse-DNS (`PTR`) query name for an IP address: `4.3.2.1.in-addr.arpa.`
+/// for IPv4, the nibble-reversed `…ip6.arpa.` form for IPv6. hickory-resolver 0.26
+/// dropped the convenience `reverse_lookup`, so we form the PTR name and look it up.
+fn reverse_name(ip: IpAddr) -> String {
+    match ip {
+        IpAddr::V4(v4) => {
+            let o = v4.octets();
+            format!("{}.{}.{}.{}.in-addr.arpa.", o[3], o[2], o[1], o[0])
+        }
+        IpAddr::V6(v6) => {
+            let mut s = String::with_capacity(72);
+            for octet in v6.octets().iter().rev() {
+                s.push_str(&format!("{:x}.{:x}.", octet & 0x0f, octet >> 4));
+            }
+            s.push_str("ip6.arpa.");
+            s
+        }
+    }
 }
 
 fn parse_record_type(s: &str) -> Result<RecordType, McpError> {
@@ -134,10 +151,11 @@ impl Skill for DnsLookup {
             let resolver_ip = parse_resolver(args.resolver.as_deref())?;
             let resolver = make_resolver(resolver_ip)?;
             let records = resolver
-                .lookup(&args.name, rt)
+                .lookup(args.name.as_str(), rt)
                 .await
                 .map_err(|e| invalid(format!("DNS lookup failed: {e}")))?;
-            let answers: Vec<String> = records.iter().map(|r| format!("{r}")).collect();
+            let answers: Vec<String> =
+                records.answers().iter().map(|r| format!("{}", r.data)).collect();
             Ok(text_result(
                 json!({
                     "name": args.name,
@@ -223,8 +241,12 @@ impl Skill for DnsReverse {
                 .map_err(|e| invalid(format!("could not parse `{}` as IP: {e}", args.ip)))?;
             let resolver_ip = parse_resolver(args.resolver.as_deref())?;
             let resolver = make_resolver(resolver_ip)?;
-            let names = match resolver.reverse_lookup(ip).await {
-                Ok(rl) => rl.iter().map(|n| n.to_string()).collect::<Vec<_>>(),
+            let names = match resolver.lookup(reverse_name(ip), RecordType::PTR).await {
+                Ok(lk) => lk
+                    .answers()
+                    .iter()
+                    .map(|r| r.data.to_string())
+                    .collect::<Vec<_>>(),
                 Err(_) => Vec::new(),
             };
             Ok(text_result(
@@ -304,10 +326,10 @@ impl Skill for DnsPropagation {
                         Ok(r) => r,
                         Err(e) => return (label, ip, Err(format!("{e}"))),
                     };
-                    match resolver.lookup(&name, rt).await {
+                    match resolver.lookup(name.as_str(), rt).await {
                         Ok(records) => {
                             let answers: Vec<String> =
-                                records.iter().map(|r| format!("{r}")).collect();
+                                records.answers().iter().map(|r| format!("{}", r.data)).collect();
                             (label, ip, Ok(answers))
                         }
                         Err(e) => (label, ip, Err(format!("{e}"))),
@@ -438,5 +460,18 @@ mod tests {
         assert_eq!(parse_resolver(None).unwrap(), None);
         assert_eq!(parse_resolver(Some("")).unwrap(), None);
         assert!(parse_resolver(Some("not-an-ip")).is_err());
+    }
+
+    #[test]
+    fn builds_reverse_name() {
+        assert_eq!(
+            reverse_name("1.1.1.1".parse().unwrap()),
+            "1.1.1.1.in-addr.arpa."
+        );
+        assert_eq!(
+            reverse_name("8.8.4.4".parse().unwrap()),
+            "4.4.8.8.in-addr.arpa."
+        );
+        assert!(reverse_name("2606:4700:4700::1111".parse().unwrap()).ends_with(".ip6.arpa."));
     }
 }
