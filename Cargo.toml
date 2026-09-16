@@ -9,7 +9,7 @@ license = "MIT"
 # The reusable skill framework (skill contract, validation DSL, capability
 # probes, family metadata, schema helpers), published from this project.
 mcp-skill-framework = "0.1"
-rmcp = { version = "1.7", features = [
+rmcp = { version = "2.0", features = [
     "server",
     "macros",
     "transport-streamable-http-server",
